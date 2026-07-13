@@ -96,6 +96,7 @@
   let backendToken = "";
   let autoApproveReadOnly = true;
   let error = "";
+  let notice = "";
   let threadSearch = "";
 
   onMount(() => {
@@ -155,6 +156,16 @@
   function saveSettings() {
     sendCommand("saveSettings", { backendUrl, nodePath, backendToken, autoApproveReadOnly });
     backendToken = "";
+  }
+
+  function copyThread() {
+    sendCommand("copyThread");
+    notice = "Thread copied as Markdown";
+  }
+
+  function toggleAutoRun() {
+    autoApproveReadOnly = !autoApproveReadOnly;
+    sendCommand("saveSettings", { backendUrl, nodePath, backendToken: "", autoApproveReadOnly });
   }
 
   function updateContext() {
@@ -278,8 +289,8 @@
         {#if currentView === "chat"}
           <button class="icon-button" title="Threads" aria-label="Threads" onclick={() => threadDrawerOpen = true}><Menu size={15} /></button>
           <button class="icon-button" title="New thread" aria-label="New thread" onclick={startNewThread}><Plus size={16} /></button>
-          <button class="icon-button" title="Share" aria-label="Share"><Share2 size={14} /></button>
-          <button class="icon-button" title="More options" aria-label="More options"><Ellipsis size={16} /></button>
+          <button class="icon-button" title="Copy thread as Markdown" aria-label="Copy thread as Markdown" onclick={copyThread}><Share2 size={14} /></button>
+          <button class="icon-button" title="More options are not connected" aria-label="More options" disabled><Ellipsis size={16} /></button>
         {:else}
           <button class="icon-button" title="Back to chat" aria-label="Back to chat" onclick={() => currentView = "chat"}><X size={16} /></button>
         {/if}
@@ -293,13 +304,13 @@
           <strong class="thread-title">{snapshot.threads.find((thread) => thread.active)?.title ?? "New thread"}</strong>
           <span class="ready"><CircleCheck size={12} />{snapshot.runState === "idle" ? "Ready" : snapshot.runState.replaceAll("_", " ")}</span>
           <button class="context-meter" title={snapshot.context.label} onclick={updateContext}>Context <b>{snapshot.context.state === "ready" ? "42%" : "--"}</b></button>
-          <button class="icon-button compact" title="History"><History size={14} /></button>
+          <button class="icon-button compact" title="History" onclick={() => threadDrawerOpen = true}><History size={14} /></button>
           <button class="icon-button compact" title="Settings" onclick={() => openSettings()}><Settings size={14} /></button>
         </header>
 
         <div class="repository-strip">
           <button title="Active repository"><GitBranch size={12} /><span>{snapshot.projectName}</span></button>
-          <button title="Repository guidelines"><Library size={12} /><span>Guidelines</span></button>
+          <button title="Repository guidelines" onclick={() => openSettings("Rules & Guidelines")}><Library size={12} /><span>Guidelines</span></button>
           <span class="repository-spacer"></span>
           <button class="index-state {snapshot.context.state}" title={snapshot.context.label} onclick={updateContext}>
             <Database size={12} /><span>{snapshot.context.state === "ready" ? "Indexed" : snapshot.context.label}</span>
@@ -374,7 +385,7 @@
                               {#if tool.changePath}
                                 <div class="file-actions"><span>{tool.changePath}</span><button onclick={() => sendCommand("openDiff", { toolId: tool.id })}><FileDiff size={13} />View Diff</button>{#if tool.canRevert}<button onclick={() => sendCommand("revertChange", { toolId: tool.id })}><Undo2 size={13} />Undo</button>{/if}</div>
                               {/if}
-                              {#if tool.name === "run_terminal"}<button class="secondary-action"><SquareTerminal size={13} />Open Terminal</button>{/if}
+                              {#if tool.name === "run_terminal"}<button class="secondary-action" onclick={() => sendCommand("openTerminal")}><SquareTerminal size={13} />Open Terminal</button>{/if}
                             </div>
                           {/if}
                           {#if tool.status === "approval"}
@@ -417,6 +428,7 @@
         </div>
 
         {#if error}<div class="error-banner"><CircleAlert size={14} /><span>{error}</span><button title="Dismiss" onclick={() => error = ""}><X size={13} /></button></div>{/if}
+        {#if notice}<div class="notice-banner"><Check size={13} /><span>{notice}</span><button title="Dismiss" onclick={() => notice = ""}><X size={13} /></button></div>{/if}
 
         <footer class="composer-wrap">
           {#if changeTools().length > 0}
@@ -444,7 +456,7 @@
                   </div>
                 {/if}
               </div>
-              <button class="model-select" title="Model is selected by the backend">auto-detect <ChevronDown size={11} /></button>
+              <span class="model-select" title="Model is selected by the backend">auto-detect <ChevronDown size={11} /></span>
               <span class="toolbar-spacer"></span>
               <div class="skill-control">
                 <button class:active={skillsOpen} title="Skills" onclick={() => skillsOpen = !skillsOpen}><Layers size={14} />{#if selectedSkillCount() > 0}<i>{selectedSkillCount()}</i>{/if}</button>
@@ -457,13 +469,13 @@
                   </div>
                 {/if}
               </div>
-              <button title="Mention"><AtSign size={14} /></button>
-              <button title="Commands"><SquareTerminal size={14} /></button>
+              <button title="Mention project file" onclick={() => sendCommand("pickContext")}><AtSign size={14} /></button>
+              <button title="Slash commands" onclick={() => prompt = prompt || "/"}><SquareTerminal size={14} /></button>
               <button title="Attach file or image" onclick={() => sendCommand("pickContext")}><Paperclip size={14} /></button>
-              <button title="Prompt enhancer"><WandSparkles size={14} /></button>
+              <button title="Prompt enhancer is not connected" disabled><WandSparkles size={14} /></button>
             </div>
             <div class="send-row">
-              <span>Auto OFF</span>
+              <button class="auto-toggle" class:active={autoApproveReadOnly} title="Automatically run read-only tools" onclick={toggleAutoRun}>Auto {autoApproveReadOnly ? "ON" : "OFF"}</button>
               {#if isBusy()}<button class="send-button stop" title="Stop" onclick={() => sendCommand("cancelRun")}><Square size={13} fill="currentColor" /></button>
               {:else}<button class="send-button" title="Send" disabled={!prompt.trim()} onclick={submit}><SendHorizontal size={15} /></button>{/if}
             </div>
@@ -472,7 +484,7 @@
       </section>
     {:else if currentView === "settings"}
       <section class="settings-view">
-        <header class="settings-header"><button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><ChevronLeft size={15} /></button><strong>Settings</strong><span></span><button class="audit-button">Audit</button></header>
+        <header class="settings-header"><button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><ChevronLeft size={15} /></button><strong>Settings</strong><span></span><button class="audit-button" disabled title="Audit is not connected">Audit</button></header>
         <div class="settings-layout" class:navigation-open={settingsNavigationOpen}>
           <nav class="settings-navigation">
             {#each settingsGroups as group}
@@ -562,7 +574,7 @@
             <button class:active={thread.active} onclick={() => selectThread(thread.id)}><span><strong>{thread.title}</strong><small>{formatTime(thread.updatedAt)}</small></span><i>{thread.mode}</i></button>
           {/each}
         </div>
-        <footer><button><ExternalLink size={13} />Import</button><button><Share2 size={13} />Export</button></footer>
+        <footer><button disabled title="Import is not connected"><ExternalLink size={13} />Import</button><button onclick={copyThread}><Share2 size={13} />Export</button></footer>
       </aside>
     {/if}
   </main>

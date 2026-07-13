@@ -16,6 +16,8 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ide.CopyPasteManager
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefBrowserBase
 import com.intellij.ui.jcef.JBCefJSQuery
@@ -26,6 +28,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 import java.nio.file.Path
+import java.awt.datatransfer.StringSelection
 
 class IdeBridge(
     private val project: Project,
@@ -244,6 +247,18 @@ class IdeBridge(
                 conversations.clearCompletedTasks()
                 emitSnapshot()
             }
+            "copyThread" -> {
+                val active = conversations.active()
+                val markdown = buildString {
+                    append("# ").append(active.title).append("\n\n")
+                    active.messages.forEach { message ->
+                        append("## ").append(if (message.role == "user") "User" else "CodeAgent").append("\n\n")
+                        append(message.content).append("\n\n")
+                    }
+                }
+                CopyPasteManager.getInstance().setContents(StringSelection(markdown.trim()))
+            }
+            "openTerminal" -> ToolWindowManager.getInstance(project).getToolWindow("Terminal")?.activate(null)
             else -> error("Unknown bridge command: ${command.type}")
         }
     }
