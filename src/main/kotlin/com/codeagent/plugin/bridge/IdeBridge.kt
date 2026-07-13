@@ -140,6 +140,36 @@ class IdeBridge(
                     }
                 }
             }
+            "reviewChanges" -> {
+                val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ChangesPayload>(it) }
+                changeReview.openDiff(requireNotNull(selection.toolIds.firstOrNull()) { "No changes to review" })
+            }
+            "keepChanges" -> {
+                val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ChangesPayload>(it) }
+                val kept = changeReview.keep(selection.toolIds)
+                synchronized(stateLock) {
+                    kept.forEach { toolId -> tools[toolId]?.let { tools[toolId] = it.copy(canRevert = false) } }
+                }
+                emitSnapshot()
+            }
+            "discardChanges" -> {
+                val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ChangesPayload>(it) }
+                changeReview.revertAll(selection.toolIds).whenComplete { reverted, error ->
+                    when {
+                        error != null -> emit("error", mapOf("message" to error.rootMessage()))
+                        reverted.isNotEmpty() -> {
+                            synchronized(stateLock) {
+                                reverted.forEach { toolId ->
+                                    tools[toolId]?.let { tool ->
+                                        tools[toolId] = tool.copy(summary = "Reverted ${tool.changePath}", canRevert = false)
+                                    }
+                                }
+                            }
+                            emitSnapshot()
+                        }
+                    }
+                }
+            }
             "selectThread" -> {
                 val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPayload>(it) }
                 synchronized(stateLock) {
@@ -459,6 +489,9 @@ class IdeBridge(
 
     @Serializable
     private data class ChangePayload(val toolId: String)
+
+    @Serializable
+    private data class ChangesPayload(val toolIds: List<String>)
 
     @Serializable
     private data class ThreadPayload(val threadId: String)

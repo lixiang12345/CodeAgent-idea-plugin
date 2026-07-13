@@ -9,7 +9,9 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VfsUtil
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -32,7 +34,15 @@ class ChangeReviewService(private val project: Project) {
     fun path(toolId: String): String? = changes[toolId]?.change?.path
 
     @Synchronized
-    fun canRevert(toolId: String): Boolean = changes[toolId]?.reverted == false
+    fun canRevert(toolId: String): Boolean = changes[toolId]?.resolved == false
+
+    @Synchronized
+    fun keep(toolIds: Collection<String>): Set<String> = toolIds.distinct().mapNotNullTo(linkedSetOf()) { toolId ->
+        changes[toolId]?.takeIf { !it.resolved }?.let {
+            it.resolved = true
+            toolId
+        }
+    }
 
     fun openDiff(toolId: String) {
         val change = synchronized(this) { requireNotNull(changes[toolId]?.change) { "Change is no longer available" } }
@@ -52,7 +62,7 @@ class ChangeReviewService(private val project: Project) {
     fun revert(toolId: String): CompletableFuture<Boolean> {
         val stored = synchronized(this) {
             requireNotNull(changes[toolId]) { "Change is no longer available" }.also {
-                require(!it.reverted) { "Change was already reverted" }
+                require(!it.resolved) { "Change was already resolved" }
             }
         }
         val future = CompletableFuture<Boolean>()
@@ -72,7 +82,7 @@ class ChangeReviewService(private val project: Project) {
 
             runCatching { revertInWriteAction(stored.change) }
                 .onSuccess {
-                    synchronized(this) { stored.reverted = true }
+                    synchronized(this) { stored.resolved = true }
                     future.complete(true)
                 }
                 .onFailure(future::completeExceptionally)
@@ -80,7 +90,49 @@ class ChangeReviewService(private val project: Project) {
         return future
     }
 
+    fun revertAll(toolIds: Collection<String>): CompletableFuture<Set<String>> {
+        val selected = synchronized(this) {
+            toolIds.distinct().mapNotNull { toolId ->
+                changes[toolId]?.takeIf { !it.resolved }?.let { toolId to it }
+            }
+        }
+        if (selected.isEmpty()) return CompletableFuture.completedFuture(emptySet())
+
+        val future = CompletableFuture<Set<String>>()
+        ApplicationManager.getApplication().invokeLater {
+            val answer = Messages.showYesNoDialog(
+                project,
+                "Revert ${selected.size} CodeAgent file changes? Files changed after the Agent run will block the entire operation.",
+                "Discard CodeAgent Changes",
+                "Discard All",
+                "Cancel",
+                Messages.getWarningIcon(),
+            )
+            if (answer != Messages.YES) {
+                future.complete(emptySet())
+                return@invokeLater
+            }
+
+            runCatching {
+                val prepared = selected.map { (toolId, stored) -> toolId to prepareRevert(stored.change) }
+                WriteCommandAction.runWriteCommandAction(project) {
+                    prepared.forEach { (_, change) -> applyRevert(change) }
+                }
+                prepared.mapTo(linkedSetOf()) { it.first }
+            }.onSuccess { revertedIds ->
+                synchronized(this) { revertedIds.forEach { changes[it]?.resolved = true } }
+                future.complete(revertedIds)
+            }.onFailure(future::completeExceptionally)
+        }
+        return future
+    }
+
     private fun revertInWriteAction(change: FileChange) {
+        val prepared = prepareRevert(change)
+        WriteCommandAction.runWriteCommandAction(project) { applyRevert(prepared) }
+    }
+
+    private fun prepareRevert(change: FileChange): PreparedRevert {
         val file = guard.pathForWrite(change.path)
         val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(file)
             ?: error("${change.path} no longer exists")
@@ -89,21 +141,28 @@ class ChangeReviewService(private val project: Project) {
         require(current == change.after) {
             "${change.path} changed after this agent edit; refusing to overwrite newer content"
         }
+        return PreparedRevert(virtualFile, document, change.before)
+    }
 
-        WriteCommandAction.runWriteCommandAction(project) {
-            if (change.before == null) {
-                virtualFile.delete(this)
-            } else if (document != null) {
-                document.setText(change.before)
-            } else {
-                VfsUtil.saveText(virtualFile, change.before)
-            }
+    private fun applyRevert(prepared: PreparedRevert) {
+        if (prepared.before == null) {
+            prepared.virtualFile.delete(this)
+        } else if (prepared.document != null) {
+            prepared.document.setText(prepared.before)
+        } else {
+            VfsUtil.saveText(prepared.virtualFile, prepared.before)
         }
     }
 
     private data class StoredChange(
         val change: FileChange,
-        var reverted: Boolean = false,
+        var resolved: Boolean = false,
+    )
+
+    private data class PreparedRevert(
+        val virtualFile: VirtualFile,
+        val document: Document?,
+        val before: String?,
     )
 
     companion object {

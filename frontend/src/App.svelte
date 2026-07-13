@@ -399,7 +399,7 @@
 
         <footer class="composer-wrap">
           {#if changeTools().length > 0}
-            <div class="change-summary"><span><FileDiff size={13} />{changeTools().length} {changeTools().length === 1 ? "file" : "files"} changed</span><button>Review</button><button>Keep All</button><button class="discard">Discard All</button></div>
+            <div class="change-summary"><span><FileDiff size={13} />{changeTools().length} {changeTools().length === 1 ? "file" : "files"} changed</span><button onclick={() => sendCommand("reviewChanges", { toolIds: changeTools().map((tool) => tool.id) })}>Review</button><button onclick={() => sendCommand("keepChanges", { toolIds: changeTools().map((tool) => tool.id) })}>Keep All</button><button class="discard" onclick={() => sendCommand("discardChanges", { toolIds: changeTools().map((tool) => tool.id) })}>Discard All</button></div>
           {/if}
           {#if snapshot.attachments.length > 0}
             <div class="context-chips">
