@@ -2,6 +2,11 @@ package com.codeagent.plugin.agent
 
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VfsUtil
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -19,6 +24,7 @@ internal data class WorkspaceRule(
     val name: String,
     val path: String,
     val content: String,
+    val trigger: String,
 )
 
 internal data class WorkspaceSkill(
@@ -31,7 +37,9 @@ internal data class WorkspaceSkill(
 
 @Service(Service.Level.PROJECT)
 internal class WorkspaceCustomizationService(project: Project) {
-    private val loader = WorkspaceCustomizationLoader(project.basePath?.let(Path::of))
+    private val projectRoot = project.basePath?.let(Path::of)
+    private val loader = WorkspaceCustomizationLoader(projectRoot)
+    private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
     private var cached: WorkspaceCustomization? = null
 
     @Synchronized
@@ -39,6 +47,42 @@ internal class WorkspaceCustomizationService(project: Project) {
 
     @Synchronized
     fun refresh(): WorkspaceCustomization = loader.load().also { cached = it }
+
+    @Synchronized
+    fun saveRule(fileName: String, content: String, trigger: String): WorkspaceRule {
+        require(trigger in RULE_TRIGGERS) { "Unsupported rule trigger: $trigger" }
+        require(content.isNotBlank()) { "Rule content must not be blank" }
+        require(content.length <= MAX_RULE_FILE_CHARS) { "Rule content exceeds $MAX_RULE_FILE_CHARS characters" }
+        val normalizedName = fileName.trim().removePrefix(".codeagent/rules/")
+        require(RULE_FILE_NAME.matches(normalizedName)) { "Rule file name may contain letters, digits, '.', '_' and '-' and must end in .md" }
+        val root = projectRoot?.toRealPath() ?: error("Project root is unavailable")
+        val directory = root.resolve(".codeagent/rules")
+        Files.createDirectories(directory)
+        val file = directory.resolve(normalizedName).normalize()
+        require(file.parent == directory) { "Nested rule paths are not supported" }
+        Files.writeString(file, content.trim() + "\n")
+
+        val relative = root.relativize(file).toString().replace('\\', '/')
+        val metadata = loadRuleMetadata(root)
+        metadata.triggers[relative] = trigger
+        Files.writeString(root.resolve(RULE_METADATA_PATH), json.encodeToString(metadata) + "\n")
+        LocalFileSystem.getInstance().refreshAndFindFileByNioFile(file)?.let {
+            VfsUtil.markDirtyAndRefresh(false, false, false, it)
+        }
+        cached = loader.load()
+        return requireNotNull(cached?.rules?.firstOrNull { it.path == relative })
+    }
+
+    private fun loadRuleMetadata(root: Path): RuleMetadata = runCatching {
+        json.decodeFromString<RuleMetadata>(Files.readString(root.resolve(RULE_METADATA_PATH)))
+    }.getOrDefault(RuleMetadata())
+
+    companion object {
+        private const val RULE_METADATA_PATH = ".codeagent/rules.json"
+        private const val MAX_RULE_FILE_CHARS = 16_000
+        private val RULE_FILE_NAME = Regex("[A-Za-z0-9._-]+\\.md")
+        private val RULE_TRIGGERS = setOf("always", "manual", "agent")
+    }
 }
 
 internal class WorkspaceCustomizationLoader(private val projectRoot: Path?) {
@@ -51,6 +95,7 @@ internal class WorkspaceCustomizationLoader(private val projectRoot: Path?) {
     }.getOrDefault(WorkspaceCustomization.EMPTY)
 
     private fun loadRules(root: Path): List<WorkspaceRule> {
+        val triggers = loadRuleMetadata(root).triggers
         val directory = root.resolve(".codeagent/rules")
         if (!Files.isDirectory(directory)) return emptyList()
         return listChildren(directory)
@@ -63,6 +108,7 @@ internal class WorkspaceCustomizationLoader(private val projectRoot: Path?) {
                     name = markdownTitle(content) ?: file.fileName.toString().substringBeforeLast('.').humanize(),
                     path = relative,
                     content = content,
+                    trigger = triggers[relative].takeIf { it in RULE_TRIGGERS } ?: "always",
                 )
             }
             .take(MAX_RULES)
@@ -145,8 +191,20 @@ internal class WorkspaceCustomizationLoader(private val projectRoot: Path?) {
         private const val MAX_FILE_CHARS = 16_000
         private const val MAX_DESCRIPTION_CHARS = 180
         private val SKILL_ROOTS = listOf(".codeagent/skills", ".agents/skills")
+        private const val RULE_METADATA_PATH = ".codeagent/rules.json"
+        private val RULE_TRIGGERS = setOf("always", "manual", "agent")
+        private val METADATA_JSON = Json { ignoreUnknownKeys = true }
     }
+
+    private fun loadRuleMetadata(root: Path): RuleMetadata = runCatching {
+        METADATA_JSON.decodeFromString<RuleMetadata>(Files.readString(root.resolve(RULE_METADATA_PATH)))
+    }.getOrDefault(RuleMetadata())
 }
+
+@Serializable
+private data class RuleMetadata(
+    val triggers: MutableMap<String, String> = linkedMapOf(),
+)
 
 internal class WorkspaceGuidanceLoader(private val projectRoot: Path?) {
     fun load(): String? = runCatching {

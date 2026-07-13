@@ -29,6 +29,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         history: List<AgentMessage>,
         mode: String,
         enabledSkillIds: Set<String>,
+        enabledRuleIds: Set<String>,
         listener: AgentRunListener,
     ) {
         cancel()
@@ -52,7 +53,13 @@ class AgentOrchestrator(private val project: Project) : Disposable {
                     tools = definitions.map { RemoteToolDefinition(it.name, it.description, it.parameters) },
                     workspace = RemoteWorkspace(
                         guidance = guidanceLoader.load(),
-                        rules = customization.rules.map { RemoteWorkspaceEntry(it.name, it.path, it.content) },
+                        rules = customization.rules
+                            .filter { rule ->
+                                rule.trigger == "always" ||
+                                    (rule.trigger == "agent" && mode == "agent") ||
+                                    (rule.trigger == "manual" && rule.id in enabledRuleIds)
+                            }
+                            .map { RemoteWorkspaceEntry(it.name, it.path, it.content) },
                         skills = customization.skills
                             .filter { it.id in enabledSkillIds }
                             .take(WorkspaceCustomizationLoader.MAX_SELECTED_SKILLS)

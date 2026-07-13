@@ -202,10 +202,36 @@ class IdeBridge(
                 }
                 emitSnapshot()
             }
+            "toggleRule" -> {
+                val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<RuleSelectionPayload>(it) }
+                val rule = requireNotNull(customizations.snapshot().rules.firstOrNull { it.id == selection.ruleId }) {
+                    "Unknown workspace rule: ${selection.ruleId}"
+                }
+                require(rule.trigger == "manual") { "Only manual rules can be selected per thread" }
+                synchronized(stateLock) {
+                    val selected = conversations.active().selectedRuleIds.toMutableSet()
+                    if (selection.selected) selected += selection.ruleId else selected -= selection.ruleId
+                    conversations.setSelectedRules(selected)
+                }
+                emitSnapshot()
+            }
+            "saveRule" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<SaveRulePayload>(it) }
+                val rule = customizations.saveRule(request.fileName, request.content, request.trigger)
+                if (rule.trigger != "manual") {
+                    synchronized(stateLock) {
+                        conversations.setSelectedRules(conversations.active().selectedRuleIds - rule.id)
+                    }
+                }
+                emitSnapshot()
+            }
             "refreshCustomization" -> {
-                val availableIds = customizations.refresh().skills.mapTo(mutableSetOf()) { it.id }
+                val customization = customizations.refresh()
+                val availableIds = customization.skills.mapTo(mutableSetOf()) { it.id }
+                val manualRuleIds = customization.rules.filter { it.trigger == "manual" }.mapTo(mutableSetOf()) { it.id }
                 synchronized(stateLock) {
                     conversations.setSelectedSkills(conversations.active().selectedSkillIds.filter { it in availableIds })
+                    conversations.setSelectedRules(conversations.active().selectedRuleIds.filter { it in manualRuleIds })
                 }
                 emitSnapshot()
             }
@@ -265,7 +291,8 @@ class IdeBridge(
             messages
         }
         val enabledSkillIds = synchronized(stateLock) { conversations.active().selectedSkillIds.toSet() }
-        agent.start(history, request.mode, enabledSkillIds, object : AgentRunListener {
+        val enabledRuleIds = synchronized(stateLock) { conversations.active().selectedRuleIds.toSet() }
+        agent.start(history, request.mode, enabledSkillIds, enabledRuleIds, object : AgentRunListener {
             private var streamingMessageId: String? = null
 
             override fun onAssistantDelta(delta: String) {
@@ -361,6 +388,7 @@ class IdeBridge(
             val active = conversations.active()
             val customization = customizations.snapshot()
             val selectedSkillIds = active.selectedSkillIds.toSet()
+            val selectedRuleIds = active.selectedRuleIds.toSet()
             AppSnapshotDto(
                 projectName = project.name,
                 mode = active.mode,
@@ -383,7 +411,14 @@ class IdeBridge(
                 context = context,
                 customization = WorkspaceCustomizationDto(
                     rules = customization.rules.map { rule ->
-                        WorkspaceRuleDto(rule.id, rule.name, rule.path)
+                        WorkspaceRuleDto(
+                            id = rule.id,
+                            name = rule.name,
+                            path = rule.path,
+                            content = rule.content,
+                            trigger = rule.trigger,
+                            selected = rule.id in selectedRuleIds,
+                        )
                     },
                     skills = customization.skills.map { skill ->
                         WorkspaceSkillDto(
@@ -501,6 +536,12 @@ class IdeBridge(
 
     @Serializable
     private data class SkillSelectionPayload(val skillId: String, val selected: Boolean)
+
+    @Serializable
+    private data class RuleSelectionPayload(val ruleId: String, val selected: Boolean)
+
+    @Serializable
+    private data class SaveRulePayload(val fileName: String, val content: String, val trigger: String)
 
     @Serializable
     private data class TaskStatePayload(val taskId: String, val state: String)

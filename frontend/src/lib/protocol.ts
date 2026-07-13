@@ -52,6 +52,9 @@ export interface WorkspaceRule {
   id: string;
   name: string;
   path: string;
+  content: string;
+  trigger: "always" | "manual" | "agent";
+  selected: boolean;
 }
 
 export interface WorkspaceSkill {
@@ -243,7 +246,24 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     },
     context: { state: "not_indexed", label: "Index project" },
     customization: {
-      rules: [{ id: ".codeagent/rules/testing.md", name: "Testing", path: ".codeagent/rules/testing.md" }],
+      rules: [
+        {
+          id: ".codeagent/rules/testing.md",
+          name: "Testing",
+          path: ".codeagent/rules/testing.md",
+          content: "# Testing\n\nAdd focused regression tests for every behavior change.",
+          trigger: "always",
+          selected: false,
+        },
+        {
+          id: ".codeagent/rules/review.md",
+          name: "Review",
+          path: ".codeagent/rules/review.md",
+          content: "# Review\n\nInspect the final diff for regressions and missing coverage.",
+          trigger: "manual",
+          selected: true,
+        },
+      ],
       skills: [
         {
           id: ".codeagent/skills/release/SKILL.md",

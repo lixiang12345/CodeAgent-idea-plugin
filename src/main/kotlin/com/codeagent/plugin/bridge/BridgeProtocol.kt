@@ -89,6 +89,9 @@ data class WorkspaceRuleDto(
     val id: String,
     val name: String,
     val path: String,
+    val content: String,
+    val trigger: String,
+    val selected: Boolean,
 )
 
 @Serializable

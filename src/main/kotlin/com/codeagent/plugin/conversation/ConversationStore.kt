@@ -66,6 +66,13 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     }
 
     @Synchronized
+    fun setSelectedRules(ruleIds: Collection<String>) {
+        val selected = ruleIds.distinct()
+        require(selected.size <= MAX_SELECTED_RULES) { "Select at most $MAX_SELECTED_RULES manual rules" }
+        mutableActive().selectedRuleIds = selected.toMutableList()
+    }
+
+    @Synchronized
     fun addMessage(role: String, content: String): ConversationMessage {
         val thread = mutableActive()
         val message = ConversationMessageState().apply {
@@ -188,6 +195,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         updatedAt = updatedAt,
         mode = mode,
         selectedSkillIds = selectedSkillIds.toList(),
+        selectedRuleIds = selectedRuleIds.toList(),
         messages = messages.map { it.toDomain() },
         tasks = tasks.map { it.toDomain() },
         active = id == data.activeThreadId,
@@ -205,6 +213,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         private const val MAX_TASK_NAME_CHARS = 240
         private val TASK_STATES = setOf("not_started", "in_progress", "completed", "cancelled")
         const val MAX_SELECTED_SKILLS = 8
+        const val MAX_SELECTED_RULES = 32
     }
 }
 
@@ -214,6 +223,7 @@ data class ConversationSnapshot(
     val updatedAt: Long,
     val mode: String,
     val selectedSkillIds: List<String>,
+    val selectedRuleIds: List<String>,
     val messages: List<ConversationMessage>,
     val tasks: List<ConversationTask>,
     val active: Boolean,
@@ -243,6 +253,7 @@ class ConversationThreadState {
     var updatedAt: Long = 0
     var mode: String = "agent"
     var selectedSkillIds: MutableList<String> = mutableListOf()
+    var selectedRuleIds: MutableList<String> = mutableListOf()
     var messages: MutableList<ConversationMessageState> = mutableListOf()
     var tasks: MutableList<ConversationTaskState> = mutableListOf()
 }

@@ -59,6 +59,7 @@
     type EventEnvelope,
     type Mode,
     type ToolRun,
+    type WorkspaceRule,
     type WorkspaceSkill,
   } from "./lib/protocol";
 
@@ -84,6 +85,11 @@
   let mermaidTitle = "Agent architecture";
   let mermaidMode: "diagram" | "code" = "diagram";
   let mermaidScale = 1;
+  let ruleEditorOpen = false;
+  let ruleFileName = "";
+  let ruleContent = "";
+  let ruleTrigger: WorkspaceRule["trigger"] = "always";
+  let editingExistingRule = false;
   let toolsExpanded = new Set<string>();
   let backendUrl = "";
   let nodePath = "";
@@ -194,6 +200,7 @@
 
   function chooseSettingsSection(section: string) {
     settingsSection = section;
+    ruleEditorOpen = false;
     settingsNavigationOpen = false;
   }
 
@@ -235,6 +242,20 @@
     mermaidMode = "diagram";
     mermaidScale = 1;
     currentView = "mermaid";
+  }
+
+  function editRule(rule?: WorkspaceRule) {
+    ruleFileName = rule?.path.replace(".codeagent/rules/", "") ?? "new-rule.md";
+    ruleContent = rule?.content ?? "# New rule\n\nDescribe the project guidance here.";
+    ruleTrigger = rule?.trigger ?? "always";
+    editingExistingRule = Boolean(rule);
+    ruleEditorOpen = true;
+  }
+
+  function saveRule() {
+    if (!ruleFileName.trim() || !ruleContent.trim()) return;
+    sendCommand("saveRule", { fileName: ruleFileName, content: ruleContent, trigger: ruleTrigger });
+    ruleEditorOpen = false;
   }
 </script>
 
@@ -484,8 +505,22 @@
                 <footer><button class="primary" onclick={saveSettings}>Save settings</button></footer>
               </section>
             {:else if settingsSection === "Rules & Guidelines"}
-              <h1>Rules & Guidelines</h1><p class="settings-lead">Repository instructions validated by the IDEA capability gateway.</p>
-              <section class="settings-block list-block">{#each snapshot.customization.rules as rule}<div><Library size={14} /><span><strong>{rule.name}</strong><small>{rule.path}</small></span></div>{:else}<p>No repository rules found.</p>{/each}</section>
+              {#if ruleEditorOpen}
+                <div class="rule-editor-title"><button class="icon-button compact" title="Back to rules" onclick={() => ruleEditorOpen = false}><ChevronLeft size={14} /></button><div><h1>Rule: {ruleFileName}</h1><p class="settings-lead">Markdown guidance stored in the current repository.</p></div></div>
+                <section class="settings-block rule-editor">
+                  <label><span>File name</span><input bind:value={ruleFileName} disabled={editingExistingRule} /></label>
+                  <fieldset><legend>Trigger</legend><div class="trigger-control"><button class:active={ruleTrigger === "always"} onclick={() => ruleTrigger = "always"}>Always</button><button class:active={ruleTrigger === "manual"} onclick={() => ruleTrigger = "manual"}>Manual</button><button class:active={ruleTrigger === "agent"} onclick={() => ruleTrigger = "agent"}>Agent</button></div></fieldset>
+                  <label><span>Rule content</span><textarea bind:value={ruleContent} spellcheck="false"></textarea></label>
+                  <footer><button onclick={() => ruleEditorOpen = false}>Cancel</button><button class="primary" disabled={!ruleFileName.trim() || !ruleContent.trim()} onclick={saveRule}>Save rule</button></footer>
+                </section>
+              {:else}
+                <div class="section-title"><div><h1>Rules & Guidelines</h1><p class="settings-lead">Repository instructions validated by the IDEA capability gateway.</p></div><button onclick={() => editRule()}><Plus size={13} />New Rule</button></div>
+                <section class="settings-block rule-list">
+                  {#each snapshot.customization.rules as rule}
+                    <div><Library size={14} /><button class="rule-copy" onclick={() => editRule(rule)}><strong>{rule.name}</strong><small>{rule.path}</small></button><i>{rule.trigger}</i>{#if rule.trigger === "manual"}<label title="Enable for this thread"><input type="checkbox" checked={rule.selected} onchange={() => sendCommand("toggleRule", { ruleId: rule.id, selected: !rule.selected })} /></label>{/if}<button class="icon-button compact" title="Edit rule" onclick={() => editRule(rule)}><FilePen size={13} /></button></div>
+                  {:else}<p>No repository rules found.</p>{/each}
+                </section>
+              {/if}
             {:else if settingsSection === "Skills"}
               <h1>Skills <em>Beta</em></h1><p class="settings-lead">Select task methods from the message composer.</p>
               <section class="settings-block list-block">{#each snapshot.customization.skills as skill}<div><Layers size={14} /><span><strong>{skill.name}</strong><small>{skill.description}</small></span><i>{skill.selected ? "On" : "Off"}</i></div>{:else}<p>No repository skills found.</p>{/each}</section>

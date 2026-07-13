@@ -62,4 +62,14 @@ class ConversationStoreTest {
         store.newThread()
         assertTrue(store.active().tasks.isEmpty())
     }
+
+    @Test
+    fun `persists manual rule selection per thread`() {
+        val store = ConversationStore()
+        store.setSelectedRules(listOf(".codeagent/rules/review.md"))
+        assertEquals(listOf(".codeagent/rules/review.md"), store.active().selectedRuleIds)
+
+        store.newThread()
+        assertTrue(store.active().selectedRuleIds.isEmpty())
+    }
 }
