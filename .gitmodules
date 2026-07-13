@@ -1,0 +1,3 @@
+[submodule "vendor/context-engine"]
+	path = vendor/context-engine
+	url = https://github.com/lixiang12345/ContextEngine-plugin.git

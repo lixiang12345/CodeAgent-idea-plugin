@@ -13,6 +13,7 @@ The repository is under active staged development. See [architecture and origina
 ## Build
 
 ```bash
+git submodule update --init --recursive
 ./gradlew buildPlugin
 ```
 
@@ -23,3 +24,5 @@ The repository is under active staged development. See [architecture and origina
 ```
 
 The installable ZIP is written to `build/distributions/`.
+
+ContextEngine is pinned as a Git submodule and bundled into the local Node sidecar. Its MIT license is included in the plugin distribution; see [third-party notices](THIRD_PARTY_NOTICES.md).

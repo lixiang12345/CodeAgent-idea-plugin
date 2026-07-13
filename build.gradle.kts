@@ -11,7 +11,9 @@ group = providers.gradleProperty("group").get()
 version = providers.gradleProperty("version").get()
 
 dependencies {
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1") {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    }
     testImplementation(kotlin("test"))
     testImplementation("junit:junit:4.13.2")
 
@@ -21,6 +23,10 @@ dependencies {
     }
 }
 
+configurations.runtimeClasspath {
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+}
+
 val buildFrontend = tasks.register<Exec>("buildFrontend") {
     workingDir(layout.projectDirectory.dir("frontend"))
     commandLine("npm", "run", "build")
@@ -28,11 +34,26 @@ val buildFrontend = tasks.register<Exec>("buildFrontend") {
     outputs.file("frontend/dist/index.html")
 }
 
+val buildSidecar = tasks.register<Exec>("buildSidecar") {
+    workingDir(layout.projectDirectory.dir("sidecar"))
+    commandLine("npm", "run", "build")
+    inputs.files(fileTree("sidecar/src"), file("sidecar/package.json"), file("sidecar/package-lock.json"), file("sidecar/build.mjs"))
+    inputs.files(fileTree("vendor/context-engine/src"), file("vendor/context-engine/package.json"))
+    outputs.file("sidecar/dist/server.mjs")
+}
+
 tasks {
     processResources {
-        dependsOn(buildFrontend)
+        dependsOn(buildFrontend, buildSidecar)
         from("frontend/dist") {
             into("web")
+        }
+        from("sidecar/dist/server.mjs") {
+            into("sidecar")
+        }
+        from("vendor/context-engine/LICENSE") {
+            into("third-party")
+            rename { "ContextEngine-LICENSE.txt" }
         }
     }
 

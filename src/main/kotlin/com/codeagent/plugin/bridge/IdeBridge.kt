@@ -1,6 +1,8 @@
 package com.codeagent.plugin.bridge
 
+import com.codeagent.plugin.context.ContextEngineService
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefBrowserBase
@@ -21,8 +23,11 @@ class IdeBridge(
     }
     private val query = JBCefJSQuery.create(browser as JBCefBrowserBase)
     private val messages = mutableListOf<ChatMessageDto>()
+    private val contextEngine = project.service<ContextEngineService>()
     private var mode = "agent"
     private var thread = newThread()
+    @Volatile
+    private var context = ContextSnapshotDto(state = "not_indexed", label = "Checking context")
 
     init {
         query.addHandler { raw ->
@@ -54,7 +59,10 @@ class IdeBridge(
         }
 
         when (command.type) {
-            "bootstrap" -> emitSnapshot()
+            "bootstrap" -> {
+                emitSnapshot()
+                refreshContextStatus()
+            }
             "setMode" -> {
                 mode = command.payload?.let { json.decodeFromJsonElement<ModePayload>(it).mode } ?: mode
                 emitSnapshot()
@@ -85,7 +93,8 @@ class IdeBridge(
                 )
                 emitSnapshot()
             }
-            "getContextStatus", "indexWorkspace" -> emitSnapshot()
+            "getContextStatus" -> refreshContextStatus()
+            "indexWorkspace" -> indexWorkspace()
             "saveSettings" -> emit("error", mapOf("message" to "Settings service is not connected yet"))
             "cancelRun", "resolveApproval", "selectThread", "pickContext" -> Unit
             else -> error("Unknown bridge command: ${command.type}")
@@ -98,8 +107,48 @@ class IdeBridge(
             mode = mode,
             messages = messages.toList(),
             threads = listOf(thread),
+            context = context,
         )
         emit("snapshot", json.encodeToJsonElement(snapshot))
+    }
+
+    private fun refreshContextStatus() {
+        contextEngine.status().whenComplete { status, error ->
+            context = when {
+                error != null -> ContextSnapshotDto(state = "error", label = error.rootMessage())
+                status.indexed -> ContextSnapshotDto(
+                    state = "ready",
+                    label = "${status.fileCount} files indexed",
+                    files = status.fileCount,
+                    chunks = status.chunkCount,
+                )
+                else -> ContextSnapshotDto(state = "not_indexed", label = "Index project")
+            }
+            emitSnapshot()
+        }
+    }
+
+    private fun indexWorkspace() {
+        context = ContextSnapshotDto(state = "indexing", label = "Starting index")
+        emitSnapshot()
+        contextEngine.index { progress ->
+            val count = if (progress.filesTotal > 0) "${progress.filesDone}/${progress.filesTotal}" else progress.phase
+            context = ContextSnapshotDto(state = "indexing", label = "Indexing $count")
+            emitSnapshot()
+        }.whenComplete { _, error ->
+            if (error != null) {
+                context = ContextSnapshotDto(state = "error", label = error.rootMessage())
+                emitSnapshot()
+            } else {
+                refreshContextStatus()
+            }
+        }
+    }
+
+    private fun Throwable.rootMessage(): String {
+        var current: Throwable = this
+        while (current.cause != null) current = current.cause!!
+        return current.message ?: "ContextEngine unavailable"
     }
 
     private fun emit(type: String, payload: Any?) {
