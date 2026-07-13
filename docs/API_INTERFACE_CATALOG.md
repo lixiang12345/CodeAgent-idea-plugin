@@ -330,7 +330,7 @@ Header: `x-codeagent-run-id: <runId>`
 | `run.error` | `{ message }` | Fatal run error |
 | comment heartbeat | `: heartbeat` | Every ~15s |
 
-### 3.4 `POST /v1/runs/{runId}/tool-results`
+### 3.5 `POST /v1/runs/{runId}/tool-results`
 
 **Request body**
 
@@ -358,7 +358,7 @@ Header: `x-codeagent-run-id: <runId>`
 { "accepted": true }
 ```
 
-### 3.5 `DELETE /v1/runs/{runId}`
+### 3.6 `DELETE /v1/runs/{runId}`
 
 **Response 202**
 
