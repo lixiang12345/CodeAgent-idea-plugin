@@ -28,7 +28,8 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     @Synchronized
     fun threads(): List<ConversationSnapshot> {
         ensureActive()
-        return data.threads.sortedByDescending { it.updatedAt }.map { it.toSnapshot() }
+        return data.threads.sortedWith(compareByDescending<ConversationThreadState> { it.pinned }.thenByDescending { it.updatedAt })
+            .map { it.toSnapshot() }
     }
 
     @Synchronized
@@ -50,6 +51,49 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         require(data.threads.any { it.id == threadId }) { "Unknown conversation: $threadId" }
         data.activeThreadId = threadId
         return active()
+    }
+
+    @Synchronized
+    fun togglePinned(threadId: String): ConversationSnapshot {
+        val thread = requireNotNull(data.threads.firstOrNull { it.id == threadId }) { "Unknown conversation: $threadId" }
+        thread.pinned = !thread.pinned
+        return thread.toSnapshot()
+    }
+
+    @Synchronized
+    fun deleteThread(threadId: String): ConversationSnapshot {
+        require(data.threads.removeIf { it.id == threadId }) { "Unknown conversation: $threadId" }
+        if (data.activeThreadId == threadId) data.activeThreadId = ""
+        ensureActive()
+        return active()
+    }
+
+    @Synchronized
+    fun importThread(title: String, mode: String, messages: List<Pair<String, String>>): ConversationSnapshot {
+        require(mode == "agent" || mode == "chat" || mode == "ask") { "Unsupported mode: $mode" }
+        require(messages.isNotEmpty()) { "Imported thread contains no messages" }
+        require(messages.size <= MAX_MESSAGES_PER_THREAD) { "Imported thread contains too many messages" }
+        val now = System.currentTimeMillis()
+        val thread = ConversationThreadState().apply {
+            id = UUID.randomUUID().toString()
+            this.title = title.trim().take(48).ifBlank { "Imported thread" }
+            updatedAt = now
+            this.mode = mode
+            this.messages = messages.mapIndexedTo(mutableListOf()) { index, (role, content) ->
+                require(role == "user" || role == "assistant") { "Unsupported imported message role: $role" }
+                require(content.isNotBlank()) { "Imported messages must not be blank" }
+                ConversationMessageState().apply {
+                    id = UUID.randomUUID().toString()
+                    this.role = role
+                    this.content = content.take(MAX_IMPORTED_MESSAGE_CHARS)
+                    createdAt = now + index
+                }
+            }
+        }
+        data.threads.add(thread)
+        data.activeThreadId = thread.id
+        trimHistory()
+        return thread.toSnapshot()
     }
 
     @Synchronized
@@ -219,7 +263,9 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
 
     private fun trimHistory() {
         if (data.threads.size <= MAX_THREADS) return
-        val keep = data.threads.sortedByDescending { it.updatedAt }.take(MAX_THREADS).mapTo(mutableSetOf()) { it.id }
+        val keep = data.threads.sortedWith(compareByDescending<ConversationThreadState> { it.pinned }.thenByDescending { it.updatedAt })
+            .take(MAX_THREADS)
+            .mapTo(mutableSetOf()) { it.id }
         data.threads.removeIf { it.id !in keep }
     }
 
@@ -233,6 +279,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         messages = messages.map { it.toDomain() },
         tasks = tasks.map { it.toDomain() },
         active = id == data.activeThreadId,
+        pinned = pinned,
     )
 
     private fun ConversationMessageState.toDomain() = ConversationMessage(id, role, content, createdAt)
@@ -245,6 +292,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         private const val MAX_TASKS_PER_THREAD = 100
         private const val MAX_TASKS_PER_OPERATION = 20
         private const val MAX_TASK_NAME_CHARS = 240
+        private const val MAX_IMPORTED_MESSAGE_CHARS = 40_000
         private val TASK_STATES = setOf("not_started", "in_progress", "completed", "cancelled")
         const val MAX_SELECTED_SKILLS = 8
         const val MAX_SELECTED_RULES = 32
@@ -262,6 +310,7 @@ data class ConversationSnapshot(
     val messages: List<ConversationMessage>,
     val tasks: List<ConversationTask>,
     val active: Boolean,
+    val pinned: Boolean,
 )
 
 data class ConversationMessage(
@@ -291,6 +340,7 @@ class ConversationThreadState {
     var selectedRuleIds: MutableList<String> = mutableListOf()
     var messages: MutableList<ConversationMessageState> = mutableListOf()
     var tasks: MutableList<ConversationTaskState> = mutableListOf()
+    var pinned: Boolean = false
 }
 
 class ConversationMessageState {

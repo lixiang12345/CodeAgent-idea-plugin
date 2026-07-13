@@ -27,6 +27,7 @@ export interface ThreadSummary {
   updatedAt: number;
   active: boolean;
   mode: Mode;
+  pinned: boolean;
 }
 
 export interface TaskItem {
@@ -84,6 +85,7 @@ export interface WorkspaceRule {
   content: string;
   trigger: "always" | "manual" | "agent";
   selected: boolean;
+  description: string;
 }
 
 export interface WorkspaceSkill {
@@ -279,9 +281,9 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       },
     ],
     threads: [
-      { id: "dev", title: "Implement login flow with JWT", updatedAt: Date.now(), active: true, mode: "agent" },
-      { id: "dev-2", title: "Review repository architecture", updatedAt: Date.now() - 3_600_000, active: false, mode: "ask" },
-      { id: "dev-3", title: "Investigate flaky integration test", updatedAt: Date.now() - 86_400_000, active: false, mode: "chat" },
+      { id: "dev", title: "Implement login flow with JWT", updatedAt: Date.now(), active: true, mode: "agent", pinned: true },
+      { id: "dev-2", title: "Review repository architecture", updatedAt: Date.now() - 3_600_000, active: false, mode: "ask", pinned: false },
+      { id: "dev-3", title: "Investigate flaky integration test", updatedAt: Date.now() - 86_400_000, active: false, mode: "chat", pinned: false },
     ],
     tasks: [
       { id: "task-1", name: "Inspect the existing authentication flow", state: "completed" },
@@ -306,6 +308,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
           content: "# Testing\n\nAdd focused regression tests for every behavior change.",
           trigger: "always",
           selected: false,
+          description: "Regression coverage requirements",
         },
         {
           id: ".codeagent/rules/review.md",
@@ -314,6 +317,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
           content: "# Review\n\nInspect the final diff for regressions and missing coverage.",
           trigger: "manual",
           selected: true,
+          description: "Final diff review guidance",
         },
       ],
       skills: [

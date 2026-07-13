@@ -90,4 +90,24 @@ class ConversationStoreTest {
         store.clearTasks()
         assertTrue(store.active().tasks.isEmpty())
     }
+
+    @Test
+    fun `pins imports and deletes threads`() {
+        val store = ConversationStore()
+        val original = store.active()
+        val imported = store.importThread(
+            title = "Imported review",
+            mode = "ask",
+            messages = listOf("user" to "Review this change", "assistant" to "The change is focused."),
+        )
+
+        store.togglePinned(original.id)
+        assertEquals(original.id, store.threads().first().id)
+        assertTrue(store.threads().first().pinned)
+        assertEquals("ask", imported.mode)
+        assertEquals(2, imported.messages.size)
+
+        store.deleteThread(imported.id)
+        assertEquals(original.id, store.active().id)
+    }
 }

@@ -18,10 +18,13 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ide.CopyPasteManager
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.ToolWindowManager
+import com.intellij.testFramework.LightVirtualFile
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefBrowserBase
 import com.intellij.ui.jcef.JBCefJSQuery
@@ -193,6 +196,16 @@ class IdeBridge(
                 agent.cancel()
                 emitSnapshot()
             }
+            "toggleThreadPinned" -> {
+                val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPayload>(it) }
+                conversations.togglePinned(selection.threadId)
+                emitSnapshot()
+            }
+            "deleteThread" -> {
+                val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPayload>(it) }
+                deleteThread(selection.threadId)
+            }
+            "importThread" -> importThread()
             "pickContext" -> pickContext()
             "removeContext" -> {
                 val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ContextPayload>(it) }
@@ -228,7 +241,7 @@ class IdeBridge(
             }
             "saveRule" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<SaveRulePayload>(it) }
-                val rule = customizations.saveRule(request.fileName, request.content, request.trigger)
+                val rule = customizations.saveRule(request.fileName, request.content, request.trigger, request.description)
                 if (rule.trigger != "manual") {
                     synchronized(stateLock) {
                         conversations.setSelectedRules(conversations.active().selectedRuleIds - rule.id)
@@ -331,10 +344,22 @@ class IdeBridge(
                 }
                 emitSnapshot()
             }
+            "openMermaidEditor" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<MermaidEditorPayload>(it) }
+                require(request.code.isNotBlank()) { "Mermaid source must not be blank" }
+                require(request.code.length <= 8_000) { "Mermaid source exceeds 8000 characters" }
+                val name = request.title.replace(Regex("[^A-Za-z0-9._-]+"), "-").trim('-').take(80)
+                    .ifBlank { "codeagent-diagram" }
+                val file = LightVirtualFile("$name.mmd", PlainTextFileType.INSTANCE, request.code)
+                com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
+                    FileEditorManager.getInstance(project).openFile(file, true)
+                }
+            }
             "copyThread" -> {
                 val active = conversations.active()
                 val markdown = buildString {
                     append("# ").append(active.title).append("\n\n")
+                    append("<!-- codeagent-thread mode:").append(active.mode).append(" -->\n\n")
                     active.messages.forEach { message ->
                         append("## ").append(if (message.role == "user") "User" else "CodeAgent").append("\n\n")
                         append(message.content).append("\n\n")
@@ -497,7 +522,7 @@ class IdeBridge(
                 },
                 tools = tools.values.toList(),
                 threads = conversations.threads().map { thread ->
-                    ThreadSummaryDto(thread.id, thread.title, thread.updatedAt, thread.active, thread.mode)
+                    ThreadSummaryDto(thread.id, thread.title, thread.updatedAt, thread.active, thread.mode, thread.pinned)
                 },
                 tasks = active.tasks.map { task -> TaskDto(task.id, task.name, task.state) },
                 attachments = attachments.values.toList(),
@@ -517,6 +542,7 @@ class IdeBridge(
                             content = rule.content,
                             trigger = rule.trigger,
                             selected = rule.id in selectedRuleIds,
+                            description = rule.description,
                         )
                     },
                     skills = customization.skills.map { skill ->
@@ -589,6 +615,85 @@ class IdeBridge(
 
     private fun refreshGit() {
         gitWorkspace.snapshot().whenComplete(::emitGitResult)
+    }
+
+    private fun deleteThread(threadId: String) {
+        require(conversations.threads().any { it.id == threadId }) { "Unknown conversation: $threadId" }
+        com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
+            val answer = Messages.showYesNoDialog(
+                project,
+                "Delete this CodeAgent thread? This cannot be undone.",
+                "Delete CodeAgent Thread",
+                "Delete",
+                "Cancel",
+                Messages.getWarningIcon(),
+            )
+            if (answer != Messages.YES) return@invokeLater
+            val wasActive = conversations.active().id == threadId
+            synchronized(stateLock) {
+                if (wasActive) {
+                    runs.invalidate()
+                    tools.clear()
+                    attachments.clear()
+                    runState = "idle"
+                }
+                conversations.deleteThread(threadId)
+            }
+            if (wasActive) agent.cancel()
+            emitSnapshot()
+        }
+    }
+
+    private fun importThread() {
+        val descriptor = FileChooserDescriptorFactory.singleFile()
+            .withTitle("Import CodeAgent Thread")
+            .withDescription("Select a CodeAgent Markdown thread export")
+        FileChooser.chooseFile(descriptor, project, null) { file ->
+            runCatching {
+                require(file.length <= MAX_THREAD_IMPORT_BYTES) { "Thread export exceeds 2 MB" }
+                val content = Files.readString(file.toNioPath(), StandardCharsets.UTF_8)
+                val title = content.lineSequence().firstOrNull { it.startsWith("# ") }
+                    ?.removePrefix("# ")?.trim().orEmpty().ifBlank { file.nameWithoutExtension }
+                val mode = Regex("""<!--\s*codeagent-thread\s+mode:(agent|chat|ask)\s*-->""")
+                    .find(content)?.groupValues?.get(1) ?: "agent"
+                conversations.importThread(title, mode, parseThreadMessages(content))
+            }.onSuccess {
+                synchronized(stateLock) {
+                    runs.invalidate()
+                    tools.clear()
+                    attachments.clear()
+                    runState = "idle"
+                }
+                agent.cancel()
+                emitSnapshot()
+            }.onFailure { emit("error", mapOf("message" to it.rootMessage())) }
+        }
+    }
+
+    private fun parseThreadMessages(content: String): List<Pair<String, String>> {
+        val messages = mutableListOf<Pair<String, String>>()
+        var role: String? = null
+        val body = StringBuilder()
+        fun flush() {
+            val currentRole = role ?: return
+            body.toString().trim().takeIf(String::isNotEmpty)?.let { messages += currentRole to it }
+            body.setLength(0)
+        }
+        content.lineSequence().forEach { line ->
+            when (line.trim()) {
+                "## User" -> {
+                    flush()
+                    role = "user"
+                }
+                "## CodeAgent", "## Assistant" -> {
+                    flush()
+                    role = "assistant"
+                }
+                else -> if (role != null) body.append(line).append('\n')
+            }
+        }
+        flush()
+        return messages
     }
 
     private fun emitGitResult(snapshot: GitSnapshotDto?, error: Throwable?) {
@@ -699,7 +804,12 @@ class IdeBridge(
     private data class RuleSelectionPayload(val ruleId: String, val selected: Boolean)
 
     @Serializable
-    private data class SaveRulePayload(val fileName: String, val content: String, val trigger: String)
+    private data class SaveRulePayload(
+        val fileName: String,
+        val content: String,
+        val trigger: String,
+        val description: String = "",
+    )
 
     @Serializable
     private data class TaskStatePayload(val taskId: String, val state: String)
@@ -726,6 +836,9 @@ class IdeBridge(
     private data class ImagePayload(val path: String)
 
     @Serializable
+    private data class MermaidEditorPayload(val title: String, val code: String)
+
+    @Serializable
     private data class SettingsPayload(
         val backendUrl: String,
         val nodePath: String,
@@ -735,5 +848,6 @@ class IdeBridge(
 
     companion object {
         private val LOG = logger<IdeBridge>()
+        private const val MAX_THREAD_IMPORT_BYTES = 2_000_000L
     }
 }

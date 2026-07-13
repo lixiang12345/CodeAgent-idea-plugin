@@ -34,6 +34,7 @@
     MessageSquarePlus,
     Minus,
     Paperclip,
+    Pin,
     Play,
     Plug,
     Plus,
@@ -97,6 +98,7 @@
   let ruleFileName = "";
   let ruleContent = "";
   let ruleTrigger: WorkspaceRule["trigger"] = "always";
+  let ruleDescription = "";
   let editingExistingRule = false;
   let toolsExpanded = new Set<string>();
   let backendUrl = "";
@@ -322,13 +324,14 @@
     ruleFileName = rule?.path.replace(".codeagent/rules/", "") ?? "new-rule.md";
     ruleContent = rule?.content ?? "# New rule\n\nDescribe the project guidance here.";
     ruleTrigger = rule?.trigger ?? "always";
+    ruleDescription = rule?.description ?? "";
     editingExistingRule = Boolean(rule);
     ruleEditorOpen = true;
   }
 
   function saveRule() {
     if (!ruleFileName.trim() || !ruleContent.trim()) return;
-    sendCommand("saveRule", { fileName: ruleFileName, content: ruleContent, trigger: ruleTrigger });
+    sendCommand("saveRule", { fileName: ruleFileName, content: ruleContent, trigger: ruleTrigger, description: ruleDescription });
     ruleEditorOpen = false;
   }
 </script>
@@ -339,6 +342,7 @@
     threadDrawerOpen = false;
     modeMenuOpen = false;
     skillsOpen = false;
+    moreMenuOpen = false;
   }
 }} />
 
@@ -594,6 +598,7 @@
                 <div class="rule-editor-title"><button class="icon-button compact" title="Back to rules" onclick={() => ruleEditorOpen = false}><ChevronLeft size={14} /></button><div><h1>Rule: {ruleFileName}</h1><p class="settings-lead">Markdown guidance stored in the current repository.</p></div></div>
                 <section class="settings-block rule-editor">
                   <label><span>File name</span><input bind:value={ruleFileName} disabled={editingExistingRule} /></label>
+                  <label><span>Description</span><input bind:value={ruleDescription} maxlength="240" placeholder="When should the Agent use this rule?" /></label>
                   <fieldset><legend>Trigger</legend><div class="trigger-control"><button class:active={ruleTrigger === "always"} onclick={() => ruleTrigger = "always"}>Always</button><button class:active={ruleTrigger === "manual"} onclick={() => ruleTrigger = "manual"}>Manual</button><button class:active={ruleTrigger === "agent"} onclick={() => ruleTrigger = "agent"}>Agent</button></div></fieldset>
                   <label><span>Rule content</span><textarea bind:value={ruleContent} spellcheck="false"></textarea></label>
                   <footer><button onclick={() => ruleEditorOpen = false}>Cancel</button><button class="primary" disabled={!ruleFileName.trim() || !ruleContent.trim()} onclick={saveRule}>Save rule</button></footer>
@@ -602,7 +607,7 @@
                 <div class="section-title"><div><h1>Rules & Guidelines</h1><p class="settings-lead">Repository instructions validated by the IDEA capability gateway.</p></div><button onclick={() => editRule()}><Plus size={13} />New Rule</button></div>
                 <section class="settings-block rule-list">
                   {#each snapshot.customization.rules as rule}
-                    <div><Library size={14} /><button class="rule-copy" onclick={() => editRule(rule)}><strong>{rule.name}</strong><small>{rule.path}</small></button><i>{rule.trigger}</i>{#if rule.trigger === "manual"}<label title="Enable for this thread"><input type="checkbox" checked={rule.selected} onchange={() => sendCommand("toggleRule", { ruleId: rule.id, selected: !rule.selected })} /></label>{/if}<button class="icon-button compact" title="Edit rule" onclick={() => editRule(rule)}><FilePen size={13} /></button></div>
+                    <div><Library size={14} /><button class="rule-copy" onclick={() => editRule(rule)}><strong>{rule.name}</strong><small>{rule.description || rule.path}</small></button><i>{rule.trigger}</i>{#if rule.trigger === "manual"}<label title="Enable for this thread"><input type="checkbox" checked={rule.selected} onchange={() => sendCommand("toggleRule", { ruleId: rule.id, selected: !rule.selected })} /></label>{/if}<button class="icon-button compact" title="Edit rule" onclick={() => editRule(rule)}><FilePen size={13} /></button></div>
                   {:else}<p>No repository rules found.</p>{/each}
                 </section>
               {/if}
@@ -705,6 +710,7 @@
           <span class="zoom-value">{Math.round(mermaidScale * 100)}%</span>
           <button class="icon-button compact" title="Zoom in" disabled={mermaidMode === "code"} onclick={() => mermaidScale = Math.min(2, mermaidScale + .1)}><Plus size={14} /></button>
           <button class="fit-button" disabled={mermaidMode === "code"} onclick={() => mermaidScale = 1}><Maximize2 size={13} />Fit</button>
+          <button class="icon-button compact" title="Open Mermaid source in IDE editor" onclick={() => sendCommand("openMermaidEditor", { title: mermaidTitle, code: mermaidSource })}><ExternalLink size={13} /></button>
         </header>
         <div class="canvas-body">
           {#if mermaidMode === "diagram"}<MermaidCanvas source={mermaidSource} scale={mermaidScale} />{:else}<pre>{mermaidSource}</pre>{/if}
@@ -723,10 +729,14 @@
         <label class="thread-search"><Search size={13} /><input bind:value={threadSearch} placeholder="Search threads" /></label>
         <div class="thread-list">
           {#each visibleThreads() as thread}
-            <button class:active={thread.active} onclick={() => selectThread(thread.id)}><span><strong>{thread.title}</strong><small>{formatTime(thread.updatedAt)}</small></span><i>{thread.mode}</i></button>
+            <div class="thread-row" class:active={thread.active}>
+              <button class="thread-select" onclick={() => selectThread(thread.id)}><span><strong>{thread.title}</strong><small>{formatTime(thread.updatedAt)}</small></span><i>{thread.mode}</i></button>
+              <button class="icon-button compact" class:pinned={thread.pinned} title={thread.pinned ? "Unpin thread" : "Pin thread"} onclick={() => sendCommand("toggleThreadPinned", { threadId: thread.id })}><Pin size={12} /></button>
+              <button class="icon-button compact delete-thread" title="Delete thread" onclick={() => sendCommand("deleteThread", { threadId: thread.id })}><Trash2 size={12} /></button>
+            </div>
           {/each}
         </div>
-        <footer><button disabled title="Import is not connected"><ExternalLink size={13} />Import</button><button onclick={copyThread}><Share2 size={13} />Export</button></footer>
+        <footer><button onclick={() => sendCommand("importThread")}><Download size={13} />Import</button><button onclick={copyThread}><Share2 size={13} />Export</button></footer>
       </aside>
     {/if}
   </main>

@@ -25,6 +25,7 @@ internal data class WorkspaceRule(
     val path: String,
     val content: String,
     val trigger: String,
+    val description: String,
 )
 
 internal data class WorkspaceSkill(
@@ -49,10 +50,11 @@ internal class WorkspaceCustomizationService(project: Project) {
     fun refresh(): WorkspaceCustomization = loader.load().also { cached = it }
 
     @Synchronized
-    fun saveRule(fileName: String, content: String, trigger: String): WorkspaceRule {
+    fun saveRule(fileName: String, content: String, trigger: String, description: String): WorkspaceRule {
         require(trigger in RULE_TRIGGERS) { "Unsupported rule trigger: $trigger" }
         require(content.isNotBlank()) { "Rule content must not be blank" }
         require(content.length <= MAX_RULE_FILE_CHARS) { "Rule content exceeds $MAX_RULE_FILE_CHARS characters" }
+        require(description.length <= MAX_RULE_DESCRIPTION_CHARS) { "Rule description exceeds $MAX_RULE_DESCRIPTION_CHARS characters" }
         val normalizedName = fileName.trim().removePrefix(".codeagent/rules/")
         require(RULE_FILE_NAME.matches(normalizedName)) { "Rule file name may contain letters, digits, '.', '_' and '-' and must end in .md" }
         val root = projectRoot?.toRealPath() ?: error("Project root is unavailable")
@@ -65,6 +67,7 @@ internal class WorkspaceCustomizationService(project: Project) {
         val relative = root.relativize(file).toString().replace('\\', '/')
         val metadata = loadRuleMetadata(root)
         metadata.triggers[relative] = trigger
+        metadata.descriptions[relative] = description.trim()
         Files.writeString(root.resolve(RULE_METADATA_PATH), json.encodeToString(metadata) + "\n")
         LocalFileSystem.getInstance().refreshAndFindFileByNioFile(file)?.let {
             VfsUtil.markDirtyAndRefresh(false, false, false, it)
@@ -80,6 +83,7 @@ internal class WorkspaceCustomizationService(project: Project) {
     companion object {
         private const val RULE_METADATA_PATH = ".codeagent/rules.json"
         private const val MAX_RULE_FILE_CHARS = 16_000
+        private const val MAX_RULE_DESCRIPTION_CHARS = 240
         private val RULE_FILE_NAME = Regex("[A-Za-z0-9._-]+\\.md")
         private val RULE_TRIGGERS = setOf("always", "manual", "agent")
     }
@@ -95,7 +99,7 @@ internal class WorkspaceCustomizationLoader(private val projectRoot: Path?) {
     }.getOrDefault(WorkspaceCustomization.EMPTY)
 
     private fun loadRules(root: Path): List<WorkspaceRule> {
-        val triggers = loadRuleMetadata(root).triggers
+        val metadata = loadRuleMetadata(root)
         val directory = root.resolve(".codeagent/rules")
         if (!Files.isDirectory(directory)) return emptyList()
         return listChildren(directory)
@@ -108,7 +112,9 @@ internal class WorkspaceCustomizationLoader(private val projectRoot: Path?) {
                     name = markdownTitle(content) ?: file.fileName.toString().substringBeforeLast('.').humanize(),
                     path = relative,
                     content = content,
-                    trigger = triggers[relative].takeIf { it in RULE_TRIGGERS } ?: "always",
+                    trigger = metadata.triggers[relative].takeIf { it in RULE_TRIGGERS } ?: "always",
+                    description = metadata.descriptions[relative]?.take(MAX_DESCRIPTION_CHARS)
+                        ?: markdownDescription(content, "Repository rule"),
                 )
             }
             .take(MAX_RULES)
@@ -166,11 +172,11 @@ internal class WorkspaceCustomizationLoader(private val projectRoot: Path?) {
         ?.trim()
         ?.takeIf(String::isNotEmpty)
 
-    private fun markdownDescription(content: String): String = content.lineSequence()
+    private fun markdownDescription(content: String, fallback: String = "Repository skill"): String = content.lineSequence()
         .map(String::trim)
         .firstOrNull { it.isNotEmpty() && !it.startsWith('#') }
         ?.take(MAX_DESCRIPTION_CHARS)
-        ?: "Repository skill"
+        ?: fallback
 
     private fun withoutFrontMatter(content: String): String {
         val lines = content.lines()
@@ -204,6 +210,7 @@ internal class WorkspaceCustomizationLoader(private val projectRoot: Path?) {
 @Serializable
 private data class RuleMetadata(
     val triggers: MutableMap<String, String> = linkedMapOf(),
+    val descriptions: MutableMap<String, String> = linkedMapOf(),
 )
 
 internal class WorkspaceGuidanceLoader(private val projectRoot: Path?) {

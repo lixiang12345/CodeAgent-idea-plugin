@@ -15,13 +15,15 @@ class WorkspaceCustomizationLoaderTest {
             project.resolve(".codeagent/rules/review.md").writeText("# Review\n\nInspect the diff.")
             project.resolve(".codeagent/rules/testing.md").writeText("# Testing\n\nAdd tests.")
             project.resolve(".codeagent/rules.json").writeText(
-                """{"triggers":{".codeagent/rules/review.md":"manual"}}""",
+                """{"triggers":{".codeagent/rules/review.md":"manual"},"descriptions":{".codeagent/rules/review.md":"Use before finalizing a change"}}""",
             )
 
             val rules = WorkspaceCustomizationLoader(project).load().rules.associateBy { it.name }
 
             assertEquals("manual", rules.getValue("Review").trigger)
             assertEquals("always", rules.getValue("Testing").trigger)
+            assertEquals("Use before finalizing a change", rules.getValue("Review").description)
+            assertEquals("Add tests.", rules.getValue("Testing").description)
         } finally {
             project.toFile().deleteRecursively()
         }

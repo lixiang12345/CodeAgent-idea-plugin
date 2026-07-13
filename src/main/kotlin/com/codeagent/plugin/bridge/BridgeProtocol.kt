@@ -52,6 +52,7 @@ data class ThreadSummaryDto(
     val updatedAt: Long,
     val active: Boolean,
     val mode: String = "agent",
+    val pinned: Boolean = false,
 )
 
 @Serializable
@@ -125,6 +126,7 @@ data class WorkspaceRuleDto(
     val content: String,
     val trigger: String,
     val selected: Boolean,
+    val description: String,
 )
 
 @Serializable
