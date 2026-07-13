@@ -70,6 +70,16 @@ class ContextEngineClient(
     }
 
     override fun dispose() {
+        stopProcess("ContextEngine client disposed")
+        extractedServer?.let { runCatching { Files.deleteIfExists(it) } }
+        extractedServer = null
+    }
+
+    fun restart() {
+        stopProcess("ContextEngine runtime settings changed")
+    }
+
+    private fun stopProcess(reason: String) {
         val active = synchronized(processLock) {
             val current = process
             process = null
@@ -78,9 +88,7 @@ class ContextEngineClient(
         }
         active?.destroy()
         if (active?.waitFor(2, TimeUnit.SECONDS) == false) active.destroyForcibly()
-        failPending(IllegalStateException("ContextEngine client disposed"))
-        extractedServer?.let { runCatching { Files.deleteIfExists(it) } }
-        extractedServer = null
+        failPending(IllegalStateException(reason))
     }
 
     private fun ensureStarted() {

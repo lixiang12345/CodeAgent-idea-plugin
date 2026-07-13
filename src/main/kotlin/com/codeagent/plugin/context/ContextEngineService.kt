@@ -2,7 +2,9 @@ package com.codeagent.plugin.context
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import com.codeagent.plugin.settings.CodeAgentSettingsService
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -15,7 +17,8 @@ import java.util.concurrent.CompletableFuture
 class ContextEngineService(project: Project) : Disposable {
     private val json = Json { ignoreUnknownKeys = true }
     private val root = requireNotNull(project.basePath) { "CodeAgent requires a project base path" }
-    private val client = ContextEngineClient(java.nio.file.Path.of(root))
+    private val settings = service<CodeAgentSettingsService>()
+    private val client = ContextEngineClient(java.nio.file.Path.of(root)) { settings.snapshot().nodePath }
 
     fun status(): CompletableFuture<ContextStatus> =
         client.request("status").thenApply { json.decodeFromJsonElement(it) }
@@ -40,6 +43,8 @@ class ContextEngineService(project: Project) : Disposable {
         },
         timeout = Duration.ofMinutes(2),
     ).thenApply { json.decodeFromJsonElement(it) }
+
+    fun restart() = client.restart()
 
     override fun dispose() = client.dispose()
 }

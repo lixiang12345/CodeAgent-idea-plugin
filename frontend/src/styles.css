@@ -121,6 +121,11 @@ button { color: inherit; }
 .settings-content label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; color: var(--muted); font-size: 11px; }
 .settings-content input { width: 100%; height: 34px; padding: 0 9px; border: 1px solid var(--line); outline: 0; border-radius: 5px; background: #17191c; color: var(--text); font-size: 12px; }
 .settings-content input:focus { border-color: var(--focus); }
+.settings-content .check-setting { min-height: 45px; flex-direction: row; align-items: center; gap: 9px; }
+.settings-content .check-setting input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.check-setting > span { display: flex; flex-direction: column; gap: 3px; }
+.check-setting strong { color: var(--text); font-size: 11px; font-weight: 550; }
+.check-setting small { color: var(--muted); font-size: 10px; }
 .runtime-status { min-height: 50px; padding: 9px; display: flex; align-items: center; gap: 9px; border: 1px solid var(--line); background: var(--surface); border-radius: 5px; }
 .runtime-status > div { display: flex; flex-direction: column; gap: 3px; }
 .runtime-status strong { font-size: 11px; }

@@ -43,6 +43,7 @@
   let model = "";
   let nodePath = "";
   let apiKey = "";
+  let autoApproveReadOnly = true;
   let error = "";
 
   onMount(() => {
@@ -57,6 +58,7 @@
       endpoint = snapshot.settings.endpoint;
       model = snapshot.settings.model;
       nodePath = snapshot.settings.nodePath;
+      autoApproveReadOnly = snapshot.settings.autoApproveReadOnly;
       return;
     }
     if (event.type === "error") {
@@ -77,7 +79,7 @@
 
   function submit() {
     const text = prompt.trim();
-    if (!text || !snapshot || snapshot.runState === "running") return;
+    if (!text || !snapshot || isBusy()) return;
     prompt = "";
     sendCommand("sendMessage", { text, mode: snapshot.mode });
   }
@@ -95,7 +97,7 @@
   }
 
   function saveSettings() {
-    sendCommand("saveSettings", { endpoint, model, nodePath, apiKey });
+    sendCommand("saveSettings", { endpoint, model, nodePath, apiKey, autoApproveReadOnly });
     apiKey = "";
     settingsOpen = false;
   }
@@ -110,6 +112,10 @@
 
   function formatTime(timestamp: number) {
     return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(timestamp);
+  }
+
+  function isBusy() {
+    return snapshot?.runState === "running" || snapshot?.runState === "awaiting_approval";
   }
 </script>
 
@@ -197,7 +203,7 @@
       {#if error}<div class="error-banner"><CircleAlert size={15} /><span>{error}</span><button title="Dismiss" onclick={() => error = ""}><X size={14} /></button></div>{/if}
 
       <footer class="composer-wrap">
-        <div class="composer" class:busy={snapshot.runState === "running"}>
+        <div class="composer" class:busy={isBusy()}>
           <textarea bind:value={prompt} placeholder={snapshot.mode === "agent" ? "Describe a coding task" : "Ask about this project"} onkeydown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); }
           }}></textarea>
@@ -210,7 +216,7 @@
               </div>
               <button class="model-button" onclick={() => settingsOpen = true}>{snapshot.settings.model}<ChevronDown size={13} /></button>
             </div>
-            {#if snapshot.runState === "running"}
+            {#if isBusy()}
               <button class="send-button stop" title="Stop" onclick={() => sendCommand("cancelRun")}><Square size={14} fill="currentColor" /></button>
             {:else}
               <button class="send-button" title="Send" disabled={!prompt.trim()} onclick={submit}><SendHorizontal size={16} /></button>
@@ -229,6 +235,7 @@
             <label><span>Model</span><input bind:value={model} /></label>
             <label><span>API key</span><input type="password" bind:value={apiKey} placeholder={snapshot.settings.apiKeyConfigured ? "Configured" : "Not configured"} /></label>
             <label><span>Node.js executable</span><input bind:value={nodePath} /></label>
+            <label class="check-setting"><input type="checkbox" bind:checked={autoApproveReadOnly} /><span><strong>Auto-run read-only tools</strong><small>Context retrieval, search, and file reads</small></span></label>
             <div class="runtime-status"><Database size={16} /><div><strong>ContextEngine</strong><span>{snapshot.context.label}</span></div></div>
           </div>
           <footer><button onclick={() => settingsOpen = false}>Cancel</button><button class="save" onclick={saveSettings}>Save</button></footer>
