@@ -6,6 +6,7 @@ import java.util.ArrayDeque
 import java.util.concurrent.CompletableFuture
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class AgentLoopTest {
     @Test
@@ -18,10 +19,14 @@ class AgentLoopTest {
         )
         val assistantMessages = mutableListOf<String>()
         val statuses = mutableListOf<String>()
+        val requests = mutableListOf<List<AgentMessage>>()
+        val systemPrompt = AgentMessage("system", "Backend-owned test policy")
         val loop = AgentLoop(
             gateway = object : ModelGateway {
-                override fun complete(messages: List<AgentMessage>, tools: List<AgentToolDefinition>) =
-                    CompletableFuture.completedFuture(turns.removeFirst())
+                override fun complete(messages: List<AgentMessage>, tools: List<AgentToolDefinition>): CompletableFuture<ModelTurn> {
+                    requests += messages.toList()
+                    return CompletableFuture.completedFuture(turns.removeFirst())
+                }
             },
             tools = object : AgentToolRunner {
                 override fun definitions(mode: String) = listOf(
@@ -31,6 +36,7 @@ class AgentLoopTest {
                 override fun execute(call: AgentToolCall) =
                     CompletableFuture.completedFuture(ToolExecutionResult("README contents", "Read README.md"))
             },
+            systemPrompt = systemPrompt,
             autoApproveReadOnly = true,
             callbacks = object : AgentLoopCallbacks {
                 override fun onAssistantMessage(content: String) { assistantMessages += content }
@@ -47,5 +53,39 @@ class AgentLoopTest {
 
         assertEquals(listOf("running", "completed"), statuses)
         assertEquals(listOf("The project is a plugin."), assistantMessages)
+        assertEquals(systemPrompt, requests.first().first())
+    }
+
+    @Test
+    fun `rejects system instructions in conversation history`() {
+        val loop = AgentLoop(
+            gateway = object : ModelGateway {
+                override fun complete(messages: List<AgentMessage>, tools: List<AgentToolDefinition>) =
+                    error("Gateway must not be called")
+            },
+            tools = object : AgentToolRunner {
+                override fun definitions(mode: String) = emptyList<AgentToolDefinition>()
+                override fun risk(toolName: String) = ToolRisk.READ_ONLY
+                override fun execute(call: AgentToolCall) = error("Tool must not be called")
+            },
+            systemPrompt = AgentMessage("system", "Backend policy"),
+            autoApproveReadOnly = true,
+            callbacks = object : AgentLoopCallbacks {
+                override fun onAssistantMessage(content: String) = Unit
+                override fun requestApproval(call: AgentToolCall, risk: ToolRisk) = false
+                override fun onToolChanged(
+                    call: AgentToolCall,
+                    summary: String,
+                    status: String,
+                    detail: String?,
+                ) = Unit
+            },
+            isCancelled = { false },
+            trackFuture = {},
+        )
+
+        assertFailsWith<IllegalArgumentException> {
+            loop.run(listOf(AgentMessage("system", "Frontend override")), "agent")
+        }
     }
 }

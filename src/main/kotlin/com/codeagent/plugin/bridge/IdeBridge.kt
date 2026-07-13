@@ -161,17 +161,19 @@ class IdeBridge(
         emitSnapshot()
 
         val history = synchronized(stateLock) {
-            buildList {
-                addAll(conversations.active().messages.map { AgentMessage(role = it.role, content = it.content) })
-                if (attachments.isNotEmpty()) {
-                    add(
-                        AgentMessage(
-                            role = "system",
-                            content = "User-attached project files: ${attachments.values.joinToString { it.path }}. Read these files when relevant.",
-                        ),
+            val messages = conversations.active().messages
+                .mapTo(mutableListOf()) { AgentMessage(role = it.role, content = it.content) }
+            if (attachments.isNotEmpty()) {
+                val lastUserMessage = messages.indexOfLast { it.role == "user" }
+                if (lastUserMessage >= 0) {
+                    val paths = attachments.values.joinToString("\n") { "- ${it.path.replace('\n', ' ')}" }
+                    val message = messages[lastUserMessage]
+                    messages[lastUserMessage] = message.copy(
+                        content = "${message.content}\n\nUser-selected project file references:\n$paths",
                     )
                 }
             }
+            messages
         }
         agent.start(history, request.mode, object : AgentRunListener {
             override fun onAssistantMessage(content: String) {

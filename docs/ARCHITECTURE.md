@@ -58,6 +58,8 @@ flowchart LR
 
 The UI-to-JVM protocol uses small versioned JSON envelopes. Long work is acknowledged immediately and reported as events, so the JCEF callback thread never blocks. The ContextEngine process has a separate JSON Lines protocol because it owns Node 22's SQLite state and can be restarted independently.
 
+Agent prompts, the model/tool loop, mode capabilities, run state, and approval policy are owned by the JVM backend. The Webview cannot provide system instructions or execute tools. See the [prompt and agent architecture](PROMPT_ARCHITECTURE.md) for the original-plugin evidence and trust model.
+
 ## ContextEngine reuse decision
 
 `lixiang12345/ContextEngine-plugin` is reusable under MIT. Its public `ContextEngine` API and MCP tools already cover the required retrieval loop:
@@ -76,6 +78,7 @@ The integration is a pinned Git submodule compiled into the Node sidecar. CodeAg
 - Ask mode is read-only.
 - Writes and terminal commands require approval unless the user explicitly enables per-thread auto approval.
 - The webview has no direct filesystem, process, credential, or network authority.
+- Repository content, attachments, retrieval output, and tool output remain lower-trust model context; executable authority is enforced in JVM code.
 
 ## Delivered phases
 
@@ -84,4 +87,4 @@ The integration is a pinned Git submodule compiled into the Node sidecar. CodeAg
 3. Agent: OpenAI-compatible tool loop, IDE tools, approval/cancel semantics, edit summaries. (`27e5c3c`)
 4. Product hardening: Password Safe settings, persisted tasks, attachments, tests, Plugin Verifier, and packaged distribution.
 
-The current model transport uses a bounded non-streaming Chat Completions request for each agent turn. UI run state and tool progress are event-driven, but token-level model streaming is not part of `0.1.0`.
+The current model transport uses a bounded non-streaming Chat Completions request for each agent turn. UI run state and tool progress are event-driven, but token-level model streaming is not part of `0.2.0`.

@@ -4,8 +4,10 @@ import com.codeagent.plugin.settings.CodeAgentSettingsService
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.AppExecutorUtil
+import java.nio.file.Path
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -16,6 +18,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
     private val settingsService = service<CodeAgentSettingsService>()
     private val executor = AppExecutorUtil.getAppExecutorService()
     private val activeRun = AtomicReference<RunContext?>()
+    private val promptComposer = AgentPromptComposer(WorkspaceGuidanceLoader(project.basePath?.let(Path::of)))
 
     fun start(
         history: List<AgentMessage>,
@@ -30,9 +33,14 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         executor.execute {
             listener.onRunStateChanged("running")
             try {
+                val prompt = promptComposer.compose(mode)
+                LOG.debug(
+                    "Starting agent with prompt ${prompt.version}; workspace guidance=${prompt.includesWorkspaceGuidance}",
+                )
                 AgentLoop(
                     gateway = OpenAIModelGateway(settings),
                     tools = AgentToolExecutor(project),
+                    systemPrompt = prompt.message,
                     autoApproveReadOnly = settings.autoApproveReadOnly,
                     callbacks = object : AgentLoopCallbacks {
                         override fun onAssistantMessage(content: String) = listener.onAssistantMessage(content)
@@ -96,6 +104,10 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         var current = this
         while (current.cause != null) current = current.cause!!
         return current.message ?: "Agent run failed"
+    }
+
+    companion object {
+        private val LOG = logger<AgentOrchestrator>()
     }
 }
 

@@ -19,7 +19,7 @@ CodeAgent deliberately starts with a smaller promise: **an IDE-native, local-fir
 | Trust model | Product-managed policies and services | Read-only Ask mode and explicit mutation approvals |
 | Data boundary | Product cloud plus local IDE processes | Local index; model traffic only to the configured endpoint |
 
-## Version 0.1 scope
+## Version 0.2 scope
 
 - Persistent project tasks with search and switching.
 - ContextEngine indexing, health, progress, retrieval, and text search.
@@ -28,7 +28,8 @@ CodeAgent deliberately starts with a smaller promise: **an IDE-native, local-fir
 - Approval cards for file mutations and commands, plus run cancellation.
 - Project file attachments, model/runtime settings, and Password Safe credentials.
 - JCEF interface with a Swing fallback when JCEF is unavailable.
+- JVM-owned, versioned prompt composition with root `AGENTS.md` workspace guidance.
 
 ## Explicit boundaries
 
-Version 0.1 does not provide team accounts, cloud synchronization, billing, analytics, remote integrations, MCP configuration UI, semantic embeddings, or token-level response streaming. These are future product decisions, not hidden dependencies of the local agent loop.
+Version 0.2 does not provide team accounts, cloud synchronization, billing, analytics, remote integrations, MCP configuration UI, semantic embeddings, or token-level response streaming. These are future product decisions, not hidden dependencies of the local agent loop.
