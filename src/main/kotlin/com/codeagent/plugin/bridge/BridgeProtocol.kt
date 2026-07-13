@@ -46,6 +46,13 @@ data class ThreadSummaryDto(
 )
 
 @Serializable
+data class ContextItemDto(
+    val id: String,
+    val label: String,
+    val path: String,
+)
+
+@Serializable
 data class SettingsSnapshotDto(
     val endpoint: String = "https://api.openai.com/v1",
     val model: String = "gpt-5.2",
@@ -70,6 +77,7 @@ data class AppSnapshotDto(
     val messages: List<ChatMessageDto> = emptyList(),
     val tools: List<ToolRunDto> = emptyList(),
     val threads: List<ThreadSummaryDto>,
+    val attachments: List<ContextItemDto> = emptyList(),
     val settings: SettingsSnapshotDto = SettingsSnapshotDto(),
     val context: ContextSnapshotDto = ContextSnapshotDto(),
 )

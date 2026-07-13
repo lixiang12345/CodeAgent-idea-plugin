@@ -17,4 +17,15 @@
                     secondary="true"
                     factoryClass="com.codeagent.plugin.ui.CodeAgentToolWindowFactory"/>
     </extensions>
+
+    <actions>
+        <action id="CodeAgent.ShowToolWindow"
+                class="com.codeagent.plugin.actions.ShowCodeAgentAction"
+                text="Show CodeAgent"
+                description="Open the CodeAgent tool window">
+            <keyboard-shortcut keymap="$default" first-keystroke="control alt I"/>
+            <keyboard-shortcut keymap="Mac OS X" first-keystroke="meta control I"/>
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
 </idea-plugin>

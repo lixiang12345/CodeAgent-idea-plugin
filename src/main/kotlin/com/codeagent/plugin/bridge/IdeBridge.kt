@@ -4,11 +4,14 @@ import com.codeagent.plugin.agent.AgentMessage
 import com.codeagent.plugin.agent.AgentOrchestrator
 import com.codeagent.plugin.agent.AgentRunListener
 import com.codeagent.plugin.agent.AgentToolCall
+import com.codeagent.plugin.conversation.ConversationStore
 import com.codeagent.plugin.context.ContextEngineService
 import com.codeagent.plugin.settings.CodeAgentSettingsService
 import com.codeagent.plugin.settings.CodeAgentSettingsUpdate
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.fileChooser.FileChooser
+import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.project.Project
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefBrowserBase
@@ -19,7 +22,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
-import java.util.UUID
+import java.nio.file.Path
 
 class IdeBridge(
     private val project: Project,
@@ -30,15 +33,15 @@ class IdeBridge(
         encodeDefaults = true
     }
     private val query = JBCefJSQuery.create(browser as JBCefBrowserBase)
-    private val messages = mutableListOf<ChatMessageDto>()
     private val tools = linkedMapOf<String, ToolRunDto>()
+    private val attachments = linkedMapOf<String, ContextItemDto>()
+    private val conversations = project.service<ConversationStore>()
     private val contextEngine = project.service<ContextEngineService>()
     private val agent = project.service<AgentOrchestrator>()
     private val settingsService = service<CodeAgentSettingsService>()
     private val stateLock = Any()
-    private var mode = "agent"
+    private val runs = RunGeneration()
     private var runState = "idle"
-    private var thread = createThread()
 
     @Volatile
     private var context = ContextSnapshotDto(state = "not_indexed", label = "Checking context")
@@ -63,6 +66,7 @@ class IdeBridge(
     """.trimIndent()
 
     fun dispose() {
+        synchronized(stateLock) { runs.invalidate() }
         agent.cancel()
         query.dispose()
     }
@@ -83,7 +87,10 @@ class IdeBridge(
                     require(runState != "running" && runState != "awaiting_approval") {
                         "Cannot change mode while the agent is running"
                     }
-                    mode = command.payload?.let { json.decodeFromJsonElement<ModePayload>(it).mode } ?: mode
+                    conversations.setMode(
+                        command.payload?.let { json.decodeFromJsonElement<ModePayload>(it).mode }
+                            ?: conversations.active().mode,
+                    )
                 }
                 emitSnapshot()
             }
@@ -93,8 +100,11 @@ class IdeBridge(
             "indexWorkspace" -> indexWorkspace()
             "saveSettings" -> saveSettings(requireNotNull(command.payload) { "saveSettings requires payload" })
             "cancelRun" -> {
+                synchronized(stateLock) {
+                    runs.invalidate()
+                    runState = "idle"
+                }
                 agent.cancel()
-                synchronized(stateLock) { runState = "idle" }
                 emitSnapshot()
             }
             "resolveApproval" -> {
@@ -103,58 +113,71 @@ class IdeBridge(
                 synchronized(stateLock) { runState = "running" }
                 emitSnapshot()
             }
-            "selectThread", "pickContext" -> Unit
+            "selectThread" -> {
+                val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPayload>(it) }
+                synchronized(stateLock) {
+                    runs.invalidate()
+                    conversations.select(selection.threadId)
+                    tools.clear()
+                    attachments.clear()
+                    runState = "idle"
+                }
+                agent.cancel()
+                emitSnapshot()
+            }
+            "pickContext" -> pickContext()
+            "removeContext" -> {
+                val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ContextPayload>(it) }
+                synchronized(stateLock) { attachments.remove(selection.id) }
+                emitSnapshot()
+            }
             else -> error("Unknown bridge command: ${command.type}")
         }
     }
 
     private fun newThread() {
-        agent.cancel()
         synchronized(stateLock) {
-            messages.clear()
+            runs.invalidate()
             tools.clear()
+            attachments.clear()
             runState = "idle"
-            thread = createThread()
+            conversations.newThread(conversations.active().mode)
         }
+        agent.cancel()
         emitSnapshot()
     }
 
     private fun sendMessage(payload: JsonElement) {
         val request = json.decodeFromJsonElement<SendMessagePayload>(payload)
         require(request.text.isNotBlank()) { "Message must not be blank" }
-        synchronized(stateLock) {
+        val runId = synchronized(stateLock) {
             require(runState != "running" && runState != "awaiting_approval") { "Agent is already running" }
-            mode = request.mode
-            messages += ChatMessageDto(
-                id = UUID.randomUUID().toString(),
-                role = "user",
-                content = request.text.trim(),
-                createdAt = System.currentTimeMillis(),
-            )
-            thread = thread.copy(
-                title = request.text.lineSequence().first().take(48),
-                updatedAt = System.currentTimeMillis(),
-            )
+            conversations.setMode(request.mode)
+            conversations.addMessage("user", request.text.trim())
             tools.clear()
             runState = "running"
+            runs.next()
         }
         emitSnapshot()
 
         val history = synchronized(stateLock) {
-            messages.map { AgentMessage(role = it.role, content = it.content) }
+            buildList {
+                addAll(conversations.active().messages.map { AgentMessage(role = it.role, content = it.content) })
+                if (attachments.isNotEmpty()) {
+                    add(
+                        AgentMessage(
+                            role = "system",
+                            content = "User-attached project files: ${attachments.values.joinToString { it.path }}. Read these files when relevant.",
+                        ),
+                    )
+                }
+            }
         }
         agent.start(history, request.mode, object : AgentRunListener {
             override fun onAssistantMessage(content: String) {
-                synchronized(stateLock) {
-                    messages += ChatMessageDto(
-                        id = UUID.randomUUID().toString(),
-                        role = "assistant",
-                        content = content,
-                        createdAt = System.currentTimeMillis(),
-                    )
-                    thread = thread.copy(updatedAt = System.currentTimeMillis())
-                }
-                emitSnapshot()
+                if (withCurrentRun(runId) {
+                    conversations.addMessage("assistant", content)
+                }) emitSnapshot()
             }
 
             override fun onToolChanged(
@@ -163,7 +186,7 @@ class IdeBridge(
                 status: String,
                 detail: String?,
             ) {
-                synchronized(stateLock) {
+                if (withCurrentRun(runId) {
                     tools[call.id] = ToolRunDto(
                         id = call.id,
                         name = call.name,
@@ -172,19 +195,25 @@ class IdeBridge(
                         detail = detail,
                     )
                     runState = if (status == "approval") "awaiting_approval" else "running"
-                }
-                emitSnapshot()
+                }) emitSnapshot()
             }
 
             override fun onRunStateChanged(state: String) {
-                synchronized(stateLock) { runState = state }
-                emitSnapshot()
+                if (withCurrentRun(runId) {
+                    runState = state
+                }) emitSnapshot()
             }
 
             override fun onError(message: String) {
-                emit("error", mapOf("message" to message))
+                withCurrentRun(runId) { emit("error", mapOf("message" to message)) }
             }
         })
+    }
+
+    private fun withCurrentRun(generation: Long, action: () -> Unit): Boolean = synchronized(stateLock) {
+        if (!runs.isCurrent(generation)) return@synchronized false
+        action()
+        true
     }
 
     private fun saveSettings(payload: JsonElement) {
@@ -210,13 +239,19 @@ class IdeBridge(
     private fun emitSnapshot() {
         val settings = settingsService.snapshot()
         val snapshot = synchronized(stateLock) {
+            val active = conversations.active()
             AppSnapshotDto(
                 projectName = project.name,
-                mode = mode,
+                mode = active.mode,
                 runState = runState,
-                messages = messages.toList(),
+                messages = active.messages.map { message ->
+                    ChatMessageDto(message.id, message.role, message.content, message.createdAt)
+                },
                 tools = tools.values.toList(),
-                threads = listOf(thread),
+                threads = conversations.threads().map { thread ->
+                    ThreadSummaryDto(thread.id, thread.title, thread.updatedAt, thread.active)
+                },
+                attachments = attachments.values.toList(),
                 settings = SettingsSnapshotDto(
                     endpoint = settings.endpoint,
                     model = settings.model,
@@ -263,6 +298,25 @@ class IdeBridge(
         }
     }
 
+    private fun pickContext() {
+        val descriptor = FileChooserDescriptorFactory.singleFile()
+            .withTitle("Attach Project File")
+            .withDescription("Select a file to add to the current CodeAgent task")
+        FileChooser.chooseFile(descriptor, project, null) { file ->
+            val root = Path.of(requireNotNull(project.basePath)).toAbsolutePath().normalize()
+            val selected = file.toNioPath().toAbsolutePath().normalize()
+            if (!selected.startsWith(root)) {
+                emit("error", mapOf("message" to "Only files inside the current project can be attached"))
+                return@chooseFile
+            }
+            val relative = root.relativize(selected).toString()
+            synchronized(stateLock) {
+                attachments[relative] = ContextItemDto(relative, file.name, relative)
+            }
+            emitSnapshot()
+        }
+    }
+
     private fun Throwable.rootMessage(): String {
         var current: Throwable = this
         while (current.cause != null) current = current.cause!!
@@ -285,13 +339,6 @@ class IdeBridge(
         )
     }
 
-    private fun createThread() = ThreadSummaryDto(
-        id = UUID.randomUUID().toString(),
-        title = "New task",
-        updatedAt = System.currentTimeMillis(),
-        active = true,
-    )
-
     @Serializable
     private data class ModePayload(val mode: String)
 
@@ -300,6 +347,12 @@ class IdeBridge(
 
     @Serializable
     private data class ApprovalPayload(val toolId: String, val approved: Boolean)
+
+    @Serializable
+    private data class ThreadPayload(val threadId: String)
+
+    @Serializable
+    private data class ContextPayload(val id: String)
 
     @Serializable
     private data class SettingsPayload(

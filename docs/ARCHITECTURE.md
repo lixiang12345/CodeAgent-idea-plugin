@@ -77,9 +77,11 @@ The integration is a pinned Git submodule compiled into the Node sidecar. CodeAg
 - Writes and terminal commands require approval unless the user explicitly enables per-thread auto approval.
 - The webview has no direct filesystem, process, credential, or network authority.
 
-## Delivery phases
+## Delivered phases
 
-1. Plugin shell: buildable tool window, JCEF/Swing fallback, typed bridge, frontend state.
-2. Context: pinned ContextEngine, index status/progress, retrieval tool, Node health checks.
-3. Agent: OpenAI-compatible streaming loop, IDE tools, approval/cancel semantics, edit summaries.
-4. Product hardening: settings, persisted threads, tests, plugin verifier, packaged distribution.
+1. Plugin shell: buildable tool window, JCEF/Swing fallback, typed bridge, frontend state. (`202aa59`)
+2. Context: pinned ContextEngine, index status/progress, retrieval tool, Node health checks. (`22ef1d2`)
+3. Agent: OpenAI-compatible tool loop, IDE tools, approval/cancel semantics, edit summaries. (`27e5c3c`)
+4. Product hardening: Password Safe settings, persisted tasks, attachments, tests, Plugin Verifier, and packaged distribution.
+
+The current model transport uses a bounded non-streaming Chat Completions request for each agent turn. UI run state and tool progress are event-driven, but token-level model streaming is not part of `0.1.0`.

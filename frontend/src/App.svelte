@@ -1,6 +1,5 @@
 <script lang="ts">
   import {
-    Archive,
     Bot,
     Check,
     ChevronDown,
@@ -8,7 +7,6 @@
     CircleAlert,
     Database,
     FileCode2,
-    History,
     Menu,
     MessageSquarePlus,
     PanelLeftClose,
@@ -45,8 +43,10 @@
   let apiKey = "";
   let autoApproveReadOnly = true;
   let error = "";
+  let threadSearch = "";
 
   onMount(() => {
+    if (window.matchMedia("(max-width: 680px)").matches) sidebarOpen = false;
     const unsubscribe = onHostEvent(handleEvent);
     sendCommand("bootstrap");
     return unsubscribe;
@@ -117,6 +117,21 @@
   function isBusy() {
     return snapshot?.runState === "running" || snapshot?.runState === "awaiting_approval";
   }
+
+  function visibleThreads() {
+    const query = threadSearch.trim().toLowerCase();
+    return query ? snapshot?.threads.filter((thread) => thread.title.toLowerCase().includes(query)) ?? [] : snapshot?.threads ?? [];
+  }
+
+  function startNewThread() {
+    sendCommand("newThread");
+    if (window.matchMedia("(max-width: 680px)").matches) sidebarOpen = false;
+  }
+
+  function selectThread(threadId: string) {
+    sendCommand("selectThread", { threadId });
+    if (window.matchMedia("(max-width: 680px)").matches) sidebarOpen = false;
+  }
 </script>
 
 <svelte:window onkeydown={(event) => {
@@ -133,18 +148,14 @@
         <div class="brand"><span class="brand-mark"><Bot size={16} /></span><strong>CodeAgent</strong></div>
         <button class="icon-button" title="Close tasks" onclick={() => sidebarOpen = false}><PanelLeftClose size={16} /></button>
       </div>
-      <button class="primary-command" onclick={() => sendCommand("newThread")}><MessageSquarePlus size={16} /><span>New task</span></button>
-      <label class="search"><Search size={14} /><input aria-label="Search tasks" placeholder="Search" /></label>
+      <button class="primary-command" onclick={startNewThread}><MessageSquarePlus size={16} /><span>New task</span></button>
+      <label class="search"><Search size={14} /><input bind:value={threadSearch} aria-label="Search tasks" placeholder="Search" /></label>
       <div class="thread-list">
-        {#each snapshot.threads as thread}
-          <button class:active={thread.active} class="thread" onclick={() => sendCommand("selectThread", { threadId: thread.id })}>
+        {#each visibleThreads() as thread}
+          <button class:active={thread.active} class="thread" onclick={() => selectThread(thread.id)}>
             <span>{thread.title}</span><time>{formatTime(thread.updatedAt)}</time>
           </button>
         {/each}
-      </div>
-      <div class="side-foot">
-        <button><History size={15} /><span>History</span></button>
-        <button><Archive size={15} /><span>Archived</span></button>
       </div>
     </aside>
 
@@ -204,6 +215,13 @@
 
       <footer class="composer-wrap">
         <div class="composer" class:busy={isBusy()}>
+          {#if snapshot.attachments.length > 0}
+            <div class="context-chips">
+              {#each snapshot.attachments as item}
+                <span><FileCode2 size={13} /><span title={item.path}>{item.label}</span><button title="Remove context" onclick={() => sendCommand("removeContext", { id: item.id })}><X size={12} /></button></span>
+              {/each}
+            </div>
+          {/if}
           <textarea bind:value={prompt} placeholder={snapshot.mode === "agent" ? "Describe a coding task" : "Ask about this project"} onkeydown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); }
           }}></textarea>

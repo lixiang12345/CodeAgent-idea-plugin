@@ -26,6 +26,12 @@ export interface ThreadSummary {
   active: boolean;
 }
 
+export interface ContextItem {
+  id: string;
+  label: string;
+  path: string;
+}
+
 export interface SettingsSnapshot {
   endpoint: string;
   model: string;
@@ -41,6 +47,7 @@ export interface AppSnapshot {
   messages: ChatMessage[];
   tools: ToolRun[];
   threads: ThreadSummary[];
+  attachments: ContextItem[];
   settings: SettingsSnapshot;
   context: {
     state: "unavailable" | "not_indexed" | "indexing" | "ready" | "error";
@@ -109,6 +116,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     messages: [],
     tools: [],
     threads: [{ id: "dev", title: "New task", updatedAt: Date.now(), active: true }],
+    attachments: [],
     settings: {
       endpoint: "https://api.openai.com/v1",
       model: "gpt-5.2",
