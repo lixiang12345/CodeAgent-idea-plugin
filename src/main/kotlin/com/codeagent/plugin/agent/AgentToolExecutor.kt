@@ -1,6 +1,7 @@
 package com.codeagent.plugin.agent
 
 import com.codeagent.plugin.context.ContextEngineService
+import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.process.CapturingProcessHandler
 import com.intellij.openapi.application.ApplicationManager
@@ -9,6 +10,8 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
+import com.intellij.problems.WolfTheProblemSolver
+import com.intellij.psi.PsiManager
 import com.intellij.util.concurrency.AppExecutorUtil
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -66,6 +69,16 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
             ),
             required = listOf("query"),
         )))
+        add(tool("diagnostics", "Check whether IntelliJ currently reports problems for a project file", schema(
+            properties = mapOf("path" to stringProperty("Project-relative file path")),
+            required = listOf("path"),
+        )))
+        add(tool("git_history", "Read recent Git commits for the project or one project path", schema(
+            properties = mapOf(
+                "path" to stringProperty("Optional project-relative file or directory"),
+                "limit" to integerProperty("Maximum commits", 1, 50),
+            ),
+        )))
         if (mode == "agent") {
             add(tool("write_file", "Create or replace a UTF-8 project file", schema(
                 properties = mapOf(
@@ -113,6 +126,8 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
             "read_file" -> readFile(args)
             "list_files" -> listFiles(args)
             "search_text" -> searchText(args)
+            "diagnostics" -> diagnostics(args)
+            "git_history" -> gitHistory(args)
             "write_file" -> writeFile(args)
             "replace_text" -> replaceText(args)
             "run_terminal" -> runTerminal(args)
@@ -183,6 +198,48 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
         }
         val output = matches.joinToString("\n").ifEmpty { "No matches" }
         return ToolExecutionResult(output, "Found ${matches.size} matches", output.take(MAX_DETAIL_CHARS))
+    }
+
+    private fun diagnostics(args: JsonObject): ToolExecutionResult {
+        val relative = args.requiredString("path")
+        val file = guard.existingFile(relative)
+        val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(file)
+            ?: error("Cannot resolve $relative in the IDE")
+        val state = ApplicationManager.getApplication().runReadAction<Pair<Boolean, Boolean>> {
+            val psiFile = PsiManager.getInstance(project).findFile(virtualFile)
+                ?: error("IntelliJ cannot create a PSI file for $relative")
+            DaemonCodeAnalyzer.getInstance(project).isHighlightingAvailable(psiFile) to
+                WolfTheProblemSolver.getInstance(project).isProblemFile(virtualFile)
+        }
+        val output = when {
+            !state.first -> "IDE highlighting is not available for $relative"
+            state.second -> "IntelliJ currently marks $relative as containing one or more errors"
+            else -> "IntelliJ currently has no registered errors for $relative"
+        }
+        return ToolExecutionResult(output, if (state.second) "Problems in $relative" else "No errors in $relative", output)
+    }
+
+    private fun gitHistory(args: JsonObject): ToolExecutionResult {
+        val limit = (args["limit"]?.jsonPrimitive?.intOrNull ?: 10).coerceIn(1, 50)
+        val relative = args.string("path")?.takeIf(String::isNotBlank)
+        relative?.let { guard.existing(it) }
+        val command = buildList {
+            addAll(listOf("git", "-C", root.toString(), "log", "-n", limit.toString(), "--date=iso-strict"))
+            add("--pretty=format:%H%x09%an%x09%ad%x09%s")
+            if (relative != null) addAll(listOf("--", relative))
+        }
+        val result = CapturingProcessHandler(
+            GeneralCommandLine(command).withWorkDirectory(root.toFile()).withCharset(StandardCharsets.UTF_8),
+        ).runProcess(15_000)
+        check(!result.isTimeout) { "Git history timed out" }
+        check(result.exitCode == 0) { result.stderr.trim().ifEmpty { "git log failed with exit ${result.exitCode}" } }
+        val output = result.stdout.trim().ifEmpty { "No commits found" }.takeLast(20_000)
+        val count = if (output == "No commits found") 0 else output.lineSequence().count()
+        return ToolExecutionResult(
+            output = output,
+            summary = if (relative == null) "$count recent commits" else "$count commits for $relative",
+            detail = output.take(MAX_DETAIL_CHARS),
+        )
     }
 
     private fun writeFile(args: JsonObject): ToolExecutionResult {
@@ -349,7 +406,7 @@ class ProjectPathGuard(private val root: Path) {
         return candidate
     }
 
-    private fun existing(relative: String): Path {
+    fun existing(relative: String): Path {
         val candidate = normalizedRoot.resolve(relative).normalize()
         require(candidate.startsWith(normalizedRoot)) { "Path escapes the project: $relative" }
         val real = candidate.toRealPath()

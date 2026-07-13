@@ -199,6 +199,8 @@
       replace_text: "Editing",
       run_terminal: "Terminal",
       open_file: "Open in Editor",
+      diagnostics: "Diagnostics",
+      git_history: "Git Commit Retrieval",
     };
     return titles[tool.name] ?? tool.name.replaceAll("_", " ");
   }
@@ -307,6 +309,8 @@
                               {:else if tool.name === "run_terminal"}<SquareTerminal size={14} />
                               {:else if tool.name === "list_files"}<Folder size={14} />
                               {:else if tool.name === "search_text"}<Search size={14} />
+                              {:else if tool.name === "diagnostics"}<CircleAlert size={14} />
+                              {:else if tool.name === "git_history"}<GitCommitHorizontal size={14} />
                               {:else if tool.name === "write_file" || tool.name === "replace_text"}<FilePen size={14} />
                               {:else if tool.name === "open_file"}<ExternalLink size={14} />
                               {:else}<File size={14} />{/if}
