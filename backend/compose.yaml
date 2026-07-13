@@ -1,0 +1,13 @@
+services:
+  backend:
+    build: .
+    image: codeagent-backend:0.6.0
+    container_name: codeagent-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+    ports:
+      - "127.0.0.1:${CODEAGENT_HOST_PORT:-8788}:8787"

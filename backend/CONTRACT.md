@@ -12,6 +12,12 @@ The authoritative machine-readable schema is `openapi.json`, also served publicl
 - Browser development origins must be listed in `CORS_ALLOWED_ORIGINS` as a comma-separated exact-origin allowlist.
 - Model provider credentials never cross this API boundary.
 
+Start or update the local deployment from the repository root:
+
+```bash
+docker compose -f backend/compose.yaml up -d --build
+```
+
 ## Required flow
 
 1. Call `GET /health` and reject any `protocolVersion` other than `1`.
