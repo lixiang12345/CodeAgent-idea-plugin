@@ -72,4 +72,22 @@ class ConversationStoreTest {
         store.newThread()
         assertTrue(store.active().selectedRuleIds.isEmpty())
     }
+
+    @Test
+    fun `imports deletes and clears persistent tasks`() {
+        val store = ConversationStore()
+        val imported = store.importTasks(
+            listOf(
+                "Inspect implementation" to "not_started",
+                "Run regression tests" to "completed",
+            ),
+        )
+
+        assertEquals(listOf("not_started", "completed"), store.active().tasks.map { it.state })
+        store.deleteTask(imported.first().id)
+        assertEquals(listOf("Run regression tests"), store.active().tasks.map { it.name })
+
+        store.clearTasks()
+        assertTrue(store.active().tasks.isEmpty())
+    }
 }

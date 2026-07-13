@@ -22,6 +22,8 @@ For deployment, build `backend/Dockerfile` and provide `CODEAGENT_AUTH_TOKEN`, `
 3. Open Settings in the CodeAgent panel and configure the backend URL, matching backend token, and a Node.js 22.5+ executable.
 4. Select **Index project**, then use **Agent** for approved code changes, **Chat** for code-aware collaboration, or **Ask** for read-only analysis.
 
+The panel's workspace menu opens the prototype-aligned **Tasks**, **Git**, and **Image Canvas** pages. Tasks persist per thread and can be imported/exported as Markdown. Git reads the real index and working tree, opens JetBrains Diff, and requires explicit confirmation before committing. Image Canvas previews bounded raster assets from a user-selected directory inside the project and can attach them to the active conversation.
+
 The backend token is stored in JetBrains Password Safe. Model credentials stay on the deployed backend. ContextEngine's index stays local; selected repository context, rules, skills, messages, and tool results are sent to the configured backend for the active Agent run.
 
 ## Development prerequisites

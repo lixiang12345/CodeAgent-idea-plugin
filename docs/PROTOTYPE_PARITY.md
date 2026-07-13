@@ -38,6 +38,25 @@ The deployed backend owns prompts, model credentials, the bounded agent loop, st
 | Mermaid | Diagram/code modes, zoom, fit, open-in-tab and render failure state |
 | IDE integration | Tool window, actions, status/completion states, file/editor/terminal/Git navigation |
 
+## Current implementation status
+
+This table is the release gate. `Partial` means the visible surface exists but at least one prototype workflow is still intentionally unavailable.
+
+| Surface | Status | Real behavior in the current build |
+| --- | --- | --- |
+| Main panel | Implemented | 420 px IDEA tool window, streamed messages, context strip, tool cards, approvals, composer, stop/send states |
+| Threads | Partial | Create, select, search, mode tags, and Markdown export work; pin, delete, and import remain unavailable |
+| Composer | Partial | Modes, project attachments, Skills, slash seed, auto-run policy, send/stop work; queue and prompt enhancer remain unavailable |
+| Tools | Partial | 15 local tool definitions execute through the IDEA gateway; web, cloud, MCP, and subagent tools are not advertised |
+| Agent edits | Partial | Native Diff, guarded per-file undo, review, keep-all, and atomic discard-all work; checkpoints remain unavailable |
+| Tasks | Implemented | Persistent per-thread tasks, filtering, add/delete/state, clear, Markdown import/export, run-one/run-all, and Agent task tools |
+| Git | Implemented | Real branch/index/worktree status, stage/unstage, native Diff, local message draft, confirmation, and commit |
+| Rules editor | Partial | Repository Markdown, trigger metadata, save, and manual per-thread selection work; a separate description field is not stored yet |
+| Image Canvas | Implemented | Project-contained directory selection, bounded raster gallery, settings, refresh, open, mention, and empty/error states |
+| Mermaid | Partial | Strict rendering, diagram/code, zoom, fit, and error states work; opening a separate IDE editor tab remains unavailable |
+| Settings | Partial | All prototype navigation sections render; backend services, API token, ContextEngine, Rules, and Skills are real, while unconnected sections say so explicitly |
+| Subagents and cloud integrations | Unavailable | No success state is simulated; these require separately deployed capability providers and protocol work |
+
 ## Tool catalog
 
 The prototype defines 31 tool presentations. A card is shown as functional only when its backend or IDE capability is connected:

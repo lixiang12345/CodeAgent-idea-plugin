@@ -69,6 +69,39 @@ data class ContextItemDto(
 )
 
 @Serializable
+data class GitFileDto(
+    val path: String,
+    val status: String,
+)
+
+@Serializable
+data class GitSnapshotDto(
+    val available: Boolean = false,
+    val branch: String = "",
+    val repository: String = "",
+    val unstaged: List<GitFileDto> = emptyList(),
+    val staged: List<GitFileDto> = emptyList(),
+    val error: String? = null,
+)
+
+@Serializable
+data class ImageItemDto(
+    val id: String,
+    val name: String,
+    val path: String,
+    val dataUrl: String,
+    val sizeBytes: Long,
+)
+
+@Serializable
+data class ImageCanvasSnapshotDto(
+    val directory: String = "",
+    val images: List<ImageItemDto> = emptyList(),
+    val truncated: Boolean = false,
+    val error: String? = null,
+)
+
+@Serializable
 data class SettingsSnapshotDto(
     val backendUrl: String = "http://127.0.0.1:8787",
     val nodePath: String = "node",

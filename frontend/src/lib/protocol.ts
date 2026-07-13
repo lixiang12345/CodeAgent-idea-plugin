@@ -41,6 +41,35 @@ export interface ContextItem {
   path: string;
 }
 
+export interface GitFile {
+  path: string;
+  status: string;
+}
+
+export interface GitSnapshot {
+  available: boolean;
+  branch: string;
+  repository: string;
+  unstaged: GitFile[];
+  staged: GitFile[];
+  error?: string;
+}
+
+export interface ImageItem {
+  id: string;
+  name: string;
+  path: string;
+  dataUrl: string;
+  sizeBytes: number;
+}
+
+export interface ImageCanvasSnapshot {
+  directory: string;
+  images: ImageItem[];
+  truncated: boolean;
+  error?: string;
+}
+
 export interface SettingsSnapshot {
   backendUrl: string;
   nodePath: string;
@@ -139,6 +168,29 @@ window.CodeAgent = {
 };
 
 function handleDevelopmentCommand(command: CommandEnvelope): void {
+  if (command.type === "refreshGit") {
+    const payload: GitSnapshot = {
+      available: true,
+      branch: "main",
+      repository: "sample-project",
+      unstaged: [
+        { path: "src/main/java/com/example/auth/AuthController.java", status: "modified" },
+        { path: "src/test/java/com/example/auth/AuthControllerTest.java", status: "untracked" },
+      ],
+      staged: [{ path: "src/main/java/com/example/auth/TokenService.java", status: "modified" }],
+    };
+    queueMicrotask(() => window.CodeAgent?.receive(JSON.stringify({ version: 1, type: "gitSnapshot", payload })));
+    return;
+  }
+  if (command.type === "suggestCommitMessage") {
+    queueMicrotask(() => window.CodeAgent?.receive(JSON.stringify({ version: 1, type: "gitCommitSuggested", payload: { message: "feat(auth): update JWT login flow" } })));
+    return;
+  }
+  if (command.type === "refreshImageCanvas") {
+    const payload: ImageCanvasSnapshot = { directory: "docs/screenshots", images: [], truncated: false };
+    queueMicrotask(() => window.CodeAgent?.receive(JSON.stringify({ version: 1, type: "imageCanvas", payload })));
+    return;
+  }
   if (command.type !== "bootstrap") return;
   const snapshot: AppSnapshot = {
     projectName: "sample-project",

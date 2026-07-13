@@ -11,6 +11,7 @@
     CircleCheck,
     Copy,
     Database,
+    Download,
     Ellipsis,
     ExternalLink,
     File,
@@ -23,6 +24,7 @@
     Globe,
     History,
     ImagePlus,
+    Images,
     Layers,
     Library,
     ListChecks,
@@ -46,6 +48,8 @@
     SquareTerminal,
     Undo2,
     UserRound,
+    Trash2,
+    Upload,
     WandSparkles,
     Workflow,
     X,
@@ -57,6 +61,9 @@
     sendCommand,
     type AppSnapshot,
     type EventEnvelope,
+    type GitFile,
+    type GitSnapshot,
+    type ImageCanvasSnapshot,
     type Mode,
     type ToolRun,
     type WorkspaceRule,
@@ -74,7 +81,8 @@
 
   let snapshot: AppSnapshot | null = null;
   let prompt = "";
-  let currentView: "chat" | "settings" | "mermaid" = "chat";
+  type WorkspaceView = "chat" | "settings" | "mermaid" | "git" | "tasks" | "images";
+  let currentView: WorkspaceView = "chat";
   let settingsSection = "Home";
   let settingsNavigationOpen = true;
   let threadDrawerOpen = false;
@@ -98,6 +106,16 @@
   let error = "";
   let notice = "";
   let threadSearch = "";
+  let moreMenuOpen = false;
+  let taskFilter: "all" | "pending" | "running" | "done" = "all";
+  let newTaskName = "";
+  let commitMessage = "";
+  let gitLoading = false;
+  let gitSnapshot: GitSnapshot = { available: false, branch: "", repository: "", unstaged: [], staged: [] };
+  let imageCanvas: ImageCanvasSnapshot = { directory: "", images: [], truncated: false };
+  let imageSettingsOpen = false;
+  let imageColumns = 3;
+  let imageZoom = 100;
 
   onMount(() => {
     const unsubscribe = onHostEvent(handleEvent);
@@ -115,6 +133,23 @@
     }
     if (event.type === "error") {
       error = String((event.payload as { message?: string })?.message ?? "Unexpected error");
+      return;
+    }
+    if (event.type === "notice") {
+      notice = String((event.payload as { message?: string })?.message ?? "Done");
+      return;
+    }
+    if (event.type === "gitSnapshot") {
+      gitSnapshot = event.payload as GitSnapshot;
+      gitLoading = false;
+      return;
+    }
+    if (event.type === "gitCommitSuggested") {
+      commitMessage = String((event.payload as { message?: string })?.message ?? "");
+      return;
+    }
+    if (event.type === "imageCanvas") {
+      imageCanvas = event.payload as ImageCanvasSnapshot;
       return;
     }
     if (event.type === "messageDelta" && snapshot) {
@@ -209,6 +244,34 @@
     currentView = "settings";
   }
 
+  function openWorkspaceView(view: WorkspaceView) {
+    currentView = view;
+    moreMenuOpen = false;
+    if (view === "git") {
+      gitLoading = true;
+      sendCommand("refreshGit");
+    }
+    if (view === "images") sendCommand("refreshImageCanvas");
+  }
+
+  function filteredTasks() {
+    if (!snapshot || taskFilter === "all") return snapshot?.tasks ?? [];
+    if (taskFilter === "pending") return snapshot.tasks.filter((task) => task.state === "not_started");
+    if (taskFilter === "running") return snapshot.tasks.filter((task) => task.state === "in_progress");
+    return snapshot.tasks.filter((task) => task.state === "completed" || task.state === "cancelled");
+  }
+
+  function addTask() {
+    const name = newTaskName.trim();
+    if (!name) return;
+    sendCommand("addTask", { name });
+    newTaskName = "";
+  }
+
+  function gitPaths(files: GitFile[]) {
+    return files.map((file) => file.path);
+  }
+
   function chooseSettingsSection(section: string) {
     settingsSection = section;
     ruleEditorOpen = false;
@@ -290,7 +353,17 @@
           <button class="icon-button" title="Threads" aria-label="Threads" onclick={() => threadDrawerOpen = true}><Menu size={15} /></button>
           <button class="icon-button" title="New thread" aria-label="New thread" onclick={startNewThread}><Plus size={16} /></button>
           <button class="icon-button" title="Copy thread as Markdown" aria-label="Copy thread as Markdown" onclick={copyThread}><Share2 size={14} /></button>
-          <button class="icon-button" title="More options are not connected" aria-label="More options" disabled><Ellipsis size={16} /></button>
+          <div class="more-control">
+            <button class="icon-button" class:active={moreMenuOpen} title="Workspace tools" aria-label="Workspace tools" onclick={() => moreMenuOpen = !moreMenuOpen}><Ellipsis size={16} /></button>
+            {#if moreMenuOpen}
+              <div class="workspace-menu">
+                <button onclick={() => openWorkspaceView("tasks")}><ListChecks size={14} /><span><strong>Tasks</strong><small>Plan and run agent work</small></span></button>
+                <button onclick={() => openWorkspaceView("git")}><GitBranch size={14} /><span><strong>Git</strong><small>Review, stage, and commit</small></span></button>
+                <button onclick={() => openWorkspaceView("images")}><Images size={14} /><span><strong>Image Canvas</strong><small>Browse project images</small></span></button>
+                <button onclick={() => openSettings()}><Settings size={14} /><span><strong>Settings</strong><small>Services and workspace</small></span></button>
+              </div>
+            {/if}
+          </div>
         {:else}
           <button class="icon-button" title="Back to chat" aria-label="Back to chat" onclick={() => currentView = "chat"}><X size={16} /></button>
         {/if}
@@ -309,7 +382,7 @@
         </header>
 
         <div class="repository-strip">
-          <button title="Active repository"><GitBranch size={12} /><span>{snapshot.projectName}</span></button>
+          <button title="Open Git workspace" onclick={() => openWorkspaceView("git")}><GitBranch size={12} /><span>{snapshot.projectName}</span></button>
           <button title="Repository guidelines" onclick={() => openSettings("Rules & Guidelines")}><Library size={12} /><span>Guidelines</span></button>
           <span class="repository-spacer"></span>
           <button class="index-state {snapshot.context.state}" title={snapshot.context.label} onclick={updateContext}>
@@ -413,7 +486,7 @@
                             </label>
                           {/each}
                         </div>
-                        <footer><button onclick={() => sendCommand("clearCompletedTasks")}>Clear completed</button></footer>
+                        <footer><button onclick={() => openWorkspaceView("tasks")}>Open Tasks</button><button onclick={() => sendCommand("clearCompletedTasks")}>Clear completed</button></footer>
                       {/if}
                     </section>
                   {/if}
@@ -546,6 +619,82 @@
           </div>
         </div>
       </section>
+    {:else if currentView === "git"}
+      <section class="workspace-view">
+        <header class="canvas-header"><button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><ChevronLeft size={15} /></button><GitBranch size={14} /><strong>Git</strong><button class="icon-button compact" title="Refresh Git status" onclick={() => { gitLoading = true; sendCommand("refreshGit"); }}><RefreshCw size={13} /></button></header>
+        <div class="workspace-body">
+          {#if gitLoading}
+            <div class="workspace-empty"><RefreshCw size={19} /><strong>Reading repository status</strong></div>
+          {:else if gitSnapshot.error || !gitSnapshot.available}
+            <div class="workspace-empty"><GitBranch size={20} /><strong>Git unavailable</strong><p>{gitSnapshot.error ?? "This project is not a Git repository."}</p></div>
+          {:else}
+            <div class="workspace-context"><span><GitBranch size={13} />{gitSnapshot.branch}</span><small>repo: {gitSnapshot.repository}</small></div>
+            <section class="workspace-section">
+              <header><div><strong>Unstaged</strong><small>{gitSnapshot.unstaged.length} files</small></div><button disabled={gitSnapshot.unstaged.length === 0} onclick={() => sendCommand("stageGit", { paths: gitPaths(gitSnapshot.unstaged) })}>Stage All</button></header>
+              <div class="workspace-list">
+                {#each gitSnapshot.unstaged as file}
+                  <div class="workspace-file"><File size={14} /><span><strong>{file.path}</strong><small>{file.status}</small></span><button onclick={() => sendCommand("stageGit", { paths: [file.path] })}>Stage</button><button class="icon-button compact" title="Open working tree Diff" onclick={() => sendCommand("openGitDiff", { path: file.path, staged: false })}><FileDiff size={13} /></button></div>
+                {:else}<div class="workspace-list-empty">No unstaged changes</div>{/each}
+              </div>
+            </section>
+            <section class="workspace-section">
+              <header><div><strong>Reviewed and Approved</strong><small>{gitSnapshot.staged.length} files</small></div></header>
+              <div class="workspace-list">
+                {#each gitSnapshot.staged as file}
+                  <div class="workspace-file"><File size={14} /><span><strong>{file.path}</strong><small>{file.status}</small></span><button onclick={() => sendCommand("unstageGit", { paths: [file.path] })}>Unstage</button><button class="icon-button compact" title="Open staged Diff" onclick={() => sendCommand("openGitDiff", { path: file.path, staged: true })}><FileDiff size={13} /></button></div>
+                {:else}<div class="workspace-list-empty">No staged files to commit</div>{/each}
+              </div>
+            </section>
+            <section class="workspace-section commit-section">
+              <header><div><strong>Commit message</strong><small>Commits only the staged files above</small></div></header>
+              <textarea bind:value={commitMessage} placeholder="Enter commit message..." maxlength="4000"></textarea>
+              <footer><button disabled={gitSnapshot.staged.length === 0} onclick={() => sendCommand("suggestCommitMessage", { files: gitSnapshot.staged })}><Sparkles size={13} />Generate message</button><button class="primary" disabled={gitSnapshot.staged.length === 0 || !commitMessage.trim()} onclick={() => sendCommand("commitGit", { message: commitMessage })}><GitCommitHorizontal size={13} />Commit</button></footer>
+            </section>
+          {/if}
+        </div>
+      </section>
+    {:else if currentView === "tasks"}
+      <section class="workspace-view">
+        <header class="canvas-header"><button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><ChevronLeft size={15} /></button><ListChecks size={14} /><strong>Tasks</strong><span class="workspace-count">{snapshot.tasks.filter((task) => task.state === "completed").length}/{snapshot.tasks.length}</span></header>
+        <div class="workspace-body task-workspace">
+          <div class="workspace-actions">
+            <div class="segmented-control"><button class:active={taskFilter === "all"} onclick={() => taskFilter = "all"}>All</button><button class:active={taskFilter === "pending"} onclick={() => taskFilter = "pending"}>Pending</button><button class:active={taskFilter === "running"} onclick={() => taskFilter = "running"}>Running</button><button class:active={taskFilter === "done"} onclick={() => taskFilter = "done"}>Done</button></div>
+            <button class="primary" disabled={isBusy() || snapshot.tasks.every((task) => task.state === "completed" || task.state === "cancelled")} onclick={() => sendCommand("runAllTasks")}><Play size={13} />Run All</button>
+          </div>
+          <div class="task-import-actions"><button onclick={() => sendCommand("exportTasks")} disabled={snapshot.tasks.length === 0}><Upload size={12} />Export</button><button onclick={() => sendCommand("importTasks")}><Download size={12} />Import</button><button onclick={() => sendCommand("clearCompletedTasks")} disabled={!snapshot.tasks.some((task) => task.state === "completed" || task.state === "cancelled")}>Clear Completed</button><button class="danger" onclick={() => sendCommand("clearTasks")} disabled={snapshot.tasks.length === 0}><Trash2 size={12} />Clear All</button></div>
+          <form class="task-add" onsubmit={(event) => { event.preventDefault(); addTask(); }}><input bind:value={newTaskName} maxlength="240" placeholder="Add a new task" /><button class="primary" disabled={!newTaskName.trim()}><Plus size={13} />Add New</button></form>
+          <div class="task-workspace-list">
+            {#each filteredTasks() as task, index}
+              <div class="task-workspace-row" class:completed={task.state === "completed"} class:running={task.state === "in_progress"}>
+                <button class="task-state" title="Toggle complete" onclick={() => sendCommand("setTaskState", { taskId: task.id, state: task.state === "completed" ? "not_started" : "completed" })}>{#if task.state === "completed"}<CircleCheck size={15} />{:else}<span></span>{/if}</button>
+                <i>{index + 1}</i><span><strong>{task.name}</strong><small>{task.state.replaceAll("_", " ")}</small></span>
+                <button class="icon-button compact" title="Run task" disabled={isBusy() || task.state === "completed"} onclick={() => sendCommand("runTask", { taskId: task.id })}><Play size={13} /></button>
+                <button class="icon-button compact danger" title="Delete task" onclick={() => sendCommand("deleteTask", { taskId: task.id })}><Trash2 size={13} /></button>
+              </div>
+            {:else}<div class="workspace-empty"><ListChecks size={20} /><strong>Get Started with Tasks</strong><p>Break Agent work into runnable steps.</p></div>{/each}
+          </div>
+        </div>
+      </section>
+    {:else if currentView === "images"}
+      <section class="workspace-view image-workspace">
+        <header class="canvas-header"><button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><ChevronLeft size={15} /></button><Images size={14} /><strong>Image Canvas</strong><button class="icon-button compact" title="Refresh images" onclick={() => sendCommand("refreshImageCanvas")}><RefreshCw size={13} /></button></header>
+        <div class="workspace-body">
+          <div class="image-toolbar"><span><Folder size={13} /><b>{imageCanvas.directory || "No directory selected"}</b></span><button onclick={() => sendCommand("browseImageDirectory")}>Browse</button><button class:active={imageSettingsOpen} title="View settings" onclick={() => imageSettingsOpen = !imageSettingsOpen}><Settings size={13} /></button></div>
+          {#if imageSettingsOpen}<div class="image-settings"><label>Columns <input type="number" min="1" max="5" bind:value={imageColumns} /></label><label>Zoom <input type="range" min="50" max="200" bind:value={imageZoom} /><span>{imageZoom}%</span></label></div>{/if}
+          {#if imageCanvas.error}
+            <div class="workspace-empty"><CircleAlert size={20} /><strong>Image Canvas unavailable</strong><p>{imageCanvas.error}</p></div>
+          {:else if imageCanvas.images.length === 0}
+            <div class="workspace-empty"><ImagePlus size={20} /><strong>No images found</strong><p>Choose a project directory containing PNG, JPEG, GIF, or WebP files.</p><button class="primary" onclick={() => sendCommand("browseImageDirectory")}>Choose Directory</button></div>
+          {:else}
+            <div class="image-grid" style={`--image-columns:${imageColumns};--image-zoom:${imageZoom / 100}`}>
+              {#each imageCanvas.images as image}
+                <article class="image-item"><div class="image-thumb"><img src={image.dataUrl} alt={image.name} /></div><div class="image-meta"><strong title={image.path}>{image.name}</strong><small>{Math.max(1, Math.round(image.sizeBytes / 1024))} KB</small><div><button class="primary" onclick={() => sendCommand("attachImage", { path: image.path })}><AtSign size={12} />Mention</button><button onclick={() => sendCommand("openImage", { path: image.path })}><ExternalLink size={12} />Open</button></div></div></article>
+              {/each}
+            </div>
+            {#if imageCanvas.truncated}<p class="image-limit">Showing the first images within the 10 MB preview budget.</p>{/if}
+          {/if}
+        </div>
+      </section>
     {:else}
       <section class="mermaid-view">
         <header class="canvas-header">
@@ -562,6 +711,9 @@
         </div>
       </section>
     {/if}
+
+    {#if currentView !== "chat" && error}<div class="global-banner error-banner"><CircleAlert size={14} /><span>{error}</span><button title="Dismiss" onclick={() => error = ""}><X size={13} /></button></div>{/if}
+    {#if currentView !== "chat" && notice}<div class="global-banner notice-banner"><Check size={13} /><span>{notice}</span><button title="Dismiss" onclick={() => notice = ""}><X size={13} /></button></div>{/if}
 
     {#if threadDrawerOpen}
       <button class="drawer-backdrop" aria-label="Close threads" onclick={() => threadDrawerOpen = false}></button>

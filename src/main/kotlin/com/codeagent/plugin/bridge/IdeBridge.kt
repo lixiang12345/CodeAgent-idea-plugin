@@ -6,6 +6,8 @@ import com.codeagent.plugin.agent.AgentRunListener
 import com.codeagent.plugin.agent.AgentToolCall
 import com.codeagent.plugin.agent.ChangeReviewService
 import com.codeagent.plugin.agent.FileChange
+import com.codeagent.plugin.agent.GitWorkspaceService
+import com.codeagent.plugin.agent.ImageCanvasService
 import com.codeagent.plugin.agent.WorkspaceCustomizationService
 import com.codeagent.plugin.conversation.ConversationStore
 import com.codeagent.plugin.context.ContextEngineService
@@ -15,8 +17,10 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ide.CopyPasteManager
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefBrowserBase
@@ -28,6 +32,8 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 import java.nio.file.Path
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import java.awt.datatransfer.StringSelection
 
 class IdeBridge(
@@ -45,6 +51,8 @@ class IdeBridge(
     private val contextEngine = project.service<ContextEngineService>()
     private val agent = project.service<AgentOrchestrator>()
     private val changeReview = project.service<ChangeReviewService>()
+    private val gitWorkspace = project.service<GitWorkspaceService>()
+    private val imageCanvas = project.service<ImageCanvasService>()
     private val customizations = project.service<WorkspaceCustomizationService>()
     private val settingsService = service<CodeAgentSettingsService>()
     private val stateLock = Any()
@@ -245,6 +253,82 @@ class IdeBridge(
             }
             "clearCompletedTasks" -> {
                 conversations.clearCompletedTasks()
+                emitSnapshot()
+            }
+            "addTask" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<TaskNamePayload>(it) }
+                conversations.addTasks(listOf(request.name))
+                emitSnapshot()
+            }
+            "deleteTask" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<TaskPayload>(it) }
+                conversations.deleteTask(request.taskId)
+                emitSnapshot()
+            }
+            "clearTasks" -> {
+                conversations.clearTasks()
+                emitSnapshot()
+            }
+            "runTask" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<TaskPayload>(it) }
+                val task = requireNotNull(conversations.active().tasks.firstOrNull { it.id == request.taskId }) {
+                    "Unknown task: ${request.taskId}"
+                }
+                conversations.updateTask(task.id, "in_progress", null)
+                sendMessage(json.encodeToJsonElement(SendMessagePayload("Complete this task: ${task.name}", "agent")))
+            }
+            "runAllTasks" -> {
+                val tasks = conversations.active().tasks.filter { it.state == "not_started" || it.state == "in_progress" }
+                require(tasks.isNotEmpty()) { "No runnable tasks" }
+                val prompt = buildString {
+                    append("Complete these tasks in order, updating their task state as you work:\n")
+                    tasks.forEachIndexed { index, task -> append(index + 1).append(". ").append(task.name).append('\n') }
+                }
+                sendMessage(json.encodeToJsonElement(SendMessagePayload(prompt.trim(), "agent")))
+            }
+            "exportTasks" -> exportTasks()
+            "importTasks" -> importTasks()
+            "refreshGit" -> refreshGit()
+            "stageGit" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<GitPathsPayload>(it) }
+                gitWorkspace.stage(request.paths).whenComplete(::emitGitResult)
+            }
+            "unstageGit" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<GitPathsPayload>(it) }
+                gitWorkspace.unstage(request.paths).whenComplete(::emitGitResult)
+            }
+            "openGitDiff" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<GitDiffPayload>(it) }
+                gitWorkspace.openDiff(request.path, request.staged).whenComplete { _, error ->
+                    if (error != null) emit("error", mapOf("message" to error.rootMessage()))
+                }
+            }
+            "suggestCommitMessage" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<GitFilesPayload>(it) }
+                val message = gitWorkspace.suggestCommitMessage(request.files)
+                emit("gitCommitSuggested", mapOf("message" to message))
+            }
+            "commitGit" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<GitCommitPayload>(it) }
+                gitWorkspace.commit(request.message).whenComplete(::emitGitResult)
+            }
+            "refreshImageCanvas" -> emitImageCanvas(imageCanvas.scan())
+            "browseImageDirectory" -> browseImageDirectory()
+            "openImage" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<ImagePayload>(it) }
+                val file = imageCanvas.projectPath(request.path)
+                val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(file)
+                    ?: error("Cannot resolve ${request.path} in the IDE")
+                com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
+                    FileEditorManager.getInstance(project).openFile(virtualFile, true)
+                }
+            }
+            "attachImage" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<ImagePayload>(it) }
+                imageCanvas.projectPath(request.path)
+                synchronized(stateLock) {
+                    attachments[request.path] = ContextItemDto(request.path, Path.of(request.path).fileName.toString(), request.path)
+                }
                 emitSnapshot()
             }
             "copyThread" -> {
@@ -503,6 +587,65 @@ class IdeBridge(
         }
     }
 
+    private fun refreshGit() {
+        gitWorkspace.snapshot().whenComplete(::emitGitResult)
+    }
+
+    private fun emitGitResult(snapshot: GitSnapshotDto?, error: Throwable?) {
+        if (error != null) {
+            emit("error", mapOf("message" to error.rootMessage()))
+        } else if (snapshot != null) {
+            emit("gitSnapshot", json.encodeToJsonElement(snapshot))
+        }
+    }
+
+    private fun browseImageDirectory() {
+        val descriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor()
+            .withTitle("Choose Image Canvas Directory")
+            .withDescription("Choose a directory inside the current project")
+        FileChooser.chooseFile(descriptor, project, null) { folder ->
+            runCatching { imageCanvas.selectDirectory(folder.toNioPath()) }
+                .onSuccess(::emitImageCanvas)
+                .onFailure { emit("error", mapOf("message" to it.rootMessage())) }
+        }
+    }
+
+    private fun emitImageCanvas(snapshot: ImageCanvasSnapshotDto) {
+        emit("imageCanvas", json.encodeToJsonElement(snapshot))
+    }
+
+    private fun exportTasks() {
+        val tasks = conversations.active().tasks
+        require(tasks.isNotEmpty()) { "No tasks to export" }
+        val markdown = tasks.joinToString("\n") { task ->
+            val marker = if (task.state == "completed") "x" else " "
+            "- [$marker] ${task.name} <!-- codeagent:${task.state} -->"
+        }
+        CopyPasteManager.getInstance().setContents(StringSelection(markdown))
+        emit("notice", mapOf("message" to "Tasks copied as Markdown"))
+    }
+
+    private fun importTasks() {
+        val descriptor = FileChooserDescriptorFactory.singleFile()
+            .withTitle("Import CodeAgent Tasks")
+            .withDescription("Select a UTF-8 Markdown task list")
+        FileChooser.chooseFile(descriptor, project, null) { file ->
+            runCatching {
+                val content = Files.readString(file.toNioPath(), StandardCharsets.UTF_8)
+                val taskPattern = Regex("""^\s*[-*]\s+\[([ xX])]\s+(.+?)(?:\s+<!--\s*codeagent:([a-z_]+)\s*-->)?\s*$""")
+                val tasks = content.lineSequence().mapNotNull { line ->
+                    val match = taskPattern.matchEntire(line) ?: return@mapNotNull null
+                    val name = match.groupValues[2].trim()
+                    val metadata = match.groupValues[3]
+                    val state = metadata.ifBlank { if (match.groupValues[1].equals("x", true)) "completed" else "not_started" }
+                    name to state
+                }.take(ConversationStore.MAX_IMPORT_TASKS).toList()
+                conversations.importTasks(tasks)
+            }.onSuccess { emitSnapshot() }
+                .onFailure { emit("error", mapOf("message" to it.rootMessage())) }
+        }
+    }
+
     private fun Throwable.rootMessage(): String {
         var current: Throwable = this
         while (current.cause != null) current = current.cause!!
@@ -560,6 +703,27 @@ class IdeBridge(
 
     @Serializable
     private data class TaskStatePayload(val taskId: String, val state: String)
+
+    @Serializable
+    private data class TaskPayload(val taskId: String)
+
+    @Serializable
+    private data class TaskNamePayload(val name: String)
+
+    @Serializable
+    private data class GitPathsPayload(val paths: List<String>)
+
+    @Serializable
+    private data class GitDiffPayload(val path: String, val staged: Boolean)
+
+    @Serializable
+    private data class GitFilesPayload(val files: List<GitFileDto>)
+
+    @Serializable
+    private data class GitCommitPayload(val message: String)
+
+    @Serializable
+    private data class ImagePayload(val path: String)
 
     @Serializable
     private data class SettingsPayload(

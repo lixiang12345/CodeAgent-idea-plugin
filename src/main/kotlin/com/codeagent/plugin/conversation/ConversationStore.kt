@@ -168,6 +168,40 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         thread.updatedAt = System.currentTimeMillis()
     }
 
+    @Synchronized
+    fun deleteTask(taskId: String) {
+        val thread = mutableActive()
+        require(thread.tasks.removeIf { it.id == taskId }) { "Unknown task: $taskId" }
+        thread.updatedAt = System.currentTimeMillis()
+    }
+
+    @Synchronized
+    fun clearTasks() {
+        val thread = mutableActive()
+        thread.tasks.clear()
+        thread.updatedAt = System.currentTimeMillis()
+    }
+
+    @Synchronized
+    fun importTasks(tasks: List<Pair<String, String>>): List<ConversationTask> {
+        require(tasks.isNotEmpty()) { "No tasks found in the selected file" }
+        val thread = mutableActive()
+        require(thread.tasks.size + tasks.size <= MAX_TASKS_PER_THREAD) {
+            "A thread can contain at most $MAX_TASKS_PER_THREAD tasks"
+        }
+        val imported = tasks.map { (name, state) ->
+            require(name.isNotBlank()) { "Task names must not be blank" }
+            require(state in TASK_STATES) { "Unsupported task state: $state" }
+            ConversationTaskState().apply {
+                id = UUID.randomUUID().toString()
+                this.name = name.trim().take(MAX_TASK_NAME_CHARS)
+                this.state = state
+            }.also(thread.tasks::add)
+        }
+        thread.updatedAt = System.currentTimeMillis()
+        return imported.map { it.toDomain() }
+    }
+
     private fun mutableActive(): ConversationThreadState {
         ensureActive()
         return requireNotNull(data.threads.firstOrNull { it.id == data.activeThreadId })
@@ -214,6 +248,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         private val TASK_STATES = setOf("not_started", "in_progress", "completed", "cancelled")
         const val MAX_SELECTED_SKILLS = 8
         const val MAX_SELECTED_RULES = 32
+        const val MAX_IMPORT_TASKS = 100
     }
 }
 
