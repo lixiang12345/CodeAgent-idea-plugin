@@ -23,6 +23,7 @@ class ChangeReviewService(private val project: Project) {
     private val root = Path.of(requireNotNull(project.basePath)).toAbsolutePath().normalize()
     private val guard = ProjectPathGuard(root)
     private val changes = linkedMapOf<String, StoredChange>()
+    private val checkpoints = linkedMapOf<String, Checkpoint>()
 
     @Synchronized
     fun register(toolId: String, change: FileChange) {
@@ -35,6 +36,35 @@ class ChangeReviewService(private val project: Project) {
 
     @Synchronized
     fun canRevert(toolId: String): Boolean = changes[toolId]?.resolved == false
+
+    @Synchronized
+    fun createCheckpoint(label: String = "Agent checkpoint"): CheckpointSummary {
+        val pending = changes.filterValues { !it.resolved }.map { (toolId, stored) ->
+            CheckpointChange(toolId, stored.change)
+        }
+        require(pending.isNotEmpty()) { "No pending agent edits to checkpoint" }
+        val checkpoint = Checkpoint(
+            id = java.util.UUID.randomUUID().toString(),
+            label = label.ifBlank { "Agent checkpoint" },
+            createdAt = System.currentTimeMillis(),
+            changes = pending,
+        )
+        checkpoints[checkpoint.id] = checkpoint
+        while (checkpoints.size > MAX_CHECKPOINTS) checkpoints.remove(checkpoints.keys.first())
+        return checkpoint.toSummary()
+    }
+
+    @Synchronized
+    fun listCheckpoints(): List<CheckpointSummary> = checkpoints.values
+        .sortedByDescending { it.createdAt }
+        .map { it.toSummary() }
+
+    fun restoreCheckpoint(checkpointId: String): CompletableFuture<Set<String>> {
+        val checkpoint = synchronized(this) {
+            requireNotNull(checkpoints[checkpointId]) { "Checkpoint is no longer available" }
+        }
+        return revertAll(checkpoint.changes.map { it.toolId })
+    }
 
     @Synchronized
     fun keep(toolIds: Collection<String>): Set<String> = toolIds.distinct().mapNotNullTo(linkedSetOf()) { toolId ->
@@ -165,7 +195,36 @@ class ChangeReviewService(private val project: Project) {
         val before: String?,
     )
 
+    private data class CheckpointChange(
+        val toolId: String,
+        val change: FileChange,
+    )
+
+    private data class Checkpoint(
+        val id: String,
+        val label: String,
+        val createdAt: Long,
+        val changes: List<CheckpointChange>,
+    ) {
+        fun toSummary() = CheckpointSummary(
+            id = id,
+            label = label,
+            createdAt = createdAt,
+            changeCount = changes.size,
+            paths = changes.map { it.change.path }.distinct(),
+        )
+    }
+
     companion object {
         private const val MAX_CHANGES = 100
+        private const val MAX_CHECKPOINTS = 20
     }
 }
+
+data class CheckpointSummary(
+    val id: String,
+    val label: String,
+    val createdAt: Long,
+    val changeCount: Int,
+    val paths: List<String>,
+)

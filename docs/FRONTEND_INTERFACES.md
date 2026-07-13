@@ -34,13 +34,13 @@ Envelope version: `1`
 | `saveRule` / `refreshCustomization` | rule fields | Rules/Skills disk |
 | `resolveApproval` | `{ toolId, approved }` | Tool approval |
 | `openDiff` / `revertChange` / `reviewChanges` / `keepChanges` / `discardChanges` | tool ids | Agent edits |
+| `createCheckpoint` / `listCheckpoints` / `restoreCheckpoint` | checkpoint fields | Local edit checkpoints |
+| `enhancePrompt` | `{ text, mode }` | Backend prompt rewrite → `promptEnhanced` |
 | `addTask` / `deleteTask` / `setTaskState` / `runTask` / `runAllTasks` / `clearTasks` / `clearCompletedTasks` / `exportTasks` / `importTasks` | task fields | Tasklist |
 | `refreshGit` / `stageGit` / `unstageGit` / `openGitDiff` / `suggestCommitMessage` / `commitGit` | git fields | Git overlay |
 | `refreshImageCanvas` / `browseImageDirectory` / `openImage` / `attachImage` | image fields | Context Canvas |
 | `openMermaidEditor` | `{ title, code }` | Open `.mmd` in editor |
 | `openTerminal` | — | Focus IDE Terminal |
-| `saveSettings` | `{ backendUrl, nodePath, backendToken, autoApproveReadOnly }` | Gateway config |
-| `checkBackend` / `getContextStatus` / `indexWorkspace` | — | Health / index |
 
 ### Events (JVM → UI)
 
@@ -50,6 +50,8 @@ Envelope version: `1`
 | `stateChanged` | partial snapshot fields |
 | `messageDelta` | `{ id, delta, turnIndex }` |
 | `error` / `notice` | `{ message }` |
+| `promptEnhanced` | `{ text }` |
+| `checkpoints` | `CheckpointSummary[]` |
 | `gitSnapshot` | Git status |
 | `gitCommitSuggested` | `{ message }` |
 | `imageCanvas` | gallery snapshot |
@@ -69,6 +71,7 @@ Auth: `Authorization: Bearer <CODEAGENT_AUTH_TOKEN>` on protected routes.
 | --- | --- | --- |
 | `GET` | `/health` | Unauthenticated health + `protocolVersion` |
 | `GET` | `/v1/models` | Allowlisted models |
+| `POST` | `/v1/enhance` | Rewrite a prompt via the model gateway |
 | `POST` | `/v1/runs` | Opens SSE stream for one run |
 | `POST` | `/v1/runs/{id}/tool-results` | Continue after local tool execution |
 | `DELETE` | `/v1/runs/{id}` | Cancel |

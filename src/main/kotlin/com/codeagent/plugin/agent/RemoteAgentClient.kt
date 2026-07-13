@@ -49,6 +49,29 @@ internal class RemoteAgentClient(
         }
     }
 
+    fun enhance(text: String, mode: String, model: String?): CompletableFuture<RemoteEnhanceResponse> {
+        val uri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/enhance")
+        val body = json.encodeToString(
+            RemoteEnhanceRequest(
+                text = text,
+                mode = mode,
+                model = model,
+            ),
+        )
+        return httpClient.sendAsync(
+            requestBuilder(uri)
+                .timeout(Duration.ofSeconds(60))
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            check(response.statusCode() == 200) {
+                "Backend enhance returned HTTP " + response.statusCode() + ": " + errorMessage(response.body())
+            }
+            json.decodeFromString<RemoteEnhanceResponse>(response.body())
+        }
+    }
+
     fun stream(
         request: RemoteRunRequest,
         onStreamChanged: (Closeable?) -> Unit,
@@ -144,6 +167,20 @@ internal class RemoteAgentClient(
         dispatch()
     }
 }
+
+@Serializable
+internal data class RemoteEnhanceRequest(
+    val text: String,
+    val mode: String? = null,
+    val model: String? = null,
+)
+
+@Serializable
+internal data class RemoteEnhanceResponse(
+    val text: String,
+    val model: String? = null,
+    val provider: String? = null,
+)
 
 @Serializable
 internal data class RemoteRunRequest(

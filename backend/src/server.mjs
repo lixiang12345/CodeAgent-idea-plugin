@@ -50,6 +50,54 @@ export function createCodeAgentServer({ modelGateway, authToken = "", corsOrigin
         });
       }
 
+      if (request.url === "/v1/enhance" && request.method === "POST") {
+        const body = await readJson(request);
+        const text = typeof body?.text === "string" ? body.text.trim() : "";
+        if (!text) {
+          const error = new Error("text is required");
+          error.statusCode = 400;
+          throw error;
+        }
+        if (text.length > 12_000) {
+          const error = new Error("text must be at most 12000 characters");
+          error.statusCode = 400;
+          throw error;
+        }
+        const mode = typeof body?.mode === "string" ? body.mode : "agent";
+        const model = typeof body?.model === "string" && body.model.trim() ? body.model.trim() : gateway.defaultModel;
+        let enhanced = "";
+        const turn = await gateway.stream({
+          model,
+          tools: [],
+          messages: [
+            {
+              role: "system",
+              content: "Rewrite the user's coding prompt to be clearer and more actionable for an IDE coding agent. Preserve intent. Return only the improved prompt text with no preface or quotes.",
+            },
+            {
+              role: "user",
+              content: `Mode: ${mode}\n\nOriginal prompt:\n${text}`,
+            },
+          ],
+          onTextDelta: (delta) => {
+            enhanced += delta || "";
+          },
+          signal: undefined,
+        });
+        if (!enhanced.trim() && typeof turn?.content === "string") enhanced = turn.content;
+        enhanced = String(enhanced || "").trim();
+        if (!enhanced) {
+          const error = new Error("Model returned an empty enhanced prompt");
+          error.statusCode = 502;
+          throw error;
+        }
+        return json(response, 200, {
+          text: enhanced,
+          model: model || gateway.defaultModel || "",
+          provider: gateway.provider || "custom",
+        });
+      }
+
       if (request.url === "/v1/runs" && request.method === "POST") {
         const body = await readJson(request);
         validateRunRequest(body);

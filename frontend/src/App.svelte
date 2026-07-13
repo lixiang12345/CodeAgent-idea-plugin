@@ -62,13 +62,18 @@
 
   const toolIcons: Record<string, string> = {
     codebase_retrieval: "augment-logo",
+    conversation_retrieval: "augment-logo",
     read_file: "file",
     list_files: "folder",
     search_text: "search",
     write_file: "file-plus",
     replace_text: "file-pen",
+    remove_files: "file-minus",
+    apply_patch: "file-diff",
     run_terminal: "square-terminal",
     open_file: "external-link",
+    open_browser: "external-link",
+    web_fetch: "globe",
     diagnostics: "circle-alert",
     git_history: "git-commit-horizontal",
     view_tasks: "list-checks",
@@ -76,6 +81,7 @@
     update_tasks: "list-checks",
     reorg_tasks: "list-checks",
     render_mermaid: "workflow",
+    ask_user: "message-circle",
   };
 
   let snapshot: AppSnapshot | null = null;
@@ -126,6 +132,8 @@
   let feedbackText = "";
   let renaming = false;
   let renameTitle = "";
+  let enhancing = false;
+  let checkpoints: Array<{ id: string; label: string; createdAt: number; changeCount: number; paths: string[] }> = [];
 
   onMount(() => {
     const unsubscribe = onHostEvent(handleEvent);
@@ -142,6 +150,7 @@
       return;
     }
     if (event.type === "error") {
+      enhancing = false;
       error = String((event.payload as { message?: string })?.message ?? "Unexpected error");
       return;
     }
@@ -160,6 +169,21 @@
     }
     if (event.type === "imageCanvas") {
       imageCanvas = event.payload as ImageCanvasSnapshot;
+      return;
+    }
+    if (event.type === "promptEnhanced") {
+      enhancing = false;
+      const text = String((event.payload as { text?: string })?.text ?? "").trim();
+      if (text) {
+        prompt = text;
+        notice = "Prompt enhanced";
+      } else {
+        error = "Enhancer returned empty text";
+      }
+      return;
+    }
+    if (event.type === "checkpoints") {
+      checkpoints = Array.isArray(event.payload) ? event.payload as typeof checkpoints : [];
       return;
     }
     if (event.type === "messageDelta" && snapshot) {
@@ -191,6 +215,14 @@
     prompt = "";
     closeMenus();
     sendCommand(isBusy() ? "queueMessage" : "sendMessage", { text, mode: snapshot.mode });
+  }
+
+  function enhancePrompt() {
+    const text = prompt.trim();
+    if (!text || !snapshot || enhancing || isBusy()) return;
+    enhancing = true;
+    error = "";
+    sendCommand("enhancePrompt", { text, mode: snapshot.mode });
   }
 
   function setMode(mode: Mode) {
@@ -286,6 +318,7 @@
       sendCommand("refreshGit");
     }
     if (view === "images") sendCommand("refreshImageCanvas");
+    if (view === "edits") sendCommand("listCheckpoints");
   }
 
   function beginRename() {
@@ -853,7 +886,7 @@
               <button title="@ mention" onclick={seedMention}><Icon name="at-sign" size={14} /></button>
               <button title="Slash commands" onclick={seedSlash}><Icon name="square-terminal" size={14} /></button>
               <button title="Attach file/image" onclick={() => sendCommand("pickContext")}><Icon name="file-input" size={14} /></button>
-              <button title="Prompt Enhancer is not connected" disabled><Icon name="sparkles" size={14} /></button>
+              <button title={enhancing ? "Enhancing…" : "Enhance prompt"} disabled={!prompt.trim() || enhancing || isBusy()} onclick={enhancePrompt}><Icon name="sparkles" size={14} /></button>
               <span class="toolbar-spacer sp"></span>
               <div class="skill-control">
                 <button class:active={skillsOpen} title="Skills" onclick={() => { skillsOpen = !skillsOpen; modeMenuOpen = false; modelMenuOpen = false; }}>
@@ -1256,23 +1289,40 @@
           <button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><Icon name="chevron-left" size={15} /></button>
           <Icon name="file-diff" size={14} />
           <strong>Agent Edits</strong>
+          <button class="btn sm" disabled={changeTools().length === 0} onclick={() => sendCommand("createCheckpoint", { label: "Agent checkpoint" })}>Checkpoint</button>
           <button class="btn sm" disabled={changeTools().length === 0} onclick={() => sendCommand("keepChanges", { toolIds: changeTools().map((tool) => tool.id) })}>Keep all</button>
           <button class="btn sm danger" disabled={changeTools().length === 0} onclick={() => sendCommand("discardChanges", { toolIds: changeTools().map((tool) => tool.id) })}>Discard all</button>
         </header>
         <div class="workspace-body">
-          {#if changeTools().length === 0}
+          {#if changeTools().length === 0 && checkpoints.length === 0}
             <div class="workspace-empty"><Icon name="file-diff" size={20} /><strong>No pending agent edits</strong><p>File tools with Diff/undo will appear here after Agent changes files.</p></div>
           {:else}
-            <div class="workspace-list">
-              {#each changeTools() as tool}
-                <div class="workspace-file">
-                  <Icon name="file" size={14} />
-                  <span><strong>{tool.changePath}</strong><small>{toolTitle(tool)} · {statusLabel(tool.status)}</small></span>
-                  <button onclick={() => sendCommand("openDiff", { toolId: tool.id })}>Diff</button>
-                  {#if tool.canRevert}<button onclick={() => sendCommand("revertChange", { toolId: tool.id })}>Undo</button>{/if}
+            {#if changeTools().length > 0}
+              <div class="workspace-list">
+                {#each changeTools() as tool}
+                  <div class="workspace-file">
+                    <Icon name="file" size={14} />
+                    <span><strong>{tool.changePath}</strong><small>{toolTitle(tool)} · {statusLabel(tool.status)}</small></span>
+                    <button onclick={() => sendCommand("openDiff", { toolId: tool.id })}>Diff</button>
+                    {#if tool.canRevert}<button onclick={() => sendCommand("revertChange", { toolId: tool.id })}>Undo</button>{/if}
+                  </div>
+                {/each}
+              </div>
+            {/if}
+            {#if checkpoints.length > 0}
+              <section class="workspace-section" style="margin-top:12px">
+                <header><strong>Checkpoints</strong><button class="btn sm" onclick={() => sendCommand("listCheckpoints")}>Refresh</button></header>
+                <div class="workspace-list">
+                  {#each checkpoints as checkpoint}
+                    <div class="workspace-file">
+                      <Icon name="history" size={14} />
+                      <span><strong>{checkpoint.label}</strong><small>{checkpoint.changeCount} files · {formatTime(checkpoint.createdAt)}</small></span>
+                      <button onclick={() => sendCommand("restoreCheckpoint", { checkpointId: checkpoint.id })}>Restore</button>
+                    </div>
+                  {/each}
                 </div>
-              {/each}
-            </div>
+              </section>
+            {/if}
           {/if}
         </div>
       </section>

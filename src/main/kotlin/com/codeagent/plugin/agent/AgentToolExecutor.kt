@@ -6,9 +6,11 @@ import com.codeagent.plugin.conversation.ConversationTask
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.process.CapturingProcessHandler
+import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
@@ -27,10 +29,15 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
+import java.time.Duration
 import java.util.concurrent.CompletableFuture
 import java.util.regex.Pattern
 import kotlin.io.path.isRegularFile
@@ -91,6 +98,24 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
             ),
             required = listOf("code"),
         )))
+        add(tool("conversation_retrieval", "Search the active and recent CodeAgent conversation history", schema(
+            properties = mapOf(
+                "query" to stringProperty("Text to match in conversation titles or messages"),
+                "limit" to integerProperty("Maximum matching snippets", 1, 40),
+            ),
+            required = listOf("query"),
+        )))
+        add(tool("web_fetch", "Fetch a public HTTP(S) URL and return truncated text content", schema(
+            properties = mapOf(
+                "url" to stringProperty("Absolute http or https URL"),
+                "max_chars" to integerProperty("Maximum characters to return", 500, 100_000),
+            ),
+            required = listOf("url"),
+        )))
+        add(tool("open_browser", "Open an absolute http(s) URL in the system browser", schema(
+            properties = mapOf("url" to stringProperty("Absolute http or https URL")),
+            required = listOf("url"),
+        )))
         if (mode == "agent") {
             add(tool("add_tasks", "Add ordered tasks to the active thread", schema(
                 properties = mapOf("tasks" to stringArrayProperty("Task names in the order they should run", 1, 20)),
@@ -124,6 +149,25 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
                 ),
                 required = listOf("path", "old_text", "new_text"),
             )))
+            add(tool("remove_files", "Delete one or more project files", schema(
+                properties = mapOf(
+                    "paths" to stringArrayProperty("Project-relative file paths to delete", 1, 50),
+                ),
+                required = listOf("paths"),
+            )))
+            add(tool("apply_patch", "Apply a unified diff patch to project files", schema(
+                properties = mapOf(
+                    "patch" to stringProperty("Unified diff text (---/+++/@@ hunks)"),
+                ),
+                required = listOf("patch"),
+            )))
+            add(tool("ask_user", "Ask the user a clarifying question and wait for the answer", schema(
+                properties = mapOf(
+                    "question" to stringProperty("Question shown to the user"),
+                    "default" to stringProperty("Optional default answer"),
+                ),
+                required = listOf("question"),
+            )))
             add(tool("run_terminal", "Run a shell command in the project root", schema(
                 properties = mapOf(
                     "command" to stringProperty("Shell command to run"),
@@ -139,8 +183,8 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
     }
 
     override fun risk(toolName: String): ToolRisk = when (toolName) {
-        "write_file", "replace_text", "run_terminal" -> ToolRisk.MUTATING
-        "add_tasks", "update_tasks", "reorg_tasks" -> ToolRisk.LOCAL_STATE
+        "write_file", "replace_text", "remove_files", "apply_patch", "run_terminal" -> ToolRisk.MUTATING
+        "add_tasks", "update_tasks", "reorg_tasks", "ask_user" -> ToolRisk.LOCAL_STATE
         else -> ToolRisk.READ_ONLY
     }
 
@@ -152,6 +196,7 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
             .getOrElse { error("Invalid arguments for ${call.name}: ${it.message}") }
         return when (call.name) {
             "codebase_retrieval" -> retrieve(args)
+            "conversation_retrieval" -> conversationRetrieval(args)
             "read_file" -> readFile(args)
             "list_files" -> listFiles(args)
             "search_text" -> searchText(args)
@@ -159,12 +204,17 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
             "git_history" -> gitHistory(args)
             "view_tasks" -> viewTasks()
             "render_mermaid" -> renderMermaid(args)
+            "web_fetch" -> webFetch(args)
+            "open_browser" -> openBrowser(args)
             "add_tasks" -> addTasks(args)
             "update_tasks" -> updateTask(args)
             "reorg_tasks" -> reorganizeTasks(args)
             "write_file" -> writeFile(args)
             "replace_text" -> replaceText(args)
+            "remove_files" -> removeFiles(args)
+            "apply_patch" -> applyPatch(args)
             "run_terminal" -> runTerminal(args)
+            "ask_user" -> askUser(args)
             "open_file" -> openFile(args)
             else -> error("Unknown tool: ${call.name}")
         }
@@ -396,6 +446,198 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
         return ToolExecutionResult(result, "$command (exit ${output.exitCode})", result.take(MAX_DETAIL_CHARS))
     }
 
+    private fun conversationRetrieval(args: JsonObject): ToolExecutionResult {
+        val query = args.requiredString("query").lowercase()
+        val limit = (args["limit"]?.jsonPrimitive?.intOrNull ?: 12).coerceIn(1, 40)
+        val matches = mutableListOf<String>()
+        for (thread in conversations.threads()) {
+            if (matches.size >= limit) break
+            if (thread.title.lowercase().contains(query)) {
+                matches += "thread:${thread.id} title=${thread.title}"
+            }
+            for (message in thread.messages) {
+                if (matches.size >= limit) break
+                if (message.content.lowercase().contains(query)) {
+                    val snippet = message.content.replace('\n', ' ').trim().take(220)
+                    matches += "thread:${thread.id} ${message.role}: $snippet"
+                }
+            }
+        }
+        val output = matches.joinToString("\n").ifEmpty { "No conversation matches" }
+        return ToolExecutionResult(output, "Found ${matches.size} conversation matches", output.take(MAX_DETAIL_CHARS))
+    }
+
+    private fun webFetch(args: JsonObject): ToolExecutionResult {
+        val url = requireHttpUrl(args.requiredString("url"))
+        val maxChars = (args["max_chars"]?.jsonPrimitive?.intOrNull ?: 20_000).coerceIn(500, 100_000)
+        val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL).build()
+        val response = client.send(
+            HttpRequest.newBuilder(url)
+                .timeout(Duration.ofSeconds(20))
+                .header("User-Agent", "CodeAgent/0.6")
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8),
+        )
+        require(response.statusCode() in 200..299) { "web_fetch failed with HTTP ${response.statusCode()}" }
+        val body = response.body().take(maxChars)
+        val output = "url=$url\nstatus=${response.statusCode()}\n\n$body"
+        return ToolExecutionResult(output, "Fetched $url", output.take(MAX_DETAIL_CHARS))
+    }
+
+    private fun openBrowser(args: JsonObject): ToolExecutionResult {
+        val url = requireHttpUrl(args.requiredString("url"))
+        ApplicationManager.getApplication().invokeLater { BrowserUtil.browse(url.toString()) }
+        return ToolExecutionResult("Opened browser for $url", "Opened $url")
+    }
+
+    private fun removeFiles(args: JsonObject): ToolExecutionResult {
+        val paths = args.stringList("paths")
+        require(paths.isNotEmpty()) { "paths must not be empty" }
+        val deleted = mutableListOf<String>()
+        val changes = mutableListOf<FileChange>()
+        for (relative in paths) {
+            val file = guard.existingFile(relative)
+            val before = Files.readString(file, StandardCharsets.UTF_8)
+            Files.delete(file)
+            refresh(file)
+            deleted += relative
+            changes += FileChange(relative, before, "")
+        }
+        val output = "Deleted ${deleted.size} file(s):\n" + deleted.joinToString("\n")
+        return ToolExecutionResult(
+            output = output,
+            summary = "Deleted ${deleted.size} file(s)",
+            detail = output.take(MAX_DETAIL_CHARS),
+            fileChange = changes.firstOrNull(),
+        )
+    }
+
+    private fun applyPatch(args: JsonObject): ToolExecutionResult {
+        val patch = args.requiredString("patch")
+        val files = parseUnifiedDiff(patch)
+        require(files.isNotEmpty()) { "patch did not contain any file hunks" }
+        val summaries = mutableListOf<String>()
+        var firstChange: FileChange? = null
+        for ((relative, hunks) in files) {
+            val file = guard.existingFile(relative)
+            val before = Files.readString(file, StandardCharsets.UTF_8).replace("\r\n", "\n")
+            val after = applyHunks(before, hunks)
+            Files.writeString(file, after, StandardCharsets.UTF_8, StandardOpenOption.TRUNCATE_EXISTING)
+            refresh(file)
+            summaries += relative
+            if (firstChange == null && before != after) firstChange = FileChange(relative, before, after)
+        }
+        val output = "Applied patch to ${summaries.size} file(s):\n" + summaries.joinToString("\n")
+        return ToolExecutionResult(output, "Patched ${summaries.size} file(s)", output.take(MAX_DETAIL_CHARS), firstChange)
+    }
+
+    private fun askUser(args: JsonObject): ToolExecutionResult {
+        val question = args.requiredString("question")
+        val default = args.string("default").orEmpty()
+        val future = CompletableFuture<String>()
+        ApplicationManager.getApplication().invokeLater {
+            val answer = Messages.showInputDialog(project, question, "CodeAgent Ask User", Messages.getQuestionIcon(), default, null)
+            if (answer == null) future.completeExceptionally(IllegalStateException("User cancelled ask_user"))
+            else future.complete(answer)
+        }
+        val answer = future.join()
+        return ToolExecutionResult(answer, "User answered", answer.take(MAX_DETAIL_CHARS))
+    }
+
+    private fun requireHttpUrl(raw: String): URI {
+        val uri = runCatching { URI(raw.trim()) }.getOrElse { error("Invalid URL: $raw") }
+        require(uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) { "Only http(s) URLs are allowed" }
+        require(!uri.host.isNullOrBlank()) { "URL host is required" }
+        return uri
+    }
+
+    private fun JsonObject.stringList(name: String): List<String> {
+        val element = get(name) ?: error("$name is required")
+        val values = element.jsonArray.map { it.jsonPrimitive.contentOrNull?.trim().orEmpty() }
+        require(values.isNotEmpty() && values.all { it.isNotBlank() }) { "$name must contain non-empty strings" }
+        return values
+    }
+
+    private data class DiffHunk(val oldStart: Int, val lines: List<String>)
+
+    private fun parseUnifiedDiff(patch: String): List<Pair<String, List<DiffHunk>>> {
+        val files = mutableListOf<Pair<String, List<DiffHunk>>>()
+        var path: String? = null
+        var hunks = mutableListOf<DiffHunk>()
+        var currentLines = mutableListOf<String>()
+        var oldStart = 1
+        fun flushHunk() {
+            if (currentLines.isNotEmpty()) {
+                hunks += DiffHunk(oldStart, currentLines.toList())
+                currentLines = mutableListOf()
+            }
+        }
+        fun flushFile() {
+            flushHunk()
+            val currentPath = path
+            if (currentPath != null && hunks.isNotEmpty()) files += currentPath to hunks.toList()
+            path = null
+            hunks = mutableListOf()
+        }
+        for (rawLine in patch.replace("\r\n", "\n").lineSequence()) {
+            when {
+                rawLine.startsWith("--- ") -> {
+                    flushFile()
+                }
+                rawLine.startsWith("+++ ") -> {
+                    val candidate = rawLine.removePrefix("+++ ").trim().removePrefix("b/").removePrefix("a/")
+                    require(candidate.isNotBlank() && candidate != "/dev/null") { "Patch target path is required" }
+                    path = candidate
+                }
+                rawLine.startsWith("@@ ") -> {
+                    flushHunk()
+                    val match = HUNK_HEADER.matchEntire(rawLine) ?: error("Invalid hunk header: $rawLine")
+                    oldStart = match.groupValues[1].toInt().coerceAtLeast(1)
+                }
+                path != null && (rawLine.startsWith(" ") || rawLine.startsWith("+") || rawLine.startsWith("-") || rawLine == "\\ No newline at end of file") -> {
+                    currentLines += rawLine
+                }
+            }
+        }
+        flushFile()
+        return files
+    }
+
+    private fun applyHunks(original: String, hunks: List<DiffHunk>): String {
+        val source = original.split('\n').toMutableList()
+        // Apply from bottom to top so line numbers stay valid.
+        for (hunk in hunks.sortedByDescending { it.oldStart }) {
+            var index = (hunk.oldStart - 1).coerceIn(0, source.size)
+            val replacement = mutableListOf<String>()
+            var cursor = index
+            for (line in hunk.lines) {
+                when {
+                    line.startsWith("\\") -> Unit
+                    line.startsWith(" ") -> {
+                        require(cursor < source.size && source[cursor] == line.drop(1)) {
+                            "Patch context mismatch near line ${cursor + 1}"
+                        }
+                        replacement += source[cursor]
+                        cursor += 1
+                    }
+                    line.startsWith("-") -> {
+                        require(cursor < source.size && source[cursor] == line.drop(1)) {
+                            "Patch removal mismatch near line ${cursor + 1}"
+                        }
+                        cursor += 1
+                    }
+                    line.startsWith("+") -> replacement += line.drop(1)
+                    else -> error("Unsupported patch line: $line")
+                }
+            }
+            val removeCount = cursor - index
+            repeat(removeCount) { source.removeAt(index) }
+            source.addAll(index, replacement)
+        }
+        return source.joinToString("\n")
+    }
+
     private fun openFile(args: JsonObject): ToolExecutionResult {
         val relative = args.requiredString("path")
         val file = guard.existingFile(relative)
@@ -470,6 +712,7 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
         private const val MAX_DETAIL_CHARS = 8_000
         private const val MAX_MERMAID_CHARS = 8_000
         private val IGNORED_SEGMENTS = setOf(".git", ".idea", ".gradle", ".contextengine", "build", "dist", "node_modules", "out")
+        private val HUNK_HEADER = Regex("""^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@.*$""")
     }
 }
 

@@ -228,6 +228,49 @@ class IdeBridge(
                     }
                 }
             }
+            "enhancePrompt" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<EnhancePromptPayload>(it) }
+                require(request.text.isNotBlank()) { "Prompt text is required" }
+                require(runState != "running" && runState != "awaiting_approval") { "Cannot enhance while the agent is running" }
+                val mode = request.mode.ifBlank { conversations.active().mode }
+                val model = conversations.active().selectedModelId
+                agent.enhance(request.text.trim(), mode, model).whenComplete { result, error ->
+                    when {
+                        error != null -> emit("error", mapOf("message" to error.rootMessage()))
+                        result == null || result.text.isBlank() -> emit("error", mapOf("message" to "Enhancer returned empty text"))
+                        else -> emit("promptEnhanced", mapOf("text" to result.text))
+                    }
+                }
+            }
+            "createCheckpoint" -> {
+                val request = command.payload?.let { json.decodeFromJsonElement<CheckpointLabelPayload>(it) }
+                val summary = changeReview.createCheckpoint(request?.label ?: "Agent checkpoint")
+                emit("checkpoints", json.encodeToJsonElement(listOf(summary.toDto()) + changeReview.listCheckpoints().filter { it.id != summary.id }.map { it.toDto() }))
+                emit("notice", mapOf("message" to "Checkpoint saved (${summary.changeCount} files)"))
+            }
+            "listCheckpoints" -> {
+                emit("checkpoints", json.encodeToJsonElement(changeReview.listCheckpoints().map { it.toDto() }))
+            }
+            "restoreCheckpoint" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<CheckpointPayload>(it) }
+                changeReview.restoreCheckpoint(request.checkpointId).whenComplete { reverted, error ->
+                    when {
+                        error != null -> emit("error", mapOf("message" to error.rootMessage()))
+                        else -> {
+                            synchronized(stateLock) {
+                                reverted.forEach { toolId ->
+                                    tools[toolId]?.let { tool ->
+                                        tools[toolId] = tool.copy(summary = "Restored ${tool.changePath}", canRevert = false)
+                                    }
+                                }
+                            }
+                            emitSnapshot()
+                            emit("notice", mapOf("message" to "Restored checkpoint (${reverted.size} files)"))
+                            emit("checkpoints", json.encodeToJsonElement(changeReview.listCheckpoints().map { it.toDto() }))
+                        }
+                    }
+                }
+            }
             "selectThread" -> {
                 val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPayload>(it) }
                 synchronized(stateLock) {
@@ -482,7 +525,7 @@ class IdeBridge(
                     }
                     conversations.appendMessage(messageId, delta)
                 }) {
-                    if (firstDelta) emitRunSnapshot() else emit("messageDelta", MessageDeltaDto(messageId, delta, turnIndex))
+                    if (firstDelta) emitRunSnapshot() else emit("messageDelta", json.encodeToJsonElement(MessageDeltaDto(messageId, delta, turnIndex)))
                 }
             }
 
@@ -928,6 +971,14 @@ class IdeBridge(
         )
     }
 
+    private fun com.codeagent.plugin.agent.CheckpointSummary.toDto() = CheckpointSummaryDto(
+        id = id,
+        label = label,
+        createdAt = createdAt,
+        changeCount = changeCount,
+        paths = paths,
+    )
+
     @Serializable
     private data class ModePayload(val mode: String)
 
@@ -1001,6 +1052,15 @@ class IdeBridge(
 
     @Serializable
     private data class ModelSelectionPayload(val modelId: String)
+
+    @Serializable
+    private data class EnhancePromptPayload(val text: String, val mode: String = "agent")
+
+    @Serializable
+    private data class CheckpointLabelPayload(val label: String = "Agent checkpoint")
+
+    @Serializable
+    private data class CheckpointPayload(val checkpointId: String)
 
     @Serializable
     private data class SettingsPayload(

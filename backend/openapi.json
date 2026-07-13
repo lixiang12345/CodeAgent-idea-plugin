@@ -6,8 +6,14 @@
     "description": "Protocol version 1 API used by the CodeAgent IDEA capability gateway."
   },
   "servers": [
-    { "url": "/", "description": "Current deployment" },
-    { "url": "http://127.0.0.1:8787", "description": "Local development" }
+    {
+      "url": "/",
+      "description": "Current deployment"
+    },
+    {
+      "url": "http://127.0.0.1:8787",
+      "description": "Local development"
+    }
   ],
   "paths": {
     "/health": {
@@ -16,7 +22,13 @@
         "responses": {
           "200": {
             "description": "Backend health",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
           }
         }
       }
@@ -24,7 +36,11 @@
     "/openapi.json": {
       "get": {
         "summary": "Read this API contract",
-        "responses": { "200": { "description": "OpenAPI 3.1 document" } }
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3.1 document"
+          }
+        }
       }
     },
     "/docs": {
@@ -33,7 +49,13 @@
         "responses": {
           "200": {
             "description": "Self-contained HTML documentation",
-            "content": { "text/html": { "schema": { "type": "string" } } }
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }
@@ -41,13 +63,99 @@
     "/v1/models": {
       "get": {
         "summary": "List the configured model allowlist",
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "Enabled models",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelList" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelList"
+                }
+              }
+            }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/enhance": {
+      "post": {
+        "summary": "Rewrite a user prompt for the coding agent",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 12000
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "agent",
+                      "chat",
+                      "ask"
+                    ]
+                  },
+                  "model": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Enhanced prompt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "text"
+                  ],
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "provider": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
@@ -56,25 +164,56 @@
         "summary": "Start an agent run and stream normalized events",
         "description": "Use streaming fetch. The response contains named SSE events documented in CONTRACT.md.",
         "x-codeagent-sse-events": {
-          "run.started": { "$ref": "#/components/schemas/RunStartedEvent" },
-          "turn.started": { "$ref": "#/components/schemas/TurnStartedEvent" },
-          "message.delta": { "$ref": "#/components/schemas/MessageDeltaEvent" },
-          "assistant.completed": { "$ref": "#/components/schemas/AssistantCompletedEvent" },
-          "tool.request": { "$ref": "#/components/schemas/ToolRequestEvent" },
-          "tool.completed": { "$ref": "#/components/schemas/ToolCompletedEvent" },
-          "run.completed": { "$ref": "#/components/schemas/RunCompletedEvent" },
-          "run.error": { "$ref": "#/components/schemas/RunErrorEvent" }
+          "run.started": {
+            "$ref": "#/components/schemas/RunStartedEvent"
+          },
+          "turn.started": {
+            "$ref": "#/components/schemas/TurnStartedEvent"
+          },
+          "message.delta": {
+            "$ref": "#/components/schemas/MessageDeltaEvent"
+          },
+          "assistant.completed": {
+            "$ref": "#/components/schemas/AssistantCompletedEvent"
+          },
+          "tool.request": {
+            "$ref": "#/components/schemas/ToolRequestEvent"
+          },
+          "tool.completed": {
+            "$ref": "#/components/schemas/ToolCompletedEvent"
+          },
+          "run.completed": {
+            "$ref": "#/components/schemas/RunCompletedEvent"
+          },
+          "run.error": {
+            "$ref": "#/components/schemas/RunErrorEvent"
+          }
         },
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          }
         },
         "responses": {
           "200": {
             "description": "SSE stream. Events: run.started, turn.started, message.delta, assistant.completed, tool.request, tool.completed, run.completed, run.error.",
             "headers": {
-              "X-CodeAgent-Run-Id": { "schema": { "type": "string", "format": "uuid" } }
+              "X-CodeAgent-Run-Id": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
             },
             "content": {
               "text/event-stream": {
@@ -87,267 +226,599 @@
               }
             }
           },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/v1/runs/{runId}/tool-results": {
       "post": {
         "summary": "Resume a run with one local tool result",
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RunId" }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunId"
+          }
+        ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ToolResult" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolResult"
+              }
+            }
+          }
         },
         "responses": {
           "202": {
             "description": "Result accepted",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Accepted" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            }
           },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "$ref": "#/components/responses/NotFound" }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
         }
       }
     },
     "/v1/runs/{runId}": {
       "delete": {
         "summary": "Cancel an active run",
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RunId" }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunId"
+          }
+        ],
         "responses": {
           "202": {
             "description": "Run cancelled",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Cancelled" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cancelled"
+                }
+              }
+            }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "$ref": "#/components/responses/NotFound" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
         }
       }
     }
   },
   "components": {
     "securitySchemes": {
-      "bearerAuth": { "type": "http", "scheme": "bearer" }
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
     },
     "parameters": {
       "RunId": {
         "name": "runId",
         "in": "path",
         "required": true,
-        "schema": { "type": "string", "format": "uuid" }
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
       }
     },
     "responses": {
       "BadRequest": {
         "description": "Invalid request",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
       },
       "Unauthorized": {
         "description": "Missing or invalid bearer token",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
       },
       "NotFound": {
         "description": "Run not found",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
       }
     },
     "schemas": {
       "Health": {
         "type": "object",
-        "required": ["ok", "service", "protocolVersion", "provider", "defaultModel"],
+        "required": [
+          "ok",
+          "service",
+          "protocolVersion",
+          "provider",
+          "defaultModel"
+        ],
         "properties": {
-          "ok": { "type": "boolean", "const": true },
-          "service": { "type": "string", "const": "codeagent-backend" },
-          "protocolVersion": { "type": "integer", "const": 1 },
-          "provider": { "type": "string" },
-          "defaultModel": { "type": "string" }
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "service": {
+            "type": "string",
+            "const": "codeagent-backend"
+          },
+          "protocolVersion": {
+            "type": "integer",
+            "const": 1
+          },
+          "provider": {
+            "type": "string"
+          },
+          "defaultModel": {
+            "type": "string"
+          }
         }
       },
       "ModelList": {
         "type": "object",
-        "required": ["object", "provider", "defaultModel", "data"],
+        "required": [
+          "object",
+          "provider",
+          "defaultModel",
+          "data"
+        ],
         "properties": {
-          "object": { "type": "string", "const": "list" },
-          "provider": { "type": "string" },
-          "defaultModel": { "type": "string" },
-          "data": { "type": "array", "items": { "$ref": "#/components/schemas/Model" } }
+          "object": {
+            "type": "string",
+            "const": "list"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "defaultModel": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Model"
+            }
+          }
         }
       },
       "Model": {
         "type": "object",
-        "required": ["id"],
+        "required": [
+          "id"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "ownedBy": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "ownedBy": {
+            "type": "string"
+          }
         }
       },
       "RunRequest": {
         "type": "object",
-        "required": ["mode", "messages", "tools", "workspace"],
+        "required": [
+          "mode",
+          "messages",
+          "tools",
+          "workspace"
+        ],
         "properties": {
-          "mode": { "type": "string", "enum": ["agent", "chat", "ask"] },
-          "model": { "type": "string" },
-          "messages": { "type": "array", "items": { "$ref": "#/components/schemas/Message" } },
-          "tools": { "type": "array", "items": { "$ref": "#/components/schemas/ToolDefinition" } },
-          "workspace": { "$ref": "#/components/schemas/Workspace" }
+          "mode": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "chat",
+              "ask"
+            ]
+          },
+          "model": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            }
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolDefinition"
+            }
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/Workspace"
+          }
         },
         "additionalProperties": false
       },
       "Message": {
         "type": "object",
-        "required": ["role"],
+        "required": [
+          "role"
+        ],
         "properties": {
-          "role": { "type": "string", "enum": ["user", "assistant"] },
-          "content": { "type": ["string", "null"] }
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ]
+          },
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         },
         "additionalProperties": false
       },
       "ToolDefinition": {
         "type": "object",
-        "required": ["name", "description", "parameters"],
+        "required": [
+          "name",
+          "description",
+          "parameters"
+        ],
         "properties": {
-          "name": { "type": "string" },
-          "description": { "type": "string" },
-          "parameters": { "type": "object" }
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "object"
+          }
         },
         "additionalProperties": false
       },
       "Workspace": {
         "type": "object",
         "properties": {
-          "guidance": { "type": ["string", "null"] },
-          "rules": { "type": "array", "items": { "$ref": "#/components/schemas/WorkspaceEntry" }, "default": [] },
-          "skills": { "type": "array", "items": { "$ref": "#/components/schemas/WorkspaceEntry" }, "default": [] }
+          "guidance": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceEntry"
+            },
+            "default": []
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceEntry"
+            },
+            "default": []
+          }
         },
         "additionalProperties": false
       },
       "WorkspaceEntry": {
         "type": "object",
-        "required": ["name", "path", "content"],
+        "required": [
+          "name",
+          "path",
+          "content"
+        ],
         "properties": {
-          "name": { "type": "string" },
-          "path": { "type": "string" },
-          "content": { "type": "string" }
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
         },
         "additionalProperties": false
       },
       "RunStartedEvent": {
         "type": "object",
-        "required": ["runId", "protocolVersion", "provider", "model"],
+        "required": [
+          "runId",
+          "protocolVersion",
+          "provider",
+          "model"
+        ],
         "properties": {
-          "runId": { "type": "string", "format": "uuid" },
-          "protocolVersion": { "type": "integer", "const": 1 },
-          "provider": { "type": "string" },
-          "model": { "type": "string" }
+          "runId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "protocolVersion": {
+            "type": "integer",
+            "const": 1
+          },
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          }
         },
         "additionalProperties": false
       },
       "TurnStartedEvent": {
         "type": "object",
-        "required": ["turnIndex"],
-        "properties": { "turnIndex": { "type": "integer", "minimum": 0 } },
+        "required": [
+          "turnIndex"
+        ],
+        "properties": {
+          "turnIndex": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
         "additionalProperties": false
       },
       "MessageDeltaEvent": {
         "type": "object",
-        "required": ["delta", "turnIndex"],
+        "required": [
+          "delta",
+          "turnIndex"
+        ],
         "properties": {
-          "delta": { "type": "string" },
-          "turnIndex": { "type": "integer", "minimum": 0 }
+          "delta": {
+            "type": "string"
+          },
+          "turnIndex": {
+            "type": "integer",
+            "minimum": 0
+          }
         },
         "additionalProperties": false
       },
       "AssistantCompletedEvent": {
         "type": "object",
-        "required": ["content", "turnIndex"],
+        "required": [
+          "content",
+          "turnIndex"
+        ],
         "properties": {
-          "content": { "type": ["string", "null"] },
-          "turnIndex": { "type": "integer", "minimum": 0 }
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnIndex": {
+            "type": "integer",
+            "minimum": 0
+          }
         },
         "additionalProperties": false
       },
       "ToolCall": {
         "type": "object",
-        "required": ["id", "name", "arguments"],
+        "required": [
+          "id",
+          "name",
+          "arguments"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "name": { "type": "string" },
-          "arguments": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "arguments": {
+            "type": "string"
+          }
         },
         "additionalProperties": false
       },
       "ToolRequestEvent": {
         "type": "object",
-        "required": ["call", "turnIndex"],
+        "required": [
+          "call",
+          "turnIndex"
+        ],
         "properties": {
-          "call": { "$ref": "#/components/schemas/ToolCall" },
-          "turnIndex": { "type": "integer", "minimum": 0 }
+          "call": {
+            "$ref": "#/components/schemas/ToolCall"
+          },
+          "turnIndex": {
+            "type": "integer",
+            "minimum": 0
+          }
         },
         "additionalProperties": false
       },
       "ToolCompletedEvent": {
         "type": "object",
-        "required": ["toolCallId", "status"],
+        "required": [
+          "toolCallId",
+          "status"
+        ],
         "properties": {
-          "toolCallId": { "type": "string" },
-          "status": { "type": "string", "enum": ["completed", "failed", "rejected"] },
-          "summary": { "type": "string" }
+          "toolCallId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "failed",
+              "rejected"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          }
         },
         "additionalProperties": false
       },
       "RunCompletedEvent": {
         "type": "object",
-        "required": ["turnCount"],
-        "properties": { "turnCount": { "type": "integer", "minimum": 1 } },
+        "required": [
+          "turnCount"
+        ],
+        "properties": {
+          "turnCount": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
         "additionalProperties": false
       },
       "RunErrorEvent": {
         "type": "object",
-        "required": ["message"],
-        "properties": { "message": { "type": "string" } },
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
         "additionalProperties": false
       },
       "SseEventPayload": {
         "oneOf": [
-          { "$ref": "#/components/schemas/RunStartedEvent" },
-          { "$ref": "#/components/schemas/TurnStartedEvent" },
-          { "$ref": "#/components/schemas/MessageDeltaEvent" },
-          { "$ref": "#/components/schemas/AssistantCompletedEvent" },
-          { "$ref": "#/components/schemas/ToolRequestEvent" },
-          { "$ref": "#/components/schemas/ToolCompletedEvent" },
-          { "$ref": "#/components/schemas/RunCompletedEvent" },
-          { "$ref": "#/components/schemas/RunErrorEvent" }
+          {
+            "$ref": "#/components/schemas/RunStartedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/TurnStartedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/MessageDeltaEvent"
+          },
+          {
+            "$ref": "#/components/schemas/AssistantCompletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ToolRequestEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ToolCompletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/RunCompletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/RunErrorEvent"
+          }
         ]
       },
       "ToolResult": {
         "type": "object",
-        "required": ["toolCallId", "status"],
+        "required": [
+          "toolCallId",
+          "status"
+        ],
         "properties": {
-          "toolCallId": { "type": "string" },
-          "status": { "type": "string", "enum": ["completed", "failed", "rejected"] },
-          "output": { "type": "string", "default": "" },
-          "error": { "type": "string", "default": "" },
-          "summary": { "type": "string" }
+          "toolCallId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "failed",
+              "rejected"
+            ]
+          },
+          "output": {
+            "type": "string",
+            "default": ""
+          },
+          "error": {
+            "type": "string",
+            "default": ""
+          },
+          "summary": {
+            "type": "string"
+          }
         },
         "additionalProperties": false
       },
       "Accepted": {
         "type": "object",
-        "required": ["accepted"],
-        "properties": { "accepted": { "type": "boolean", "const": true } }
+        "required": [
+          "accepted"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "const": true
+          }
+        }
       },
       "Cancelled": {
         "type": "object",
-        "required": ["cancelled"],
-        "properties": { "cancelled": { "type": "boolean", "const": true } }
+        "required": [
+          "cancelled"
+        ],
+        "properties": {
+          "cancelled": {
+            "type": "boolean",
+            "const": true
+          }
+        }
       },
       "Error": {
         "type": "object",
-        "required": ["error"],
-        "properties": { "error": { "type": "string" } }
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
       }
     }
   }

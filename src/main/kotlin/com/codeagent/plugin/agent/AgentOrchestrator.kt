@@ -104,6 +104,9 @@ class AgentOrchestrator(private val project: Project) : Disposable {
 
     internal fun models(): CompletableFuture<RemoteModelsResponse> = RemoteAgentClient(settingsService.snapshot()).models()
 
+    internal fun enhance(text: String, mode: String, model: String?): CompletableFuture<RemoteEnhanceResponse> =
+        RemoteAgentClient(settingsService.snapshot()).enhance(text, mode, model)
+
     fun resolveApproval(toolId: String, approved: Boolean): Boolean =
         activeRun.get()?.approvals?.remove(toolId)?.complete(approved) ?: false
 

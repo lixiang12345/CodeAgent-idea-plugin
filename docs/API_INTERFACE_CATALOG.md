@@ -102,6 +102,10 @@ Transport:
 | `reviewChanges` | `{ toolIds: string[] }` | opens first Diff |
 | `keepChanges` | `{ toolIds: string[] }` | marks kept |
 | `discardChanges` | `{ toolIds: string[] }` | reverts batch |
+| `enhancePrompt` | `{ text: string, mode?: string }` | `promptEnhanced` or `error` |
+| `createCheckpoint` | `{ label?: string }` | `checkpoints` + `notice` |
+| `listCheckpoints` | none | `checkpoints` |
+| `restoreCheckpoint` | `{ checkpointId: string }` | `snapshot` + `checkpoints` |
 | `addTask` | `{ name: string }` | `snapshot.tasks` |
 | `deleteTask` | `{ taskId: string }` | `snapshot` |
 | `setTaskState` | `{ taskId, state }` | `snapshot` |

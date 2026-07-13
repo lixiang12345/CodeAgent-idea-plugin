@@ -450,6 +450,43 @@ test("serves the normalized backend model registry", async () => {
   }
 });
 
+
+test("enhances a prompt through the model gateway", async () => {
+  const server = createCodeAgentServer({
+    authToken: "test-token",
+    modelGateway: {
+      provider: "openai-compatible",
+      defaultModel: "model-a",
+      async listModels() { return [{ id: "model-a" }]; },
+      async stream({ onTextDelta }) {
+        onTextDelta("Improved prompt with clear steps");
+        return { content: "Improved prompt with clear steps", toolCalls: [] };
+      },
+    },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/enhance`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ text: "fix bug", mode: "agent" }),
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      text: "Improved prompt with clear steps",
+      model: "model-a",
+      provider: "openai-compatible",
+    });
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
 function sseResponse(events) {
   const body = events.map(([type, data]) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`).join("");
   return new Response(body, { headers: { "content-type": "text/event-stream" } });

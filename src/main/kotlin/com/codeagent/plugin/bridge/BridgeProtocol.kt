@@ -113,6 +113,15 @@ data class ImageCanvasSnapshotDto(
 )
 
 @Serializable
+data class CheckpointSummaryDto(
+    val id: String,
+    val label: String,
+    val createdAt: Long,
+    val changeCount: Int,
+    val paths: List<String> = emptyList(),
+)
+
+@Serializable
 data class SettingsSnapshotDto(
     val backendUrl: String = "http://127.0.0.1:8787",
     val nodePath: String = "node",

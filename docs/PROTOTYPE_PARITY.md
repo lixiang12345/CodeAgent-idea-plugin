@@ -46,9 +46,9 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | --- | --- | --- |
 | Main panel | Implemented | 420 px IDEA tool window, interleaved user/assistant/tool timeline, context strip, tool cards, approvals, composer, stop/send states |
 | Threads | Implemented | Create, select, search, mode tags, pin ordering, confirmed delete, and Markdown import/export work |
-| Composer | Partial | Modes, attachments, Skills, model picker, queue/stop/send, slash menu, @ mention menu, and Auto work; prompt enhancement remains unavailable |
-| Tools | Partial | 15 local tools execute through the IDEA gateway; catalog overlay lists all 31 prototype tools with connected/unavailable badges |
-| Agent edits | Partial | Native Diff, undo, keep/discard, plus dedicated Agent Edits overlay; checkpoints remain unavailable |
+| Composer | Implemented | Modes, attachments, Skills, model picker, queue/stop/send, slash menu, @ mention menu, Auto, and real prompt enhancement via backend `/v1/enhance` |
+| Tools | Partial | Local tools now include conversation retrieval, remove/apply-patch, web-fetch, open-browser, ask-user plus the previous VFS/terminal/Git/task/mermaid set; catalog still marks cloud/MCP/subagent integrations unavailable |
+| Agent edits | Implemented | Native Diff, undo, keep/discard, Agent Edits overlay, and local checkpoints with restore |
 | Tasks | Implemented | Persistent per-thread tasks, filtering, add/delete/state, clear, Markdown import/export, run-one/run-all, and Agent task tools |
 | Git | Implemented | Real branch/index/worktree status, stage/unstage, native Diff, local message draft, confirmation, and commit |
 | Rules editor | Implemented | Repository Markdown, persisted description and trigger metadata, save, and manual per-thread selection work |
