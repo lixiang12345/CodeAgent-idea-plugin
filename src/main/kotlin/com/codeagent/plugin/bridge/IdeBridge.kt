@@ -70,6 +70,9 @@ class IdeBridge(
     @Volatile
     private var backendHealth = BackendHealthDto(state = "checking", label = "Checking backend")
 
+    @Volatile
+    private var modelRegistry = ModelRegistryDto(state = "loading", label = "Loading models")
+
     init {
         query.addHandler { raw ->
             runCatching { handle(raw) }
@@ -116,6 +119,19 @@ class IdeBridge(
                         command.payload?.let { json.decodeFromJsonElement<ModePayload>(it).mode }
                             ?: conversations.active().mode,
                     )
+                }
+                emitSnapshot()
+            }
+            "selectModel" -> {
+                val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ModelSelectionPayload>(it) }
+                synchronized(stateLock) {
+                    require(runState != "running" && runState != "awaiting_approval") {
+                        "Cannot change model while the agent is running"
+                    }
+                    require(modelRegistry.options.any { it.id == selection.modelId }) {
+                        "Unknown backend model: ${selection.modelId}"
+                    }
+                    conversations.setSelectedModel(selection.modelId)
                 }
                 emitSnapshot()
             }
@@ -445,7 +461,8 @@ class IdeBridge(
         }
         val enabledSkillIds = synchronized(stateLock) { conversations.active().selectedSkillIds.toSet() }
         val enabledRuleIds = synchronized(stateLock) { conversations.active().selectedRuleIds.toSet() }
-        agent.start(history, request.mode, enabledSkillIds, enabledRuleIds, object : AgentRunListener {
+        val selectedModel = synchronized(stateLock) { conversations.active().selectedModelId }
+        agent.start(history, request.mode, selectedModel, enabledSkillIds, enabledRuleIds, object : AgentRunListener {
             private var streamingMessageId: String? = null
 
             override fun onAssistantDelta(delta: String) {
@@ -568,6 +585,7 @@ class IdeBridge(
                 ),
                 context = context,
                 backendHealth = backendHealth,
+                models = modelRegistry.copy(selectedModel = active.selectedModelId ?: modelRegistry.defaultModel),
                 customization = WorkspaceCustomizationDto(
                     rules = customization.rules.map { rule ->
                         WorkspaceRuleDto(
@@ -628,7 +646,34 @@ class IdeBridge(
                     state = "online",
                     label = "Connected to ${health.service}",
                     protocolVersion = health.protocolVersion,
+                    provider = health.provider,
+                    defaultModel = health.defaultModel,
                 )
+            }
+            emitSnapshot()
+            if (backendHealth.state == "online") refreshModels()
+        }
+    }
+
+    private fun refreshModels() {
+        modelRegistry = modelRegistry.copy(state = "loading", label = "Loading models")
+        emitSnapshot()
+        agent.models().whenComplete { response, error ->
+            modelRegistry = if (error != null) {
+                ModelRegistryDto(state = "error", label = error.rootMessage())
+            } else {
+                val options = response.data.distinctBy { it.id }.map { ModelOptionDto(it.id, it.ownedBy) }
+                ModelRegistryDto(
+                    state = "ready",
+                    provider = response.provider,
+                    defaultModel = response.defaultModel,
+                    options = options,
+                    label = if (options.isEmpty()) "No models reported" else "${options.size} models",
+                )
+            }
+            val selected = synchronized(stateLock) { conversations.active().selectedModelId }
+            if (selected != null && modelRegistry.options.none { it.id == selected }) {
+                synchronized(stateLock) { conversations.setSelectedModel(null) }
             }
             emitSnapshot()
         }
@@ -909,6 +954,9 @@ class IdeBridge(
 
     @Serializable
     private data class MermaidEditorPayload(val title: String, val code: String)
+
+    @Serializable
+    private data class ModelSelectionPayload(val modelId: String)
 
     @Serializable
     private data class SettingsPayload(

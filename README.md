@@ -2,18 +2,17 @@
 
 CodeAgent is an IDE-native AI coding agent for IntelliJ IDEA and other JetBrains IDEs. It combines a separately deployed Agent backend with the open [ContextEngine](https://github.com/lixiang12345/ContextEngine-plugin) retrieval component running locally beside the IDE.
 
-The IDEA plugin is a capability gateway: it owns project access, ContextEngine, approvals, editor actions, terminal execution, and Diff/revert. The deployable backend in `backend/` owns prompts, model credentials, streamed model calls, and tool-call orchestration. See the [prototype parity contract](docs/PROTOTYPE_PARITY.md), [product definition](docs/PRODUCT.md), [Rules and Skills guide](docs/RULES_AND_SKILLS.md), [prompt architecture](docs/PROMPT_ARCHITECTURE.md), and [architecture analysis](docs/ARCHITECTURE.md).
+The IDEA plugin is a capability gateway: it owns project access, ContextEngine, approvals, editor actions, terminal execution, and Diff/revert. The deployable backend in `backend/` owns prompts, model credentials, streamed model calls, and tool-call orchestration. See the [prototype parity contract](docs/PROTOTYPE_PARITY.md), [product definition](docs/PRODUCT.md), [Rules and Skills guide](docs/RULES_AND_SKILLS.md), [prompt architecture](docs/PROMPT_ARCHITECTURE.md), [provider and data flow](docs/PROVIDER_AND_DATA_FLOW.md), and [architecture analysis](docs/ARCHITECTURE.md).
 
 ## Run the backend
 
 ```bash
 cd backend
 cp .env.example .env
-set -a && source .env && set +a
 npm start
 ```
 
-For deployment, build `backend/Dockerfile` and provide `CODEAGENT_AUTH_TOKEN`, `MODEL_ENDPOINT`, `MODEL_API_KEY`, and `MODEL`. The service exposes `GET /health` and defaults to port `8787`.
+For deployment, build `backend/Dockerfile` and provide `CODEAGENT_AUTH_TOKEN`, `MODEL`, each enabled provider's base URL, API key, and model allowlist. The current production routes use OpenAI Responses, Anthropic Messages, and xAI Responses. The service exposes `GET /health`, authenticated `GET /v1/models`, and defaults to `127.0.0.1:8787` for local development.
 
 ## Install and use
 

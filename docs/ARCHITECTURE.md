@@ -4,7 +4,7 @@
 
 CodeAgent is an **IDE-native AI coding agent with a local-first context layer**. The agent is the primary workflow: it plans, retrieves context, calls tools, proposes edits, runs checks, and stops for approval before risky actions. ContextEngine is the retrieval substrate that makes the agent useful on unfamiliar and larger repositories.
 
-This is deliberately narrower than an "AI coding platform". The first product boundary is one JetBrains project, one user, and OpenAI-compatible model endpoints. External systems and team control planes can be added through MCP after the local loop is reliable.
+This is deliberately narrower than an "AI coding platform". The first product boundary is one JetBrains project and one user. Provider-specific protocol adapters are isolated in the deployed backend; external systems and team control planes can be added through MCP after the local loop is reliable.
 
 ## What the Augment sample does
 
@@ -63,7 +63,7 @@ Agent prompts, model credentials, the bounded model/tool loop, and tool-call seq
 
 The JVM discovers `.codeagent/rules/*.md`, `.codeagent/skills/*/SKILL.md`, compatible `.agents/skills/*/SKILL.md`, and root `AGENTS.md` after canonical-path validation. The Webview handles only display metadata and selected IDs. The JVM resolves those IDs again, then sends bounded content to the backend as lower-priority workspace data for server-side prompt composition.
 
-The plugin opens an authenticated SSE run against the backend. The backend assembles model deltas and emits assistant and tool-request events. The JVM executes only advertised tools, then returns results through a separate authenticated endpoint so orchestration can resume.
+The plugin discovers the backend's allowlisted models, persists the selected model per thread, and opens an authenticated SSE run with that model ID. The backend selects a provider adapter, assembles provider-specific deltas, and emits one normalized stream of assistant and tool-request events. The JVM executes only advertised tools, then returns results through a separate authenticated endpoint so orchestration can resume.
 
 File mutations create JVM-only before/after snapshots. The Webview receives only a tool ID and project-relative path, then asks the JVM to open IntelliJ's native Diff viewer or revert the change. Revert is allowed only while the current editor or disk content exactly matches the recorded agent output, preventing an older checkpoint from overwriting newer user work. Terminal side effects are intentionally excluded because their changed-file set cannot be inferred safely.
 
@@ -97,5 +97,6 @@ The integration is a pinned Git submodule compiled into the Node sidecar. CodeAg
 6. Stream and change review: SSE response/tool-call streaming plus native Diff and guarded file revert. (`e89cc6a`, `933111f`)
 7. Repository customization: always-on Rules, per-task selectable Skills, bounded prompt composition, and responsive UI. (`c4c8a0d`)
 8. Deployed backend boundary: server-owned prompts/model loop and a JVM capability gateway connected through authenticated SSE.
+9. Native provider routing: fixed model allowlist, OpenAI/xAI Responses adapters, Anthropic Messages adapter, and per-thread model selection.
 
-The model transport follows the official [streaming Responses guidance](https://developers.openai.com/api/docs/guides/streaming-responses) for server-sent event handling while retaining the repository's OpenAI-compatible Chat Completions contract. Function argument deltas are accumulated before execution, matching the official [function calling streaming pattern](https://developers.openai.com/api/docs/guides/function-calling#streaming).
+The enabled model transports use native protocols rather than inferring a protocol from a model name: OpenAI and xAI use `/v1/responses`, while Anthropic uses `/v1/messages`. Provider event types and streamed function arguments are normalized before the agent loop sees them. See [provider and data flow](PROVIDER_AND_DATA_FLOW.md).

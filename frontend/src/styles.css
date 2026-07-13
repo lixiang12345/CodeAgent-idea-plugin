@@ -166,9 +166,11 @@ button { color: inherit; }
 .composer-toolbar > button, .skill-control > button { width: 25px; height: 24px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 4px; color: #8e949c; background: transparent; cursor: pointer; }
 .composer-toolbar > button:hover, .skill-control > button:hover, .skill-control > button.active { color: #d8dce2; background: #292c31; }
 .toolbar-spacer { flex: 1; }
-.mode-control, .skill-control { position: relative; }
+.mode-control, .model-control, .skill-control { position: relative; }
 .composer-toolbar .mode-button { width: auto; min-width: 61px; padding: 0 7px; display: flex; justify-content: center; gap: 5px; border: 1px solid #395744; border-radius: 4px; color: #8fd1a0; background: #213126; font-size: 9px; }
-.composer-toolbar .model-select { width: auto; max-width: 90px; height: 24px; padding: 0 3px; display: flex; align-items: center; gap: 3px; overflow: hidden; color: #737981; font-size: 8px; white-space: nowrap; }
+.composer-toolbar .model-select { width: auto; max-width: 116px; height: 24px; padding: 0 4px; display: flex; align-items: center; gap: 3px; overflow: hidden; border: 0; border-radius: 4px; color: #8b919a; background: transparent; font-size: 8px; white-space: nowrap; cursor: pointer; }
+.composer-toolbar .model-select:hover { color: #d8dce2; background: #292c31; }
+.composer-toolbar .model-select > span { overflow: hidden; text-overflow: ellipsis; }
 .composer-toolbar button:disabled { opacity: .35; cursor: default; }
 .mode-menu { position: absolute; left: 0; bottom: 29px; z-index: 20; width: 236px; padding: 4px; border: 1px solid var(--line-strong); border-radius: 6px; background: #25282d; box-shadow: 0 8px 26px rgba(0,0,0,.4); }
 .mode-menu button { width: 100%; min-height: 42px; padding: 5px 7px; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 4px; background: transparent; color: #b8bdc4; text-align: left; cursor: pointer; }
@@ -176,6 +178,14 @@ button { color: inherit; }
 .mode-menu button > span { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .mode-menu strong { font-size: 10px; }
 .mode-menu small { color: var(--muted); font-size: 8px; }
+.model-menu { position: absolute; left: 0; bottom: 29px; z-index: 20; width: min(300px, calc(100vw - 28px)); max-height: 280px; overflow-y: auto; padding: 4px; border: 1px solid var(--line-strong); border-radius: 6px; background: #25282d; box-shadow: 0 8px 26px rgba(0,0,0,.4); }
+.model-menu header { height: 29px; padding: 0 6px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); color: #aab0b8; font: 8px var(--mono); }
+.model-menu header small { color: var(--muted); font-size: 8px; }
+.model-menu > button { width: 100%; min-height: 34px; padding: 5px 7px; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 4px; color: #b8bdc4; background: transparent; text-align: left; cursor: pointer; }
+.model-menu > button:hover, .model-menu > button.active { background: #30343a; }
+.model-menu > button > span { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.model-menu strong { overflow-wrap: anywhere; font: 8.5px var(--mono); }
+.model-menu small { color: var(--muted); font-size: 7.5px; }
 .skill-control i { position: absolute; right: -1px; top: -2px; min-width: 12px; height: 12px; padding: 0 2px; border-radius: 6px; color: white; background: var(--blue); font: normal 7px/12px var(--mono); }
 .skills-popover { position: absolute; right: -86px; bottom: 29px; z-index: 20; width: min(300px, calc(100vw - 28px)); max-height: 280px; overflow: auto; padding: 5px; border: 1px solid var(--line-strong); border-radius: 6px; background: #25282d; box-shadow: 0 8px 26px rgba(0,0,0,.4); }
 .skills-popover header { min-height: 35px; padding: 2px 5px 6px; display: flex; align-items: center; border-bottom: 1px solid var(--line); }

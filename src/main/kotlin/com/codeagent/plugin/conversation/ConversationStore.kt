@@ -103,6 +103,13 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     }
 
     @Synchronized
+    fun setSelectedModel(modelId: String?) {
+        val normalized = modelId?.trim()?.takeIf { it.isNotEmpty() }
+        require(normalized == null || normalized.length <= MAX_MODEL_ID_CHARS) { "Model ID is too long" }
+        mutableActive().selectedModelId = normalized ?: ""
+    }
+
+    @Synchronized
     fun setSelectedSkills(skillIds: Collection<String>) {
         val selected = skillIds.distinct()
         require(selected.size <= MAX_SELECTED_SKILLS) { "Select at most $MAX_SELECTED_SKILLS skills" }
@@ -274,6 +281,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         title = title,
         updatedAt = updatedAt,
         mode = mode,
+        selectedModelId = selectedModelId.takeIf { it.isNotBlank() },
         selectedSkillIds = selectedSkillIds.toList(),
         selectedRuleIds = selectedRuleIds.toList(),
         messages = messages.map { it.toDomain() },
@@ -293,6 +301,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         private const val MAX_TASKS_PER_OPERATION = 20
         private const val MAX_TASK_NAME_CHARS = 240
         private const val MAX_IMPORTED_MESSAGE_CHARS = 40_000
+        private const val MAX_MODEL_ID_CHARS = 240
         private val TASK_STATES = setOf("not_started", "in_progress", "completed", "cancelled")
         const val MAX_SELECTED_SKILLS = 8
         const val MAX_SELECTED_RULES = 32
@@ -305,6 +314,7 @@ data class ConversationSnapshot(
     val title: String,
     val updatedAt: Long,
     val mode: String,
+    val selectedModelId: String?,
     val selectedSkillIds: List<String>,
     val selectedRuleIds: List<String>,
     val messages: List<ConversationMessage>,
@@ -336,6 +346,7 @@ class ConversationThreadState {
     var title: String = "New task"
     var updatedAt: Long = 0
     var mode: String = "agent"
+    var selectedModelId: String = ""
     var selectedSkillIds: MutableList<String> = mutableListOf()
     var selectedRuleIds: MutableList<String> = mutableListOf()
     var messages: MutableList<ConversationMessageState> = mutableListOf()

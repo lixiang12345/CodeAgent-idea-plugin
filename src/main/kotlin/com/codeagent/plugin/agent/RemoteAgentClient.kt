@@ -34,6 +34,17 @@ internal class RemoteAgentClient(
         }
     }
 
+    fun models(): CompletableFuture<RemoteModelsResponse> {
+        val uri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/models")
+        return httpClient.sendAsync(
+            requestBuilder(uri).timeout(Duration.ofSeconds(30)).GET().build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            check(response.statusCode() == 200) { "Backend model discovery returned HTTP ${response.statusCode()}" }
+            json.decodeFromString<RemoteModelsResponse>(response.body())
+        }
+    }
+
     fun stream(
         request: RemoteRunRequest,
         onStreamChanged: (Closeable?) -> Unit,
@@ -123,6 +134,7 @@ internal class RemoteAgentClient(
 @Serializable
 internal data class RemoteRunRequest(
     val mode: String,
+    val model: String? = null,
     val messages: List<RemoteMessage>,
     val tools: List<RemoteToolDefinition>,
     val workspace: RemoteWorkspace,
@@ -191,4 +203,19 @@ internal data class RemoteBackendHealth(
     val ok: Boolean,
     val service: String,
     val protocolVersion: Int,
+    val provider: String? = null,
+    val defaultModel: String? = null,
+)
+
+@Serializable
+internal data class RemoteModelsResponse(
+    val provider: String = "unknown",
+    val defaultModel: String? = null,
+    val data: List<RemoteModel> = emptyList(),
+)
+
+@Serializable
+internal data class RemoteModel(
+    val id: String,
+    val ownedBy: String? = null,
 )

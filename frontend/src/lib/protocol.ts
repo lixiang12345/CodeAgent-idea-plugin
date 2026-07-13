@@ -84,6 +84,20 @@ export interface SettingsSnapshot {
   autoApproveReadOnly: boolean;
 }
 
+export interface ModelOption {
+  id: string;
+  ownedBy?: string;
+}
+
+export interface ModelRegistry {
+  state: "unknown" | "loading" | "ready" | "error";
+  provider: string;
+  defaultModel?: string;
+  selectedModel?: string;
+  options: ModelOption[];
+  label: string;
+}
+
 export interface WorkspaceRule {
   id: string;
   name: string;
@@ -123,7 +137,10 @@ export interface AppSnapshot {
     state: "unknown" | "checking" | "online" | "offline" | "incompatible";
     label: string;
     protocolVersion?: number;
+    provider?: string;
+    defaultModel?: string;
   };
+  models: ModelRegistry;
   customization: {
     rules: WorkspaceRule[];
     skills: WorkspaceSkill[];
@@ -313,6 +330,20 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     },
     context: { state: "not_indexed", label: "Index project" },
     backendHealth: { state: "online", label: "Connected to codeagent-backend", protocolVersion: 1 },
+    models: {
+      state: "ready",
+      provider: "multi-provider",
+      defaultModel: "gpt-5.6-sol",
+      selectedModel: "gpt-5.6-sol",
+      options: [
+        { id: "gpt-5.6-sol", ownedBy: "openai" },
+        { id: "claude-fable-5", ownedBy: "anthropic" },
+        { id: "claude-opus-4-8", ownedBy: "anthropic" },
+        { id: "claude-sonnet-5", ownedBy: "anthropic" },
+        { id: "grok-4.5", ownedBy: "grok" },
+      ],
+      label: "5 models",
+    },
     customization: {
       rules: [
         {

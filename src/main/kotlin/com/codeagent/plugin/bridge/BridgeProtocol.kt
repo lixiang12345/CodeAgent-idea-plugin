@@ -130,6 +130,24 @@ data class BackendHealthDto(
     val state: String = "unknown",
     val label: String = "Not checked",
     val protocolVersion: Int? = null,
+    val provider: String? = null,
+    val defaultModel: String? = null,
+)
+
+@Serializable
+data class ModelOptionDto(
+    val id: String,
+    val ownedBy: String? = null,
+)
+
+@Serializable
+data class ModelRegistryDto(
+    val state: String = "unknown",
+    val provider: String = "unknown",
+    val defaultModel: String? = null,
+    val selectedModel: String? = null,
+    val options: List<ModelOptionDto> = emptyList(),
+    val label: String = "Models not loaded",
 )
 
 @Serializable
@@ -173,5 +191,6 @@ data class AppSnapshotDto(
     val settings: SettingsSnapshotDto = SettingsSnapshotDto(),
     val context: ContextSnapshotDto = ContextSnapshotDto(),
     val backendHealth: BackendHealthDto = BackendHealthDto(),
+    val models: ModelRegistryDto = ModelRegistryDto(),
     val customization: WorkspaceCustomizationDto = WorkspaceCustomizationDto(),
 )

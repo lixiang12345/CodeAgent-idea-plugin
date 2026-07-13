@@ -16,6 +16,7 @@ class RemoteAgentClientTest {
     fun `streams backend events and posts tool results with backend authentication`() {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         var runAuthorization: String? = null
+        var modelsAuthorization: String? = null
         var runBody = ""
         var toolResultBody = ""
         server.createContext("/health") { exchange ->
@@ -41,6 +42,12 @@ class RemoteAgentClientTest {
             exchange.sendResponseHeaders(200, 0)
             exchange.responseBody.bufferedWriter().use { it.write(events) }
         }
+        server.createContext("/v1/models") { exchange ->
+            modelsAuthorization = exchange.requestHeaders.getFirst("Authorization")
+            val body = """{"provider":"multi-provider","defaultModel":"gpt-5.6-sol","data":[{"id":"gpt-5.6-sol","ownedBy":"openai"},{"id":"claude-fable-5","ownedBy":"anthropic"}]}""".toByteArray()
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
         server.createContext("/v1/runs/run-1/tool-results") { exchange ->
             toolResultBody = exchange.requestBody.bufferedReader().readText()
             exchange.sendResponseHeaders(202, -1)
@@ -62,6 +69,7 @@ class RemoteAgentClientTest {
             client.stream(
                 request = RemoteRunRequest(
                     mode = "agent",
+                    model = "claude-fable-5",
                     messages = listOf(RemoteMessage("user", "Inspect the project")),
                     tools = listOf(RemoteToolDefinition("read_file", "Read", buildJsonObject { put("type", "object") })),
                     workspace = RemoteWorkspace(
@@ -74,14 +82,20 @@ class RemoteAgentClientTest {
             )
             client.submitToolResult("run-1", RemoteToolResult("call-1", "completed", output = "README"))
             val health = client.health().join()
+            val models = client.models().join()
 
             assertEquals("Bearer backend-secret", runAuthorization)
+            assertEquals("Bearer backend-secret", modelsAuthorization)
             assertEquals(listOf("run.started", "message.delta", "assistant.completed"), eventTypes)
+            assertTrue(runBody.contains("\"model\":\"claude-fable-5\""))
             assertTrue(runBody.contains("Use repository conventions."))
             assertTrue(runBody.contains("\"read_file\""))
             assertTrue(toolResultBody.contains("\"toolCallId\":\"call-1\""))
             assertTrue(health.ok)
             assertEquals(1, health.protocolVersion)
+            assertEquals("multi-provider", models.provider)
+            assertEquals("gpt-5.6-sol", models.defaultModel)
+            assertEquals(listOf("gpt-5.6-sol", "claude-fable-5"), models.data.map { it.id })
         } finally {
             server.stop(0)
         }

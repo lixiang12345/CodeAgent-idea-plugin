@@ -88,6 +88,7 @@
   let settingsNavigationOpen = true;
   let threadDrawerOpen = false;
   let modeMenuOpen = false;
+  let modelMenuOpen = false;
   let skillsOpen = false;
   let tasksOpen = true;
   let mermaidSource = "flowchart LR\n  IDE[IDEA Plugin] --> Backend[Agent Backend]";
@@ -170,6 +171,7 @@
     prompt = "";
     skillsOpen = false;
     modeMenuOpen = false;
+    modelMenuOpen = false;
     sendCommand(isBusy() ? "queueMessage" : "sendMessage", { text, mode: snapshot.mode });
   }
 
@@ -178,6 +180,13 @@
     snapshot = { ...snapshot, mode };
     modeMenuOpen = false;
     sendCommand("setMode", { mode });
+  }
+
+  function selectModel(modelId: string) {
+    if (!snapshot || isBusy()) return;
+    snapshot = { ...snapshot, models: { ...snapshot.models, selectedModel: modelId } };
+    modelMenuOpen = false;
+    sendCommand("selectModel", { modelId });
   }
 
   function toggleTool(id: string) {
@@ -536,7 +545,25 @@
                   </div>
                 {/if}
               </div>
-              <span class="model-select" title="Model is selected by the backend">auto-detect <ChevronDown size={11} /></span>
+              <div class="model-control">
+                <button
+                  class="model-select"
+                  title={snapshot.models.selectedModel ?? snapshot.models.defaultModel ?? snapshot.models.label}
+                  disabled={isBusy() || snapshot.models.state !== "ready" || snapshot.models.options.length === 0}
+                  onclick={() => modelMenuOpen = !modelMenuOpen}
+                ><span>{snapshot.models.selectedModel ?? snapshot.models.defaultModel ?? "auto-detect"}</span><ChevronDown size={11} /></button>
+                {#if modelMenuOpen}
+                  <div class="model-menu">
+                    <header><span>{snapshot.models.provider}</span><small>{snapshot.models.options.length} models</small></header>
+                    {#each snapshot.models.options as model}
+                      <button class:active={(snapshot.models.selectedModel ?? snapshot.models.defaultModel) === model.id} onclick={() => selectModel(model.id)}>
+                        <span><strong>{model.id}</strong>{#if model.ownedBy}<small>{model.ownedBy}</small>{/if}</span>
+                        {#if (snapshot.models.selectedModel ?? snapshot.models.defaultModel) === model.id}<Check size={13} />{/if}
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
               <span class="toolbar-spacer"></span>
               <div class="skill-control">
                 <button class:active={skillsOpen} title="Skills" onclick={() => skillsOpen = !skillsOpen}><Layers size={14} />{#if selectedSkillCount() > 0}<i>{selectedSkillCount()}</i>{/if}</button>

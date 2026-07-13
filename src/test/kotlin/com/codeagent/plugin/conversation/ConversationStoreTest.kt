@@ -49,6 +49,23 @@ class ConversationStoreTest {
     }
 
     @Test
+    fun `persists model selection per thread`() {
+        val store = ConversationStore()
+        val first = store.active()
+        store.setSelectedModel("claude-sonnet-5")
+        assertEquals("claude-sonnet-5", store.active().selectedModelId)
+
+        val second = store.newThread()
+        assertEquals(null, second.selectedModelId)
+        store.setSelectedModel("grok-4.5")
+
+        store.select(first.id)
+        assertEquals("claude-sonnet-5", store.active().selectedModelId)
+        store.select(second.id)
+        assertEquals("grok-4.5", store.active().selectedModelId)
+    }
+
+    @Test
     fun `persists and reorders tasks per thread`() {
         val store = ConversationStore()
         val tasks = store.addTasks(listOf("Inspect auth flow", "Add regression tests"))

@@ -46,7 +46,7 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | --- | --- | --- |
 | Main panel | Implemented | 420 px IDEA tool window, streamed messages, context strip, tool cards, approvals, composer, stop/send states |
 | Threads | Implemented | Create, select, search, mode tags, pin ordering, confirmed delete, and Markdown import/export work |
-| Composer | Partial | Modes, project attachments, Skills, ordered run queue, slash seed, auto-run policy, and send/stop work; prompt enhancer and client-side model selection remain unavailable |
+| Composer | Partial | Modes, project attachments, Skills, backend-discovered per-thread model selection, ordered run queue, slash seed, auto-run policy, and send/stop work; prompt enhancement remains unavailable |
 | Tools | Partial | 15 local tool definitions execute through the IDEA gateway; web, cloud, MCP, and subagent tools are not advertised |
 | Agent edits | Partial | Native Diff, guarded per-file undo, review, keep-all, and atomic discard-all work; checkpoints remain unavailable |
 | Tasks | Implemented | Persistent per-thread tasks, filtering, add/delete/state, clear, Markdown import/export, run-one/run-all, and Agent task tools |

@@ -2,29 +2,46 @@
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { AgentRunner } from "./agent-runner.mjs";
-import { OpenAIChatGateway } from "./model-gateway.mjs";
+import { createModelGatewayFromEnv } from "./model-gateway.mjs";
 
 export function createCodeAgentServer({ modelGateway, authToken = "", logger = console } = {}) {
-  const gateway = modelGateway || new OpenAIChatGateway({
-    endpoint: requiredEnv("MODEL_ENDPOINT"),
-    apiKey: process.env.MODEL_API_KEY || "",
-    model: requiredEnv("MODEL"),
-  });
+  const gateway = modelGateway || createModelGatewayFromEnv();
   const runner = new AgentRunner({ modelGateway: gateway });
   const runs = new Map();
 
   return createServer(async (request, response) => {
     try {
       if (request.url === "/health" && request.method === "GET") {
-        return json(response, 200, { ok: true, service: "codeagent-backend", protocolVersion: 1 });
+        return json(response, 200, {
+          ok: true,
+          service: "codeagent-backend",
+          protocolVersion: 1,
+          provider: gateway.provider || "custom",
+          defaultModel: gateway.defaultModel,
+        });
       }
       authorize(request, authToken);
+
+      if (request.url === "/v1/models" && request.method === "GET") {
+        const data = typeof gateway.listModels === "function" ? await gateway.listModels() : [];
+        return json(response, 200, {
+          object: "list",
+          provider: gateway.provider || "custom",
+          defaultModel: gateway.defaultModel,
+          data,
+        });
+      }
 
       if (request.url === "/v1/runs" && request.method === "POST") {
         const body = await readJson(request);
         const run = new RunSession({ id: randomUUID(), response, onClose: () => runs.delete(run.id) });
         runs.set(run.id, run);
-        run.emit("run.started", { runId: run.id, protocolVersion: 1 });
+        run.emit("run.started", {
+          runId: run.id,
+          protocolVersion: 1,
+          provider: gateway.provider || "custom",
+          model: body.model || gateway.defaultModel,
+        });
         void runner.run({
           request: body,
           emit: run.emit.bind(run),
@@ -174,12 +191,6 @@ function json(response, status, body) {
   response.end(JSON.stringify(body));
 }
 
-function requiredEnv(name) {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`${name} is required`);
-  return value;
-}
-
 function rootMessage(error) {
   let current = error;
   while (current?.cause) current = current.cause;
@@ -188,6 +199,7 @@ function rootMessage(error) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number.parseInt(process.env.PORT || "8787", 10);
+  const host = process.env.HOST || "127.0.0.1";
   const server = createCodeAgentServer({ authToken: process.env.CODEAGENT_AUTH_TOKEN || "" });
-  server.listen(port, "0.0.0.0", () => console.log(`CodeAgent backend listening on :${port}`));
+  server.listen(port, host, () => console.log(`CodeAgent backend listening on http://${host}:${port}`));
 }

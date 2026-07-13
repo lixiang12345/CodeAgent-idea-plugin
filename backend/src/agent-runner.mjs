@@ -20,6 +20,7 @@ export class AgentRunner {
       const turn = await this.modelGateway.stream({
         messages,
         tools: request.tools,
+        model: request.model,
         signal,
         onTextDelta: (delta) => emit("message.delta", { delta, turnIndex }),
       });
@@ -57,6 +58,9 @@ function validateRequest(request) {
   if (!["agent", "chat", "ask"].includes(request.mode)) throw new Error("Unsupported run mode");
   if (!Array.isArray(request.messages)) throw new Error("messages must be an array");
   if (!Array.isArray(request.tools)) throw new Error("tools must be an array");
+  if (request.model !== undefined && (typeof request.model !== "string" || !request.model.trim())) {
+    throw new Error("model must be a non-empty string when provided");
+  }
   for (const tool of request.tools) {
     if (!tool?.name || typeof tool.name !== "string") throw new Error("Every tool requires a name");
   }

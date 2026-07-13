@@ -28,6 +28,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
     fun start(
         history: List<AgentMessage>,
         mode: String,
+        model: String?,
         enabledSkillIds: Set<String>,
         enabledRuleIds: Set<String>,
         listener: AgentRunListener,
@@ -49,6 +50,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
                 context.client.set(client)
                 val request = RemoteRunRequest(
                     mode = mode,
+                    model = model,
                     messages = history.map { RemoteMessage(it.role, it.content) },
                     tools = definitions.map { RemoteToolDefinition(it.name, it.description, it.parameters) },
                     workspace = RemoteWorkspace(
@@ -99,6 +101,8 @@ class AgentOrchestrator(private val project: Project) : Disposable {
     }
 
     internal fun health(): CompletableFuture<RemoteBackendHealth> = RemoteAgentClient(settingsService.snapshot()).health()
+
+    internal fun models(): CompletableFuture<RemoteModelsResponse> = RemoteAgentClient(settingsService.snapshot()).models()
 
     fun resolveApproval(toolId: String, approved: Boolean): Boolean =
         activeRun.get()?.approvals?.remove(toolId)?.complete(approved) ?: false
