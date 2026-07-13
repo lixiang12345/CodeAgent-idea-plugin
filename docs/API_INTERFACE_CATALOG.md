@@ -240,7 +240,38 @@ Auth header on protected routes: `Authorization: Bearer <CODEAGENT_AUTH_TOKEN>`.
 | `data[].id` | string |
 | `data[].ownedBy` | string? |
 
-### 3.3 `POST /v1/runs` (SSE)
+
+### 3.3 `POST /v1/enhance`
+
+**Request headers:** `Authorization: Bearer …`
+
+**Request body**
+
+```json
+{
+  "text": "fix the null pointer",
+  "mode": "agent",
+  "model": "gpt-5.6-sol"
+}
+```
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `text` | string | yes | Original prompt (`1..12000` chars) |
+| `mode` | `"agent"\|"chat"\|"ask"` | no | Composer mode hint |
+| `model` | string | no | Override model; defaults to gateway default |
+
+**Response 200**
+
+```json
+{
+  "text": "Improved prompt…",
+  "model": "gpt-5.6-sol",
+  "provider": "multi-provider"
+}
+```
+
+### 3.4 `POST /v1/runs` (SSE)
 
 **Request body: `RemoteRunRequest`**
 
