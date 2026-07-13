@@ -1,0 +1,26 @@
+.gradle/
+build/
+out/
+.idea/
+*.iml
+.DS_Store
+run/
+.intellijPlatform/
+*.hprof
+local.properties
+.kotlin/
+
+# Local reverse-engineering inputs. These are research material, not product source.
+extracted/
+prototypes/
+intellij-augment-*.zip
+
+# Web and sidecar build outputs.
+frontend/node_modules/
+frontend/dist/
+sidecar/node_modules/
+sidecar/dist/
+
+# Local ContextEngine runtime data and secrets.
+.contextengine/
+.env

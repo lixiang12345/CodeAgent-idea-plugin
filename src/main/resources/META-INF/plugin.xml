@@ -1,0 +1,20 @@
+<idea-plugin>
+    <id>com.codeagent.idea</id>
+    <name>CodeAgent</name>
+    <vendor url="https://github.com/lixiang12345">CodeAgent</vendor>
+
+    <description><![CDATA[
+        <p>CodeAgent is a local-first AI coding agent for JetBrains IDEs.</p>
+        <p>It combines an approval-driven agent workflow with project-aware retrieval powered by ContextEngine.</p>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <resource-bundle>messages.CodeAgentBundle</resource-bundle>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="CodeAgent"
+                    anchor="right"
+                    secondary="true"
+                    factoryClass="com.codeagent.plugin.ui.CodeAgentToolWindowFactory"/>
+    </extensions>
+</idea-plugin>
