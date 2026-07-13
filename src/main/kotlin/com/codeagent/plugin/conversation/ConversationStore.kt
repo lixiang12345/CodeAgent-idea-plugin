@@ -59,6 +59,13 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     }
 
     @Synchronized
+    fun setSelectedSkills(skillIds: Collection<String>) {
+        val selected = skillIds.distinct()
+        require(selected.size <= MAX_SELECTED_SKILLS) { "Select at most $MAX_SELECTED_SKILLS skills" }
+        mutableActive().selectedSkillIds = selected.toMutableList()
+    }
+
+    @Synchronized
     fun addMessage(role: String, content: String): ConversationMessage {
         val thread = mutableActive()
         val message = ConversationMessageState().apply {
@@ -126,6 +133,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         title = title,
         updatedAt = updatedAt,
         mode = mode,
+        selectedSkillIds = selectedSkillIds.toList(),
         messages = messages.map { it.toDomain() },
         active = id == data.activeThreadId,
     )
@@ -135,6 +143,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     companion object {
         private const val MAX_THREADS = 50
         private const val MAX_MESSAGES_PER_THREAD = 200
+        const val MAX_SELECTED_SKILLS = 8
     }
 }
 
@@ -143,6 +152,7 @@ data class ConversationSnapshot(
     val title: String,
     val updatedAt: Long,
     val mode: String,
+    val selectedSkillIds: List<String>,
     val messages: List<ConversationMessage>,
     val active: Boolean,
 )
@@ -164,6 +174,7 @@ class ConversationThreadState {
     var title: String = "New task"
     var updatedAt: Long = 0
     var mode: String = "agent"
+    var selectedSkillIds: MutableList<String> = mutableListOf()
     var messages: MutableList<ConversationMessageState> = mutableListOf()
 }
 

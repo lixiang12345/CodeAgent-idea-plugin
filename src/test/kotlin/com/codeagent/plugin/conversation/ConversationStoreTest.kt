@@ -2,6 +2,7 @@ package com.codeagent.plugin.conversation
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class ConversationStoreTest {
@@ -32,5 +33,18 @@ class ConversationStoreTest {
         store.select(first.id)
         assertEquals("Implement project login", store.active().title)
         assertTrue(store.threads().any { it.id == second.id })
+    }
+
+    @Test
+    fun `persists bounded skill selections per thread`() {
+        val store = ConversationStore()
+        store.setSelectedSkills(listOf("skill-a", "skill-b", "skill-a"))
+        assertEquals(listOf("skill-a", "skill-b"), store.active().selectedSkillIds)
+
+        store.newThread()
+        assertTrue(store.active().selectedSkillIds.isEmpty())
+        assertFailsWith<IllegalArgumentException> {
+            store.setSelectedSkills((1..9).map { "skill-$it" })
+        }
     }
 }

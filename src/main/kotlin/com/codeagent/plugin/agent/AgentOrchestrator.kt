@@ -19,10 +19,12 @@ class AgentOrchestrator(private val project: Project) : Disposable {
     private val executor = AppExecutorUtil.getAppExecutorService()
     private val activeRun = AtomicReference<RunContext?>()
     private val promptComposer = AgentPromptComposer(WorkspaceGuidanceLoader(project.basePath?.let(Path::of)))
+    private val customizations = project.service<WorkspaceCustomizationService>()
 
     fun start(
         history: List<AgentMessage>,
         mode: String,
+        enabledSkillIds: Set<String>,
         listener: AgentRunListener,
     ) {
         cancel()
@@ -33,9 +35,10 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         executor.execute {
             listener.onRunStateChanged("running")
             try {
-                val prompt = promptComposer.compose(mode)
+                val prompt = promptComposer.compose(mode, customizations.refresh(), enabledSkillIds)
                 LOG.debug(
-                    "Starting agent with prompt ${prompt.version}; workspace guidance=${prompt.includesWorkspaceGuidance}",
+                    "Starting agent with prompt ${prompt.version}; workspace guidance=${prompt.includesWorkspaceGuidance}; " +
+                        "rules=${prompt.ruleCount}; skills=${prompt.skillCount}",
                 )
                 AgentLoop(
                     gateway = OpenAIModelGateway(settings),

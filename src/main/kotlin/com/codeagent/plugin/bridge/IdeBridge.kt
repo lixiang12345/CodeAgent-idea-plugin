@@ -6,6 +6,7 @@ import com.codeagent.plugin.agent.AgentRunListener
 import com.codeagent.plugin.agent.AgentToolCall
 import com.codeagent.plugin.agent.ChangeReviewService
 import com.codeagent.plugin.agent.FileChange
+import com.codeagent.plugin.agent.WorkspaceCustomizationService
 import com.codeagent.plugin.conversation.ConversationStore
 import com.codeagent.plugin.context.ContextEngineService
 import com.codeagent.plugin.settings.CodeAgentSettingsService
@@ -41,6 +42,7 @@ class IdeBridge(
     private val contextEngine = project.service<ContextEngineService>()
     private val agent = project.service<AgentOrchestrator>()
     private val changeReview = project.service<ChangeReviewService>()
+    private val customizations = project.service<WorkspaceCustomizationService>()
     private val settingsService = service<CodeAgentSettingsService>()
     private val stateLock = Any()
     private val runs = RunGeneration()
@@ -156,6 +158,27 @@ class IdeBridge(
                 synchronized(stateLock) { attachments.remove(selection.id) }
                 emitSnapshot()
             }
+            "toggleSkill" -> {
+                val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<SkillSelectionPayload>(it) }
+                val available = customizations.snapshot().skills
+                require(available.any { it.id == selection.skillId }) { "Unknown workspace skill: ${selection.skillId}" }
+                synchronized(stateLock) {
+                    require(runState != "running" && runState != "awaiting_approval") {
+                        "Cannot change skills while the agent is running"
+                    }
+                    val selected = conversations.active().selectedSkillIds.toMutableSet()
+                    if (selection.selected) selected += selection.skillId else selected -= selection.skillId
+                    conversations.setSelectedSkills(selected)
+                }
+                emitSnapshot()
+            }
+            "refreshCustomization" -> {
+                val availableIds = customizations.refresh().skills.mapTo(mutableSetOf()) { it.id }
+                synchronized(stateLock) {
+                    conversations.setSelectedSkills(conversations.active().selectedSkillIds.filter { it in availableIds })
+                }
+                emitSnapshot()
+            }
             else -> error("Unknown bridge command: ${command.type}")
         }
     }
@@ -200,7 +223,8 @@ class IdeBridge(
             }
             messages
         }
-        agent.start(history, request.mode, object : AgentRunListener {
+        val enabledSkillIds = synchronized(stateLock) { conversations.active().selectedSkillIds.toSet() }
+        agent.start(history, request.mode, enabledSkillIds, object : AgentRunListener {
             private var streamingMessageId: String? = null
 
             override fun onAssistantDelta(delta: String) {
@@ -295,6 +319,8 @@ class IdeBridge(
         val settings = settingsService.snapshot()
         val snapshot = synchronized(stateLock) {
             val active = conversations.active()
+            val customization = customizations.snapshot()
+            val selectedSkillIds = active.selectedSkillIds.toSet()
             AppSnapshotDto(
                 projectName = project.name,
                 mode = active.mode,
@@ -315,6 +341,21 @@ class IdeBridge(
                     autoApproveReadOnly = settings.autoApproveReadOnly,
                 ),
                 context = context,
+                customization = WorkspaceCustomizationDto(
+                    rules = customization.rules.map { rule ->
+                        WorkspaceRuleDto(rule.id, rule.name, rule.path)
+                    },
+                    skills = customization.skills.map { skill ->
+                        WorkspaceSkillDto(
+                            id = skill.id,
+                            name = skill.name,
+                            description = skill.description,
+                            path = skill.path,
+                            selected = skill.id in selectedSkillIds,
+                        )
+                    },
+                    maxSelectedSkills = ConversationStore.MAX_SELECTED_SKILLS,
+                ),
             )
         }
         emit("snapshot", json.encodeToJsonElement(snapshot))
@@ -411,6 +452,9 @@ class IdeBridge(
 
     @Serializable
     private data class ContextPayload(val id: String)
+
+    @Serializable
+    private data class SkillSelectionPayload(val skillId: String, val selected: Boolean)
 
     @Serializable
     private data class SettingsPayload(

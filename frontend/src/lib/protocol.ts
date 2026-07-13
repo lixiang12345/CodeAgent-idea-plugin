@@ -42,6 +42,20 @@ export interface SettingsSnapshot {
   autoApproveReadOnly: boolean;
 }
 
+export interface WorkspaceRule {
+  id: string;
+  name: string;
+  path: string;
+}
+
+export interface WorkspaceSkill {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  selected: boolean;
+}
+
 export interface AppSnapshot {
   projectName: string;
   mode: Mode;
@@ -56,6 +70,11 @@ export interface AppSnapshot {
     label: string;
     files?: number;
     chunks?: number;
+  };
+  customization: {
+    rules: WorkspaceRule[];
+    skills: WorkspaceSkill[];
+    maxSelectedSkills: number;
   };
 }
 
@@ -127,6 +146,26 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       autoApproveReadOnly: true,
     },
     context: { state: "not_indexed", label: "Index project" },
+    customization: {
+      rules: [{ id: ".codeagent/rules/testing.md", name: "Testing", path: ".codeagent/rules/testing.md" }],
+      skills: [
+        {
+          id: ".codeagent/skills/release/SKILL.md",
+          name: "Release workflow",
+          description: "Verify tests, compatibility, and artifacts before tagging a release.",
+          path: ".codeagent/skills/release/SKILL.md",
+          selected: true,
+        },
+        {
+          id: ".agents/skills/review/SKILL.md",
+          name: "Review changes",
+          description: "Inspect behavior, regressions, and missing coverage in the current diff.",
+          path: ".agents/skills/review/SKILL.md",
+          selected: false,
+        },
+      ],
+      maxSelectedSkills: 8,
+    },
   };
   queueMicrotask(() => window.CodeAgent?.receive(JSON.stringify({ version: 1, type: "snapshot", payload: snapshot })));
 }

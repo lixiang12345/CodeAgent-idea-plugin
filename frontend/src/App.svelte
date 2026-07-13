@@ -8,12 +8,15 @@
     Database,
     FileCode2,
     FileDiff,
+    Library,
     Menu,
     MessageSquarePlus,
     PanelLeftClose,
     Play,
     Plus,
+    RefreshCw,
     Search,
+    ScrollText,
     SendHorizontal,
     Settings,
     ShieldAlert,
@@ -32,12 +35,14 @@
     type EventEnvelope,
     type Mode,
     type ToolRun,
+    type WorkspaceSkill,
   } from "./lib/protocol";
 
   let snapshot: AppSnapshot | null = null;
   let prompt = "";
   let sidebarOpen = true;
   let settingsOpen = false;
+  let skillsOpen = false;
   let toolsExpanded = new Set<string>();
   let endpoint = "";
   let model = "";
@@ -83,6 +88,7 @@
     const text = prompt.trim();
     if (!text || !snapshot || isBusy()) return;
     prompt = "";
+    skillsOpen = false;
     sendCommand("sendMessage", { text, mode: snapshot.mode });
   }
 
@@ -120,6 +126,15 @@
     sendCommand(snapshot?.context.state === "indexing" ? "getContextStatus" : "indexWorkspace");
   }
 
+  function toggleSkill(skill: WorkspaceSkill) {
+    if (isBusy()) return;
+    sendCommand("toggleSkill", { skillId: skill.id, selected: !skill.selected });
+  }
+
+  function selectedSkillCount() {
+    return snapshot?.customization.skills.filter((skill) => skill.selected).length ?? 0;
+  }
+
   function formatTime(timestamp: number) {
     return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(timestamp);
   }
@@ -135,18 +150,20 @@
 
   function startNewThread() {
     sendCommand("newThread");
+    skillsOpen = false;
     if (window.matchMedia("(max-width: 680px)").matches) sidebarOpen = false;
   }
 
   function selectThread(threadId: string) {
     sendCommand("selectThread", { threadId });
+    skillsOpen = false;
     if (window.matchMedia("(max-width: 680px)").matches) sidebarOpen = false;
   }
 </script>
 
 <svelte:window onkeydown={(event) => {
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") submit();
-  if (event.key === "Escape") settingsOpen = false;
+  if (event.key === "Escape") { settingsOpen = false; skillsOpen = false; }
 }} />
 
 {#if !snapshot}
@@ -245,6 +262,42 @@
           <div class="composer-bar">
             <div class="left-controls">
               <button class="icon-button" title="Add context" onclick={() => sendCommand("pickContext")}><Plus size={17} /></button>
+              <div class="skill-control">
+                <button class="icon-button" class:active={skillsOpen} title="Skills" aria-label="Skills" onclick={() => skillsOpen = !skillsOpen}>
+                  <Library size={16} />
+                  {#if selectedSkillCount() > 0}<span class="control-count">{selectedSkillCount()}</span>{/if}
+                </button>
+                {#if skillsOpen}
+                  <div class="skills-popover">
+                    <header>
+                      <div><strong>Skills</strong><small>{snapshot.customization.rules.length} rules active</small></div>
+                      <button class="icon-button" title="Refresh rules and skills" onclick={() => sendCommand("refreshCustomization")}><RefreshCw size={14} /></button>
+                    </header>
+                    {#if snapshot.customization.rules.length > 0}
+                      <div class="rules-status" title={snapshot.customization.rules.map((rule) => rule.path).join("\n")}>
+                        <ScrollText size={14} /><span>{snapshot.customization.rules.map((rule) => rule.name).join(", ")}</span>
+                      </div>
+                    {/if}
+                    <div class="skills-list">
+                      {#if snapshot.customization.skills.length === 0}
+                        <div class="skills-empty">No repository skills</div>
+                      {:else}
+                        {#each snapshot.customization.skills as skill}
+                          <label class="skill-option" title={skill.path}>
+                            <input
+                              type="checkbox"
+                              checked={skill.selected}
+                              disabled={isBusy() || (!skill.selected && selectedSkillCount() >= snapshot.customization.maxSelectedSkills)}
+                              onchange={() => toggleSkill(skill)}
+                            />
+                            <span><strong>{skill.name}</strong><small>{skill.description}</small></span>
+                          </label>
+                        {/each}
+                      {/if}
+                    </div>
+                  </div>
+                {/if}
+              </div>
               <div class="segmented" aria-label="Mode">
                 <button class:active={snapshot.mode === "agent"} onclick={() => setMode("agent")}>Agent</button>
                 <button class:active={snapshot.mode === "ask"} onclick={() => setMode("ask")}>Ask</button>

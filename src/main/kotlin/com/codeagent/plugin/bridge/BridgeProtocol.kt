@@ -78,6 +78,29 @@ data class ContextSnapshotDto(
 )
 
 @Serializable
+data class WorkspaceRuleDto(
+    val id: String,
+    val name: String,
+    val path: String,
+)
+
+@Serializable
+data class WorkspaceSkillDto(
+    val id: String,
+    val name: String,
+    val description: String,
+    val path: String,
+    val selected: Boolean,
+)
+
+@Serializable
+data class WorkspaceCustomizationDto(
+    val rules: List<WorkspaceRuleDto> = emptyList(),
+    val skills: List<WorkspaceSkillDto> = emptyList(),
+    val maxSelectedSkills: Int = 8,
+)
+
+@Serializable
 data class AppSnapshotDto(
     val projectName: String,
     val mode: String = "agent",
@@ -88,4 +111,5 @@ data class AppSnapshotDto(
     val attachments: List<ContextItemDto> = emptyList(),
     val settings: SettingsSnapshotDto = SettingsSnapshotDto(),
     val context: ContextSnapshotDto = ContextSnapshotDto(),
+    val customization: WorkspaceCustomizationDto = WorkspaceCustomizationDto(),
 )
