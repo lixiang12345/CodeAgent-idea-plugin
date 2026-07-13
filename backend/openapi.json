@@ -6,6 +6,7 @@
     "description": "Protocol version 1 API used by the CodeAgent IDEA capability gateway."
   },
   "servers": [
+    { "url": "/", "description": "Current deployment" },
     { "url": "http://127.0.0.1:8787", "description": "Local development" }
   ],
   "paths": {
@@ -24,6 +25,17 @@
       "get": {
         "summary": "Read this API contract",
         "responses": { "200": { "description": "OpenAPI 3.1 document" } }
+      }
+    },
+    "/docs": {
+      "get": {
+        "summary": "Open interactive API documentation",
+        "responses": {
+          "200": {
+            "description": "Self-contained HTML documentation",
+            "content": { "text/html": { "schema": { "type": "string" } } }
+          }
+        }
       }
     },
     "/v1/models": {

@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodeAgent Backend API</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #17181a; color: #e8e9eb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    button, input, select, textarea { font: inherit; }
+    header { border-bottom: 1px solid #34373c; background: #202226; }
+    header > div, main { width: min(1080px, calc(100% - 32px)); margin: 0 auto; }
+    header > div { min-height: 68px; display: flex; align-items: center; gap: 14px; }
+    h1 { margin: 0; font-size: 19px; letter-spacing: 0; }
+    h2 { margin: 0 0 14px; font-size: 14px; letter-spacing: 0; }
+    p { margin: 6px 0; color: #aeb3bb; font-size: 13px; line-height: 1.6; }
+    code, pre { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace; }
+    code { color: #9dc1ff; }
+    main { padding: 24px 0 48px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); gap: 16px; }
+    section { padding: 16px; border: 1px solid #34373c; border-radius: 6px; background: #222428; }
+    .wide { grid-column: 1 / -1; }
+    .status { margin-left: auto; padding: 4px 8px; border: 1px solid #3d5945; border-radius: 4px; color: #9bd5aa; background: #223028; font-size: 12px; }
+    .links { display: flex; gap: 8px; flex-wrap: wrap; }
+    a, button { color: #b8d1ff; }
+    a { text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .endpoint { min-height: 40px; padding: 8px 0; display: grid; grid-template-columns: 58px minmax(160px, 1fr) 1.4fr; align-items: center; gap: 10px; border-top: 1px solid #34373c; font-size: 12px; }
+    .endpoint:first-of-type { border-top: 0; }
+    .method { color: #99d4a8; font-weight: 700; }
+    .method.post { color: #f0c879; }
+    .method.delete { color: #f19a9a; }
+    label { display: block; margin: 11px 0 5px; color: #bdc1c7; font-size: 12px; }
+    input, select, textarea { width: 100%; border: 1px solid #454950; border-radius: 4px; outline: 0; color: #e8e9eb; background: #191a1d; }
+    input, select { height: 34px; padding: 0 9px; }
+    textarea { min-height: 82px; padding: 9px; resize: vertical; }
+    input:focus, select:focus, textarea:focus { border-color: #5d8bd8; }
+    button { height: 34px; margin-top: 12px; padding: 0 12px; border: 1px solid #5076b6; border-radius: 4px; background: #315b9d; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    pre { min-height: 180px; max-height: 440px; margin: 12px 0 0; padding: 12px; overflow: auto; border: 1px solid #34373c; border-radius: 4px; color: #cfd4da; background: #151619; font-size: 11px; line-height: 1.55; white-space: pre-wrap; }
+    .hint { color: #858b94; font-size: 11px; }
+    @media (max-width: 780px) { main { grid-template-columns: 1fr; } .wide { grid-column: auto; } .endpoint { grid-template-columns: 52px 1fr; } .endpoint span:last-child { grid-column: 2; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div>
+        <h1>CodeAgent Backend API</h1>
+        <p id="base-url"></p>
+      </div>
+      <span class="status" id="status">检查中</span>
+    </div>
+  </header>
+  <main>
+    <section class="wide">
+      <h2>接口契约</h2>
+      <p>协议版本固定为 <code>1</code>。模型密钥只存在于后端，OMP 只使用这里的 HTTP/SSE 接口。</p>
+      <div class="links">
+        <a href="/openapi.json">OpenAPI 3.1 JSON</a>
+        <a href="/health">Health JSON</a>
+      </div>
+    </section>
+
+    <section class="wide">
+      <h2>端点</h2>
+      <div class="endpoint"><b class="method">GET</b><code>/health</code><span>健康、协议版本和默认模型</span></div>
+      <div class="endpoint"><b class="method">GET</b><code>/v1/models</code><span>后端允许使用的模型清单</span></div>
+      <div class="endpoint"><b class="method post">POST</b><code>/v1/runs</code><span>创建 Agent 运行并返回 SSE 流</span></div>
+      <div class="endpoint"><b class="method post">POST</b><code>/v1/runs/{runId}/tool-results</code><span>回传 IDEA 本地工具结果并继续运行</span></div>
+      <div class="endpoint"><b class="method delete">DELETE</b><code>/v1/runs/{runId}</code><span>取消运行</span></div>
+    </section>
+
+    <section>
+      <h2>请求要点</h2>
+      <p><code>POST /v1/runs</code> 必须使用 streaming <code>fetch</code>，不能使用只支持 GET 的 <code>EventSource</code>。</p>
+      <p>SSE 事件：<code>run.started</code>、<code>turn.started</code>、<code>message.delta</code>、<code>assistant.completed</code>、<code>tool.request</code>、<code>tool.completed</code>、<code>run.completed</code>、<code>run.error</code>。</p>
+      <p>收到 <code>tool.request</code> 后，由 IDEA/JVM 执行本地能力，再向工具结果端点回传。</p>
+    </section>
+
+    <section>
+      <h2>鉴权与模型</h2>
+      <label for="token">Backend Token（本地未配置时留空）</label>
+      <input id="token" type="password" autocomplete="off" placeholder="CODEAGENT_AUTH_TOKEN">
+      <label for="model">模型</label>
+      <select id="model"><option>加载中</option></select>
+      <button id="load-models" type="button">刷新模型</button>
+      <p class="hint">Token 只保存在当前页面内存，不写入浏览器存储。</p>
+    </section>
+
+    <section class="wide">
+      <h2>SSE 聊天联调</h2>
+      <label for="prompt">消息</label>
+      <textarea id="prompt">Reply exactly DOCS_STREAM_OK</textarea>
+      <button id="send" type="button">发送流式请求</button>
+      <pre id="output">等待请求</pre>
+    </section>
+  </main>
+  <script>
+    const baseUrl = location.origin;
+    const statusElement = document.querySelector("#status");
+    const tokenElement = document.querySelector("#token");
+    const modelElement = document.querySelector("#model");
+    const outputElement = document.querySelector("#output");
+    const sendButton = document.querySelector("#send");
+    document.querySelector("#base-url").textContent = baseUrl;
+
+    function headers(json = false) {
+      const value = {};
+      if (json) value["content-type"] = "application/json";
+      if (tokenElement.value.trim()) value.authorization = `Bearer ${tokenElement.value.trim()}`;
+      return value;
+    }
+
+    async function loadModels() {
+      const response = await fetch("/v1/models", { headers: headers() });
+      if (!response.ok) throw new Error(await response.text());
+      const body = await response.json();
+      modelElement.replaceChildren(...body.data.map((model) => {
+        const option = document.createElement("option");
+        option.value = model.id;
+        option.textContent = `${model.id} (${model.ownedBy || "provider"})`;
+        option.selected = model.id === body.defaultModel;
+        return option;
+      }));
+    }
+
+    async function checkHealth() {
+      const response = await fetch("/health");
+      const body = await response.json();
+      statusElement.textContent = body.ok ? `在线 · 协议 ${body.protocolVersion}` : "不可用";
+      await loadModels();
+    }
+
+    function renderEvent(type, data) {
+      outputElement.textContent += `\n\n${type}\n${JSON.stringify(data, null, 2)}`;
+      outputElement.scrollTop = outputElement.scrollHeight;
+    }
+
+    async function sendRun() {
+      sendButton.disabled = true;
+      outputElement.textContent = "连接中";
+      try {
+        const response = await fetch("/v1/runs", {
+          method: "POST",
+          headers: headers(true),
+          body: JSON.stringify({
+            mode: "chat",
+            model: modelElement.value,
+            messages: [{ role: "user", content: document.querySelector("#prompt").value }],
+            tools: [],
+            workspace: {}
+          })
+        });
+        if (!response.ok) throw new Error(await response.text());
+        outputElement.textContent = `HTTP ${response.status}\nrunId: ${response.headers.get("x-codeagent-run-id")}`;
+        const decoder = new TextDecoder();
+        let buffer = "";
+        for await (const chunk of response.body) {
+          buffer += decoder.decode(chunk, { stream: true });
+          let match;
+          while ((match = /\r?\n\r?\n/.exec(buffer))) {
+            const block = buffer.slice(0, match.index);
+            buffer = buffer.slice(match.index + match[0].length);
+            if (!block || block.startsWith(":")) continue;
+            const type = block.split(/\r?\n/).find((line) => line.startsWith("event:"))?.slice(6).trim();
+            const data = block.split(/\r?\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
+            if (type && data) renderEvent(type, JSON.parse(data));
+          }
+        }
+      } catch (error) {
+        outputElement.textContent += `\n\nERROR\n${error.message}`;
+      } finally {
+        sendButton.disabled = false;
+      }
+    }
+
+    document.querySelector("#load-models").addEventListener("click", () => loadModels().catch((error) => { outputElement.textContent = error.message; }));
+    sendButton.addEventListener("click", sendRun);
+    checkHealth().catch((error) => {
+      statusElement.textContent = "离线";
+      outputElement.textContent = error.message;
+    });
+  </script>
+</body>
+</html>

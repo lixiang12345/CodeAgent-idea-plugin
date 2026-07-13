@@ -1,0 +1,110 @@
+# Frontend interfaces
+
+Contract between the CodeAgent Webview, IDEA bridge, and deployed Agent backend.  
+
+Full request/response tables (including original Augment interface map): [`docs/API_INTERFACE_CATALOG.md`](API_INTERFACE_CATALOG.md).
+Product UI baseline: `docs/FINAL_PROTOTYPE_CONTRACT.md` and `prototypes/codeagent-final.html`.
+
+## 1. Webview ↔ JVM bridge
+
+Transport: `window.codeAgentPost(json)` / `window.CodeAgent.receive(json)`  
+Envelope version: `1`
+
+### Commands (UI → JVM)
+
+| type | payload | Behavior |
+| --- | --- | --- |
+| `bootstrap` | — | Emit full snapshot + health/models refresh |
+| `sendMessage` | `{ text, mode }` | Start agent run or fail if invalid |
+| `queueMessage` | `{ text, mode }` | Queue while busy |
+| `removeQueuedMessage` | `{ messageId }` | Drop queued item |
+| `cancelRun` | — | Abort active run |
+| `setMode` | `{ mode }` | `agent` \| `chat` \| `ask` |
+| `selectModel` | `{ modelId }` | Persist per-thread model |
+| `newThread` | `{ mode? }` | Create + activate thread |
+| `selectThread` | `{ threadId }` | Switch thread |
+| `toggleThreadPinned` | `{ threadId }` | Pin ordering |
+| `deleteThread` | `{ threadId }` | Confirmed delete |
+| `renameThread` | `{ threadId, title }` | Rename active/history title |
+| `copyThread` | — | Copy Markdown to clipboard |
+| `exportThread` | — | Save Markdown via folder chooser |
+| `importThread` | — | Import Markdown thread |
+| `pickContext` / `removeContext` | path/id | Attachments |
+| `toggleSkill` / `toggleRule` | selection | Composer/rules selection |
+| `saveRule` / `refreshCustomization` | rule fields | Rules/Skills disk |
+| `resolveApproval` | `{ toolId, approved }` | Tool approval |
+| `openDiff` / `revertChange` / `reviewChanges` / `keepChanges` / `discardChanges` | tool ids | Agent edits |
+| `addTask` / `deleteTask` / `setTaskState` / `runTask` / `runAllTasks` / `clearTasks` / `clearCompletedTasks` / `exportTasks` / `importTasks` | task fields | Tasklist |
+| `refreshGit` / `stageGit` / `unstageGit` / `openGitDiff` / `suggestCommitMessage` / `commitGit` | git fields | Git overlay |
+| `refreshImageCanvas` / `browseImageDirectory` / `openImage` / `attachImage` | image fields | Context Canvas |
+| `openMermaidEditor` | `{ title, code }` | Open `.mmd` in editor |
+| `openTerminal` | — | Focus IDE Terminal |
+| `saveSettings` | `{ backendUrl, nodePath, backendToken, autoApproveReadOnly }` | Gateway config |
+| `checkBackend` / `getContextStatus` / `indexWorkspace` | — | Health / index |
+
+### Events (JVM → UI)
+
+| type | payload |
+| --- | --- |
+| `snapshot` | `AppSnapshot` |
+| `stateChanged` | partial snapshot fields |
+| `messageDelta` | `{ id, delta }` |
+| `error` / `notice` | `{ message }` |
+| `gitSnapshot` | Git status |
+| `gitCommitSuggested` | `{ message }` |
+| `imageCanvas` | gallery snapshot |
+
+## 2. AppSnapshot (UI model)
+
+Core fields: `projectName`, `mode`, `runState`, `messages[]`, `tools[]`, `threads[]`, `tasks[]`, `messageQueue[]`, `attachments[]`, `settings`, `context`, `backendHealth`, `models`, `customization`.
+
+Tool card statuses: `running` \| `approval` \| `completed` \| `failed` \| `rejected`.
+
+## 3. Deployed backend HTTP/SSE
+
+Base URL from settings (default `http://127.0.0.1:8787`).  
+Auth: `Authorization: Bearer <CODEAGENT_AUTH_TOKEN>` on protected routes.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/health` | Unauthenticated health + `protocolVersion` |
+| `GET` | `/v1/models` | Allowlisted models |
+| `POST` | `/v1/runs` | Opens SSE stream for one run |
+| `POST` | `/v1/runs/{id}/tool-results` | Continue after local tool execution |
+| `DELETE` | `/v1/runs/{id}` | Cancel |
+
+### SSE event types
+
+`run.started`, `message.delta`, `assistant.completed`, `tool.request`, `tool.completed`, `run.completed`, `run.error`, plus `: heartbeat` comments.
+
+### Run request (conceptual)
+
+- `model`
+- conversation history
+- mode
+- advertised tool schemas (JVM allowlist)
+- selected rules/skills/guidance (bounded)
+- attachment path summaries
+
+System prompts and provider credentials **never** leave the backend process.
+
+## 4. UI surfaces vs connection
+
+| Surface | Bridge/backend |
+| --- | --- |
+| Chat / composer / tools cards | bridge + backend runs |
+| Threads rename/export/import | bridge only |
+| Tasks / Git / Image / Mermaid / Rules / Skills | bridge / local IDE |
+| Tools catalog / Icon gallery | pure UI (seed prompt / copy name) |
+| Feedback | local notice only |
+| MCP / Account / Subscription / Hooks / Agents / Plugins / cloud tools | explicit **Not connected** shells |
+
+## 5. Final prototype
+
+Open:
+
+```bash
+open prototypes/codeagent-final.html
+```
+
+Uses v9 interaction matrix rebranded to CodeAgent, with robot-only product icon override.

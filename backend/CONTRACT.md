@@ -2,11 +2,12 @@
 
 Contract version: `1`
 
-The authoritative machine-readable schema is `openapi.json`, also served publicly as `GET /openapi.json`. This document records the streaming behavior that OpenAPI cannot express precisely.
+The authoritative machine-readable schema is `openapi.json`, also served publicly as `GET /openapi.json`. Interactive documentation is served as `GET /docs`. This document records the streaming behavior that OpenAPI cannot express precisely.
 
 ## Connection
 
 - Local backend default: `http://127.0.0.1:8787`
+- Current local OMP integration instance: `http://127.0.0.1:8788`
 - Authentication: `Authorization: Bearer <CODEAGENT_AUTH_TOKEN>` on every `/v1/*` request when the server token is configured.
 - Browser development origins must be listed in `CORS_ALLOWED_ORIGINS` as a comma-separated exact-origin allowlist.
 - Model provider credentials never cross this API boundary.

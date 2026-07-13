@@ -108,6 +108,11 @@ test("serves the public OpenAPI contract", async () => {
     assert.ok(contract.paths["/v1/runs"]);
     assert.ok(contract.paths["/v1/runs/{runId}/tool-results"]);
     assert.ok(contract.paths["/v1/runs/{runId}"].delete);
+
+    const docs = await fetch(`http://127.0.0.1:${server.address().port}/docs`);
+    assert.equal(docs.status, 200);
+    assert.match(docs.headers.get("content-type"), /text\/html/);
+    assert.match(await docs.text(), /POST \/v1\/runs/);
   } finally {
     server.close();
     await once(server, "close");

@@ -6,6 +6,7 @@ import { AgentRunner } from "./agent-runner.mjs";
 import { createModelGatewayFromEnv } from "./model-gateway.mjs";
 
 const OPENAPI_DOCUMENT = JSON.parse(readFileSync(new URL("../openapi.json", import.meta.url), "utf8"));
+const DOCS_HTML = readFileSync(new URL("../docs.html", import.meta.url), "utf8");
 
 export function createCodeAgentServer({ modelGateway, authToken = "", corsOrigins = [], logger = console } = {}) {
   const gateway = modelGateway || createModelGatewayFromEnv();
@@ -33,6 +34,9 @@ export function createCodeAgentServer({ modelGateway, authToken = "", corsOrigin
       }
       if (request.url === "/openapi.json" && request.method === "GET") {
         return json(response, 200, OPENAPI_DOCUMENT);
+      }
+      if ((request.url === "/docs" || request.url === "/docs/") && request.method === "GET") {
+        return html(response, 200, DOCS_HTML);
       }
       authorize(request, authToken);
 
@@ -203,6 +207,11 @@ async function readJson(request) {
 function json(response, status, body) {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(body));
+}
+
+function html(response, status, body) {
+  response.writeHead(status, { "content-type": "text/html; charset=utf-8" });
+  response.end(body);
 }
 
 function normalizeCorsOrigins(value) {

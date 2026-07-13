@@ -61,6 +61,16 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     }
 
     @Synchronized
+    fun renameThread(threadId: String, title: String): ConversationSnapshot {
+        val thread = requireNotNull(data.threads.firstOrNull { it.id == threadId }) { "Unknown conversation: $threadId" }
+        val next = title.trim().take(48)
+        require(next.isNotEmpty()) { "Thread title must not be blank" }
+        thread.title = next
+        thread.updatedAt = System.currentTimeMillis()
+        return thread.toSnapshot()
+    }
+
+    @Synchronized
     fun deleteThread(threadId: String): ConversationSnapshot {
         require(data.threads.removeIf { it.id == threadId }) { "Unknown conversation: $threadId" }
         if (data.activeThreadId == threadId) data.activeThreadId = ""

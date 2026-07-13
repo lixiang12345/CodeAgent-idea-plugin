@@ -400,16 +400,14 @@ class IdeBridge(
                 }
             }
             "copyThread" -> {
-                val active = conversations.active()
-                val markdown = buildString {
-                    append("# ").append(active.title).append("\n\n")
-                    append("<!-- codeagent-thread mode:").append(active.mode).append(" -->\n\n")
-                    active.messages.forEach { message ->
-                        append("## ").append(if (message.role == "user") "User" else "CodeAgent").append("\n\n")
-                        append(message.content).append("\n\n")
-                    }
-                }
-                CopyPasteManager.getInstance().setContents(StringSelection(markdown.trim()))
+                CopyPasteManager.getInstance().setContents(StringSelection(threadMarkdown(conversations.active())))
+                emit("notice", mapOf("message" to "Thread copied as Markdown"))
+            }
+            "exportThread" -> exportThread()
+            "renameThread" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<RenameThreadPayload>(it) }
+                conversations.renameThread(request.threadId, request.title)
+                emitSnapshot()
             }
             "openTerminal" -> ToolWindowManager.getInstance(project).getToolWindow("Terminal")?.activate(null)
             else -> error("Unknown bridge command: ${command.type}")
@@ -757,6 +755,33 @@ class IdeBridge(
         }
     }
 
+    private fun threadMarkdown(active: com.codeagent.plugin.conversation.ConversationSnapshot): String = buildString {
+        append("# ").append(active.title).append("\n\n")
+        append("<!-- codeagent-thread mode:").append(active.mode).append(" -->\n\n")
+        active.messages.forEach { message ->
+            append("## ").append(if (message.role == "user") "User" else "CodeAgent").append("\n\n")
+            append(message.content).append("\n\n")
+        }
+    }.trim()
+
+    private fun exportThread() {
+        val active = conversations.active()
+        val markdown = threadMarkdown(active)
+        val descriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor()
+            .withTitle("Export CodeAgent Thread")
+            .withDescription("Choose a folder for the Markdown export")
+        FileChooser.chooseFile(descriptor, project, null) { folder ->
+            runCatching {
+                val safe = active.title.replace(Regex("[^A-Za-z0-9._-]+"), "-").trim('-').ifBlank { "thread" }
+                val target = Path.of(folder.path, "codeagent-$safe.md")
+                Files.writeString(target, markdown, StandardCharsets.UTF_8)
+                emit("notice", mapOf("message" to "Exported ${target.fileName}"))
+            }.onFailure { error ->
+                emit("error", mapOf("message" to (error.message ?: "Export failed")))
+            }
+        }
+    }
+
     private fun importThread() {
         val descriptor = FileChooserDescriptorFactory.singleFile()
             .withTitle("Import CodeAgent Thread")
@@ -907,6 +932,9 @@ class IdeBridge(
 
     @Serializable
     private data class ThreadPayload(val threadId: String)
+
+    @Serializable
+    private data class RenameThreadPayload(val threadId: String, val title: String)
 
     @Serializable
     private data class ContextPayload(val id: String)

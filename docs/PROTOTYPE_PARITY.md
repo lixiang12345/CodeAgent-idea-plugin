@@ -44,17 +44,18 @@ This table is the release gate. `Partial` means the visible surface exists but a
 
 | Surface | Status | Real behavior in the current build |
 | --- | --- | --- |
-| Main panel | Implemented | 420 px IDEA tool window, streamed messages, context strip, tool cards, approvals, composer, stop/send states |
+| Main panel | Implemented | 420 px IDEA tool window, interleaved user/assistant/tool timeline, context strip, tool cards, approvals, composer, stop/send states |
 | Threads | Implemented | Create, select, search, mode tags, pin ordering, confirmed delete, and Markdown import/export work |
-| Composer | Partial | Modes, project attachments, Skills, backend-discovered per-thread model selection, ordered run queue, slash seed, auto-run policy, and send/stop work; prompt enhancement remains unavailable |
-| Tools | Partial | 15 local tool definitions execute through the IDEA gateway; web, cloud, MCP, and subagent tools are not advertised |
-| Agent edits | Partial | Native Diff, guarded per-file undo, review, keep-all, and atomic discard-all work; checkpoints remain unavailable |
+| Composer | Partial | Modes, attachments, Skills, model picker, queue/stop/send, slash menu, @ mention menu, and Auto work; prompt enhancement remains unavailable |
+| Tools | Partial | 15 local tools execute through the IDEA gateway; catalog overlay lists all 31 prototype tools with connected/unavailable badges |
+| Agent edits | Partial | Native Diff, undo, keep/discard, plus dedicated Agent Edits overlay; checkpoints remain unavailable |
 | Tasks | Implemented | Persistent per-thread tasks, filtering, add/delete/state, clear, Markdown import/export, run-one/run-all, and Agent task tools |
 | Git | Implemented | Real branch/index/worktree status, stage/unstage, native Diff, local message draft, confirmation, and commit |
 | Rules editor | Implemented | Repository Markdown, persisted description and trigger metadata, save, and manual per-thread selection work |
 | Image Canvas | Implemented | Project-contained directory selection, bounded raster gallery, settings, refresh, open, mention, and empty/error states |
 | Mermaid | Implemented | Strict rendering, diagram/code, zoom, fit, error states, and opening source in an IDEA editor tab work |
-| Settings | Partial | All prototype navigation sections render; backend health/protocol, services, API token, ContextEngine, Rules, and Skills are real, while unconnected sections say so explicitly |
+| Settings | Partial | All prototype navigation sections render; backend health, services/token, ContextEngine, Rules, Skills, and chat zoom UX are real; MCP and remaining sections stay explicit shells |
+| Tools catalog / Icon gallery / Feedback | Implemented | UI overlays for insert-tool seeding, icon name copy, and local feedback notice |
 | Subagents and cloud integrations | Unavailable | No success state is simulated; these require separately deployed capability providers and protocol work |
 
 ## Tool catalog
@@ -64,11 +65,11 @@ The prototype defines 31 tool presentations. A card is shown as functional only 
 `context-engine`, `conversation-retrieval`, `str-replace`, `view`, `read-file`, `save-file`, `remove-files`, `apply-patch`, `grep`, `shell`, `web-fetch`, `web`, `open-browser`, `diagnostics`, `git-commit`, `mermaid`, `add-tasks`, `view-tasks`, `update-tasks`, `reorg-tasks`, `subagent`, `async-subagent`, `ask-user`, `github`, `linear`, `notion`, `jira`, `confluence`, `glean`, `supabase`, `mcp`.
 
 ## Resource contract
-
-- Use the icon names and placement from the v9 registry.
+- Use the icon names and placement from the v9 registry (`prototypes/assets/icons-registry.js`), shipped as `frontend/src/lib/icons.ts` and rendered through `frontend/src/lib/Icon.svelte`.
 - Reuse the provided prototype status, service, and product image resources when licensing permits redistribution.
-- Use prototype design tokens: compact 10/12/14 px type, JetBrains Mono for tool data, neutral IntelliJ surfaces, blue action accent, and 4-8 px radii.
-- Validate at a 420 px tool-window viewport first, then 360 px and wider docked widths.
+- Use prototype design tokens: compact 10/12/14 px type, JetBrains Mono for tool data, neutral IntelliJ surfaces (`--bg/#1e1e1e`, `--panel/#252526`, `--chrome/#3c3f41`, accent `#3574f0`), and 4-8 px radii.
+- Validate at a 420 px tool-window viewport first (`--tw: 420px`), then 360 px and wider docked widths.
+- Page chrome mirrors v9: tool-window header, chat header with context meter + zoom, repository chip strip, composer action bar (mode/model/canvas/@/slash/attach/enhance/auto/send), threads drawer, and overlay pages for Tasks / Git Changes / Context Canvas / Settings.
 
 ## No-fake rule
 
