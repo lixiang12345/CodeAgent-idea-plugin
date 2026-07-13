@@ -48,7 +48,7 @@ Envelope version: `1`
 | --- | --- |
 | `snapshot` | `AppSnapshot` |
 | `stateChanged` | partial snapshot fields |
-| `messageDelta` | `{ id, delta }` |
+| `messageDelta` | `{ id, delta, turnIndex }` |
 | `error` / `notice` | `{ message }` |
 | `gitSnapshot` | Git status |
 | `gitCommitSuggested` | `{ message }` |
@@ -56,7 +56,7 @@ Envelope version: `1`
 
 ## 2. AppSnapshot (UI model)
 
-Core fields: `projectName`, `mode`, `runState`, `messages[]`, `tools[]`, `threads[]`, `tasks[]`, `messageQueue[]`, `attachments[]`, `settings`, `context`, `backendHealth`, `models`, `customization`.
+Core fields: `projectName`, `mode`, `runState`, `messages[]`, `tools[]`, `threads[]`, `tasks[]`, `messageQueue[]`, `attachments[]`, `settings`, `context`, `backendHealth`, `models`, `customization`. Assistant messages and tool runs may include backend `turnIndex` while a run is active.
 
 Tool card statuses: `running` \| `approval` \| `completed` \| `failed` \| `rejected`.
 
@@ -75,7 +75,7 @@ Auth: `Authorization: Bearer <CODEAGENT_AUTH_TOKEN>` on protected routes.
 
 ### SSE event types
 
-`run.started`, `message.delta`, `assistant.completed`, `tool.request`, `tool.completed`, `run.completed`, `run.error`, plus `: heartbeat` comments.
+`run.started`, `turn.started`, `message.delta`, `assistant.completed`, `tool.request`, `tool.completed`, `run.completed`, `run.error`, plus `: heartbeat` comments. Turn-scoped text and tool events include `turnIndex`.
 
 ### Run request (conceptual)
 

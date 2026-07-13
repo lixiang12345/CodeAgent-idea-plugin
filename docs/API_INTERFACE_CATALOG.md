@@ -158,6 +158,7 @@ Errors for failed commands: event `error` with `{ message: string }`.
 | `role` | `user`\|`assistant`\|`system` |
 | `content` | string |
 | `createdAt` | number (epoch ms) |
+| `turnIndex` | number? (assistant run messages) |
 
 **ToolRun**
 
@@ -170,13 +171,14 @@ Errors for failed commands: event `error` with `{ message: string }`.
 | `detail` | string? |
 | `changePath` | string? |
 | `canRevert` | boolean |
+| `turnIndex` | number? |
 
 #### Other events
 
 | type | payload |
 | --- | --- |
 | `stateChanged` | partial AppSnapshot fields |
-| `messageDelta` | `{ id: string, delta: string }` |
+| `messageDelta` | `{ id: string, delta: string, turnIndex: number }` |
 | `error` | `{ message: string }` |
 | `notice` | `{ message: string }` |
 | `gitSnapshot` | `{ available, branch, repository, unstaged[], staged[], error? }` |

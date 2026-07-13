@@ -48,7 +48,7 @@ The backend can emit multiple tool requests in one model turn. Submit exactly on
 
 ## Error handling
 
-- HTTP errors use `{ "error": "message" }`.
+- HTTP errors use `{ "error": "message" }`; request validation fails before SSE headers are sent.
 - Once an SSE response has started, run failures arrive as `run.error`, not as a new HTTP status.
 - A tool result returns `202 { "accepted": true }`.
 - Cancellation returns `202 { "cancelled": true }` and closes the stream.

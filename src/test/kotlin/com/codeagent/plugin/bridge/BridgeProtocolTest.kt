@@ -1,6 +1,7 @@
 package com.codeagent.plugin.bridge
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -23,5 +24,14 @@ class BridgeProtocolTest {
         assertFailsWith<Exception> {
             json.decodeFromString<CommandEnvelope>("""{"version":1}""")
         }
+    }
+
+    @Test
+    fun `encodes turn identity on streaming bridge payloads`() {
+        val delta = json.encodeToString(MessageDeltaDto("message-1", "Done", 2))
+        val tool = json.encodeToString(ToolRunDto("tool-1", "read_file", "Read", "completed", turnIndex = 2))
+
+        assertEquals("""{"id":"message-1","delta":"Done","turnIndex":2}""", delta)
+        assertEquals(true, tool.contains("\"turnIndex\":2"))
     }
 }

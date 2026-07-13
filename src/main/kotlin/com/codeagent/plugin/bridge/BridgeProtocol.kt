@@ -26,12 +26,14 @@ data class ChatMessageDto(
     val role: String,
     val content: String,
     val createdAt: Long,
+    val turnIndex: Int? = null,
 )
 
 @Serializable
 data class MessageDeltaDto(
     val id: String,
     val delta: String,
+    val turnIndex: Int,
 )
 
 @Serializable
@@ -43,6 +45,7 @@ data class ToolRunDto(
     val detail: String? = null,
     val changePath: String? = null,
     val canRevert: Boolean = false,
+    val turnIndex: Int? = null,
 )
 
 @Serializable

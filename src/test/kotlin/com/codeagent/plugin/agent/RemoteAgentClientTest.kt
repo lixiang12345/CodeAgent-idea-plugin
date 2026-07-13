@@ -9,6 +9,7 @@ import java.net.http.HttpClient
 import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class RemoteAgentClientTest {
@@ -32,10 +33,10 @@ class RemoteAgentClientTest {
                 data: {"runId":"run-1"}
 
                 event: message.delta
-                data: {"delta":"Working"}
+                data: {"delta":"Working","turnIndex":0}
 
                 event: assistant.completed
-                data: {"content":"Working"}
+                data: {"content":"Working","turnIndex":0}
 
             """.trimIndent().replace("\n", "\r\n")
             exchange.responseHeaders.add("Content-Type", "text/event-stream")
@@ -66,6 +67,7 @@ class RemoteAgentClientTest {
                 httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build(),
             )
             val eventTypes = mutableListOf<String>()
+            val eventPayloads = mutableListOf<String>()
             client.stream(
                 request = RemoteRunRequest(
                     mode = "agent",
@@ -78,7 +80,10 @@ class RemoteAgentClientTest {
                     ),
                 ),
                 onStreamChanged = {},
-                onEvent = { type, _ -> eventTypes += type },
+                onEvent = { type, payload ->
+                    eventTypes += type
+                    eventPayloads += payload.toString()
+                },
             )
             client.submitToolResult("run-1", RemoteToolResult("call-1", "completed", output = "README"))
             val health = client.health().join()
@@ -87,6 +92,8 @@ class RemoteAgentClientTest {
             assertEquals("Bearer backend-secret", runAuthorization)
             assertEquals("Bearer backend-secret", modelsAuthorization)
             assertEquals(listOf("run.started", "message.delta", "assistant.completed"), eventTypes)
+            assertTrue(eventPayloads[1].contains("\"turnIndex\":0"))
+            assertTrue(eventPayloads[2].contains("\"turnIndex\":0"))
             assertTrue(runBody.contains("\"model\":\"claude-fable-5\""))
             assertTrue(runBody.contains("Use repository conventions."))
             assertTrue(runBody.contains("\"read_file\""))
@@ -100,4 +107,39 @@ class RemoteAgentClientTest {
             server.stop(0)
         }
     }
+    @Test
+    fun `surfaces structured backend error messages`() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/v1/runs") { exchange ->
+            val body = """{"error":"Unsupported run mode"}""".toByteArray()
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(400, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        server.start()
+
+        try {
+            val client = RemoteAgentClient(
+                settings = CodeAgentSettings(
+                    backendUrl = "http://127.0.0.1:${server.address.port}",
+                    nodePath = "node",
+                    autoApproveReadOnly = true,
+                    backendToken = null,
+                ),
+                httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build(),
+            )
+            val error = assertFailsWith<IllegalStateException> {
+                client.stream(
+                    request = RemoteRunRequest("invalid", messages = emptyList(), tools = emptyList(), workspace = RemoteWorkspace()),
+                    onStreamChanged = {},
+                    onEvent = { _, _ -> },
+                )
+            }
+
+            assertTrue(error.message.orEmpty().endsWith("Unsupported run mode"))
+        } finally {
+            server.stop(0)
+        }
+    }
+
 }

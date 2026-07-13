@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
-import { AgentRunner } from "./agent-runner.mjs";
+import { AgentRunner, validateRunRequest } from "./agent-runner.mjs";
 import { createModelGatewayFromEnv } from "./model-gateway.mjs";
 
 const OPENAPI_DOCUMENT = JSON.parse(readFileSync(new URL("../openapi.json", import.meta.url), "utf8"));
@@ -45,20 +45,21 @@ export function createCodeAgentServer({ modelGateway, authToken = "", corsOrigin
         return json(response, 200, {
           object: "list",
           provider: gateway.provider || "custom",
-          defaultModel: gateway.defaultModel,
+          defaultModel: gateway.defaultModel || "",
           data,
         });
       }
 
       if (request.url === "/v1/runs" && request.method === "POST") {
         const body = await readJson(request);
+        validateRunRequest(body);
         const run = new RunSession({ id: randomUUID(), response, onClose: () => runs.delete(run.id) });
         runs.set(run.id, run);
         run.emit("run.started", {
           runId: run.id,
           protocolVersion: 1,
           provider: gateway.provider || "custom",
-          model: body.model || gateway.defaultModel,
+          model: body.model || gateway.defaultModel || "",
         });
         void runner.run({
           request: body,
@@ -74,7 +75,9 @@ export function createCodeAgentServer({ modelGateway, authToken = "", corsOrigin
       const toolResultMatch = request.url?.match(/^\/v1\/runs\/([^/]+)\/tool-results$/);
       if (toolResultMatch && request.method === "POST") {
         const run = requireRun(runs, toolResultMatch[1]);
-        run.resolveToolResult(await readJson(request));
+        const result = await readJson(request);
+        validateToolResult(result);
+        run.resolveToolResult(result);
         return json(response, 202, { accepted: true });
       }
 
@@ -146,14 +149,13 @@ class RunSession {
   }
 
   resolveToolResult(result) {
-    if (!result?.toolCallId) throw new Error("toolCallId is required");
     const pending = this.pendingTools.get(result.toolCallId);
     if (!pending) throw new Error(`No pending tool call: ${result.toolCallId}`);
     pending.resolve({
-      status: String(result.status || "completed"),
-      output: typeof result.output === "string" ? result.output : "",
-      error: typeof result.error === "string" ? result.error : "",
-      summary: typeof result.summary === "string" ? result.summary : undefined,
+      status: result.status,
+      output: result.output || "",
+      error: result.error || "",
+      summary: result.summary,
     });
   }
 
@@ -170,6 +172,15 @@ class RunSession {
     this.pendingTools.clear();
     this.response.end();
     this.onClose();
+  }
+}
+
+function validateToolResult(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) throw new Error("Tool result is required");
+  if (typeof result.toolCallId !== "string" || !result.toolCallId.trim()) throw new Error("toolCallId is required");
+  if (!["completed", "failed", "rejected"].includes(result.status)) throw new Error("Unsupported tool result status");
+  for (const field of ["output", "error", "summary"]) {
+    if (result[field] !== undefined && typeof result[field] !== "string") throw new Error(`${field} must be a string`);
   }
 }
 

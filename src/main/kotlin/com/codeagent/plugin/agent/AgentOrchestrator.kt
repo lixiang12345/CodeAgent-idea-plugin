@@ -142,10 +142,12 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         ensureActive(context)
         when (type) {
             "run.started" -> context.remoteRunId.set(json.decodeFromJsonElement<RemoteRunStarted>(payload).runId)
-            "message.delta" -> listener.onAssistantDelta(json.decodeFromJsonElement<RemoteMessageDelta>(payload).delta)
-            "assistant.completed" -> json.decodeFromJsonElement<RemoteAssistantCompleted>(payload).content
-                ?.takeIf(String::isNotBlank)
-                ?.let(listener::onAssistantMessage)
+            "message.delta" -> json.decodeFromJsonElement<RemoteMessageDelta>(payload).let {
+                listener.onAssistantDelta(it.delta, it.turnIndex)
+            }
+            "assistant.completed" -> json.decodeFromJsonElement<RemoteAssistantCompleted>(payload).let {
+                listener.onAssistantMessage(it.content, it.turnIndex)
+            }
             "tool.request" -> executeToolRequest(
                 request = json.decodeFromJsonElement(payload),
                 context = context,
@@ -177,20 +179,20 @@ class AgentOrchestrator(private val project: Project) : Disposable {
 
         val risk = toolRunner.risk(call.name)
         val needsApproval = risk == ToolRisk.MUTATING || (risk == ToolRisk.READ_ONLY && !autoApproveReadOnly)
-        if (needsApproval && !requestApproval(context, call, listener)) {
-            listener.onToolChanged(call, "Rejected by user", "rejected", call.arguments)
+        if (needsApproval && !requestApproval(context, call, request.turnIndex, listener)) {
+            listener.onToolChanged(call, "Rejected by user", "rejected", call.arguments, request.turnIndex)
             client.submitToolResult(runId, RemoteToolResult(call.id, "rejected", output = "Rejected by user"))
             return
         }
 
-        listener.onToolChanged(call, "Running", "running", call.arguments)
+        listener.onToolChanged(call, "Running", "running", call.arguments, request.turnIndex)
         val future = toolRunner.execute(call)
         context.activeFuture.set(future)
         try {
             val result = future.join()
             ensureActive(context)
             result.fileChange?.let { listener.onFileChanged(call, it) }
-            listener.onToolChanged(call, result.summary, "completed", result.detail)
+            listener.onToolChanged(call, result.summary, "completed", result.detail, request.turnIndex)
             client.submitToolResult(
                 runId,
                 RemoteToolResult(call.id, "completed", output = result.output, summary = result.summary),
@@ -198,17 +200,22 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         } catch (error: Throwable) {
             if (context.cancelled.get()) throw RemoteRunCancelledException()
             val message = error.rootMessage()
-            listener.onToolChanged(call, message, "failed", message)
+            listener.onToolChanged(call, message, "failed", message, request.turnIndex)
             client.submitToolResult(runId, RemoteToolResult(call.id, "failed", error = message))
         } finally {
             context.activeFuture.compareAndSet(future, null)
         }
     }
 
-    private fun requestApproval(context: RunContext, call: AgentToolCall, listener: AgentRunListener): Boolean {
+    private fun requestApproval(
+        context: RunContext,
+        call: AgentToolCall,
+        turnIndex: Int,
+        listener: AgentRunListener,
+    ): Boolean {
         val approval = CompletableFuture<Boolean>()
         context.approvals[call.id] = approval
-        listener.onToolChanged(call, "Approval required", "approval", call.arguments)
+        listener.onToolChanged(call, "Approval required", "approval", call.arguments, turnIndex)
         return try {
             approval.join()
         } finally {
@@ -231,10 +238,10 @@ class AgentOrchestrator(private val project: Project) : Disposable {
 private class RemoteRunCancelledException : RuntimeException("Agent run cancelled")
 
 interface AgentRunListener {
-    fun onAssistantDelta(delta: String) = Unit
-    fun onAssistantMessage(content: String)
+    fun onAssistantDelta(delta: String, turnIndex: Int) = Unit
+    fun onAssistantMessage(content: String?, turnIndex: Int)
     fun onFileChanged(call: AgentToolCall, change: FileChange) = Unit
-    fun onToolChanged(call: AgentToolCall, summary: String, status: String, detail: String?)
+    fun onToolChanged(call: AgentToolCall, summary: String, status: String, detail: String?, turnIndex: Int)
     fun onRunStateChanged(state: String)
     fun onError(message: String)
 }

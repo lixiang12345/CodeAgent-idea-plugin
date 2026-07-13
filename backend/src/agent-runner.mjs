@@ -7,7 +7,7 @@ export class AgentRunner {
   }
 
   async run({ request, emit, awaitToolResult, signal }) {
-    validateRequest(request);
+    validateRunRequest(request);
     const allowedTools = new Set(request.tools.map((tool) => tool.name));
     const messages = [
       { role: "system", content: composeSystemPrompt(request) },
@@ -53,22 +53,33 @@ export class AgentRunner {
   }
 }
 
-function validateRequest(request) {
+export function validateRunRequest(request) {
   if (!request || typeof request !== "object") throw new Error("Run request is required");
   if (!["agent", "chat", "ask"].includes(request.mode)) throw new Error("Unsupported run mode");
   if (!Array.isArray(request.messages)) throw new Error("messages must be an array");
   if (!Array.isArray(request.tools)) throw new Error("tools must be an array");
+  if (!request.workspace || typeof request.workspace !== "object" || Array.isArray(request.workspace)) {
+    throw new Error("workspace must be an object");
+  }
   if (request.model !== undefined && (typeof request.model !== "string" || !request.model.trim())) {
     throw new Error("model must be a non-empty string when provided");
   }
+  for (const message of request.messages) normalizeMessage(message);
   for (const tool of request.tools) {
     if (!tool?.name || typeof tool.name !== "string") throw new Error("Every tool requires a name");
+    if (typeof tool.description !== "string") throw new Error("Every tool requires a description");
+    if (!tool.parameters || typeof tool.parameters !== "object" || Array.isArray(tool.parameters)) {
+      throw new Error("Every tool requires object parameters");
+    }
   }
 }
 
 function normalizeMessage(message) {
-  if (!message || !["user", "assistant", "tool"].includes(message.role)) {
-    throw new Error("Conversation messages may only use user, assistant, or tool roles");
+  if (!message || !["user", "assistant"].includes(message.role)) {
+    throw new Error("Conversation messages may only use user or assistant roles");
+  }
+  if (message.content !== undefined && message.content !== null && typeof message.content !== "string") {
+    throw new Error("Message content must be a string or null");
   }
   return message;
 }

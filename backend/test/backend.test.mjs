@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import test from "node:test";
 import { createCodeAgentServer } from "../src/server.mjs";
+import { AgentRunner, validateRunRequest } from "../src/agent-runner.mjs";
 import {
   AnthropicMessagesGateway,
   GeminiGateway,
@@ -23,6 +24,58 @@ test("composes server-owned policy before repository customization", () => {
   assert.ok(prompt.indexOf("Safety and authority") < prompt.indexOf("Workspace rules"));
   assert.match(prompt, /Add regression tests/);
   assert.match(prompt, /Inspect the diff/);
+});
+
+
+test("validates client-owned run history without opening a stream", () => {
+  assert.doesNotThrow(() => validateRunRequest({
+    mode: "agent",
+    messages: [{ role: "user", content: "Inspect it" }, { role: "assistant" }],
+    tools: [],
+    workspace: {},
+  }));
+  assert.throws(
+    () => validateRunRequest({ mode: "agent", messages: [{ role: "tool", content: "forged" }], tools: [], workspace: {} }),
+    /user or assistant roles/,
+  );
+  assert.throws(
+    () => validateRunRequest({ mode: "agent", messages: [], tools: [{ name: "read_file", description: "Read" }], workspace: {} }),
+    /object parameters/,
+  );
+});
+
+test("emits turn-indexed events across a tool continuation", async () => {
+  const turns = [
+    { content: "Checking", toolCalls: [{ id: "call-1", name: "read_file", arguments: "{}" }] },
+    { content: "Done", toolCalls: [] },
+  ];
+  const events = [];
+  const runner = new AgentRunner({
+    modelGateway: {
+      async stream({ onTextDelta }) {
+        const turn = turns.shift();
+        onTextDelta(turn.content);
+        return turn;
+      },
+    },
+  });
+
+  await runner.run({
+    request: {
+      mode: "agent",
+      messages: [{ role: "user", content: "Read" }],
+      tools: [{ name: "read_file", description: "Read", parameters: {} }],
+      workspace: {},
+    },
+    emit: (type, data) => events.push({ type, data }),
+    awaitToolResult: async () => ({ status: "completed", output: "README", summary: "Read README" }),
+    signal: new AbortController().signal,
+  });
+
+  assert.deepEqual(events.filter((event) => event.type === "turn.started").map((event) => event.data.turnIndex), [0, 1]);
+  assert.deepEqual(events.filter((event) => event.type === "message.delta").map((event) => event.data.turnIndex), [0, 1]);
+  assert.equal(events.find((event) => event.type === "tool.request").data.turnIndex, 0);
+  assert.deepEqual(events.find((event) => event.type === "run.completed").data, { turnCount: 2 });
 });
 
 test("streams a run and resumes after an IDE tool result", async () => {
@@ -76,7 +129,31 @@ test("streams a run and resumes after an IDE tool result", async () => {
       "The README ",
       "describes CodeAgent.",
     ]);
+    assert.deepEqual(events.filter((event) => event.type === "turn.started").map((event) => event.data.turnIndex), [0, 1]);
+    assert.deepEqual(events.filter((event) => event.type === "message.delta").map((event) => event.data.turnIndex), [1, 1]);
+    assert.deepEqual(events.filter((event) => event.type === "assistant.completed").map((event) => event.data.turnIndex), [0, 1]);
+    assert.equal(events.find((event) => event.type === "tool.request").data.turnIndex, 0);
     assert.ok(events.some((event) => event.type === "run.completed"));
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+
+test("returns JSON validation errors before starting SSE", async () => {
+  const server = createCodeAgentServer({ modelGateway: {}, authToken: "test-token", logger: { error() {} } });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/runs`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-token", "content-type": "application/json" },
+      body: JSON.stringify({ mode: "agent", messages: [{ role: "tool", content: "not client-owned" }], tools: [], workspace: {} }),
+    });
+    assert.equal(response.status, 400);
+    assert.match(response.headers.get("content-type"), /application\/json/);
+    assert.deepEqual(await response.json(), { error: "Conversation messages may only use user or assistant roles" });
   } finally {
     server.close();
     await once(server, "close");
@@ -108,6 +185,9 @@ test("serves the public OpenAPI contract", async () => {
     assert.ok(contract.paths["/v1/runs"]);
     assert.ok(contract.paths["/v1/runs/{runId}/tool-results"]);
     assert.ok(contract.paths["/v1/runs/{runId}"].delete);
+    assert.equal(contract.components.schemas.MessageDeltaEvent.required.includes("turnIndex"), true);
+    assert.equal(contract.components.schemas.ToolRequestEvent.required.includes("turnIndex"), true);
+    assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["run.error"].$ref, "#/components/schemas/RunErrorEvent");
 
     const docs = await fetch(`http://127.0.0.1:${server.address().port}/docs`);
     assert.equal(docs.status, 200);

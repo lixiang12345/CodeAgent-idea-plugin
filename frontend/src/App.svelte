@@ -12,6 +12,7 @@
     type GitFile,
     type GitSnapshot,
     type ImageCanvasSnapshot,
+    type MessageDelta,
     type Mode,
     type ToolRun,
     type WorkspaceRule,
@@ -162,9 +163,12 @@
       return;
     }
     if (event.type === "messageDelta" && snapshot) {
-      const data = event.payload as { id: string; delta: string };
+      const data = event.payload as MessageDelta;
       const message = snapshot.messages.find((item) => item.id === data.id);
-      if (message) message.content += data.delta;
+      if (message) {
+        message.content += data.delta;
+        message.turnIndex = data.turnIndex;
+      }
       snapshot = { ...snapshot, messages: [...snapshot.messages] };
       return;
     }
@@ -460,7 +464,7 @@
   type TimelineItem =
     | { kind: "user"; message: AppSnapshot["messages"][number] }
     | { kind: "assistant"; message: AppSnapshot["messages"][number]; lead: boolean }
-    | { kind: "tools" }
+    | { kind: "tools"; turnIndex: number; tools: ToolRun[] }
     | { kind: "tasks" };
 
   function conversationTimeline(): TimelineItem[] {
@@ -468,8 +472,15 @@
     const items: TimelineItem[] = [];
     const messages = snapshot.messages;
     const lastUserIndex = messages.map((message) => message.role).lastIndexOf("user");
-    let toolsInserted = false;
     let assistantLeadShown = false;
+    const insertedToolTurns = new Set<number>();
+
+    function insertToolTurn(turnIndex: number) {
+      if (insertedToolTurns.has(turnIndex)) return;
+      const tools = snapshot?.tools.filter((tool) => (tool.turnIndex ?? 0) === turnIndex) ?? [];
+      if (tools.length > 0) items.push({ kind: "tools", turnIndex, tools });
+      insertedToolTurns.add(turnIndex);
+    }
 
     for (let index = 0; index < messages.length; index += 1) {
       const message = messages[index];
@@ -480,21 +491,25 @@
       if (message.role !== "assistant") continue;
 
       const afterLastUser = lastUserIndex >= 0 && index > lastUserIndex;
-      if (afterLastUser && !toolsInserted && snapshot.tools.length > 0 && assistantLeadShown) {
-        items.push({ kind: "tools" });
-        toolsInserted = true;
+      const turnIndex = message.turnIndex;
+      if (afterLastUser && turnIndex !== undefined) {
+        snapshot.tools
+          .map((tool) => tool.turnIndex ?? 0)
+          .filter((toolTurn) => toolTurn < turnIndex)
+          .sort((left, right) => left - right)
+          .forEach(insertToolTurn);
       }
 
       items.push({ kind: "assistant", message, lead: !assistantLeadShown });
       assistantLeadShown = true;
 
-      if (afterLastUser && !toolsInserted && snapshot.tools.length > 0) {
-        items.push({ kind: "tools" });
-        toolsInserted = true;
-      }
+      if (afterLastUser && turnIndex !== undefined) insertToolTurn(turnIndex);
     }
 
-    if (!toolsInserted && snapshot.tools.length > 0) items.push({ kind: "tools" });
+    snapshot.tools
+      .map((tool) => tool.turnIndex ?? 0)
+      .sort((left, right) => left - right)
+      .forEach(insertToolTurn);
     if (snapshot.tasks.length > 0) items.push({ kind: "tasks" });
     return items;
   }
@@ -616,7 +631,7 @@
             </div>
           {:else}
             <div class="message-list">
-              {#each conversationTimeline() as item (item.kind === "user" || item.kind === "assistant" ? item.message.id : item.kind)}
+              {#each conversationTimeline() as item (item.kind === "user" || item.kind === "assistant" ? item.message.id : item.kind === "tools" ? `tools-${item.turnIndex}` : item.kind)}
                 {#if item.kind === "user"}
                   <article class="user-message">
                     <header><span>You</span><time>{formatTime(item.message.createdAt)}</time><Icon name="user-round" size={14} /></header>
@@ -643,13 +658,13 @@
                     <div class="pass-summary">
                       <Icon name="square-terminal" size={14} />
                       <strong>Agent tool pass</strong>
-                      <span>{snapshot.tools.filter((tool) => tool.status === "completed").length} / {snapshot.tools.length}</span>
+                      <span>{item.tools.filter((tool) => tool.status === "completed").length} / {item.tools.length}</span>
                       <button onclick={() => setAllTools(true)}>Expand all</button>
                       <button onclick={() => setAllTools(false)}>Collapse all</button>
                     </div>
                     {#if isBusy()}<div class="thinking"><Icon name="bot" size={13} />Running tools — model continues after results</div>{/if}
                     <div class="tool-list">
-                      {#each snapshot.tools as tool}
+                      {#each item.tools as tool}
                         <section class="tool-card {tool.status}">
                           <button class="tool-header" onclick={() => toggleTool(tool.id)} aria-expanded={toolsExpanded.has(tool.id)}>
                             <span class="tool-icon"><Icon name={toolIcon(tool)} size={14} /></span>

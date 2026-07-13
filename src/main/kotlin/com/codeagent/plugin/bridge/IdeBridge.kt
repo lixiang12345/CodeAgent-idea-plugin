@@ -50,6 +50,7 @@ class IdeBridge(
     }
     private val query = JBCefJSQuery.create(browser as JBCefBrowserBase)
     private val tools = linkedMapOf<String, ToolRunDto>()
+    private val messageTurns = mutableMapOf<String, Int>()
     private val attachments = linkedMapOf<String, ContextItemDto>()
     private val messageQueue = mutableListOf<QueuedMessageDto>()
     private val conversations = project.service<ConversationStore>()
@@ -233,6 +234,7 @@ class IdeBridge(
                     runs.invalidate()
                     conversations.select(selection.threadId)
                     tools.clear()
+                    messageTurns.clear()
                     attachments.clear()
                     messageQueue.clear()
                     runState = "idle"
@@ -418,6 +420,7 @@ class IdeBridge(
         synchronized(stateLock) {
             runs.invalidate()
             tools.clear()
+            messageTurns.clear()
             attachments.clear()
             messageQueue.clear()
             runState = "idle"
@@ -437,6 +440,7 @@ class IdeBridge(
             conversations.setMode(request.mode)
             conversations.addMessage("user", request.text.trim())
             tools.clear()
+            messageTurns.clear()
             runState = "running"
             runs.next()
         }
@@ -462,31 +466,39 @@ class IdeBridge(
         val selectedModel = synchronized(stateLock) { conversations.active().selectedModelId }
         agent.start(history, request.mode, selectedModel, enabledSkillIds, enabledRuleIds, object : AgentRunListener {
             private var streamingMessageId: String? = null
+            private var streamingTurnIndex: Int? = null
+            private fun emitRunSnapshot() = this@IdeBridge.emitSnapshot()
 
-            override fun onAssistantDelta(delta: String) {
+            override fun onAssistantDelta(delta: String, turnIndex: Int) {
                 var messageId = ""
                 var firstDelta = false
                 if (withCurrentRun(runId) {
+                    if (streamingTurnIndex != turnIndex) streamingMessageId = null
                     messageId = streamingMessageId ?: conversations.addMessage("assistant", "").id.also {
                         streamingMessageId = it
+                        streamingTurnIndex = turnIndex
+                        messageTurns[it] = turnIndex
                         firstDelta = true
                     }
                     conversations.appendMessage(messageId, delta)
                 }) {
-                    if (firstDelta) emitSnapshot() else emit("messageDelta", MessageDeltaDto(messageId, delta))
+                    if (firstDelta) emitRunSnapshot() else emit("messageDelta", MessageDeltaDto(messageId, delta, turnIndex))
                 }
             }
 
-            override fun onAssistantMessage(content: String) {
+            override fun onAssistantMessage(content: String?, turnIndex: Int) {
                 if (withCurrentRun(runId) {
-                    val messageId = streamingMessageId
-                    if (messageId == null) {
-                        conversations.addMessage("assistant", content)
-                    } else {
-                        conversations.replaceMessage(messageId, content)
-                        streamingMessageId = null
+                    val messageId = streamingMessageId.takeIf { streamingTurnIndex == turnIndex }
+                    if (!content.isNullOrBlank()) {
+                        if (messageId == null) {
+                            conversations.addMessage("assistant", content).also { messageTurns[it.id] = turnIndex }
+                        } else {
+                            conversations.replaceMessage(messageId, content)
+                        }
                     }
-                }) emitSnapshot()
+                    streamingMessageId = null
+                    streamingTurnIndex = null
+                }) emitRunSnapshot()
             }
 
             override fun onFileChanged(call: AgentToolCall, change: FileChange) {
@@ -498,6 +510,7 @@ class IdeBridge(
                 summary: String,
                 status: String,
                 detail: String?,
+                turnIndex: Int,
             ) {
                 if (withCurrentRun(runId) {
                     tools[call.id] = ToolRunDto(
@@ -508,9 +521,10 @@ class IdeBridge(
                         detail = detail,
                         changePath = changeReview.path(call.id),
                         canRevert = changeReview.canRevert(call.id),
+                        turnIndex = turnIndex,
                     )
                     runState = if (status == "approval") "awaiting_approval" else "running"
-                }) emitSnapshot()
+                }) emitRunSnapshot()
             }
 
             override fun onRunStateChanged(state: String) {
@@ -518,7 +532,7 @@ class IdeBridge(
                 if (withCurrentRun(runId) {
                     runState = state
                     startQueued = state == "idle" && messageQueue.isNotEmpty()
-                }) emitSnapshot()
+                }) emitRunSnapshot()
                 if (startQueued) startNextQueuedMessage()
             }
 
@@ -566,7 +580,7 @@ class IdeBridge(
                 mode = active.mode,
                 runState = runState,
                 messages = active.messages.map { message ->
-                    ChatMessageDto(message.id, message.role, message.content, message.createdAt)
+                    ChatMessageDto(message.id, message.role, message.content, message.createdAt, messageTurns[message.id])
                 },
                 tools = tools.values.toList(),
                 threads = conversations.threads().map { thread ->
@@ -744,6 +758,7 @@ class IdeBridge(
                 if (wasActive) {
                     runs.invalidate()
                     tools.clear()
+                    messageTurns.clear()
                     attachments.clear()
                     messageQueue.clear()
                     runState = "idle"
@@ -799,6 +814,7 @@ class IdeBridge(
                 synchronized(stateLock) {
                     runs.invalidate()
                     tools.clear()
+                    messageTurns.clear()
                     attachments.clear()
                     messageQueue.clear()
                     runState = "idle"

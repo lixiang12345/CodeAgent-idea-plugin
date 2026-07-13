@@ -29,7 +29,9 @@ internal class RemoteAgentClient(
             requestBuilder(uri).timeout(Duration.ofSeconds(10)).GET().build(),
             HttpResponse.BodyHandlers.ofString(),
         ).thenApply { response ->
-            check(response.statusCode() == 200) { "Backend health check returned HTTP ${response.statusCode()}" }
+            check(response.statusCode() == 200) {
+                "Backend health check returned HTTP " + response.statusCode() + ": " + errorMessage(response.body())
+            }
             json.decodeFromString<RemoteBackendHealth>(response.body())
         }
     }
@@ -40,7 +42,9 @@ internal class RemoteAgentClient(
             requestBuilder(uri).timeout(Duration.ofSeconds(30)).GET().build(),
             HttpResponse.BodyHandlers.ofString(),
         ).thenApply { response ->
-            check(response.statusCode() == 200) { "Backend model discovery returned HTTP ${response.statusCode()}" }
+            check(response.statusCode() == 200) {
+                "Backend model discovery returned HTTP " + response.statusCode() + ": " + errorMessage(response.body())
+            }
             json.decodeFromString<RemoteModelsResponse>(response.body())
         }
     }
@@ -59,7 +63,8 @@ internal class RemoteAgentClient(
         )
         if (response.statusCode() != 200) {
             response.body().use { body ->
-                error("Backend run request failed with HTTP ${response.statusCode()}: ${body.bufferedReader().readText().take(1_000)}")
+                val message = errorMessage(body.bufferedReader().readText())
+                error("Backend run request failed with HTTP " + response.statusCode() + ": " + message)
             }
         }
 
@@ -83,7 +88,7 @@ internal class RemoteAgentClient(
             HttpResponse.BodyHandlers.ofString(),
         )
         check(response.statusCode() == 202) {
-            "Backend rejected tool result with HTTP ${response.statusCode()}: ${response.body().take(1_000)}"
+            "Backend rejected tool result with HTTP " + response.statusCode() + ": " + errorMessage(response.body())
         }
     }
 
@@ -91,8 +96,13 @@ internal class RemoteAgentClient(
         val uri = URI.create("${runsUri}/$runId")
         return httpClient.sendAsync(
             requestBuilder(uri).timeout(Duration.ofSeconds(10)).DELETE().build(),
-            HttpResponse.BodyHandlers.discarding(),
-        ).thenApply { null }
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            check(response.statusCode() == 202) {
+                "Backend cancel failed with HTTP " + response.statusCode() + ": " + errorMessage(response.body())
+            }
+            null
+        }
     }
 
     private fun requestBuilder(uri: URI): HttpRequest.Builder = HttpRequest.newBuilder(uri)
@@ -100,6 +110,10 @@ internal class RemoteAgentClient(
         .apply {
             settings.backendToken?.takeIf(String::isNotBlank)?.let { header("Authorization", "Bearer $it") }
         }
+
+    private fun errorMessage(body: String): String = runCatching {
+        json.decodeFromString<RemoteHttpError>(body).error
+    }.getOrNull()?.takeIf(String::isNotBlank) ?: body.take(1_000).ifBlank { "Empty response body" }
 
     private fun readEvents(
         reader: java.io.BufferedReader,
@@ -180,13 +194,13 @@ internal data class RemoteToolResult(
 internal data class RemoteRunStarted(val runId: String)
 
 @Serializable
-internal data class RemoteMessageDelta(val delta: String)
+internal data class RemoteMessageDelta(val delta: String, val turnIndex: Int)
 
 @Serializable
-internal data class RemoteAssistantCompleted(val content: String? = null)
+internal data class RemoteAssistantCompleted(val content: String? = null, val turnIndex: Int)
 
 @Serializable
-internal data class RemoteToolRequest(val call: RemoteToolCall)
+internal data class RemoteToolRequest(val call: RemoteToolCall, val turnIndex: Int)
 
 @Serializable
 internal data class RemoteToolCall(
@@ -197,6 +211,9 @@ internal data class RemoteToolCall(
 
 @Serializable
 internal data class RemoteRunError(val message: String)
+
+@Serializable
+internal data class RemoteHttpError(val error: String)
 
 @Serializable
 internal data class RemoteBackendHealth(

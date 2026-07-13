@@ -9,6 +9,7 @@ export interface ChatMessage {
   role: MessageRole;
   content: string;
   createdAt: number;
+  turnIndex?: number;
 }
 
 export interface ToolRun {
@@ -19,6 +20,13 @@ export interface ToolRun {
   detail?: string;
   changePath?: string;
   canRevert: boolean;
+  turnIndex?: number;
+}
+
+export interface MessageDelta {
+  id: string;
+  delta: string;
+  turnIndex: number;
 }
 
 export interface ThreadSummary {

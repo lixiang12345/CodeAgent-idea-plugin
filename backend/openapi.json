@@ -55,6 +55,16 @@
       "post": {
         "summary": "Start an agent run and stream normalized events",
         "description": "Use streaming fetch. The response contains named SSE events documented in CONTRACT.md.",
+        "x-codeagent-sse-events": {
+          "run.started": { "$ref": "#/components/schemas/RunStartedEvent" },
+          "turn.started": { "$ref": "#/components/schemas/TurnStartedEvent" },
+          "message.delta": { "$ref": "#/components/schemas/MessageDeltaEvent" },
+          "assistant.completed": { "$ref": "#/components/schemas/AssistantCompletedEvent" },
+          "tool.request": { "$ref": "#/components/schemas/ToolRequestEvent" },
+          "tool.completed": { "$ref": "#/components/schemas/ToolCompletedEvent" },
+          "run.completed": { "$ref": "#/components/schemas/RunCompletedEvent" },
+          "run.error": { "$ref": "#/components/schemas/RunErrorEvent" }
+        },
         "security": [{ "bearerAuth": [] }],
         "requestBody": {
           "required": true,
@@ -68,7 +78,11 @@
             },
             "content": {
               "text/event-stream": {
-                "schema": { "type": "string" },
+                "schema": {
+                  "type": "string",
+                  "contentMediaType": "text/event-stream",
+                  "description": "Named SSE blocks whose JSON data payload matches SseEventPayload."
+                },
                 "example": "event: run.started\ndata: {\"runId\":\"00000000-0000-0000-0000-000000000000\",\"protocolVersion\":1,\"provider\":\"multi-provider\",\"model\":\"gpt-5.6-sol\"}\n\n"
               }
             }
@@ -186,9 +200,8 @@
         "type": "object",
         "required": ["role"],
         "properties": {
-          "role": { "type": "string", "enum": ["user", "assistant", "tool"] },
-          "content": { "type": ["string", "null"] },
-          "toolCallId": { "type": "string" }
+          "role": { "type": "string", "enum": ["user", "assistant"] },
+          "content": { "type": ["string", "null"] }
         },
         "additionalProperties": false
       },
@@ -220,6 +233,94 @@
           "content": { "type": "string" }
         },
         "additionalProperties": false
+      },
+      "RunStartedEvent": {
+        "type": "object",
+        "required": ["runId", "protocolVersion", "provider", "model"],
+        "properties": {
+          "runId": { "type": "string", "format": "uuid" },
+          "protocolVersion": { "type": "integer", "const": 1 },
+          "provider": { "type": "string" },
+          "model": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "TurnStartedEvent": {
+        "type": "object",
+        "required": ["turnIndex"],
+        "properties": { "turnIndex": { "type": "integer", "minimum": 0 } },
+        "additionalProperties": false
+      },
+      "MessageDeltaEvent": {
+        "type": "object",
+        "required": ["delta", "turnIndex"],
+        "properties": {
+          "delta": { "type": "string" },
+          "turnIndex": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      },
+      "AssistantCompletedEvent": {
+        "type": "object",
+        "required": ["content", "turnIndex"],
+        "properties": {
+          "content": { "type": ["string", "null"] },
+          "turnIndex": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      },
+      "ToolCall": {
+        "type": "object",
+        "required": ["id", "name", "arguments"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "arguments": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "ToolRequestEvent": {
+        "type": "object",
+        "required": ["call", "turnIndex"],
+        "properties": {
+          "call": { "$ref": "#/components/schemas/ToolCall" },
+          "turnIndex": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      },
+      "ToolCompletedEvent": {
+        "type": "object",
+        "required": ["toolCallId", "status"],
+        "properties": {
+          "toolCallId": { "type": "string" },
+          "status": { "type": "string", "enum": ["completed", "failed", "rejected"] },
+          "summary": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "RunCompletedEvent": {
+        "type": "object",
+        "required": ["turnCount"],
+        "properties": { "turnCount": { "type": "integer", "minimum": 1 } },
+        "additionalProperties": false
+      },
+      "RunErrorEvent": {
+        "type": "object",
+        "required": ["message"],
+        "properties": { "message": { "type": "string" } },
+        "additionalProperties": false
+      },
+      "SseEventPayload": {
+        "oneOf": [
+          { "$ref": "#/components/schemas/RunStartedEvent" },
+          { "$ref": "#/components/schemas/TurnStartedEvent" },
+          { "$ref": "#/components/schemas/MessageDeltaEvent" },
+          { "$ref": "#/components/schemas/AssistantCompletedEvent" },
+          { "$ref": "#/components/schemas/ToolRequestEvent" },
+          { "$ref": "#/components/schemas/ToolCompletedEvent" },
+          { "$ref": "#/components/schemas/RunCompletedEvent" },
+          { "$ref": "#/components/schemas/RunErrorEvent" }
+        ]
       },
       "ToolResult": {
         "type": "object",
