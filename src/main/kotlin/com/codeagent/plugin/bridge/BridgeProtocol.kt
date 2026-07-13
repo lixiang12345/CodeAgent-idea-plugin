@@ -51,6 +51,7 @@ data class ThreadSummaryDto(
     val title: String,
     val updatedAt: Long,
     val active: Boolean,
+    val mode: String = "agent",
 )
 
 @Serializable
@@ -62,10 +63,9 @@ data class ContextItemDto(
 
 @Serializable
 data class SettingsSnapshotDto(
-    val endpoint: String = "https://api.openai.com/v1",
-    val model: String = "gpt-5.2",
+    val backendUrl: String = "http://127.0.0.1:8787",
     val nodePath: String = "node",
-    val apiKeyConfigured: Boolean = false,
+    val backendTokenConfigured: Boolean = false,
     val autoApproveReadOnly: Boolean = true,
 )
 

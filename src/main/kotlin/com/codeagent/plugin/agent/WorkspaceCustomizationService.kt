@@ -147,3 +147,28 @@ internal class WorkspaceCustomizationLoader(private val projectRoot: Path?) {
         private val SKILL_ROOTS = listOf(".codeagent/skills", ".agents/skills")
     }
 }
+
+internal class WorkspaceGuidanceLoader(private val projectRoot: Path?) {
+    fun load(): String? = runCatching {
+        val root = projectRoot?.toRealPath() ?: return null
+        val guidanceFile = root.resolve("AGENTS.md")
+        if (!Files.isRegularFile(guidanceFile)) return null
+        val resolvedFile = guidanceFile.toRealPath()
+        if (!resolvedFile.startsWith(root)) return null
+
+        Files.newBufferedReader(resolvedFile).use { reader ->
+            val content = StringBuilder()
+            val buffer = CharArray(4096)
+            while (content.length < MAX_GUIDANCE_CHARS) {
+                val count = reader.read(buffer, 0, minOf(buffer.size, MAX_GUIDANCE_CHARS - content.length))
+                if (count < 0) break
+                content.append(buffer, 0, count)
+            }
+            content.toString().trim().takeIf(String::isNotEmpty)
+        }
+    }.getOrNull()
+
+    companion object {
+        private const val MAX_GUIDANCE_CHARS = 16_000
+    }
+}

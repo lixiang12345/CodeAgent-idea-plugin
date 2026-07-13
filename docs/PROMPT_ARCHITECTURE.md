@@ -22,25 +22,31 @@ The frontend is a view and control surface. The agent harness belongs to the bac
 flowchart LR
     UI["Svelte Webview\ninput, display, approval"]
     Bridge["JBCef bridge\ntyped commands/events"]
-    Harness["JVM agent backend\nprompt, loop, state, policy"]
-    Tools["JVM tool gateway\npath and approval enforcement"]
+    Gateway["JVM capability gateway\npath and approval enforcement"]
+    Harness["Deployed Agent backend\nprompt, loop, model state"]
+    Tools["IDE capabilities\nfiles, editor, terminal, Git"]
     Context["ContextEngine sidecar\nindex and retrieval"]
-    Model["Configured model endpoint\ninference only"]
+    Model["Model provider\ninference only"]
 
-    UI <--> Bridge <--> Harness
-    Harness <--> Tools
-    Harness <--> Context
-    Harness <--> Model
+    UI <--> Bridge <--> Gateway
+    Gateway <--> Tools
+    Gateway <--> Context
+    Gateway <--> Harness <--> Model
 ```
 
-For the local-first product, "backend" means the IntelliJ JVM process. It owns:
+The separately deployed backend owns:
 
 - prompt selection and composition;
-- conversation and run state;
+- model credentials and run state;
 - the model/tool loop, cancellation, and turn limits;
+- tool-call sequencing and model requests.
+
+The IntelliJ JVM owns the capability boundary:
+
 - available tool definitions and mode-specific capabilities;
 - approval policy and project path enforcement;
-- retrieval decisions and model requests.
+- local file, editor, terminal, Git, diagnostics, and ContextEngine execution;
+- authenticated delivery of tool results to the backend.
 
 The Webview owns only user-authored text, visible starter prompts, selected context, mode controls, approval responses, and rendering. It cannot supply a system prompt, register a tool, lower a risk level, or execute a tool.
 
@@ -48,11 +54,11 @@ ContextEngine remains a retrieval process rather than the agent brain. The confi
 
 ## Prompt layers
 
-CodeAgent composes a versioned system prompt in this order:
+The deployed backend composes the system prompt in this order:
 
-1. Product identity and operating loop from packaged backend resources.
+1. Product identity and operating loop from backend-owned code.
 2. Non-overridable safety and authority policy.
-3. Agent or Ask mode policy.
+3. Agent, Chat, or Ask mode policy.
 4. Optional repository-root `AGENTS.md` guidance, explicitly marked lower priority.
 5. Always-on `.codeagent/rules/*.md` repository rules, with a bounded total prompt budget.
 6. User-enabled repository Skills, resolved from backend-discovered IDs and bounded separately.
@@ -61,11 +67,9 @@ CodeAgent composes a versioned system prompt in this order:
 
 The prompt explains policy, but code enforces it. Ask mode does not receive mutating tools. File tools canonicalize paths. Mutations and terminal commands require host approval. A prompt injection therefore cannot grant itself a capability.
 
-Prompt version `2026-07-13.2` keeps Rules and Skills below product safety and mode policy. Rule and skill text can guide conventions and methods, but it cannot register tools, change risk levels, bypass approvals, or make Ask mode writable. New packaged instructions should be added only for observed failures backed by tests or evaluations; copying every prompt found in another product would increase context cost and brittleness.
+Rules and Skills remain below product safety and mode policy. Their text can guide conventions and methods, but it cannot register tools, change risk levels, bypass JVM approvals, or make Chat/Ask mode writable. The plugin package contains no Agent system prompt or model credential.
 
-## Future hosted architecture
-
-If CodeAgent later adds a hosted Agent service, the model-side harness, prompt versions, conversation state, evaluations, and rollout controls should move to that service. The IntelliJ JVM should remain an authenticated local capability gateway that owns IDE access and independently enforces user approvals. The Webview should still remain presentation-only.
+The backend may be self-hosted or product-hosted without changing the plugin trust boundary. The IntelliJ JVM remains an authenticated local capability gateway and the Webview remains presentation-only.
 
 ## External guidance used
 

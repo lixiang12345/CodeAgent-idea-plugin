@@ -1,6 +1,6 @@
 export const PROTOCOL_VERSION = 1;
 
-export type Mode = "agent" | "ask";
+export type Mode = "agent" | "chat" | "ask";
 export type MessageRole = "user" | "assistant" | "system";
 export type RunState = "idle" | "running" | "awaiting_approval" | "failed";
 
@@ -26,6 +26,7 @@ export interface ThreadSummary {
   title: string;
   updatedAt: number;
   active: boolean;
+  mode: Mode;
 }
 
 export interface ContextItem {
@@ -35,10 +36,9 @@ export interface ContextItem {
 }
 
 export interface SettingsSnapshot {
-  endpoint: string;
-  model: string;
+  backendUrl: string;
   nodePath: string;
-  apiKeyConfigured: boolean;
+  backendTokenConfigured: boolean;
   autoApproveReadOnly: boolean;
 }
 
@@ -136,13 +136,12 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     runState: "idle",
     messages: [],
     tools: [],
-    threads: [{ id: "dev", title: "New task", updatedAt: Date.now(), active: true }],
+    threads: [{ id: "dev", title: "New task", updatedAt: Date.now(), active: true, mode: "agent" }],
     attachments: [],
     settings: {
-      endpoint: "https://api.openai.com/v1",
-      model: "gpt-5.2",
+      backendUrl: "http://127.0.0.1:8787",
       nodePath: "node",
-      apiKeyConfigured: false,
+      backendTokenConfigured: false,
       autoApproveReadOnly: true,
     },
     context: { state: "not_indexed", label: "Index project" },

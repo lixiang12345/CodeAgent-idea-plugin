@@ -44,10 +44,9 @@
   let settingsOpen = false;
   let skillsOpen = false;
   let toolsExpanded = new Set<string>();
-  let endpoint = "";
-  let model = "";
+  let backendUrl = "";
   let nodePath = "";
-  let apiKey = "";
+  let backendToken = "";
   let autoApproveReadOnly = true;
   let error = "";
   let threadSearch = "";
@@ -62,8 +61,7 @@
   function handleEvent(event: EventEnvelope) {
     if (event.type === "snapshot") {
       snapshot = event.payload as AppSnapshot;
-      endpoint = snapshot.settings.endpoint;
-      model = snapshot.settings.model;
+      backendUrl = snapshot.settings.backendUrl;
       nodePath = snapshot.settings.nodePath;
       autoApproveReadOnly = snapshot.settings.autoApproveReadOnly;
       return;
@@ -105,8 +103,8 @@
   }
 
   function saveSettings() {
-    sendCommand("saveSettings", { endpoint, model, nodePath, apiKey, autoApproveReadOnly });
-    apiKey = "";
+    sendCommand("saveSettings", { backendUrl, nodePath, backendToken, autoApproveReadOnly });
+    backendToken = "";
     settingsOpen = false;
   }
 
@@ -300,9 +298,10 @@
               </div>
               <div class="segmented" aria-label="Mode">
                 <button class:active={snapshot.mode === "agent"} onclick={() => setMode("agent")}>Agent</button>
+                <button class:active={snapshot.mode === "chat"} onclick={() => setMode("chat")}>Chat</button>
                 <button class:active={snapshot.mode === "ask"} onclick={() => setMode("ask")}>Ask</button>
               </div>
-              <button class="model-button" onclick={() => settingsOpen = true}>{snapshot.settings.model}<ChevronDown size={13} /></button>
+              <button class="model-button" onclick={() => settingsOpen = true}>Backend<ChevronDown size={13} /></button>
             </div>
             {#if isBusy()}
               <button class="send-button stop" title="Stop" onclick={() => sendCommand("cancelRun")}><Square size={14} fill="currentColor" /></button>
@@ -317,11 +316,10 @@
     {#if settingsOpen}
       <div class="modal-backdrop" role="presentation" onclick={(event) => event.currentTarget === event.target && (settingsOpen = false)}>
         <dialog open class="settings-panel" aria-label="Settings">
-          <header><div><h2>Settings</h2><p>Model and local runtime</p></div><button class="icon-button" title="Close" onclick={() => settingsOpen = false}><X size={17} /></button></header>
+          <header><div><h2>Settings</h2><p>Agent backend and local runtime</p></div><button class="icon-button" title="Close" onclick={() => settingsOpen = false}><X size={17} /></button></header>
           <div class="settings-content">
-            <label><span>API endpoint</span><input bind:value={endpoint} /></label>
-            <label><span>Model</span><input bind:value={model} /></label>
-            <label><span>API key</span><input type="password" bind:value={apiKey} placeholder={snapshot.settings.apiKeyConfigured ? "Configured" : "Not configured"} /></label>
+            <label><span>Backend URL</span><input bind:value={backendUrl} /></label>
+            <label><span>Backend token</span><input type="password" bind:value={backendToken} placeholder={snapshot.settings.backendTokenConfigured ? "Configured" : "Not configured"} /></label>
             <label><span>Node.js executable</span><input bind:value={nodePath} /></label>
             <label class="check-setting"><input type="checkbox" bind:checked={autoApproveReadOnly} /><span><strong>Auto-run read-only tools</strong><small>Context retrieval, search, and file reads</small></span></label>
             <div class="runtime-status"><Database size={16} /><div><strong>ContextEngine</strong><span>{snapshot.context.label}</span></div></div>

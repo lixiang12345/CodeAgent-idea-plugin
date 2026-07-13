@@ -54,7 +54,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
 
     @Synchronized
     fun setMode(mode: String) {
-        require(mode == "agent" || mode == "ask") { "Unsupported mode: $mode" }
+        require(mode == "agent" || mode == "chat" || mode == "ask") { "Unsupported mode: $mode" }
         mutableActive().mode = mode
     }
 

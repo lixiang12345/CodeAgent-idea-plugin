@@ -39,32 +39,33 @@ On JetBrains, `SidecarService` owns the Node process and registers native callba
 
 ## CodeAgent topology
 
-CodeAgent keeps the useful separation but reduces the protocol surface:
+CodeAgent keeps the process separation and makes the Agent service independently deployable:
 
 ```mermaid
 flowchart LR
     Web["Svelte single-file web UI"]
     Bridge["JBCefJSQuery\nJSON commands/events"]
-    Agent["Kotlin AgentOrchestrator"]
-    Tools["IDE-native tools\nVFS/editor/process"]
+    Gateway["Kotlin capability gateway\napprovals and path policy"]
+    Backend["Deployed Agent backend\nprompts, loop, model"]
+    Tools["IDE-native tools\nVFS/editor/process/Git"]
     Context["Node ContextEngine sidecar\nJSON Lines"]
-    Model["OpenAI-compatible endpoint"]
+    Model["Model provider"]
 
-    Web <--> Bridge <--> Agent
-    Agent <--> Tools
-    Agent <--> Context
-    Agent <--> Model
+    Web <--> Bridge <--> Gateway
+    Gateway <--> Tools
+    Gateway <--> Context
+    Gateway <--> Backend <--> Model
 ```
 
 The UI-to-JVM protocol uses small versioned JSON envelopes. Long work is acknowledged immediately and reported as events, so the JCEF callback thread never blocks. The ContextEngine process has a separate JSON Lines protocol because it owns Node 22's SQLite state and can be restarted independently.
 
-Agent prompts, the model/tool loop, mode capabilities, run state, and approval policy are owned by the JVM backend. The Webview cannot provide system instructions or execute tools. See the [prompt and agent architecture](PROMPT_ARCHITECTURE.md) for the original-plugin evidence and trust model.
+Agent prompts, model credentials, the bounded model/tool loop, and tool-call sequencing are owned by the deployed backend. The JVM advertises an allowlist of tools and independently enforces mode capabilities, project paths, and approvals. The Webview cannot provide system instructions or execute tools. See the [prompt and agent architecture](PROMPT_ARCHITECTURE.md) for the trust model.
 
-Repository customization follows the same boundary. The JVM discovers `.codeagent/rules/*.md`, `.codeagent/skills/*/SKILL.md`, and compatible `.agents/skills/*/SKILL.md` files after canonical-path validation. The Webview receives display metadata and returns selected skill IDs; it never supplies rule or skill prompt content. Selected IDs are persisted per task, then resolved again against the backend discovery result before prompt composition.
+The JVM discovers `.codeagent/rules/*.md`, `.codeagent/skills/*/SKILL.md`, compatible `.agents/skills/*/SKILL.md`, and root `AGENTS.md` after canonical-path validation. The Webview handles only display metadata and selected IDs. The JVM resolves those IDs again, then sends bounded content to the backend as lower-priority workspace data for server-side prompt composition.
 
-Model turns use Chat Completions SSE when the endpoint supports it. Text deltas are persisted into one assistant message and forwarded over the existing bridge event channel; streamed function-call argument fragments are assembled in the JVM before any tool is considered for execution. A normal JSON completion is retained as a compatibility fallback.
+The plugin opens an authenticated SSE run against the backend. The backend assembles model deltas and emits assistant and tool-request events. The JVM executes only advertised tools, then returns results through a separate authenticated endpoint so orchestration can resume.
 
-File mutations return backend-only before/after snapshots. The Webview receives only a tool ID and project-relative path, then asks the JVM to open IntelliJ's native Diff viewer or revert the change. Revert is allowed only while the current editor or disk content exactly matches the recorded agent output, preventing an older checkpoint from overwriting newer user work. Terminal side effects are intentionally excluded because their changed-file set cannot be inferred safely.
+File mutations create JVM-only before/after snapshots. The Webview receives only a tool ID and project-relative path, then asks the JVM to open IntelliJ's native Diff viewer or revert the change. Revert is allowed only while the current editor or disk content exactly matches the recorded agent output, preventing an older checkpoint from overwriting newer user work. Terminal side effects are intentionally excluded because their changed-file set cannot be inferred safely.
 
 ## ContextEngine reuse decision
 
@@ -79,10 +80,10 @@ The integration is a pinned Git submodule compiled into the Node sidecar. CodeAg
 
 ## Security boundary
 
-- API keys are stored through the IntelliJ Password Safe, never in project files or web storage.
+- Model API keys exist only in the deployed backend. The backend token is stored through IntelliJ Password Safe.
 - File tools resolve canonical paths and reject access outside the current project.
-- Ask mode is read-only.
-- Writes and terminal commands require approval unless the user explicitly enables per-thread auto approval.
+- Chat and Ask modes are read-only.
+- Writes and terminal commands always require local user approval.
 - The webview has no direct filesystem, process, credential, or network authority.
 - Repository content, attachments, retrieval output, and tool output remain lower-trust model context; executable authority is enforced in JVM code.
 
@@ -95,5 +96,6 @@ The integration is a pinned Git submodule compiled into the Node sidecar. CodeAg
 5. Backend prompt policy: versioned prompt resources, mode policy, and lower-priority root `AGENTS.md` guidance. (`60db5c3`)
 6. Stream and change review: SSE response/tool-call streaming plus native Diff and guarded file revert. (`e89cc6a`, `933111f`)
 7. Repository customization: always-on Rules, per-task selectable Skills, bounded prompt composition, and responsive UI. (`c4c8a0d`)
+8. Deployed backend boundary: server-owned prompts/model loop and a JVM capability gateway connected through authenticated SSE.
 
 The model transport follows the official [streaming Responses guidance](https://developers.openai.com/api/docs/guides/streaming-responses) for server-sent event handling while retaining the repository's OpenAI-compatible Chat Completions contract. Function argument deltas are accumulated before execution, matching the official [function calling streaming pattern](https://developers.openai.com/api/docs/guides/function-calling#streaming).

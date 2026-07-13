@@ -1,17 +1,28 @@
 # CodeAgent for JetBrains
 
-CodeAgent is a local-first AI coding agent for IntelliJ IDEA and other JetBrains IDEs. It combines an approval-driven agent loop with the open [ContextEngine](https://github.com/lixiang12345/ContextEngine-plugin) retrieval component.
+CodeAgent is an IDE-native AI coding agent for IntelliJ IDEA and other JetBrains IDEs. It combines a separately deployed Agent backend with the open [ContextEngine](https://github.com/lixiang12345/ContextEngine-plugin) retrieval component running locally beside the IDE.
 
-Version `0.4.0` provides a complete local coding loop: persistent tasks, project indexing and retrieval, streamed OpenAI-compatible model calls, IDE-native read/write/search/terminal tools, explicit approval for mutations, cancellation, project-file attachments, native Diff/revert controls, repository Rules, and per-task Skills. Agent policy and prompt composition live in the JVM backend, with optional repository guidance loaded from a root `AGENTS.md`. See the [product definition](docs/PRODUCT.md), [Rules and Skills guide](docs/RULES_AND_SKILLS.md), [prompt architecture](docs/PROMPT_ARCHITECTURE.md), and [architecture/original-plugin interaction analysis](docs/ARCHITECTURE.md).
+The IDEA plugin is a capability gateway: it owns project access, ContextEngine, approvals, editor actions, terminal execution, and Diff/revert. The deployable backend in `backend/` owns prompts, model credentials, streamed model calls, and tool-call orchestration. See the [prototype parity contract](docs/PROTOTYPE_PARITY.md), [product definition](docs/PRODUCT.md), [Rules and Skills guide](docs/RULES_AND_SKILLS.md), [prompt architecture](docs/PROMPT_ARCHITECTURE.md), and [architecture analysis](docs/ARCHITECTURE.md).
+
+## Run the backend
+
+```bash
+cd backend
+cp .env.example .env
+set -a && source .env && set +a
+npm start
+```
+
+For deployment, build `backend/Dockerfile` and provide `CODEAGENT_AUTH_TOKEN`, `MODEL_ENDPOINT`, `MODEL_API_KEY`, and `MODEL`. The service exposes `GET /health` and defaults to port `8787`.
 
 ## Install and use
 
-1. Install `build/distributions/CodeAgent-0.4.0.zip` from **Settings > Plugins > Install Plugin from Disk**.
+1. Install the ZIP from `build/distributions/` through **Settings > Plugins > Install Plugin from Disk**.
 2. Open **Tools > Show CodeAgent** (`Ctrl+Alt+I`, or `Control+Command+I` on macOS).
-3. Open Settings in the CodeAgent panel and configure an OpenAI-compatible endpoint, model, API key, and a Node.js 22.5+ executable.
-4. Select **Index project**, then use **Agent** for approved code changes or **Ask** for read-only analysis.
+3. Open Settings in the CodeAgent panel and configure the backend URL, matching backend token, and a Node.js 22.5+ executable.
+4. Select **Index project**, then use **Agent** for approved code changes, **Chat** for code-aware collaboration, or **Ask** for read-only analysis.
 
-The configured model endpoint must implement Chat Completions function/tool calls and should support SSE streaming. Endpoints that return a normal JSON completion remain supported. The API key is stored in JetBrains Password Safe. ContextEngine runs locally; only model requests are sent to the endpoint you configure.
+The backend token is stored in JetBrains Password Safe. Model credentials stay on the deployed backend. ContextEngine's index stays local; selected repository context, rules, skills, messages, and tool results are sent to the configured backend for the active Agent run.
 
 ## Development prerequisites
 
@@ -25,6 +36,7 @@ The configured model endpoint must implement Chat Completions function/tool call
 git submodule update --init --recursive
 cd frontend && npm ci && cd ..
 cd sidecar && npm ci && cd ..
+cd backend && npm test && cd ..
 ./gradlew buildPlugin
 ```
 
@@ -43,6 +55,7 @@ ContextEngine is pinned as a Git submodule and bundled into the local Node sidec
 ```bash
 cd frontend && npm run check && cd ..
 cd sidecar && npm test && cd ..
+cd backend && npm test && cd ..
 ./gradlew test buildPlugin verifyPlugin
 ```
 

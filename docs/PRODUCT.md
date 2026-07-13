@@ -8,31 +8,31 @@ The more precise positioning is: **an AI coding platform for large codebases, le
 
 ## CodeAgent position
 
-CodeAgent deliberately starts with a smaller promise: **an IDE-native, local-first coding agent whose actions are inspectable and approval-controlled**.
+CodeAgent is positioned as **an IDE-native coding-agent product with a separately deployed Agent backend, a local Context Engine, and approval-controlled IDE capabilities**. Its interaction and information architecture follow the analyzed plugin prototype rather than a generic web chat layout.
 
-| Dimension | Analyzed Augment plugin | CodeAgent 0.4 |
+| Dimension | Analyzed Augment plugin | CodeAgent target |
 | --- | --- | --- |
 | Primary workflow | Agent inside a broad coding platform | Focused project-level coding agent |
 | Context | Proprietary Context Engine and cloud services | Reused open ContextEngine, local SQLite index |
-| Runtime | JCEF + JVM + Node sidecar + remote product services | JCEF + JVM + local Node sidecar + chosen model endpoint |
+| Runtime | JCEF + JVM + Node sidecar + remote product services | JCEF + JVM capability gateway + local ContextEngine + deployed Agent backend |
 | Tools | Broad IDE, integration, MCP, and platform surface | Project files, search, editor, terminal, retrieval |
 | Trust model | Product-managed policies and services | Read-only Ask mode and explicit mutation approvals |
-| Data boundary | Product cloud plus local IDE processes | Local index; model traffic only to the configured endpoint |
+| Data boundary | Product cloud plus local IDE processes | Local index and IDE tools; selected run context goes to the configured backend |
 
-## Version 0.4 scope
+## Current implemented core
 
 - Persistent project tasks with search and switching.
 - ContextEngine indexing, health, progress, retrieval, and text search.
-- Agent and Ask modes with a bounded multi-turn tool loop.
+- Agent, Chat, and Ask modes with a backend-owned bounded multi-turn tool loop.
 - Project-local file reads, writes, replacements, search, editor open, and terminal execution.
 - Approval cards for file mutations and commands, plus run cancellation.
 - Token-level streamed assistant responses and streamed tool-call assembly.
 - IntelliJ-native Diff review and guarded per-edit revert for file tools.
-- Project file attachments, model/runtime settings, and Password Safe credentials.
+- Project file attachments, backend/runtime settings, and Password Safe backend credentials.
 - JCEF interface with a Swing fallback when JCEF is unavailable.
-- JVM-owned, versioned prompt composition with root `AGENTS.md` workspace guidance.
-- Always-on repository Rules and explicitly selected, per-task Skills loaded by the JVM backend.
+- Backend-owned prompt composition with root `AGENTS.md` workspace guidance.
+- Always-on repository Rules and explicitly selected, per-task Skills validated by the JVM and composed by the backend.
 
-## Explicit boundaries
+## Prototype delivery boundary
 
-Version 0.4 does not provide team accounts, cloud synchronization, billing, analytics, remote integrations, MCP configuration UI, semantic embeddings, a visual Rules/Skills editor, or automatic rollback of arbitrary terminal side effects. These are future product decisions, not hidden dependencies of the local agent loop.
+The required surfaces are tracked in [PROTOTYPE_PARITY.md](PROTOTYPE_PARITY.md). A cloud integration may be shown as unavailable configuration, but no interaction may claim success without a connected implementation. Automatic rollback of arbitrary terminal side effects remains unsupported because the changed-file set cannot be inferred safely.

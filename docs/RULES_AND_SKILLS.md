@@ -1,6 +1,6 @@
 # Repository Rules and Skills
 
-CodeAgent reads repository customization in the IntelliJ JVM backend. Files must resolve inside the current project; symlinks that escape the project are ignored.
+CodeAgent reads repository customization in the IntelliJ JVM capability gateway. Files must resolve inside the current project; symlinks that escape the project are ignored. Validated content is sent to the deployed backend for prompt composition only when a run starts.
 
 ## Rules
 

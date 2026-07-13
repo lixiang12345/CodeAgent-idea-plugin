@@ -1,0 +1,56 @@
+# Prototype parity contract
+
+`prototypes/augment-v9-tools-native.html` is the product acceptance baseline. Earlier prototypes and the extracted `0.482.3` plugin are supporting evidence only. CodeAgent keeps its own name, deployment configuration, and security policy, but reproduces the prototype's page structure, icon vocabulary, information density, states, and workflows.
+
+## Deployment boundary
+
+```mermaid
+flowchart LR
+    UI["Svelte Webview\nprototype-aligned pages"]
+    JVM["IDEA plugin JVM\nIDE capabilities and approvals"]
+    Context["Local ContextEngine\nindex and retrieval"]
+    Backend["Separately deployed backend\nagent loop, prompts, model, sessions"]
+    Model["Model provider"]
+
+    UI <--> JVM
+    JVM <--> Context
+    JVM <--> Backend
+    Backend <--> Model
+```
+
+The deployed backend owns prompts, model credentials, the bounded agent loop, streamed assistant output, task orchestration, and tool-call sequencing. The plugin owns project files, editor, diagnostics, terminal, Git, ContextEngine, user approval, and canonical path enforcement. The Webview owns rendering and user interaction only.
+
+## Page and state acceptance
+
+| Surface | Required prototype behavior |
+| --- | --- |
+| Main panel | Native tool-window header, active-thread header, context/repository strip, dense transcript, streamed thinking/answer states, bottom composer |
+| Threads | Overlay drawer, search, Agent/Chat/Ask tags, create/select, pin/delete/export/import entry points |
+| Composer | Agent/Chat/Ask selector, attachments, mentions, commands, Skills, model/auto controls, queue/stop/send states |
+| Tools | Prototype card anatomy, expandable details, phase/status, approvals, file paths, Diff/open/revert, terminal actions |
+| Agent edits | Changed-file summary, review, keep/discard, checkpoints, per-file Diff and undo |
+| Tasks | Task tree, add/view/update/reorganize states, run/clear/import/export controls |
+| Subagents | Synchronous and asynchronous run states, approval, stop, output navigation |
+| Git | Unstaged and reviewed groups, stage/unstage, generated commit message, commit action |
+| Settings | Home, Services, MCP, Rules, API keys, Commands, Skills, Hooks, Agents, Plugins, UX, feature flags, Beta, account, subscription |
+| Rules editor | Description, Always/Manual/Agent trigger, Markdown editor, save/open/back actions |
+| Image Canvas | Directory selection, refresh/settings, gallery, mention/open actions and empty states |
+| Mermaid | Diagram/code modes, zoom, fit, open-in-tab and render failure state |
+| IDE integration | Tool window, actions, status/completion states, file/editor/terminal/Git navigation |
+
+## Tool catalog
+
+The prototype defines 31 tool presentations. A card is shown as functional only when its backend or IDE capability is connected:
+
+`context-engine`, `conversation-retrieval`, `str-replace`, `view`, `read-file`, `save-file`, `remove-files`, `apply-patch`, `grep`, `shell`, `web-fetch`, `web`, `open-browser`, `diagnostics`, `git-commit`, `mermaid`, `add-tasks`, `view-tasks`, `update-tasks`, `reorg-tasks`, `subagent`, `async-subagent`, `ask-user`, `github`, `linear`, `notion`, `jira`, `confluence`, `glean`, `supabase`, `mcp`.
+
+## Resource contract
+
+- Use the icon names and placement from the v9 registry.
+- Reuse the provided prototype status, service, and product image resources when licensing permits redistribution.
+- Use prototype design tokens: compact 10/12/14 px type, JetBrains Mono for tool data, neutral IntelliJ surfaces, blue action accent, and 4-8 px radii.
+- Validate at a 420 px tool-window viewport first, then 360 px and wider docked widths.
+
+## No-fake rule
+
+Unconnected cloud integrations may appear only as explicitly unavailable configuration rows. Buttons, approvals, tool cards, and success states must not claim an operation completed unless a real backend or IDEA capability performed it.

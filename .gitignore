@@ -20,6 +20,9 @@ frontend/node_modules/
 frontend/dist/
 sidecar/node_modules/
 sidecar/dist/
+backend/node_modules/
+backend/.env
+.vite/
 
 # Local ContextEngine runtime data and secrets.
 .contextengine/

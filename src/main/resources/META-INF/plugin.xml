@@ -4,8 +4,8 @@
     <vendor url="https://github.com/lixiang12345">CodeAgent</vendor>
 
     <description><![CDATA[
-        <p>CodeAgent is a local-first AI coding agent for JetBrains IDEs.</p>
-        <p>It combines an approval-driven agent workflow with project-aware retrieval powered by ContextEngine.</p>
+        <p>CodeAgent is an IDE-native AI coding agent for JetBrains IDEs.</p>
+        <p>It combines a separately deployed Agent backend with approval-controlled IDE capabilities and local project retrieval powered by ContextEngine.</p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>

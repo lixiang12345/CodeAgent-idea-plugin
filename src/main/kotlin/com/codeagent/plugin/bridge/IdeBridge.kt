@@ -99,7 +99,7 @@ class IdeBridge(
                 }
                 emitSnapshot()
             }
-            "newThread" -> newThread()
+            "newThread" -> newThread(command.payload)
             "sendMessage" -> sendMessage(requireNotNull(command.payload) { "sendMessage requires payload" })
             "getContextStatus" -> refreshContextStatus()
             "indexWorkspace" -> indexWorkspace()
@@ -183,13 +183,15 @@ class IdeBridge(
         }
     }
 
-    private fun newThread() {
+    private fun newThread(payload: JsonElement?) {
         synchronized(stateLock) {
             runs.invalidate()
             tools.clear()
             attachments.clear()
             runState = "idle"
-            conversations.newThread(conversations.active().mode)
+            val mode = payload?.let { json.decodeFromJsonElement<NewThreadPayload>(it).mode }
+                ?: conversations.active().mode
+            conversations.newThread(mode)
         }
         agent.cancel()
         emitSnapshot()
@@ -300,11 +302,10 @@ class IdeBridge(
         val previousNodePath = settingsService.snapshot().nodePath
         settingsService.update(
             CodeAgentSettingsUpdate(
-                endpoint = request.endpoint,
-                model = request.model,
+                backendUrl = request.backendUrl,
                 nodePath = request.nodePath,
                 autoApproveReadOnly = request.autoApproveReadOnly,
-                apiKey = request.apiKey,
+                backendToken = request.backendToken,
             ),
         )
         if (previousNodePath != settingsService.snapshot().nodePath) {
@@ -330,14 +331,13 @@ class IdeBridge(
                 },
                 tools = tools.values.toList(),
                 threads = conversations.threads().map { thread ->
-                    ThreadSummaryDto(thread.id, thread.title, thread.updatedAt, thread.active)
+                    ThreadSummaryDto(thread.id, thread.title, thread.updatedAt, thread.active, thread.mode)
                 },
                 attachments = attachments.values.toList(),
                 settings = SettingsSnapshotDto(
-                    endpoint = settings.endpoint,
-                    model = settings.model,
+                    backendUrl = settings.backendUrl,
                     nodePath = settings.nodePath,
-                    apiKeyConfigured = !settings.apiKey.isNullOrBlank(),
+                    backendTokenConfigured = !settings.backendToken.isNullOrBlank(),
                     autoApproveReadOnly = settings.autoApproveReadOnly,
                 ),
                 context = context,
@@ -439,6 +439,9 @@ class IdeBridge(
     private data class ModePayload(val mode: String)
 
     @Serializable
+    private data class NewThreadPayload(val mode: String)
+
+    @Serializable
     private data class SendMessagePayload(val text: String, val mode: String)
 
     @Serializable
@@ -458,11 +461,10 @@ class IdeBridge(
 
     @Serializable
     private data class SettingsPayload(
-        val endpoint: String,
-        val model: String,
+        val backendUrl: String,
         val nodePath: String,
         val autoApproveReadOnly: Boolean = true,
-        val apiKey: String? = null,
+        val backendToken: String? = null,
     )
 
     companion object {

@@ -20,53 +20,47 @@ class CodeAgentSettingsService : PersistentStateComponent<CodeAgentSettingsState
     }
 
     fun snapshot(): CodeAgentSettings = CodeAgentSettings(
-        endpoint = settings.endpoint,
-        model = settings.model,
+        backendUrl = settings.backendUrl,
         nodePath = settings.nodePath,
         autoApproveReadOnly = settings.autoApproveReadOnly,
-        apiKey = PasswordSafe.instance.getPassword(API_KEY_ATTRIBUTES),
+        backendToken = PasswordSafe.instance.getPassword(BACKEND_TOKEN_ATTRIBUTES),
     )
 
     fun update(update: CodeAgentSettingsUpdate) {
-        val endpoint = update.endpoint.trim().trimEnd('/')
-        val uri = URI.create(endpoint)
-        require(uri.scheme == "http" || uri.scheme == "https") { "API endpoint must use http or https" }
-        require(uri.host != null) { "API endpoint must include a host" }
-        require(update.model.isNotBlank()) { "Model is required" }
+        val backendUrl = update.backendUrl.trim().trimEnd('/')
+        val uri = URI.create(backendUrl)
+        require(uri.scheme == "http" || uri.scheme == "https") { "Backend URL must use http or https" }
+        require(uri.host != null) { "Backend URL must include a host" }
 
-        settings.endpoint = endpoint
-        settings.model = update.model.trim()
+        settings.backendUrl = backendUrl
         settings.nodePath = update.nodePath.trim().ifEmpty { "node" }
         settings.autoApproveReadOnly = update.autoApproveReadOnly
-        update.apiKey?.takeIf { it.isNotBlank() }?.let {
-            PasswordSafe.instance.setPassword(API_KEY_ATTRIBUTES, it)
+        update.backendToken?.takeIf { it.isNotBlank() }?.let {
+            PasswordSafe.instance.setPassword(BACKEND_TOKEN_ATTRIBUTES, it)
         }
     }
 
     companion object {
-        private val API_KEY_ATTRIBUTES = CredentialAttributes("CodeAgent OpenAI-compatible API key")
+        private val BACKEND_TOKEN_ATTRIBUTES = CredentialAttributes("CodeAgent backend authentication token")
     }
 }
 
 data class CodeAgentSettings(
-    val endpoint: String,
-    val model: String,
+    val backendUrl: String,
     val nodePath: String,
     val autoApproveReadOnly: Boolean,
-    val apiKey: String?,
+    val backendToken: String?,
 )
 
 data class CodeAgentSettingsUpdate(
-    val endpoint: String,
-    val model: String,
+    val backendUrl: String,
     val nodePath: String,
     val autoApproveReadOnly: Boolean,
-    val apiKey: String?,
+    val backendToken: String?,
 )
 
 class CodeAgentSettingsState {
-    var endpoint: String = "https://api.openai.com/v1"
-    var model: String = "gpt-5.2"
+    var backendUrl: String = "http://127.0.0.1:8787"
     var nodePath: String = "node"
     var autoApproveReadOnly: Boolean = true
 }

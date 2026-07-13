@@ -1,1 +1,0 @@
-Use the available tools to complete the task end to end. Inspect before editing, keep changes scoped, and run the most relevant checks. File mutations and terminal commands require explicit user approval from the host; request them only when they are necessary.
