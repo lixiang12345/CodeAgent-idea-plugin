@@ -1,16 +1,27 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
 import { AgentRunner } from "./agent-runner.mjs";
 import { createModelGatewayFromEnv } from "./model-gateway.mjs";
 
-export function createCodeAgentServer({ modelGateway, authToken = "", logger = console } = {}) {
+const OPENAPI_DOCUMENT = JSON.parse(readFileSync(new URL("../openapi.json", import.meta.url), "utf8"));
+
+export function createCodeAgentServer({ modelGateway, authToken = "", corsOrigins = [], logger = console } = {}) {
   const gateway = modelGateway || createModelGatewayFromEnv();
   const runner = new AgentRunner({ modelGateway: gateway });
   const runs = new Map();
+  const allowedCorsOrigins = new Set(normalizeCorsOrigins(corsOrigins));
 
   return createServer(async (request, response) => {
     try {
+      const corsAllowed = applyCors(request, response, allowedCorsOrigins);
+      if (request.method === "OPTIONS") {
+        if (!request.headers.origin || !corsAllowed) return json(response, 403, { error: "Origin is not allowed" });
+        response.writeHead(204);
+        response.end();
+        return;
+      }
       if (request.url === "/health" && request.method === "GET") {
         return json(response, 200, {
           ok: true,
@@ -19,6 +30,9 @@ export function createCodeAgentServer({ modelGateway, authToken = "", logger = c
           provider: gateway.provider || "custom",
           defaultModel: gateway.defaultModel,
         });
+      }
+      if (request.url === "/openapi.json" && request.method === "GET") {
+        return json(response, 200, OPENAPI_DOCUMENT);
       }
       authorize(request, authToken);
 
@@ -191,6 +205,23 @@ function json(response, status, body) {
   response.end(JSON.stringify(body));
 }
 
+function normalizeCorsOrigins(value) {
+  const entries = Array.isArray(value) ? value : String(value || "").split(",");
+  return entries.map((origin) => String(origin).trim()).filter(Boolean);
+}
+
+function applyCors(request, response, allowedOrigins) {
+  const origin = request.headers.origin;
+  if (!origin || (!allowedOrigins.has(origin) && !allowedOrigins.has("*"))) return false;
+  response.setHeader("access-control-allow-origin", allowedOrigins.has("*") ? "*" : origin);
+  response.setHeader("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
+  response.setHeader("access-control-allow-headers", "Authorization, Content-Type, Accept");
+  response.setHeader("access-control-expose-headers", "X-CodeAgent-Run-Id");
+  response.setHeader("access-control-max-age", "600");
+  response.setHeader("vary", "Origin");
+  return true;
+}
+
 function rootMessage(error) {
   let current = error;
   while (current?.cause) current = current.cause;
@@ -200,6 +231,9 @@ function rootMessage(error) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number.parseInt(process.env.PORT || "8787", 10);
   const host = process.env.HOST || "127.0.0.1";
-  const server = createCodeAgentServer({ authToken: process.env.CODEAGENT_AUTH_TOKEN || "" });
+  const server = createCodeAgentServer({
+    authToken: process.env.CODEAGENT_AUTH_TOKEN || "",
+    corsOrigins: process.env.CORS_ALLOWED_ORIGINS || "",
+  });
   server.listen(port, host, () => console.log(`CodeAgent backend listening on http://${host}:${port}`));
 }

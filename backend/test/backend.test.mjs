@@ -96,6 +96,64 @@ test("rejects unauthorized run requests", async () => {
   }
 });
 
+test("serves the public OpenAPI contract", async () => {
+  const server = createCodeAgentServer({ modelGateway: {}, authToken: "secret", logger: { error() {} } });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/openapi.json`);
+    assert.equal(response.status, 200);
+    const contract = await response.json();
+    assert.equal(contract.openapi, "3.1.0");
+    assert.ok(contract.paths["/v1/runs"]);
+    assert.ok(contract.paths["/v1/runs/{runId}/tool-results"]);
+    assert.ok(contract.paths["/v1/runs/{runId}"].delete);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("allows configured browser origins and rejects other preflights", async () => {
+  const allowedOrigin = "http://127.0.0.1:5175";
+  const server = createCodeAgentServer({
+    modelGateway: {},
+    authToken: "secret",
+    corsOrigins: [allowedOrigin],
+    logger: { error() {} },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const preflight = await fetch(`${baseUrl}/v1/runs`, {
+      method: "OPTIONS",
+      headers: {
+        origin: allowedOrigin,
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "authorization,content-type",
+      },
+    });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get("access-control-allow-origin"), allowedOrigin);
+    assert.match(preflight.headers.get("access-control-allow-methods"), /POST/);
+    assert.match(preflight.headers.get("access-control-allow-headers"), /Authorization/);
+
+    const health = await fetch(`${baseUrl}/health`, { headers: { origin: allowedOrigin } });
+    assert.equal(health.headers.get("access-control-allow-origin"), allowedOrigin);
+
+    const denied = await fetch(`${baseUrl}/v1/runs`, {
+      method: "OPTIONS",
+      headers: { origin: "https://untrusted.example", "access-control-request-method": "POST" },
+    });
+    assert.equal(denied.status, 403);
+    assert.equal(denied.headers.get("access-control-allow-origin"), null);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
 test("parses CRLF model SSE across chunk boundaries", async () => {
   const encoder = new TextEncoder();
   const chunks = [
