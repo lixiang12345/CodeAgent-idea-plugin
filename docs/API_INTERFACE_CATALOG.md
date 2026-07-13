@@ -1,7 +1,8 @@
 # CodeAgent API interface catalog
 
-Complete request/response catalog for the plugin Webview, IDEA bridge, and deployed Agent backend.  
-Includes a reference map of interfaces observed in the analyzed Augment `0.482.3` package.
+Complete request/response catalog for the **implemented** CodeAgent Webview, IDEA bridge, and deployed Agent backend.
+
+The original Augment `0.482.3` plugin exposes a **much larger** multi-layer surface (local sidecar HTTP, cloud DTOs, webview Redux actions, gRPC). That inventory is in [`docs/ORIGINAL_PLUGIN_API_SURFACE.md`](ORIGINAL_PLUGIN_API_SURFACE.md) — do not confuse it with CodeAgent’s narrow gateway.
 
 Related:
 
