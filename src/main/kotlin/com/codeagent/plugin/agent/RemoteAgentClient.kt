@@ -23,6 +23,17 @@ internal class RemoteAgentClient(
     private val json = Json { ignoreUnknownKeys = true }
     private val runsUri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/runs")
 
+    fun health(): CompletableFuture<RemoteBackendHealth> {
+        val uri = URI.create("${settings.backendUrl.trimEnd('/')}/health")
+        return httpClient.sendAsync(
+            requestBuilder(uri).timeout(Duration.ofSeconds(10)).GET().build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            check(response.statusCode() == 200) { "Backend health check returned HTTP ${response.statusCode()}" }
+            json.decodeFromString<RemoteBackendHealth>(response.body())
+        }
+    }
+
     fun stream(
         request: RemoteRunRequest,
         onStreamChanged: (Closeable?) -> Unit,
@@ -174,3 +185,10 @@ internal data class RemoteToolCall(
 
 @Serializable
 internal data class RemoteRunError(val message: String)
+
+@Serializable
+internal data class RemoteBackendHealth(
+    val ok: Boolean,
+    val service: String,
+    val protocolVersion: Int,
+)

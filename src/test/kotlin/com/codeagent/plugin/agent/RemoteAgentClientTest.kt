@@ -18,6 +18,11 @@ class RemoteAgentClientTest {
         var runAuthorization: String? = null
         var runBody = ""
         var toolResultBody = ""
+        server.createContext("/health") { exchange ->
+            val body = """{"ok":true,"service":"codeagent-backend","protocolVersion":1}""".toByteArray()
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
         server.createContext("/v1/runs") { exchange ->
             runAuthorization = exchange.requestHeaders.getFirst("Authorization")
             runBody = exchange.requestBody.bufferedReader().readText()
@@ -68,12 +73,15 @@ class RemoteAgentClientTest {
                 onEvent = { type, _ -> eventTypes += type },
             )
             client.submitToolResult("run-1", RemoteToolResult("call-1", "completed", output = "README"))
+            val health = client.health().join()
 
             assertEquals("Bearer backend-secret", runAuthorization)
             assertEquals(listOf("run.started", "message.delta", "assistant.completed"), eventTypes)
             assertTrue(runBody.contains("Use repository conventions."))
             assertTrue(runBody.contains("\"read_file\""))
             assertTrue(toolResultBody.contains("\"toolCallId\":\"call-1\""))
+            assertTrue(health.ok)
+            assertEquals(1, health.protocolVersion)
         } finally {
             server.stop(0)
         }

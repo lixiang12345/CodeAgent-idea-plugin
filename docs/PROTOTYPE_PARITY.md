@@ -46,7 +46,7 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | --- | --- | --- |
 | Main panel | Implemented | 420 px IDEA tool window, streamed messages, context strip, tool cards, approvals, composer, stop/send states |
 | Threads | Implemented | Create, select, search, mode tags, pin ordering, confirmed delete, and Markdown import/export work |
-| Composer | Partial | Modes, project attachments, Skills, slash seed, auto-run policy, send/stop work; queue and prompt enhancer remain unavailable |
+| Composer | Partial | Modes, project attachments, Skills, ordered run queue, slash seed, auto-run policy, and send/stop work; prompt enhancer and client-side model selection remain unavailable |
 | Tools | Partial | 15 local tool definitions execute through the IDEA gateway; web, cloud, MCP, and subagent tools are not advertised |
 | Agent edits | Partial | Native Diff, guarded per-file undo, review, keep-all, and atomic discard-all work; checkpoints remain unavailable |
 | Tasks | Implemented | Persistent per-thread tasks, filtering, add/delete/state, clear, Markdown import/export, run-one/run-all, and Agent task tools |
@@ -54,7 +54,7 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | Rules editor | Implemented | Repository Markdown, persisted description and trigger metadata, save, and manual per-thread selection work |
 | Image Canvas | Implemented | Project-contained directory selection, bounded raster gallery, settings, refresh, open, mention, and empty/error states |
 | Mermaid | Implemented | Strict rendering, diagram/code, zoom, fit, error states, and opening source in an IDEA editor tab work |
-| Settings | Partial | All prototype navigation sections render; backend services, API token, ContextEngine, Rules, and Skills are real, while unconnected sections say so explicitly |
+| Settings | Partial | All prototype navigation sections render; backend health/protocol, services, API token, ContextEngine, Rules, and Skills are real, while unconnected sections say so explicitly |
 | Subagents and cloud integrations | Unavailable | No success state is simulated; these require separately deployed capability providers and protocol work |
 
 ## Tool catalog

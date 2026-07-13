@@ -98,6 +98,8 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         }
     }
 
+    internal fun health(): CompletableFuture<RemoteBackendHealth> = RemoteAgentClient(settingsService.snapshot()).health()
+
     fun resolveApproval(toolId: String, approved: Boolean): Boolean =
         activeRun.get()?.approvals?.remove(toolId)?.complete(approved) ?: false
 

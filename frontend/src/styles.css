@@ -148,6 +148,16 @@ button { color: inherit; }
 .context-chips > span { height: 23px; max-width: 170px; padding: 0 5px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid #41567e; border-radius: 4px; color: #a9bee8; background: #26334a; font-size: 8px; }
 .context-chips b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
 .context-chips button { padding: 0; display: grid; place-items: center; border: 0; color: inherit; background: transparent; }
+.message-queue { max-height: 112px; margin-bottom: 5px; overflow-y: auto; border: 1px solid #4b4335; border-radius: 4px; background: #29261f; }
+.message-queue header { height: 27px; padding: 0 6px; display: flex; align-items: center; gap: 5px; border-bottom: 1px solid #474033; color: #d1b779; }
+.message-queue header strong { min-width: 0; flex: 1; font-size: 8.5px; font-weight: 500; }
+.message-queue header span { padding: 1px 5px; border-radius: 7px; background: #40392c; font: 7.5px var(--mono); }
+.message-queue > div { min-height: 27px; padding: 3px 6px; display: flex; align-items: center; gap: 5px; }
+.message-queue > div + div { border-top: 1px solid #3c382f; }
+.message-queue > div i { width: 12px; color: #827866; font: normal 7px var(--mono); }
+.message-queue > div span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; color: #c7c0b3; font-size: 8px; white-space: nowrap; }
+.message-queue > div b { color: #9b907d; font: 7px var(--mono); text-transform: capitalize; }
+.message-queue > div button { width: 20px; height: 20px; padding: 0; display: grid; place-items: center; border: 0; color: #8c8578; background: transparent; cursor: pointer; }
 .composer { position: relative; min-height: 116px; border: 1px solid #44484f; border-radius: 6px; background: #1c1e21; box-shadow: 0 -5px 20px rgba(0,0,0,.12); }
 .composer:focus-within { border-color: #5c6570; }
 .composer textarea { width: 100%; height: 66px; padding: 9px 10px 3px; resize: none; outline: 0; border: 0; color: var(--text); background: transparent; font-size: 10.5px; line-height: 1.45; }
@@ -184,6 +194,7 @@ button { color: inherit; }
 .send-button:hover { background: #6197ef; }
 .send-button:disabled { color: #777c84; background: #30343a; cursor: default; }
 .send-button.stop { color: #f0b1b4; background: #583238; }
+.send-button.queue-send { color: #f0d29a; background: #55452c; }
 
 .settings-header { height: 37px; flex: 0 0 37px; padding: 0 7px; display: grid; grid-template-columns: 25px 1fr 1fr auto; align-items: center; border-bottom: 1px solid var(--line); }
 .settings-header strong { font-size: 11px; }
@@ -211,6 +222,16 @@ button { color: inherit; }
 .settings-block > header strong { flex: 1; font-size: 10px; }
 .settings-block > header button, .settings-form footer button { height: 24px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 3px; background: #2d3035; font-size: 8px; cursor: pointer; }
 .settings-block > p { margin: 7px 0 0; color: var(--muted); font-size: 8px; overflow-wrap: anywhere; }
+.service-status { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #777c84; box-shadow: 0 0 0 2px #31343a; }
+.service-status.online { background: #62b47a; box-shadow: 0 0 0 2px #2d4d36; }
+.service-status.offline, .service-status.incompatible { background: #dc6e74; box-shadow: 0 0 0 2px #523238; }
+.service-status.checking { background: #d0a05b; box-shadow: 0 0 0 2px #51432d; }
+.backend-state { color: var(--muted); font: normal 7px var(--mono); text-transform: capitalize; }
+.backend-health-row { min-height: 42px; margin-bottom: 10px; padding: 6px 7px; display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 4px; background: #1b1d20; }
+.backend-health-row > span:nth-child(2) { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.backend-health-row strong { font-size: 8.5px; text-transform: capitalize; }
+.backend-health-row small { overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 7.5px; white-space: nowrap; }
+.backend-health-row button { height: 24px; padding: 0 7px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line-strong); border-radius: 3px; background: #2d3035; font-size: 8px; cursor: pointer; }
 .progress { height: 4px; margin-top: 9px; overflow: hidden; border-radius: 2px; background: #30343a; }
 .progress span { display: block; width: 35%; height: 100%; background: #546271; }
 .progress span.ready { width: 100%; background: linear-gradient(90deg, #5d83ed, #62b483); }

@@ -63,6 +63,13 @@ data class TaskDto(
 )
 
 @Serializable
+data class QueuedMessageDto(
+    val id: String,
+    val text: String,
+    val mode: String,
+)
+
+@Serializable
 data class ContextItemDto(
     val id: String,
     val label: String,
@@ -119,6 +126,13 @@ data class ContextSnapshotDto(
 )
 
 @Serializable
+data class BackendHealthDto(
+    val state: String = "unknown",
+    val label: String = "Not checked",
+    val protocolVersion: Int? = null,
+)
+
+@Serializable
 data class WorkspaceRuleDto(
     val id: String,
     val name: String,
@@ -154,8 +168,10 @@ data class AppSnapshotDto(
     val tools: List<ToolRunDto> = emptyList(),
     val threads: List<ThreadSummaryDto>,
     val tasks: List<TaskDto> = emptyList(),
+    val messageQueue: List<QueuedMessageDto> = emptyList(),
     val attachments: List<ContextItemDto> = emptyList(),
     val settings: SettingsSnapshotDto = SettingsSnapshotDto(),
     val context: ContextSnapshotDto = ContextSnapshotDto(),
+    val backendHealth: BackendHealthDto = BackendHealthDto(),
     val customization: WorkspaceCustomizationDto = WorkspaceCustomizationDto(),
 )

@@ -36,6 +36,12 @@ export interface TaskItem {
   state: "not_started" | "in_progress" | "completed" | "cancelled";
 }
 
+export interface QueuedMessage {
+  id: string;
+  text: string;
+  mode: Mode;
+}
+
 export interface ContextItem {
   id: string;
   label: string;
@@ -104,6 +110,7 @@ export interface AppSnapshot {
   tools: ToolRun[];
   threads: ThreadSummary[];
   tasks: TaskItem[];
+  messageQueue: QueuedMessage[];
   attachments: ContextItem[];
   settings: SettingsSnapshot;
   context: {
@@ -111,6 +118,11 @@ export interface AppSnapshot {
     label: string;
     files?: number;
     chunks?: number;
+  };
+  backendHealth: {
+    state: "unknown" | "checking" | "online" | "offline" | "incompatible";
+    label: string;
+    protocolVersion?: number;
   };
   customization: {
     rules: WorkspaceRule[];
@@ -291,6 +303,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       { id: "task-3", name: "Add invalid-credential regression coverage", state: "in_progress" },
       { id: "task-4", name: "Run the complete integration suite", state: "not_started" },
     ],
+    messageQueue: [],
     attachments: [{ id: "attachment-1", label: "UserRepository.java", path: "src/main/java/com/example/UserRepository.java" }],
     settings: {
       backendUrl: "http://127.0.0.1:8787",
@@ -299,6 +312,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       autoApproveReadOnly: true,
     },
     context: { state: "not_indexed", label: "Index project" },
+    backendHealth: { state: "online", label: "Connected to codeagent-backend", protocolVersion: 1 },
     customization: {
       rules: [
         {

@@ -166,11 +166,11 @@
 
   function submit() {
     const text = prompt.trim();
-    if (!text || !snapshot || isBusy()) return;
+    if (!text || !snapshot) return;
     prompt = "";
     skillsOpen = false;
     modeMenuOpen = false;
-    sendCommand("sendMessage", { text, mode: snapshot.mode });
+    sendCommand(isBusy() ? "queueMessage" : "sendMessage", { text, mode: snapshot.mode });
   }
 
   function setMode(mode: Mode) {
@@ -518,6 +518,9 @@
               {/each}
             </div>
           {/if}
+          {#if snapshot.messageQueue.length > 0}
+            <section class="message-queue"><header><ListChecks size={12} /><strong>Message Queue</strong><span>{snapshot.messageQueue.length}</span></header>{#each snapshot.messageQueue as item, index}<div><i>{index + 1}</i><span>{item.text}</span><b>{item.mode}</b><button title="Remove queued message" onclick={() => sendCommand("removeQueuedMessage", { messageId: item.id })}><X size={11} /></button></div>{/each}</section>
+          {/if}
           <div class="composer" class:busy={isBusy()}>
             <textarea bind:value={prompt} placeholder="Type a message or command..." onkeydown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); }
@@ -553,7 +556,7 @@
             </div>
             <div class="send-row">
               <button class="auto-toggle" class:active={autoApproveReadOnly} title="Automatically run read-only tools" onclick={toggleAutoRun}>Auto {autoApproveReadOnly ? "ON" : "OFF"}</button>
-              {#if isBusy()}<button class="send-button stop" title="Stop" onclick={() => sendCommand("cancelRun")}><Square size={13} fill="currentColor" /></button>
+              {#if isBusy()}<button class="send-button queue-send" title="Queue message" disabled={!prompt.trim()} onclick={submit}><SendHorizontal size={13} /></button><button class="send-button stop" title="Stop" onclick={() => sendCommand("cancelRun")}><Square size={13} fill="currentColor" /></button>
               {:else}<button class="send-button" title="Send" disabled={!prompt.trim()} onclick={submit}><SendHorizontal size={15} /></button>{/if}
             </div>
           </div>
@@ -582,7 +585,7 @@
               <h1>Project Home</h1><p class="settings-lead">CodeAgent for {snapshot.projectName}</p>
               <div class="settings-stats"><article><strong>{snapshot.context.files ?? "--"}</strong><span>Files indexed</span></article><article><strong>{snapshot.threads.length}</strong><span>Threads</span></article></div>
               <section class="settings-block"><header><strong>Codebase Indexing</strong><button onclick={updateContext}>Rebuild Index</button></header><p>{snapshot.context.label}</p><div class="progress"><span class:ready={snapshot.context.state === "ready"}></span></div></section>
-              <section class="settings-block"><header><strong>Agent Backend</strong><button onclick={() => chooseSettingsSection("Services")}>Configure</button></header><p>{backendUrl}</p></section>
+              <section class="settings-block"><header><span class="service-status {snapshot.backendHealth.state}"></span><strong>Agent Backend</strong><i class="backend-state">{snapshot.backendHealth.state}</i><button onclick={() => sendCommand("checkBackend")}><RefreshCw size={12} />Check</button><button onclick={() => chooseSettingsSection("Services")}>Configure</button></header><p>{snapshot.backendHealth.label} · {backendUrl}</p></section>
               <section class="settings-block"><header><strong>Workspace</strong></header><div class="workspace-row"><Folder size={15} /><span>{snapshot.projectName}</span><i>active</i></div></section>
             {:else if settingsSection === "Services" || settingsSection === "API Keys"}
               <h1>Services</h1><p class="settings-lead">Connect this IDE capability gateway to the deployed Agent backend.</p>
@@ -591,6 +594,7 @@
                 <label><span>Backend token</span><input type="password" bind:value={backendToken} placeholder={snapshot.settings.backendTokenConfigured ? "Configured" : "Not configured"} /></label>
                 <label><span>Node.js executable</span><input bind:value={nodePath} /></label>
                 <label class="toggle-row"><input type="checkbox" bind:checked={autoApproveReadOnly} /><span><strong>Auto-run read-only tools</strong><small>Context retrieval, search, and file reads</small></span></label>
+                <div class="backend-health-row"><span class="service-status {snapshot.backendHealth.state}"></span><span><strong>{snapshot.backendHealth.state}</strong><small>{snapshot.backendHealth.label}</small></span><button onclick={() => sendCommand("checkBackend")}><RefreshCw size={12} />Test connection</button></div>
                 <footer><button class="primary" onclick={saveSettings}>Save settings</button></footer>
               </section>
             {:else if settingsSection === "Rules & Guidelines"}

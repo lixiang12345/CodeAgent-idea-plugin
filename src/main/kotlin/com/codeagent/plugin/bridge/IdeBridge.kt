@@ -38,6 +38,7 @@ import java.nio.file.Path
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.awt.datatransfer.StringSelection
+import java.util.UUID
 
 class IdeBridge(
     private val project: Project,
@@ -50,6 +51,7 @@ class IdeBridge(
     private val query = JBCefJSQuery.create(browser as JBCefBrowserBase)
     private val tools = linkedMapOf<String, ToolRunDto>()
     private val attachments = linkedMapOf<String, ContextItemDto>()
+    private val messageQueue = mutableListOf<QueuedMessageDto>()
     private val conversations = project.service<ConversationStore>()
     private val contextEngine = project.service<ContextEngineService>()
     private val agent = project.service<AgentOrchestrator>()
@@ -64,6 +66,9 @@ class IdeBridge(
 
     @Volatile
     private var context = ContextSnapshotDto(state = "not_indexed", label = "Checking context")
+
+    @Volatile
+    private var backendHealth = BackendHealthDto(state = "checking", label = "Checking backend")
 
     init {
         query.addHandler { raw ->
@@ -100,6 +105,7 @@ class IdeBridge(
             "bootstrap" -> {
                 emitSnapshot()
                 refreshContextStatus()
+                checkBackendHealth()
             }
             "setMode" -> {
                 synchronized(stateLock) {
@@ -115,7 +121,28 @@ class IdeBridge(
             }
             "newThread" -> newThread(command.payload)
             "sendMessage" -> sendMessage(requireNotNull(command.payload) { "sendMessage requires payload" })
+            "queueMessage" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<SendMessagePayload>(it) }
+                require(request.text.isNotBlank()) { "Queued message must not be blank" }
+                require(request.mode == "agent" || request.mode == "chat" || request.mode == "ask") {
+                    "Unsupported queued message mode: ${request.mode}"
+                }
+                synchronized(stateLock) {
+                    require(runState == "running" || runState == "awaiting_approval") { "No active run to queue behind" }
+                    require(messageQueue.size < MAX_QUEUED_MESSAGES) { "Queue can contain at most $MAX_QUEUED_MESSAGES messages" }
+                    messageQueue += QueuedMessageDto(UUID.randomUUID().toString(), request.text.trim(), request.mode)
+                }
+                emitSnapshot()
+            }
+            "removeQueuedMessage" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<QueuedMessagePayload>(it) }
+                synchronized(stateLock) {
+                    require(messageQueue.removeIf { it.id == request.messageId }) { "Queued message no longer exists" }
+                }
+                emitSnapshot()
+            }
             "getContextStatus" -> refreshContextStatus()
+            "checkBackend" -> checkBackendHealth()
             "indexWorkspace" -> indexWorkspace()
             "saveSettings" -> saveSettings(requireNotNull(command.payload) { "saveSettings requires payload" })
             "cancelRun" -> {
@@ -191,6 +218,7 @@ class IdeBridge(
                     conversations.select(selection.threadId)
                     tools.clear()
                     attachments.clear()
+                    messageQueue.clear()
                     runState = "idle"
                 }
                 agent.cancel()
@@ -377,6 +405,7 @@ class IdeBridge(
             runs.invalidate()
             tools.clear()
             attachments.clear()
+            messageQueue.clear()
             runState = "idle"
             val mode = payload?.let { json.decodeFromJsonElement<NewThreadPayload>(it).mode }
                 ?: conversations.active().mode
@@ -470,9 +499,12 @@ class IdeBridge(
             }
 
             override fun onRunStateChanged(state: String) {
+                var startQueued = false
                 if (withCurrentRun(runId) {
                     runState = state
+                    startQueued = state == "idle" && messageQueue.isNotEmpty()
                 }) emitSnapshot()
+                if (startQueued) startNextQueuedMessage()
             }
 
             override fun onError(message: String) {
@@ -504,6 +536,7 @@ class IdeBridge(
         } else {
             emitSnapshot()
         }
+        checkBackendHealth()
     }
 
     private fun emitSnapshot() {
@@ -525,6 +558,7 @@ class IdeBridge(
                     ThreadSummaryDto(thread.id, thread.title, thread.updatedAt, thread.active, thread.mode, thread.pinned)
                 },
                 tasks = active.tasks.map { task -> TaskDto(task.id, task.name, task.state) },
+                messageQueue = messageQueue.toList(),
                 attachments = attachments.values.toList(),
                 settings = SettingsSnapshotDto(
                     backendUrl = settings.backendUrl,
@@ -533,6 +567,7 @@ class IdeBridge(
                     autoApproveReadOnly = settings.autoApproveReadOnly,
                 ),
                 context = context,
+                backendHealth = backendHealth,
                 customization = WorkspaceCustomizationDto(
                     rules = customization.rules.map { rule ->
                         WorkspaceRuleDto(
@@ -575,6 +610,38 @@ class IdeBridge(
             }
             emitSnapshot()
         }
+    }
+
+    private fun checkBackendHealth() {
+        backendHealth = BackendHealthDto(state = "checking", label = "Checking backend")
+        emitSnapshot()
+        agent.health().whenComplete { health, error ->
+            backendHealth = when {
+                error != null -> BackendHealthDto(state = "offline", label = error.rootMessage())
+                !health.ok -> BackendHealthDto(state = "offline", label = "Backend reported unavailable")
+                health.protocolVersion != BRIDGE_PROTOCOL_VERSION -> BackendHealthDto(
+                    state = "incompatible",
+                    label = "Protocol ${health.protocolVersion} is incompatible",
+                    protocolVersion = health.protocolVersion,
+                )
+                else -> BackendHealthDto(
+                    state = "online",
+                    label = "Connected to ${health.service}",
+                    protocolVersion = health.protocolVersion,
+                )
+            }
+            emitSnapshot()
+        }
+    }
+
+    private fun startNextQueuedMessage() {
+        val next = synchronized(stateLock) {
+            if (runState != "idle") return
+            messageQueue.removeFirstOrNull()
+        } ?: return
+        runCatching {
+            sendMessage(json.encodeToJsonElement(SendMessagePayload(next.text, next.mode)))
+        }.onFailure { emit("error", mapOf("message" to it.rootMessage())) }
     }
 
     private fun indexWorkspace() {
@@ -635,6 +702,7 @@ class IdeBridge(
                     runs.invalidate()
                     tools.clear()
                     attachments.clear()
+                    messageQueue.clear()
                     runState = "idle"
                 }
                 conversations.deleteThread(threadId)
@@ -662,6 +730,7 @@ class IdeBridge(
                     runs.invalidate()
                     tools.clear()
                     attachments.clear()
+                    messageQueue.clear()
                     runState = "idle"
                 }
                 agent.cancel()
@@ -821,6 +890,9 @@ class IdeBridge(
     private data class TaskNamePayload(val name: String)
 
     @Serializable
+    private data class QueuedMessagePayload(val messageId: String)
+
+    @Serializable
     private data class GitPathsPayload(val paths: List<String>)
 
     @Serializable
@@ -849,5 +921,6 @@ class IdeBridge(
     companion object {
         private val LOG = logger<IdeBridge>()
         private const val MAX_THREAD_IMPORT_BYTES = 2_000_000L
+        private const val MAX_QUEUED_MESSAGES = 10
     }
 }
