@@ -1,30 +1,51 @@
 <script lang="ts">
   import {
+    AtSign,
     Bot,
+    Braces,
     Check,
     ChevronDown,
+    ChevronLeft,
     ChevronRight,
     CircleAlert,
+    CircleCheck,
+    Copy,
     Database,
+    Ellipsis,
+    ExternalLink,
+    File,
     FileCode2,
     FileDiff,
+    FilePen,
+    Folder,
+    GitBranch,
+    GitCommitHorizontal,
+    Globe,
+    History,
+    ImagePlus,
+    Layers,
     Library,
+    ListChecks,
     Menu,
+    MessageCircle,
     MessageSquarePlus,
-    PanelLeftClose,
+    Paperclip,
     Play,
+    Plug,
     Plus,
     RefreshCw,
     Search,
-    ScrollText,
     SendHorizontal,
     Settings,
+    Share2,
     ShieldAlert,
     Sparkles,
     Square,
-    Terminal,
+    SquareTerminal,
     Undo2,
     UserRound,
+    WandSparkles,
+    Workflow,
     X,
   } from "@lucide/svelte";
   import { onMount } from "svelte";
@@ -38,10 +59,22 @@
     type WorkspaceSkill,
   } from "./lib/protocol";
 
+  const settingsGroups = [
+    { label: "", items: ["Home"] },
+    { label: "Integrations", items: ["Services", "MCP Servers"] },
+    { label: "Preferences", items: ["Rules & Guidelines", "API Keys", "Commands", "Skills", "Hooks", "Agents", "Plugins"] },
+    { label: "IDE & Workspace", items: ["User Experience", "Feature Flags", "Beta"] },
+    { label: "Account", items: ["Account", "Subscription"] },
+  ];
+  const betaSections = new Set(["Commands", "Skills", "Agents", "Plugins"]);
+
   let snapshot: AppSnapshot | null = null;
   let prompt = "";
-  let sidebarOpen = true;
-  let settingsOpen = false;
+  let currentView: "chat" | "settings" = "chat";
+  let settingsSection = "Home";
+  let settingsNavigationOpen = true;
+  let threadDrawerOpen = false;
+  let modeMenuOpen = false;
   let skillsOpen = false;
   let toolsExpanded = new Set<string>();
   let backendUrl = "";
@@ -52,7 +85,6 @@
   let threadSearch = "";
 
   onMount(() => {
-    if (window.matchMedia("(max-width: 680px)").matches) sidebarOpen = false;
     const unsubscribe = onHostEvent(handleEvent);
     sendCommand("bootstrap");
     return unsubscribe;
@@ -77,9 +109,7 @@
       snapshot = { ...snapshot, messages: [...snapshot.messages] };
       return;
     }
-    if (event.type === "stateChanged" && snapshot) {
-      snapshot = { ...snapshot, ...(event.payload as Partial<AppSnapshot>) };
-    }
+    if (event.type === "stateChanged" && snapshot) snapshot = { ...snapshot, ...(event.payload as Partial<AppSnapshot>) };
   }
 
   function submit() {
@@ -87,12 +117,14 @@
     if (!text || !snapshot || isBusy()) return;
     prompt = "";
     skillsOpen = false;
+    modeMenuOpen = false;
     sendCommand("sendMessage", { text, mode: snapshot.mode });
   }
 
   function setMode(mode: Mode) {
     if (!snapshot) return;
     snapshot = { ...snapshot, mode };
+    modeMenuOpen = false;
     sendCommand("setMode", { mode });
   }
 
@@ -102,22 +134,13 @@
     toolsExpanded = next;
   }
 
+  function setAllTools(expanded: boolean) {
+    toolsExpanded = expanded && snapshot ? new Set(snapshot.tools.map((tool) => tool.id)) : new Set();
+  }
+
   function saveSettings() {
     sendCommand("saveSettings", { backendUrl, nodePath, backendToken, autoApproveReadOnly });
     backendToken = "";
-    settingsOpen = false;
-  }
-
-  function approve(tool: ToolRun, approved: boolean) {
-    sendCommand("resolveApproval", { toolId: tool.id, approved });
-  }
-
-  function openDiff(tool: ToolRun) {
-    sendCommand("openDiff", { toolId: tool.id });
-  }
-
-  function revertChange(tool: ToolRun) {
-    sendCommand("revertChange", { toolId: tool.id });
   }
 
   function updateContext() {
@@ -125,16 +148,11 @@
   }
 
   function toggleSkill(skill: WorkspaceSkill) {
-    if (isBusy()) return;
-    sendCommand("toggleSkill", { skillId: skill.id, selected: !skill.selected });
+    if (!isBusy()) sendCommand("toggleSkill", { skillId: skill.id, selected: !skill.selected });
   }
 
   function selectedSkillCount() {
     return snapshot?.customization.skills.filter((skill) => skill.selected).length ?? 0;
-  }
-
-  function formatTime(timestamp: number) {
-    return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(timestamp);
   }
 
   function isBusy() {
@@ -146,187 +164,303 @@
     return query ? snapshot?.threads.filter((thread) => thread.title.toLowerCase().includes(query)) ?? [] : snapshot?.threads ?? [];
   }
 
+  function formatTime(timestamp: number) {
+    return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(timestamp);
+  }
+
   function startNewThread() {
-    sendCommand("newThread");
-    skillsOpen = false;
-    if (window.matchMedia("(max-width: 680px)").matches) sidebarOpen = false;
+    sendCommand("newThread", { mode: snapshot?.mode ?? "agent" });
+    threadDrawerOpen = false;
   }
 
   function selectThread(threadId: string) {
     sendCommand("selectThread", { threadId });
-    skillsOpen = false;
-    if (window.matchMedia("(max-width: 680px)").matches) sidebarOpen = false;
+    threadDrawerOpen = false;
+  }
+
+  function openSettings(section = "Home") {
+    settingsSection = section;
+    settingsNavigationOpen = true;
+    currentView = "settings";
+  }
+
+  function chooseSettingsSection(section: string) {
+    settingsSection = section;
+    settingsNavigationOpen = false;
+  }
+
+  function toolTitle(tool: ToolRun) {
+    const titles: Record<string, string> = {
+      codebase_retrieval: "CodeAgent Context Engine",
+      read_file: "Read",
+      list_files: "View",
+      search_text: "Grep Search",
+      write_file: "Creating",
+      replace_text: "Editing",
+      run_terminal: "Terminal",
+      open_file: "Open in Editor",
+    };
+    return titles[tool.name] ?? tool.name.replaceAll("_", " ");
+  }
+
+  function statusLabel(status: ToolRun["status"]) {
+    if (status === "completed") return "done";
+    if (status === "approval") return "approve";
+    return status;
+  }
+
+  function changeTools() {
+    return snapshot?.tools.filter((tool) => Boolean(tool.changePath)) ?? [];
   }
 </script>
 
 <svelte:window onkeydown={(event) => {
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") submit();
-  if (event.key === "Escape") { settingsOpen = false; skillsOpen = false; }
+  if (event.key === "Escape") {
+    threadDrawerOpen = false;
+    modeMenuOpen = false;
+    skillsOpen = false;
+  }
 }} />
 
 {#if !snapshot}
-  <main class="loading"><Sparkles size={18} /><span>Loading CodeAgent</span></main>
+  <main class="loading"><Sparkles size={16} /><span>Starting CodeAgent</span></main>
 {:else}
-  <main class="shell" class:sidebar-closed={!sidebarOpen}>
-    <aside class="sidebar" aria-label="Tasks">
-      <div class="side-head">
-        <div class="brand"><span class="brand-mark"><Bot size={16} /></span><strong>CodeAgent</strong></div>
-        <button class="icon-button" title="Close tasks" onclick={() => sidebarOpen = false}><PanelLeftClose size={16} /></button>
-      </div>
-      <button class="primary-command" onclick={startNewThread}><MessageSquarePlus size={16} /><span>New task</span></button>
-      <label class="search"><Search size={14} /><input bind:value={threadSearch} aria-label="Search tasks" placeholder="Search" /></label>
-      <div class="thread-list">
-        {#each visibleThreads() as thread}
-          <button class:active={thread.active} class="thread" onclick={() => selectThread(thread.id)}>
-            <span>{thread.title}</span><time>{formatTime(thread.updatedAt)}</time>
-          </button>
-        {/each}
-      </div>
-    </aside>
-
-    <section class="workspace">
-      <header class="topbar">
-        <div class="title-row">
-          {#if !sidebarOpen}<button class="icon-button" title="Open tasks" onclick={() => sidebarOpen = true}><Menu size={17} /></button>{/if}
-          <div><strong>{snapshot.threads.find((item) => item.active)?.title ?? "New task"}</strong><small>{snapshot.projectName}</small></div>
-        </div>
-        <div class="top-actions">
-          <button class="context-pill {snapshot.context.state}" onclick={updateContext}>
-            <Database size={14} /><span>{snapshot.context.label}</span>
-          </button>
-          <button class="icon-button" title="Settings" onclick={() => settingsOpen = true}><Settings size={17} /></button>
-        </div>
-      </header>
-
-      <div class="conversation">
-        {#if snapshot.messages.length === 0}
-          <div class="empty-state">
-            <div class="empty-icon"><Bot size={24} /></div>
-            <h1>What should we work on?</h1>
-            <div class="suggestions">
-              <button onclick={() => prompt = "Explain the architecture of this project"}><FileCode2 size={15} />Explain this project</button>
-              <button onclick={() => prompt = "Find a useful bug and fix it with tests"}><CircleAlert size={15} />Fix a bug</button>
-              <button onclick={() => prompt = "Run the tests and investigate any failures"}><Play size={15} />Check the build</button>
-            </div>
-          </div>
+  <main class="shell" class:settings-active={currentView === "settings"}>
+    <header class="app-header">
+      <div class="app-title"><span class="app-logo"><Braces size={13} /></span><strong>CodeAgent</strong></div>
+      <div class="header-actions">
+        {#if currentView === "chat"}
+          <button class="icon-button" title="Threads" aria-label="Threads" onclick={() => threadDrawerOpen = true}><Menu size={15} /></button>
+          <button class="icon-button" title="New thread" aria-label="New thread" onclick={startNewThread}><Plus size={16} /></button>
+          <button class="icon-button" title="Share" aria-label="Share"><Share2 size={14} /></button>
+          <button class="icon-button" title="More options" aria-label="More options"><Ellipsis size={16} /></button>
         {:else}
-          <div class="message-list">
-            {#each snapshot.messages as message}
-              <article class="message {message.role}">
-                <div class="avatar">{#if message.role === "user"}<UserRound size={15} />{:else}<Bot size={15} />{/if}</div>
-                <div class="message-body"><div class="message-label">{message.role === "user" ? "You" : "CodeAgent"}</div><div class="message-text">{message.content}</div></div>
-              </article>
-            {/each}
-
-            {#each snapshot.tools as tool}
-              <section class="tool-card {tool.status}">
-                <button class="tool-header" onclick={() => toggleTool(tool.id)}>
-                  <span class="tool-icon">{#if tool.name.includes("terminal")}<Terminal size={15} />{:else if tool.name.includes("context")}<Database size={15} />{:else}<FileCode2 size={15} />{/if}</span>
-                  <span class="tool-copy"><strong>{tool.name}</strong><small>{tool.summary}</small></span>
-                  <span class="tool-status">{tool.status}</span>
-                  {#if toolsExpanded.has(tool.id)}<ChevronDown size={15} />{:else}<ChevronRight size={15} />{/if}
-                </button>
-                {#if toolsExpanded.has(tool.id) && tool.detail}<pre>{tool.detail}</pre>{/if}
-                {#if tool.changePath}
-                  <div class="change-actions">
-                    <span>{tool.changePath}</span>
-                    <button title="Open IDE diff" onclick={() => openDiff(tool)}><FileDiff size={14} />Diff</button>
-                    {#if tool.canRevert}<button class="revert" title="Revert this change" onclick={() => revertChange(tool)}><Undo2 size={14} />Revert</button>{/if}
-                  </div>
-                {/if}
-                {#if tool.status === "approval"}
-                  <div class="approval"><ShieldAlert size={16} /><span>Approval required</span><button onclick={() => approve(tool, false)}><X size={14} />Reject</button><button class="approve" onclick={() => approve(tool, true)}><Check size={14} />Approve</button></div>
-                {/if}
-              </section>
-            {/each}
-          </div>
+          <button class="icon-button" title="Back to chat" aria-label="Back to chat" onclick={() => currentView = "chat"}><X size={16} /></button>
         {/if}
       </div>
+    </header>
 
-      {#if error}<div class="error-banner"><CircleAlert size={15} /><span>{error}</span><button title="Dismiss" onclick={() => error = ""}><X size={14} /></button></div>{/if}
+    {#if currentView === "chat"}
+      <section class="chat-view">
+        <header class="thread-header">
+          <button class="icon-button compact" title="Threads" onclick={() => threadDrawerOpen = true}><Menu size={14} /></button>
+          <strong class="thread-title">{snapshot.threads.find((thread) => thread.active)?.title ?? "New thread"}</strong>
+          <span class="ready"><CircleCheck size={12} />{snapshot.runState === "idle" ? "Ready" : snapshot.runState.replaceAll("_", " ")}</span>
+          <button class="context-meter" title={snapshot.context.label} onclick={updateContext}>Context <b>{snapshot.context.state === "ready" ? "42%" : "--"}</b></button>
+          <button class="icon-button compact" title="History"><History size={14} /></button>
+          <button class="icon-button compact" title="Settings" onclick={() => openSettings()}><Settings size={14} /></button>
+        </header>
 
-      <footer class="composer-wrap">
-        <div class="composer" class:busy={isBusy()}>
+        <div class="repository-strip">
+          <button title="Active repository"><GitBranch size={12} /><span>{snapshot.projectName}</span></button>
+          <button title="Repository guidelines"><Library size={12} /><span>Guidelines</span></button>
+          <span class="repository-spacer"></span>
+          <button class="index-state {snapshot.context.state}" title={snapshot.context.label} onclick={updateContext}>
+            <Database size={12} /><span>{snapshot.context.state === "ready" ? "Indexed" : snapshot.context.label}</span>
+          </button>
+        </div>
+
+        <div class="conversation">
+          {#if snapshot.messages.length === 0}
+            <div class="empty-state">
+              <span class="empty-logo"><Braces size={18} /></span>
+              <h1>Start a new task</h1>
+              <p>Ask about the project or let Agent make an approved change.</p>
+              <button onclick={() => prompt = "Explain how this project is structured"}><FileCode2 size={14} />Explain this project</button>
+              <button onclick={() => prompt = "Find a bug and fix it with a regression test"}><CircleAlert size={14} />Fix a bug with tests</button>
+              <button onclick={() => prompt = "Run the most relevant tests and investigate failures"}><Play size={14} />Check the build</button>
+            </div>
+          {:else}
+            <div class="message-list">
+              {#each snapshot.messages.filter((message) => message.role === "user") as message}
+                <article class="user-message">
+                  <header><span>You</span><time>{formatTime(message.createdAt)}</time><UserRound size={14} /></header>
+                  <div>{message.content}</div>
+                </article>
+              {/each}
+
+              {#if snapshot.tools.length > 0 || snapshot.messages.some((message) => message.role === "assistant")}
+                <section class="agent-turn">
+                  <header class="agent-meta">
+                    <span class="agent-avatar"><Braces size={12} /></span><strong>CodeAgent</strong>
+                    <span>{formatTime(snapshot.messages.find((message) => message.role === "assistant")?.createdAt ?? Date.now())}</span>
+                    <div class="message-actions"><button title="Copy response"><Copy size={13} /></button><button title="Retry"><RefreshCw size={13} /></button></div>
+                  </header>
+
+                  {#if snapshot.tools.length > 0}
+                    <div class="pass-summary">
+                      <SquareTerminal size={14} />
+                      <strong>Agent tool pass</strong>
+                      <span>{snapshot.tools.filter((tool) => tool.status === "completed").length} / {snapshot.tools.length}</span>
+                      <button onclick={() => setAllTools(true)}>Expand all</button>
+                      <button onclick={() => setAllTools(false)}>Collapse all</button>
+                    </div>
+                    {#if isBusy()}<div class="thinking"><Bot size={13} />Thinking - coordinating project tools</div>{/if}
+
+                    <div class="tool-list">
+                      {#each snapshot.tools as tool}
+                        <section class="tool-card {tool.status}">
+                          <button class="tool-header" onclick={() => toggleTool(tool.id)} aria-expanded={toolsExpanded.has(tool.id)}>
+                            <span class="tool-icon">
+                              {#if tool.name === "codebase_retrieval"}<Database size={14} />
+                              {:else if tool.name === "run_terminal"}<SquareTerminal size={14} />
+                              {:else if tool.name === "list_files"}<Folder size={14} />
+                              {:else if tool.name === "search_text"}<Search size={14} />
+                              {:else if tool.name === "write_file" || tool.name === "replace_text"}<FilePen size={14} />
+                              {:else if tool.name === "open_file"}<ExternalLink size={14} />
+                              {:else}<File size={14} />{/if}
+                            </span>
+                            <span class="tool-copy"><strong>{toolTitle(tool)}</strong><small>{tool.summary}</small></span>
+                            <span class="tool-status">{statusLabel(tool.status)}</span>
+                            {#if toolsExpanded.has(tool.id)}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
+                          </button>
+                          {#if toolsExpanded.has(tool.id)}
+                            <div class="tool-detail">
+                              <span class="detail-label">Details</span>
+                              {#if tool.detail}<pre>{tool.detail}</pre>{:else}<p>No additional output.</p>{/if}
+                              {#if tool.changePath}
+                                <div class="file-actions"><span>{tool.changePath}</span><button onclick={() => sendCommand("openDiff", { toolId: tool.id })}><FileDiff size={13} />View Diff</button>{#if tool.canRevert}<button onclick={() => sendCommand("revertChange", { toolId: tool.id })}><Undo2 size={13} />Undo</button>{/if}</div>
+                              {/if}
+                              {#if tool.name === "run_terminal"}<button class="secondary-action"><SquareTerminal size={13} />Open Terminal</button>{/if}
+                            </div>
+                          {/if}
+                          {#if tool.status === "approval"}
+                            <div class="approval"><ShieldAlert size={14} /><span>Approval required</span><button onclick={() => sendCommand("resolveApproval", { toolId: tool.id, approved: false })}>Skip</button><button class="approve" onclick={() => sendCommand("resolveApproval", { toolId: tool.id, approved: true })}>Approve</button></div>
+                          {/if}
+                        </section>
+                      {/each}
+                    </div>
+                  {/if}
+
+                  {#each snapshot.messages.filter((message) => message.role === "assistant") as message}
+                    {#if message.content}<div class="assistant-message">{message.content}</div>{/if}
+                  {/each}
+                </section>
+              {/if}
+            </div>
+          {/if}
+        </div>
+
+        {#if error}<div class="error-banner"><CircleAlert size={14} /><span>{error}</span><button title="Dismiss" onclick={() => error = ""}><X size={13} /></button></div>{/if}
+
+        <footer class="composer-wrap">
+          {#if changeTools().length > 0}
+            <div class="change-summary"><span><FileDiff size={13} />{changeTools().length} {changeTools().length === 1 ? "file" : "files"} changed</span><button>Review</button><button>Keep All</button><button class="discard">Discard All</button></div>
+          {/if}
           {#if snapshot.attachments.length > 0}
             <div class="context-chips">
               {#each snapshot.attachments as item}
-                <span><FileCode2 size={13} /><span title={item.path}>{item.label}</span><button title="Remove context" onclick={() => sendCommand("removeContext", { id: item.id })}><X size={12} /></button></span>
+                <span><File size={12} /><b title={item.path}>{item.label}</b><button title="Remove" onclick={() => sendCommand("removeContext", { id: item.id })}><X size={11} /></button></span>
               {/each}
             </div>
           {/if}
-          <textarea bind:value={prompt} placeholder={snapshot.mode === "agent" ? "Describe a coding task" : "Ask about this project"} onkeydown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); }
-          }}></textarea>
-          <div class="composer-bar">
-            <div class="left-controls">
-              <button class="icon-button" title="Add context" onclick={() => sendCommand("pickContext")}><Plus size={17} /></button>
-              <div class="skill-control">
-                <button class="icon-button" class:active={skillsOpen} title="Skills" aria-label="Skills" onclick={() => skillsOpen = !skillsOpen}>
-                  <Library size={16} />
-                  {#if selectedSkillCount() > 0}<span class="control-count">{selectedSkillCount()}</span>{/if}
-                </button>
-                {#if skillsOpen}
-                  <div class="skills-popover">
-                    <header>
-                      <div><strong>Skills</strong><small>{snapshot.customization.rules.length} rules active</small></div>
-                      <button class="icon-button" title="Refresh rules and skills" onclick={() => sendCommand("refreshCustomization")}><RefreshCw size={14} /></button>
-                    </header>
-                    {#if snapshot.customization.rules.length > 0}
-                      <div class="rules-status" title={snapshot.customization.rules.map((rule) => rule.path).join("\n")}>
-                        <ScrollText size={14} /><span>{snapshot.customization.rules.map((rule) => rule.name).join(", ")}</span>
-                      </div>
-                    {/if}
-                    <div class="skills-list">
-                      {#if snapshot.customization.skills.length === 0}
-                        <div class="skills-empty">No repository skills</div>
-                      {:else}
-                        {#each snapshot.customization.skills as skill}
-                          <label class="skill-option" title={skill.path}>
-                            <input
-                              type="checkbox"
-                              checked={skill.selected}
-                              disabled={isBusy() || (!skill.selected && selectedSkillCount() >= snapshot.customization.maxSelectedSkills)}
-                              onchange={() => toggleSkill(skill)}
-                            />
-                            <span><strong>{skill.name}</strong><small>{skill.description}</small></span>
-                          </label>
-                        {/each}
-                      {/if}
-                    </div>
+          <div class="composer" class:busy={isBusy()}>
+            <textarea bind:value={prompt} placeholder="Type a message or command..." onkeydown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); }
+            }}></textarea>
+            <div class="composer-toolbar">
+              <div class="mode-control">
+                <button class="mode-button" onclick={() => modeMenuOpen = !modeMenuOpen}><span>{snapshot.mode === "ask" ? "Ask" : snapshot.mode === "chat" ? "Chat" : "Agent"}</span><ChevronDown size={12} /></button>
+                {#if modeMenuOpen}
+                  <div class="mode-menu">
+                    <button class:active={snapshot.mode === "agent"} onclick={() => setMode("agent")}><Bot size={14} /><span><strong>Agent</strong><small>Plan, edit, and run tools</small></span>{#if snapshot.mode === "agent"}<Check size={13} />{/if}</button>
+                    <button class:active={snapshot.mode === "chat"} onclick={() => setMode("chat")}><MessageCircle size={14} /><span><strong>Chat</strong><small>Collaborate with read-only context</small></span>{#if snapshot.mode === "chat"}<Check size={13} />{/if}</button>
+                    <button class:active={snapshot.mode === "ask"} onclick={() => setMode("ask")}><Search size={14} /><span><strong>Ask</strong><small>Investigate and explain</small></span>{#if snapshot.mode === "ask"}<Check size={13} />{/if}</button>
                   </div>
                 {/if}
               </div>
-              <div class="segmented" aria-label="Mode">
-                <button class:active={snapshot.mode === "agent"} onclick={() => setMode("agent")}>Agent</button>
-                <button class:active={snapshot.mode === "chat"} onclick={() => setMode("chat")}>Chat</button>
-                <button class:active={snapshot.mode === "ask"} onclick={() => setMode("ask")}>Ask</button>
+              <button class="model-select" title="Model is selected by the backend">auto-detect <ChevronDown size={11} /></button>
+              <span class="toolbar-spacer"></span>
+              <div class="skill-control">
+                <button class:active={skillsOpen} title="Skills" onclick={() => skillsOpen = !skillsOpen}><Layers size={14} />{#if selectedSkillCount() > 0}<i>{selectedSkillCount()}</i>{/if}</button>
+                {#if skillsOpen}
+                  <div class="skills-popover">
+                    <header><div><strong>Skills</strong><small>{snapshot.customization.rules.length} active rules</small></div><button title="Refresh" onclick={() => sendCommand("refreshCustomization")}><RefreshCw size={13} /></button></header>
+                    {#each snapshot.customization.skills as skill}
+                      <label><input type="checkbox" checked={skill.selected} disabled={isBusy() || (!skill.selected && selectedSkillCount() >= snapshot.customization.maxSelectedSkills)} onchange={() => toggleSkill(skill)} /><span><strong>{skill.name}</strong><small>{skill.description}</small></span></label>
+                    {:else}<p>No repository skills found.</p>{/each}
+                  </div>
+                {/if}
               </div>
-              <button class="model-button" onclick={() => settingsOpen = true}>Backend<ChevronDown size={13} /></button>
+              <button title="Mention"><AtSign size={14} /></button>
+              <button title="Commands"><SquareTerminal size={14} /></button>
+              <button title="Attach file or image" onclick={() => sendCommand("pickContext")}><Paperclip size={14} /></button>
+              <button title="Prompt enhancer"><WandSparkles size={14} /></button>
             </div>
-            {#if isBusy()}
-              <button class="send-button stop" title="Stop" onclick={() => sendCommand("cancelRun")}><Square size={14} fill="currentColor" /></button>
+            <div class="send-row">
+              <span>Auto OFF</span>
+              {#if isBusy()}<button class="send-button stop" title="Stop" onclick={() => sendCommand("cancelRun")}><Square size={13} fill="currentColor" /></button>
+              {:else}<button class="send-button" title="Send" disabled={!prompt.trim()} onclick={submit}><SendHorizontal size={15} /></button>{/if}
+            </div>
+          </div>
+        </footer>
+      </section>
+    {:else}
+      <section class="settings-view">
+        <header class="settings-header"><button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><ChevronLeft size={15} /></button><strong>Settings</strong><span></span><button class="audit-button">Audit</button></header>
+        <div class="settings-layout" class:navigation-open={settingsNavigationOpen}>
+          <nav class="settings-navigation">
+            {#each settingsGroups as group}
+              {#if group.label}<div class="settings-group-label">{group.label}</div>{/if}
+              {#each group.items as item}
+                <button class:active={settingsSection === item} onclick={() => chooseSettingsSection(item)}>
+                  {#if item === "Home"}<Braces size={14} />{:else if item === "Services"}<Plug size={14} />{:else if item === "MCP Servers"}<GitCommitHorizontal size={14} />{:else if item.includes("Rules")}<Library size={14} />{:else if item === "API Keys"}<ShieldAlert size={14} />{:else if item === "Skills"}<Layers size={14} />{:else if item === "Hooks"}<Workflow size={14} />{:else}<Settings size={14} />{/if}
+                  <span>{item}</span>{#if betaSections.has(item)}<i>Beta</i>{/if}
+                </button>
+              {/each}
+            {/each}
+          </nav>
+
+          <div class="settings-content">
+            <button class="settings-nav-toggle" onclick={() => settingsNavigationOpen = true}><Menu size={14} />All settings</button>
+            <div class="breadcrumb">Home <span>/</span> {settingsSection}</div>
+            {#if settingsSection === "Home"}
+              <h1>Project Home</h1><p class="settings-lead">CodeAgent for {snapshot.projectName}</p>
+              <div class="settings-stats"><article><strong>{snapshot.context.files ?? "--"}</strong><span>Files indexed</span></article><article><strong>{snapshot.threads.length}</strong><span>Threads</span></article></div>
+              <section class="settings-block"><header><strong>Codebase Indexing</strong><button onclick={updateContext}>Rebuild Index</button></header><p>{snapshot.context.label}</p><div class="progress"><span class:ready={snapshot.context.state === "ready"}></span></div></section>
+              <section class="settings-block"><header><strong>Agent Backend</strong><button onclick={() => chooseSettingsSection("Services")}>Configure</button></header><p>{backendUrl}</p></section>
+              <section class="settings-block"><header><strong>Workspace</strong></header><div class="workspace-row"><Folder size={15} /><span>{snapshot.projectName}</span><i>active</i></div></section>
+            {:else if settingsSection === "Services" || settingsSection === "API Keys"}
+              <h1>Services</h1><p class="settings-lead">Connect this IDE capability gateway to the deployed Agent backend.</p>
+              <section class="settings-form settings-block">
+                <label><span>Backend URL</span><input bind:value={backendUrl} /></label>
+                <label><span>Backend token</span><input type="password" bind:value={backendToken} placeholder={snapshot.settings.backendTokenConfigured ? "Configured" : "Not configured"} /></label>
+                <label><span>Node.js executable</span><input bind:value={nodePath} /></label>
+                <label class="toggle-row"><input type="checkbox" bind:checked={autoApproveReadOnly} /><span><strong>Auto-run read-only tools</strong><small>Context retrieval, search, and file reads</small></span></label>
+                <footer><button class="primary" onclick={saveSettings}>Save settings</button></footer>
+              </section>
+            {:else if settingsSection === "Rules & Guidelines"}
+              <h1>Rules & Guidelines</h1><p class="settings-lead">Repository instructions validated by the IDEA capability gateway.</p>
+              <section class="settings-block list-block">{#each snapshot.customization.rules as rule}<div><Library size={14} /><span><strong>{rule.name}</strong><small>{rule.path}</small></span></div>{:else}<p>No repository rules found.</p>{/each}</section>
+            {:else if settingsSection === "Skills"}
+              <h1>Skills <em>Beta</em></h1><p class="settings-lead">Select task methods from the message composer.</p>
+              <section class="settings-block list-block">{#each snapshot.customization.skills as skill}<div><Layers size={14} /><span><strong>{skill.name}</strong><small>{skill.description}</small></span><i>{skill.selected ? "On" : "Off"}</i></div>{:else}<p>No repository skills found.</p>{/each}</section>
+            {:else if settingsSection === "MCP Servers" || settingsSection === "Services"}
+              <h1>{settingsSection}</h1>
             {:else}
-              <button class="send-button" title="Send" disabled={!prompt.trim()} onclick={submit}><SendHorizontal size={16} /></button>
+              <h1>{settingsSection}{#if betaSections.has(settingsSection)} <em>Beta</em>{/if}</h1>
+              <p class="settings-lead">This surface is unavailable until its backend capability is connected.</p>
+              <section class="settings-block unavailable"><Plug size={20} /><strong>Not connected</strong><p>No operation will be simulated from this page.</p></section>
             {/if}
           </div>
         </div>
-      </footer>
-    </section>
+      </section>
+    {/if}
 
-    {#if settingsOpen}
-      <div class="modal-backdrop" role="presentation" onclick={(event) => event.currentTarget === event.target && (settingsOpen = false)}>
-        <dialog open class="settings-panel" aria-label="Settings">
-          <header><div><h2>Settings</h2><p>Agent backend and local runtime</p></div><button class="icon-button" title="Close" onclick={() => settingsOpen = false}><X size={17} /></button></header>
-          <div class="settings-content">
-            <label><span>Backend URL</span><input bind:value={backendUrl} /></label>
-            <label><span>Backend token</span><input type="password" bind:value={backendToken} placeholder={snapshot.settings.backendTokenConfigured ? "Configured" : "Not configured"} /></label>
-            <label><span>Node.js executable</span><input bind:value={nodePath} /></label>
-            <label class="check-setting"><input type="checkbox" bind:checked={autoApproveReadOnly} /><span><strong>Auto-run read-only tools</strong><small>Context retrieval, search, and file reads</small></span></label>
-            <div class="runtime-status"><Database size={16} /><div><strong>ContextEngine</strong><span>{snapshot.context.label}</span></div></div>
-          </div>
-          <footer><button onclick={() => settingsOpen = false}>Cancel</button><button class="save" onclick={saveSettings}>Save</button></footer>
-        </dialog>
-      </div>
+    {#if threadDrawerOpen}
+      <button class="drawer-backdrop" aria-label="Close threads" onclick={() => threadDrawerOpen = false}></button>
+      <aside class="thread-drawer">
+        <header><strong>Threads</strong><button class="icon-button" title="Close" onclick={() => threadDrawerOpen = false}><X size={15} /></button></header>
+        <button class="new-thread" onclick={startNewThread}><MessageSquarePlus size={14} />New {snapshot.mode === "agent" ? "Agent" : snapshot.mode === "chat" ? "Chat" : "Ask"}</button>
+        <label class="thread-search"><Search size={13} /><input bind:value={threadSearch} placeholder="Search threads" /></label>
+        <div class="thread-list">
+          {#each visibleThreads() as thread}
+            <button class:active={thread.active} onclick={() => selectThread(thread.id)}><span><strong>{thread.title}</strong><small>{formatTime(thread.updatedAt)}</small></span><i>{thread.mode}</i></button>
+          {/each}
+        </div>
+        <footer><button><ExternalLink size={13} />Import</button><button><Share2 size={13} />Export</button></footer>
+      </aside>
     {/if}
   </main>
 {/if}
