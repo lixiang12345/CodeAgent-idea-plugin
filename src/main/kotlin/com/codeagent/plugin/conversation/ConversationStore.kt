@@ -78,6 +78,28 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         return message.toDomain()
     }
 
+    @Synchronized
+    fun appendMessage(messageId: String, delta: String): ConversationMessage {
+        val thread = mutableActive()
+        val message = requireNotNull(thread.messages.firstOrNull { it.id == messageId }) {
+            "Unknown message: $messageId"
+        }
+        message.content += delta
+        thread.updatedAt = System.currentTimeMillis()
+        return message.toDomain()
+    }
+
+    @Synchronized
+    fun replaceMessage(messageId: String, content: String): ConversationMessage {
+        val thread = mutableActive()
+        val message = requireNotNull(thread.messages.firstOrNull { it.id == messageId }) {
+            "Unknown message: $messageId"
+        }
+        message.content = content
+        thread.updatedAt = System.currentTimeMillis()
+        return message.toDomain()
+    }
+
     private fun mutableActive(): ConversationThreadState {
         ensureActive()
         return requireNotNull(data.threads.firstOrNull { it.id == data.activeThreadId })

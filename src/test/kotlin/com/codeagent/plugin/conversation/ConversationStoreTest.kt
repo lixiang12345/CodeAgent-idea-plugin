@@ -6,6 +6,19 @@ import kotlin.test.assertTrue
 
 class ConversationStoreTest {
     @Test
+    fun `appends and finalizes a streaming message`() {
+        val store = ConversationStore()
+        val message = store.addMessage("assistant", "")
+
+        store.appendMessage(message.id, "Hello")
+        store.appendMessage(message.id, " world")
+        assertEquals("Hello world", store.active().messages.single().content)
+
+        store.replaceMessage(message.id, "Hello, world.")
+        assertEquals("Hello, world.", store.active().messages.single().content)
+    }
+
+    @Test
     fun `creates titles and switches persisted threads`() {
         val store = ConversationStore()
         val first = store.active()

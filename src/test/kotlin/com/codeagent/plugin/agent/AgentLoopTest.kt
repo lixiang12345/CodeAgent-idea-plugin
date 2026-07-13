@@ -18,6 +18,7 @@ class AgentLoopTest {
             ),
         )
         val assistantMessages = mutableListOf<String>()
+        val assistantDeltas = mutableListOf<String>()
         val statuses = mutableListOf<String>()
         val requests = mutableListOf<List<AgentMessage>>()
         val systemPrompt = AgentMessage("system", "Backend-owned test policy")
@@ -39,6 +40,7 @@ class AgentLoopTest {
             systemPrompt = systemPrompt,
             autoApproveReadOnly = true,
             callbacks = object : AgentLoopCallbacks {
+                override fun onAssistantDelta(delta: String) { assistantDeltas += delta }
                 override fun onAssistantMessage(content: String) { assistantMessages += content }
                 override fun requestApproval(call: AgentToolCall, risk: ToolRisk) = true
                 override fun onToolChanged(call: AgentToolCall, summary: String, status: String, detail: String?) {
@@ -53,6 +55,7 @@ class AgentLoopTest {
 
         assertEquals(listOf("running", "completed"), statuses)
         assertEquals(listOf("The project is a plugin."), assistantMessages)
+        assertEquals(listOf("The project is a plugin."), assistantDeltas)
         assertEquals(systemPrompt, requests.first().first())
     }
 

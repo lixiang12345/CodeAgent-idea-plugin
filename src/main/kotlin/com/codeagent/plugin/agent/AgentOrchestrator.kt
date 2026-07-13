@@ -43,6 +43,8 @@ class AgentOrchestrator(private val project: Project) : Disposable {
                     systemPrompt = prompt.message,
                     autoApproveReadOnly = settings.autoApproveReadOnly,
                     callbacks = object : AgentLoopCallbacks {
+                        override fun onAssistantDelta(delta: String) = listener.onAssistantDelta(delta)
+
                         override fun onAssistantMessage(content: String) = listener.onAssistantMessage(content)
 
                         override fun requestApproval(call: AgentToolCall, risk: ToolRisk): Boolean {
@@ -112,6 +114,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
 }
 
 interface AgentRunListener {
+    fun onAssistantDelta(delta: String) = Unit
     fun onAssistantMessage(content: String)
     fun onToolChanged(call: AgentToolCall, summary: String, status: String, detail: String?)
     fun onRunStateChanged(state: String)

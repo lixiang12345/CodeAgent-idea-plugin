@@ -176,9 +176,31 @@ class IdeBridge(
             messages
         }
         agent.start(history, request.mode, object : AgentRunListener {
+            private var streamingMessageId: String? = null
+
+            override fun onAssistantDelta(delta: String) {
+                var messageId = ""
+                var firstDelta = false
+                if (withCurrentRun(runId) {
+                    messageId = streamingMessageId ?: conversations.addMessage("assistant", "").id.also {
+                        streamingMessageId = it
+                        firstDelta = true
+                    }
+                    conversations.appendMessage(messageId, delta)
+                }) {
+                    if (firstDelta) emitSnapshot() else emit("messageDelta", MessageDeltaDto(messageId, delta))
+                }
+            }
+
             override fun onAssistantMessage(content: String) {
                 if (withCurrentRun(runId) {
-                    conversations.addMessage("assistant", content)
+                    val messageId = streamingMessageId
+                    if (messageId == null) {
+                        conversations.addMessage("assistant", content)
+                    } else {
+                        conversations.replaceMessage(messageId, content)
+                        streamingMessageId = null
+                    }
                 }) emitSnapshot()
             }
 

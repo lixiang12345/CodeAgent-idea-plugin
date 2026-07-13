@@ -29,6 +29,12 @@ data class ChatMessageDto(
 )
 
 @Serializable
+data class MessageDeltaDto(
+    val id: String,
+    val delta: String,
+)
+
+@Serializable
 data class ToolRunDto(
     val id: String,
     val name: String,

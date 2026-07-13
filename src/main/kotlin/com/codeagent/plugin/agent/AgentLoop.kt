@@ -26,7 +26,7 @@ class AgentLoop(
 
         repeat(MAX_ITERATIONS) {
             ensureActive()
-            val modelFuture = gateway.complete(messages, definitions)
+            val modelFuture = gateway.stream(messages, definitions, callbacks::onAssistantDelta)
             trackFuture(modelFuture)
             val turn = modelFuture.join()
             trackFuture(null)
@@ -96,6 +96,7 @@ class AgentLoop(
 }
 
 interface AgentLoopCallbacks {
+    fun onAssistantDelta(delta: String) = Unit
     fun onAssistantMessage(content: String)
     fun requestApproval(call: AgentToolCall, risk: ToolRisk): Boolean
     fun onToolChanged(call: AgentToolCall, summary: String, status: String, detail: String?)

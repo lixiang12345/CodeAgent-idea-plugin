@@ -30,6 +30,15 @@ data class ModelTurn(
 
 interface ModelGateway {
     fun complete(messages: List<AgentMessage>, tools: List<AgentToolDefinition>): java.util.concurrent.CompletableFuture<ModelTurn>
+
+    fun stream(
+        messages: List<AgentMessage>,
+        tools: List<AgentToolDefinition>,
+        onTextDelta: (String) -> Unit,
+    ): java.util.concurrent.CompletableFuture<ModelTurn> = complete(messages, tools).thenApply { turn ->
+        turn.content?.takeIf { it.isNotEmpty() }?.let(onTextDelta)
+        turn
+    }
 }
 
 @Serializable
@@ -82,6 +91,35 @@ internal data class ChatCompletionResponse(
 @Serializable
 internal data class ApiChoice(
     val message: ApiMessage,
+)
+
+@Serializable
+internal data class ChatCompletionChunk(
+    val choices: List<ApiChunkChoice> = emptyList(),
+)
+
+@Serializable
+internal data class ApiChunkChoice(
+    val delta: ApiMessageDelta = ApiMessageDelta(),
+)
+
+@Serializable
+internal data class ApiMessageDelta(
+    val content: String? = null,
+    @SerialName("tool_calls") val toolCalls: List<ApiToolCallDelta>? = null,
+)
+
+@Serializable
+internal data class ApiToolCallDelta(
+    val index: Int = 0,
+    val id: String? = null,
+    val function: ApiFunctionCallDelta? = null,
+)
+
+@Serializable
+internal data class ApiFunctionCallDelta(
+    val name: String? = null,
+    val arguments: String? = null,
 )
 
 @Serializable
