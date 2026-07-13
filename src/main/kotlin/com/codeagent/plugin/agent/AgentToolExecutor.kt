@@ -1,6 +1,8 @@
 package com.codeagent.plugin.agent
 
 import com.codeagent.plugin.context.ContextEngineService
+import com.codeagent.plugin.conversation.ConversationStore
+import com.codeagent.plugin.conversation.ConversationTask
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.process.CapturingProcessHandler
@@ -21,6 +23,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -36,6 +39,7 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
     private val root = Path.of(requireNotNull(project.basePath)).toAbsolutePath().normalize()
     private val guard = ProjectPathGuard(root)
     private val contextEngine = project.service<ContextEngineService>()
+    private val conversations = project.service<ConversationStore>()
     private val json = Json { ignoreUnknownKeys = true }
     private val executor = AppExecutorUtil.getAppExecutorService()
 
@@ -79,7 +83,24 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
                 "limit" to integerProperty("Maximum commits", 1, 50),
             ),
         )))
+        add(tool("view_tasks", "View the persistent task list for the active thread", schema(emptyMap())))
         if (mode == "agent") {
+            add(tool("add_tasks", "Add ordered tasks to the active thread", schema(
+                properties = mapOf("tasks" to stringArrayProperty("Task names in the order they should run", 1, 20)),
+                required = listOf("tasks"),
+            )))
+            add(tool("update_tasks", "Update one task name or state in the active thread", schema(
+                properties = mapOf(
+                    "task_id" to stringProperty("Task ID returned by view_tasks"),
+                    "state" to enumStringProperty("New task state", listOf("not_started", "in_progress", "completed", "cancelled")),
+                    "name" to stringProperty("Optional replacement task name"),
+                ),
+                required = listOf("task_id"),
+            )))
+            add(tool("reorg_tasks", "Replace task ordering using every current task ID exactly once", schema(
+                properties = mapOf("task_ids" to stringArrayProperty("Task IDs in the new order", 0, 100)),
+                required = listOf("task_ids"),
+            )))
             add(tool("write_file", "Create or replace a UTF-8 project file", schema(
                 properties = mapOf(
                     "path" to stringProperty("Project-relative file path"),
@@ -112,6 +133,7 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
 
     override fun risk(toolName: String): ToolRisk = when (toolName) {
         "write_file", "replace_text", "run_terminal" -> ToolRisk.MUTATING
+        "add_tasks", "update_tasks", "reorg_tasks" -> ToolRisk.LOCAL_STATE
         else -> ToolRisk.READ_ONLY
     }
 
@@ -128,6 +150,10 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
             "search_text" -> searchText(args)
             "diagnostics" -> diagnostics(args)
             "git_history" -> gitHistory(args)
+            "view_tasks" -> viewTasks()
+            "add_tasks" -> addTasks(args)
+            "update_tasks" -> updateTask(args)
+            "reorg_tasks" -> reorganizeTasks(args)
             "write_file" -> writeFile(args)
             "replace_text" -> replaceText(args)
             "run_terminal" -> runTerminal(args)
@@ -240,6 +266,50 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
             summary = if (relative == null) "$count recent commits" else "$count commits for $relative",
             detail = output.take(MAX_DETAIL_CHARS),
         )
+    }
+
+    private fun viewTasks(): ToolExecutionResult {
+        val tasks = conversations.active().tasks
+        val output = formatTasks(tasks)
+        return ToolExecutionResult(output, taskSummary(tasks), output.take(MAX_DETAIL_CHARS))
+    }
+
+    private fun addTasks(args: JsonObject): ToolExecutionResult {
+        val names = args["tasks"]?.jsonArray?.map { it.jsonPrimitive.content }
+            ?: error("tasks is required")
+        conversations.addTasks(names)
+        return viewTasks()
+    }
+
+    private fun updateTask(args: JsonObject): ToolExecutionResult {
+        val task = conversations.updateTask(
+            taskId = args.requiredString("task_id"),
+            state = args.string("state"),
+            name = args.string("name"),
+        )
+        val output = formatTasks(conversations.active().tasks)
+        return ToolExecutionResult(output, "Updated ${task.name}", output.take(MAX_DETAIL_CHARS))
+    }
+
+    private fun reorganizeTasks(args: JsonObject): ToolExecutionResult {
+        val taskIds = args["task_ids"]?.jsonArray?.map { it.jsonPrimitive.content }
+            ?: error("task_ids is required")
+        val tasks = conversations.reorderTasks(taskIds)
+        val output = formatTasks(tasks)
+        return ToolExecutionResult(output, "Reordered ${tasks.size} tasks", output.take(MAX_DETAIL_CHARS))
+    }
+
+    private fun formatTasks(tasks: List<ConversationTask>): String = if (tasks.isEmpty()) {
+        "No tasks"
+    } else {
+        tasks.mapIndexed { index, task ->
+            "${index + 1}. [${task.state}] ${task.name}\n   id=${task.id}"
+        }.joinToString("\n")
+    }
+
+    private fun taskSummary(tasks: List<ConversationTask>): String {
+        val completed = tasks.count { it.state == "completed" }
+        return "$completed/${tasks.size} tasks completed"
     }
 
     private fun writeFile(args: JsonObject): ToolExecutionResult {
@@ -355,6 +425,20 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
         put("description", description)
     }
 
+    private fun enumStringProperty(description: String, values: List<String>) = buildJsonObject {
+        put("type", "string")
+        put("description", description)
+        put("enum", buildJsonArray { values.forEach { add(JsonPrimitive(it)) } })
+    }
+
+    private fun stringArrayProperty(description: String, minItems: Int, maxItems: Int) = buildJsonObject {
+        put("type", "array")
+        put("description", description)
+        put("items", buildJsonObject { put("type", "string") })
+        put("minItems", minItems)
+        put("maxItems", maxItems)
+    }
+
     private fun JsonObject.requiredString(name: String, allowEmpty: Boolean = false): String {
         val value = get(name)?.jsonPrimitive?.contentOrNull ?: error("$name is required")
         require(allowEmpty || value.isNotBlank()) { "$name must not be blank" }
@@ -369,7 +453,7 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
     }
 }
 
-enum class ToolRisk { READ_ONLY, MUTATING }
+enum class ToolRisk { READ_ONLY, LOCAL_STATE, MUTATING }
 
 interface AgentToolRunner {
     fun definitions(mode: String): List<AgentToolDefinition>

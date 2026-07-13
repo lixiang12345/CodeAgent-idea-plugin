@@ -104,6 +104,22 @@ button { color: inherit; }
 .approval button { height: 23px; padding: 0 8px; border: 1px solid #5b5e64; border-radius: 3px; background: #292b30; font-size: 8px; cursor: pointer; }
 .approval button.approve { border-color: #4e755a; color: #bce1c5; background: #2a4733; }
 .assistant-message { margin: 10px 0 2px 28px; color: #d4d7dc; font-size: 10.5px; line-height: 1.52; white-space: pre-wrap; overflow-wrap: anywhere; }
+.task-panel { margin: 8px 0 6px 28px; overflow: hidden; border: 1px solid var(--line); border-radius: 5px; background: #212327; }
+.task-panel-header { width: 100%; height: 34px; padding: 0 7px; display: flex; align-items: center; gap: 6px; border: 0; background: #26292e; text-align: left; cursor: pointer; }
+.task-panel-header strong { min-width: 0; flex: 1; font-size: 10px; font-weight: 500; }
+.task-panel-header span { padding: 2px 5px; border-radius: 8px; color: #9fb0ca; background: #303a49; font: 8px var(--mono); }
+.task-items { padding: 4px 7px; }
+.task-items label { min-height: 28px; display: flex; align-items: center; gap: 6px; color: #c3c7cd; font-size: 9px; }
+.task-items label + label { border-top: 1px solid #2e3136; }
+.task-items label input { width: 13px; height: 13px; margin: 0; accent-color: #5e9a6e; }
+.task-items label > span { min-width: 0; flex: 1; display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
+.task-items label i { width: 14px; color: #6f747b; font: normal 8px var(--mono); }
+.task-items label b { color: #d1a65d; font: 7px var(--mono); }
+.task-items label.completed > span { color: #747a82; text-decoration: line-through; }
+.task-items label.active > span { color: #e0d4b9; }
+.task-panel footer { height: 29px; padding: 3px 7px; display: flex; justify-content: flex-end; border-top: 1px solid var(--line); }
+.task-panel footer button { height: 22px; padding: 0 7px; border: 0; border-radius: 3px; color: #8e949c; background: transparent; font-size: 8px; cursor: pointer; }
+.task-panel footer button:hover { color: var(--text); background: #2d3035; }
 
 .error-banner { min-height: 30px; padding: 5px 8px; display: flex; align-items: center; gap: 6px; border-top: 1px solid #713d43; color: #efa0a4; background: var(--red-soft); font-size: 9px; }
 .error-banner span { flex: 1; }
@@ -230,7 +246,7 @@ button { color: inherit; }
   .repository-strip button:nth-child(2) { display: none; }
   .message-list { padding-inline: 7px; }
   .user-message { margin-left: 4px; }
-  .pass-summary, .tool-list, .assistant-message { margin-left: 22px; }
+  .pass-summary, .tool-list, .assistant-message, .task-panel { margin-left: 22px; }
   .pass-summary { grid-template-columns: 18px minmax(0,1fr) auto; }
   .pass-summary button { display: none; }
   .composer-wrap { padding-inline: 5px; }

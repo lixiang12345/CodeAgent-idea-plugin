@@ -55,6 +55,13 @@ data class ThreadSummaryDto(
 )
 
 @Serializable
+data class TaskDto(
+    val id: String,
+    val name: String,
+    val state: String,
+)
+
+@Serializable
 data class ContextItemDto(
     val id: String,
     val label: String,
@@ -108,6 +115,7 @@ data class AppSnapshotDto(
     val messages: List<ChatMessageDto> = emptyList(),
     val tools: List<ToolRunDto> = emptyList(),
     val threads: List<ThreadSummaryDto>,
+    val tasks: List<TaskDto> = emptyList(),
     val attachments: List<ContextItemDto> = emptyList(),
     val settings: SettingsSnapshotDto = SettingsSnapshotDto(),
     val context: ContextSnapshotDto = ContextSnapshotDto(),

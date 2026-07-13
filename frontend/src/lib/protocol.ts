@@ -29,6 +29,12 @@ export interface ThreadSummary {
   mode: Mode;
 }
 
+export interface TaskItem {
+  id: string;
+  name: string;
+  state: "not_started" | "in_progress" | "completed" | "cancelled";
+}
+
 export interface ContextItem {
   id: string;
   label: string;
@@ -63,6 +69,7 @@ export interface AppSnapshot {
   messages: ChatMessage[];
   tools: ToolRun[];
   threads: ThreadSummary[];
+  tasks: TaskItem[];
   attachments: ContextItem[];
   settings: SettingsSnapshot;
   context: {
@@ -212,6 +219,12 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       { id: "dev", title: "Implement login flow with JWT", updatedAt: Date.now(), active: true, mode: "agent" },
       { id: "dev-2", title: "Review repository architecture", updatedAt: Date.now() - 3_600_000, active: false, mode: "ask" },
       { id: "dev-3", title: "Investigate flaky integration test", updatedAt: Date.now() - 86_400_000, active: false, mode: "chat" },
+    ],
+    tasks: [
+      { id: "task-1", name: "Inspect the existing authentication flow", state: "completed" },
+      { id: "task-2", name: "Implement JWT token issuance", state: "completed" },
+      { id: "task-3", name: "Add invalid-credential regression coverage", state: "in_progress" },
+      { id: "task-4", name: "Run the complete integration suite", state: "not_started" },
     ],
     attachments: [{ id: "attachment-1", label: "UserRepository.java", path: "src/main/java/com/example/UserRepository.java" }],
     settings: {

@@ -162,7 +162,8 @@ class AgentOrchestrator(private val project: Project) : Disposable {
             return
         }
 
-        val needsApproval = toolRunner.risk(call.name) == ToolRisk.MUTATING || !autoApproveReadOnly
+        val risk = toolRunner.risk(call.name)
+        val needsApproval = risk == ToolRisk.MUTATING || (risk == ToolRisk.READ_ONLY && !autoApproveReadOnly)
         if (needsApproval && !requestApproval(context, call, listener)) {
             listener.onToolChanged(call, "Rejected by user", "rejected", call.arguments)
             client.submitToolResult(runId, RemoteToolResult(call.id, "rejected", output = "Rejected by user"))

@@ -107,6 +107,60 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         return message.toDomain()
     }
 
+    @Synchronized
+    fun addTasks(names: List<String>): List<ConversationTask> {
+        require(names.isNotEmpty()) { "At least one task is required" }
+        require(names.size <= MAX_TASKS_PER_OPERATION) { "Add at most $MAX_TASKS_PER_OPERATION tasks at once" }
+        val thread = mutableActive()
+        val available = MAX_TASKS_PER_THREAD - thread.tasks.size
+        require(available >= names.size) { "A thread can contain at most $MAX_TASKS_PER_THREAD tasks" }
+        val added = names.map { name ->
+            require(name.isNotBlank()) { "Task names must not be blank" }
+            ConversationTaskState().apply {
+                id = UUID.randomUUID().toString()
+                this.name = name.trim().take(MAX_TASK_NAME_CHARS)
+                state = "not_started"
+            }.also(thread.tasks::add)
+        }
+        thread.updatedAt = System.currentTimeMillis()
+        return added.map { it.toDomain() }
+    }
+
+    @Synchronized
+    fun updateTask(taskId: String, state: String?, name: String?): ConversationTask {
+        val task = requireNotNull(mutableActive().tasks.firstOrNull { it.id == taskId }) { "Unknown task: $taskId" }
+        state?.let {
+            require(it in TASK_STATES) { "Unsupported task state: $it" }
+            task.state = it
+        }
+        name?.let {
+            require(it.isNotBlank()) { "Task name must not be blank" }
+            task.name = it.trim().take(MAX_TASK_NAME_CHARS)
+        }
+        mutableActive().updatedAt = System.currentTimeMillis()
+        return task.toDomain()
+    }
+
+    @Synchronized
+    fun reorderTasks(taskIds: List<String>): List<ConversationTask> {
+        val thread = mutableActive()
+        require(taskIds.size == taskIds.distinct().size) { "Task IDs must be unique" }
+        require(taskIds.toSet() == thread.tasks.mapTo(mutableSetOf()) { it.id }) {
+            "Reordering requires every current task ID exactly once"
+        }
+        val byId = thread.tasks.associateBy { it.id }
+        thread.tasks = taskIds.mapTo(mutableListOf()) { requireNotNull(byId[it]) }
+        thread.updatedAt = System.currentTimeMillis()
+        return thread.tasks.map { it.toDomain() }
+    }
+
+    @Synchronized
+    fun clearCompletedTasks() {
+        val thread = mutableActive()
+        thread.tasks.removeIf { it.state == "completed" || it.state == "cancelled" }
+        thread.updatedAt = System.currentTimeMillis()
+    }
+
     private fun mutableActive(): ConversationThreadState {
         ensureActive()
         return requireNotNull(data.threads.firstOrNull { it.id == data.activeThreadId })
@@ -135,14 +189,21 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         mode = mode,
         selectedSkillIds = selectedSkillIds.toList(),
         messages = messages.map { it.toDomain() },
+        tasks = tasks.map { it.toDomain() },
         active = id == data.activeThreadId,
     )
 
     private fun ConversationMessageState.toDomain() = ConversationMessage(id, role, content, createdAt)
 
+    private fun ConversationTaskState.toDomain() = ConversationTask(id, name, state)
+
     companion object {
         private const val MAX_THREADS = 50
         private const val MAX_MESSAGES_PER_THREAD = 200
+        private const val MAX_TASKS_PER_THREAD = 100
+        private const val MAX_TASKS_PER_OPERATION = 20
+        private const val MAX_TASK_NAME_CHARS = 240
+        private val TASK_STATES = setOf("not_started", "in_progress", "completed", "cancelled")
         const val MAX_SELECTED_SKILLS = 8
     }
 }
@@ -154,6 +215,7 @@ data class ConversationSnapshot(
     val mode: String,
     val selectedSkillIds: List<String>,
     val messages: List<ConversationMessage>,
+    val tasks: List<ConversationTask>,
     val active: Boolean,
 )
 
@@ -162,6 +224,12 @@ data class ConversationMessage(
     val role: String,
     val content: String,
     val createdAt: Long,
+)
+
+data class ConversationTask(
+    val id: String,
+    val name: String,
+    val state: String,
 )
 
 class ConversationStoreState {
@@ -176,6 +244,7 @@ class ConversationThreadState {
     var mode: String = "agent"
     var selectedSkillIds: MutableList<String> = mutableListOf()
     var messages: MutableList<ConversationMessageState> = mutableListOf()
+    var tasks: MutableList<ConversationTaskState> = mutableListOf()
 }
 
 class ConversationMessageState {
@@ -183,4 +252,10 @@ class ConversationMessageState {
     var role: String = "user"
     var content: String = ""
     var createdAt: Long = 0
+}
+
+class ConversationTaskState {
+    var id: String = ""
+    var name: String = ""
+    var state: String = "not_started"
 }

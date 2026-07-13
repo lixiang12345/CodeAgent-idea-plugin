@@ -179,6 +179,15 @@ class IdeBridge(
                 }
                 emitSnapshot()
             }
+            "setTaskState" -> {
+                val update = requireNotNull(command.payload).let { json.decodeFromJsonElement<TaskStatePayload>(it) }
+                conversations.updateTask(update.taskId, update.state, null)
+                emitSnapshot()
+            }
+            "clearCompletedTasks" -> {
+                conversations.clearCompletedTasks()
+                emitSnapshot()
+            }
             else -> error("Unknown bridge command: ${command.type}")
         }
     }
@@ -333,6 +342,7 @@ class IdeBridge(
                 threads = conversations.threads().map { thread ->
                     ThreadSummaryDto(thread.id, thread.title, thread.updatedAt, thread.active, thread.mode)
                 },
+                tasks = active.tasks.map { task -> TaskDto(task.id, task.name, task.state) },
                 attachments = attachments.values.toList(),
                 settings = SettingsSnapshotDto(
                     backendUrl = settings.backendUrl,
@@ -458,6 +468,9 @@ class IdeBridge(
 
     @Serializable
     private data class SkillSelectionPayload(val skillId: String, val selected: Boolean)
+
+    @Serializable
+    private data class TaskStatePayload(val taskId: String, val state: String)
 
     @Serializable
     private data class SettingsPayload(

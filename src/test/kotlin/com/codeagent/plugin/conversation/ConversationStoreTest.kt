@@ -47,4 +47,19 @@ class ConversationStoreTest {
             store.setSelectedSkills((1..9).map { "skill-$it" })
         }
     }
+
+    @Test
+    fun `persists and reorders tasks per thread`() {
+        val store = ConversationStore()
+        val tasks = store.addTasks(listOf("Inspect auth flow", "Add regression tests"))
+
+        store.updateTask(tasks.first().id, "completed", null)
+        store.reorderTasks(tasks.reversed().map { it.id })
+
+        assertEquals(listOf("Add regression tests", "Inspect auth flow"), store.active().tasks.map { it.name })
+        assertEquals("completed", store.active().tasks.last().state)
+
+        store.newThread()
+        assertTrue(store.active().tasks.isEmpty())
+    }
 }

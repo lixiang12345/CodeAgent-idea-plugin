@@ -76,6 +76,7 @@
   let threadDrawerOpen = false;
   let modeMenuOpen = false;
   let skillsOpen = false;
+  let tasksOpen = true;
   let toolsExpanded = new Set<string>();
   let backendUrl = "";
   let nodePath = "";
@@ -201,6 +202,10 @@
       open_file: "Open in Editor",
       diagnostics: "Diagnostics",
       git_history: "Git Commit Retrieval",
+      view_tasks: "View Task List",
+      add_tasks: "Add Tasks",
+      update_tasks: "Update Task List",
+      reorg_tasks: "Reorganize Task List",
     };
     return titles[tool.name] ?? tool.name.replaceAll("_", " ");
   }
@@ -311,6 +316,7 @@
                               {:else if tool.name === "search_text"}<Search size={14} />
                               {:else if tool.name === "diagnostics"}<CircleAlert size={14} />
                               {:else if tool.name === "git_history"}<GitCommitHorizontal size={14} />
+                              {:else if tool.name.includes("tasks")}<ListChecks size={14} />
                               {:else if tool.name === "write_file" || tool.name === "replace_text"}<FilePen size={14} />
                               {:else if tool.name === "open_file"}<ExternalLink size={14} />
                               {:else}<File size={14} />{/if}
@@ -335,6 +341,28 @@
                         </section>
                       {/each}
                     </div>
+                  {/if}
+
+                  {#if snapshot.tasks.length > 0}
+                    <section class="task-panel">
+                      <button class="task-panel-header" onclick={() => tasksOpen = !tasksOpen} aria-expanded={tasksOpen}>
+                        <ListChecks size={14} /><strong>Task List</strong>
+                        <span>{snapshot.tasks.filter((task) => task.state === "completed").length}/{snapshot.tasks.length}</span>
+                        {#if tasksOpen}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
+                      </button>
+                      {#if tasksOpen}
+                        <div class="task-items">
+                          {#each snapshot.tasks as task, index}
+                            <label class:completed={task.state === "completed"} class:active={task.state === "in_progress"}>
+                              <input type="checkbox" checked={task.state === "completed"} onchange={() => sendCommand("setTaskState", { taskId: task.id, state: task.state === "completed" ? "not_started" : "completed" })} />
+                              <span><i>{index + 1}</i>{task.name}</span>
+                              {#if task.state === "in_progress"}<b>running</b>{/if}
+                            </label>
+                          {/each}
+                        </div>
+                        <footer><button onclick={() => sendCommand("clearCompletedTasks")}>Clear completed</button></footer>
+                      {/if}
+                    </section>
                   {/if}
 
                   {#each snapshot.messages.filter((message) => message.role === "assistant") as message}
