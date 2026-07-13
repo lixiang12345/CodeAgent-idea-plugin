@@ -47,6 +47,9 @@ class AgentOrchestrator(private val project: Project) : Disposable {
 
                         override fun onAssistantMessage(content: String) = listener.onAssistantMessage(content)
 
+                        override fun onFileChanged(call: AgentToolCall, change: FileChange) =
+                            listener.onFileChanged(call, change)
+
                         override fun requestApproval(call: AgentToolCall, risk: ToolRisk): Boolean {
                             val approval = CompletableFuture<Boolean>()
                             context.approvals[call.id] = approval
@@ -116,6 +119,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
 interface AgentRunListener {
     fun onAssistantDelta(delta: String) = Unit
     fun onAssistantMessage(content: String)
+    fun onFileChanged(call: AgentToolCall, change: FileChange) = Unit
     fun onToolChanged(call: AgentToolCall, summary: String, status: String, detail: String?)
     fun onRunStateChanged(state: String)
     fun onError(message: String)

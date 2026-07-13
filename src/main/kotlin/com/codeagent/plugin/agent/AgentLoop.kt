@@ -60,6 +60,7 @@ class AgentLoop(
                 trackFuture(toolFuture)
                 try {
                     val result = toolFuture.join()
+                    result.fileChange?.let { callbacks.onFileChanged(call, it) }
                     callbacks.onToolChanged(call, result.summary, "completed", result.detail)
                     messages += toolMessage(call.id, result.output)
                 } catch (error: Throwable) {
@@ -98,6 +99,7 @@ class AgentLoop(
 interface AgentLoopCallbacks {
     fun onAssistantDelta(delta: String) = Unit
     fun onAssistantMessage(content: String)
+    fun onFileChanged(call: AgentToolCall, change: FileChange) = Unit
     fun requestApproval(call: AgentToolCall, risk: ToolRisk): Boolean
     fun onToolChanged(call: AgentToolCall, summary: String, status: String, detail: String?)
 }

@@ -4,6 +4,8 @@ import com.codeagent.plugin.agent.AgentMessage
 import com.codeagent.plugin.agent.AgentOrchestrator
 import com.codeagent.plugin.agent.AgentRunListener
 import com.codeagent.plugin.agent.AgentToolCall
+import com.codeagent.plugin.agent.ChangeReviewService
+import com.codeagent.plugin.agent.FileChange
 import com.codeagent.plugin.conversation.ConversationStore
 import com.codeagent.plugin.context.ContextEngineService
 import com.codeagent.plugin.settings.CodeAgentSettingsService
@@ -38,6 +40,7 @@ class IdeBridge(
     private val conversations = project.service<ConversationStore>()
     private val contextEngine = project.service<ContextEngineService>()
     private val agent = project.service<AgentOrchestrator>()
+    private val changeReview = project.service<ChangeReviewService>()
     private val settingsService = service<CodeAgentSettingsService>()
     private val stateLock = Any()
     private val runs = RunGeneration()
@@ -112,6 +115,28 @@ class IdeBridge(
                 require(agent.resolveApproval(approval.toolId, approval.approved)) { "Approval is no longer pending" }
                 synchronized(stateLock) { runState = "running" }
                 emitSnapshot()
+            }
+            "openDiff" -> {
+                val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ChangePayload>(it) }
+                changeReview.openDiff(selection.toolId)
+            }
+            "revertChange" -> {
+                val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ChangePayload>(it) }
+                changeReview.revert(selection.toolId).whenComplete { reverted, error ->
+                    when {
+                        error != null -> emit("error", mapOf("message" to error.rootMessage()))
+                        reverted -> {
+                            if (synchronized(stateLock) {
+                                val tool = tools[selection.toolId] ?: return@synchronized false
+                                tools[selection.toolId] = tool.copy(
+                                    summary = "Reverted ${tool.changePath}",
+                                    canRevert = false,
+                                )
+                                true
+                            }) emitSnapshot()
+                        }
+                    }
+                }
             }
             "selectThread" -> {
                 val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPayload>(it) }
@@ -204,6 +229,10 @@ class IdeBridge(
                 }) emitSnapshot()
             }
 
+            override fun onFileChanged(call: AgentToolCall, change: FileChange) {
+                withCurrentRun(runId) { changeReview.register(call.id, change) }
+            }
+
             override fun onToolChanged(
                 call: AgentToolCall,
                 summary: String,
@@ -217,6 +246,8 @@ class IdeBridge(
                         summary = summary,
                         status = status,
                         detail = detail,
+                        changePath = changeReview.path(call.id),
+                        canRevert = changeReview.canRevert(call.id),
                     )
                     runState = if (status == "approval") "awaiting_approval" else "running"
                 }) emitSnapshot()
@@ -371,6 +402,9 @@ class IdeBridge(
 
     @Serializable
     private data class ApprovalPayload(val toolId: String, val approved: Boolean)
+
+    @Serializable
+    private data class ChangePayload(val toolId: String)
 
     @Serializable
     private data class ThreadPayload(val threadId: String)

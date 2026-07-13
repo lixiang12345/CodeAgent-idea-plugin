@@ -17,6 +17,8 @@ export interface ToolRun {
   summary: string;
   status: "running" | "approval" | "completed" | "failed" | "rejected";
   detail?: string;
+  changePath?: string;
+  canRevert: boolean;
 }
 
 export interface ThreadSummary {

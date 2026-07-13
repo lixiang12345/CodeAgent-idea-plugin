@@ -7,6 +7,7 @@
     CircleAlert,
     Database,
     FileCode2,
+    FileDiff,
     Menu,
     MessageSquarePlus,
     PanelLeftClose,
@@ -19,6 +20,7 @@
     Sparkles,
     Square,
     Terminal,
+    Undo2,
     UserRound,
     X,
   } from "@lucide/svelte";
@@ -104,6 +106,14 @@
 
   function approve(tool: ToolRun, approved: boolean) {
     sendCommand("resolveApproval", { toolId: tool.id, approved });
+  }
+
+  function openDiff(tool: ToolRun) {
+    sendCommand("openDiff", { toolId: tool.id });
+  }
+
+  function revertChange(tool: ToolRun) {
+    sendCommand("revertChange", { toolId: tool.id });
   }
 
   function updateContext() {
@@ -202,6 +212,13 @@
                   {#if toolsExpanded.has(tool.id)}<ChevronDown size={15} />{:else}<ChevronRight size={15} />{/if}
                 </button>
                 {#if toolsExpanded.has(tool.id) && tool.detail}<pre>{tool.detail}</pre>{/if}
+                {#if tool.changePath}
+                  <div class="change-actions">
+                    <span>{tool.changePath}</span>
+                    <button title="Open IDE diff" onclick={() => openDiff(tool)}><FileDiff size={14} />Diff</button>
+                    {#if tool.canRevert}<button class="revert" title="Revert this change" onclick={() => revertChange(tool)}><Undo2 size={14} />Revert</button>{/if}
+                  </div>
+                {/if}
                 {#if tool.status === "approval"}
                   <div class="approval"><ShieldAlert size={16} /><span>Approval required</span><button onclick={() => approve(tool, false)}><X size={14} />Reject</button><button class="approve" onclick={() => approve(tool, true)}><Check size={14} />Approve</button></div>
                 {/if}

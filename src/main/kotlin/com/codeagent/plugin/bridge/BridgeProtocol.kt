@@ -41,6 +41,8 @@ data class ToolRunDto(
     val summary: String,
     val status: String,
     val detail: String? = null,
+    val changePath: String? = null,
+    val canRevert: Boolean = false,
 )
 
 @Serializable

@@ -189,6 +189,7 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
         val relative = args.requiredString("path")
         val content = args.requiredString("content", allowEmpty = true)
         val file = guard.pathForWrite(relative)
+        val before = if (Files.isRegularFile(file)) Files.readString(file, StandardCharsets.UTF_8) else null
         Files.createDirectories(requireNotNull(file.parent))
         Files.writeString(
             file,
@@ -198,7 +199,12 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
             StandardOpenOption.TRUNCATE_EXISTING,
         )
         refresh(file)
-        return ToolExecutionResult("Wrote $relative (${content.length} chars)", "Wrote $relative", content.take(MAX_DETAIL_CHARS))
+        return ToolExecutionResult(
+            output = "Wrote $relative (${content.length} chars)",
+            summary = "Wrote $relative",
+            detail = content.take(MAX_DETAIL_CHARS),
+            fileChange = FileChange(relative, before, content).takeUnless { before == content },
+        )
     }
 
     private fun replaceText(args: JsonObject): ToolExecutionResult {
@@ -220,6 +226,7 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
             "Replaced ${if (replaceAll) occurrences else 1} occurrence(s) in $relative",
             "Edited $relative",
             "-${oldText.take(1200)}\n+${newText.take(1200)}",
+            FileChange(relative, content, updated),
         )
     }
 
@@ -317,6 +324,7 @@ data class ToolExecutionResult(
     val output: String,
     val summary: String,
     val detail: String? = null,
+    val fileChange: FileChange? = null,
 )
 
 class ProjectPathGuard(private val root: Path) {

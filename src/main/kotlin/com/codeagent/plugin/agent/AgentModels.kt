@@ -28,6 +28,12 @@ data class ModelTurn(
     val toolCalls: List<AgentToolCall>,
 )
 
+data class FileChange(
+    val path: String,
+    val before: String?,
+    val after: String,
+)
+
 interface ModelGateway {
     fun complete(messages: List<AgentMessage>, tools: List<AgentToolDefinition>): java.util.concurrent.CompletableFuture<ModelTurn>
 

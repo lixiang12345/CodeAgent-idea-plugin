@@ -84,6 +84,11 @@ button { color: inherit; }
 .tool-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 10px; }
 .tool-status { color: var(--muted); font-size: 9px; text-transform: uppercase; }
 .tool-card pre { margin: 0; padding: 10px; border-top: 1px solid var(--line); overflow: auto; background: #16181b; color: #bec5cd; font: 10px/1.5 "JetBrains Mono", "SFMono-Regular", monospace; white-space: pre-wrap; }
+.change-actions { min-height: 38px; padding: 5px 8px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 6px; background: #191b1f; }
+.change-actions span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 10px/1.4 "JetBrains Mono", "SFMono-Regular", monospace; }
+.change-actions button { height: 27px; padding: 0 8px; border: 1px solid var(--line-strong); background: var(--surface-2); border-radius: 4px; display: flex; align-items: center; gap: 5px; color: var(--text); cursor: pointer; }
+.change-actions button:hover { background: #30343a; }
+.change-actions button.revert { border-color: #684348; color: #efb5ba; }
 .approval { min-height: 42px; padding: 6px 8px; border-top: 1px solid #5d492a; display: flex; align-items: center; gap: 7px; background: var(--warning-bg); color: #e7c98e; font-size: 11px; }
 .approval span { flex: 1; }
 .approval button { height: 27px; padding: 0 8px; border: 1px solid #6a5840; background: #332b20; border-radius: 4px; display: flex; align-items: center; gap: 4px; cursor: pointer; }
