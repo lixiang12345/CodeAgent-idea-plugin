@@ -60,6 +60,8 @@ The UI-to-JVM protocol uses small versioned JSON envelopes. Long work is acknowl
 
 Agent prompts, the model/tool loop, mode capabilities, run state, and approval policy are owned by the JVM backend. The Webview cannot provide system instructions or execute tools. See the [prompt and agent architecture](PROMPT_ARCHITECTURE.md) for the original-plugin evidence and trust model.
 
+Repository customization follows the same boundary. The JVM discovers `.codeagent/rules/*.md`, `.codeagent/skills/*/SKILL.md`, and compatible `.agents/skills/*/SKILL.md` files after canonical-path validation. The Webview receives display metadata and returns selected skill IDs; it never supplies rule or skill prompt content. Selected IDs are persisted per task, then resolved again against the backend discovery result before prompt composition.
+
 Model turns use Chat Completions SSE when the endpoint supports it. Text deltas are persisted into one assistant message and forwarded over the existing bridge event channel; streamed function-call argument fragments are assembled in the JVM before any tool is considered for execution. A normal JSON completion is retained as a compatibility fallback.
 
 File mutations return backend-only before/after snapshots. The Webview receives only a tool ID and project-relative path, then asks the JVM to open IntelliJ's native Diff viewer or revert the change. Revert is allowed only while the current editor or disk content exactly matches the recorded agent output, preventing an older checkpoint from overwriting newer user work. Terminal side effects are intentionally excluded because their changed-file set cannot be inferred safely.
@@ -92,5 +94,6 @@ The integration is a pinned Git submodule compiled into the Node sidecar. CodeAg
 4. Product hardening: Password Safe settings, persisted tasks, attachments, tests, Plugin Verifier, and packaged distribution.
 5. Backend prompt policy: versioned prompt resources, mode policy, and lower-priority root `AGENTS.md` guidance. (`60db5c3`)
 6. Stream and change review: SSE response/tool-call streaming plus native Diff and guarded file revert. (`e89cc6a`, `933111f`)
+7. Repository customization: always-on Rules, per-task selectable Skills, bounded prompt composition, and responsive UI. (`c4c8a0d`)
 
 The model transport follows the official [streaming Responses guidance](https://developers.openai.com/api/docs/guides/streaming-responses) for server-sent event handling while retaining the repository's OpenAI-compatible Chat Completions contract. Function argument deltas are accumulated before execution, matching the official [function calling streaming pattern](https://developers.openai.com/api/docs/guides/function-calling#streaming).

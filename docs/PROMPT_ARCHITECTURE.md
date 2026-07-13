@@ -54,12 +54,14 @@ CodeAgent composes a versioned system prompt in this order:
 2. Non-overridable safety and authority policy.
 3. Agent or Ask mode policy.
 4. Optional repository-root `AGENTS.md` guidance, explicitly marked lower priority.
-5. Conversation messages and user-selected file references as user content.
-6. Retrieved files and tool results as untrusted tool data.
+5. Always-on `.codeagent/rules/*.md` repository rules, with a bounded total prompt budget.
+6. User-enabled repository Skills, resolved from backend-discovered IDs and bounded separately.
+7. Conversation messages and user-selected file references as user content.
+8. Retrieved files and tool results as untrusted tool data.
 
 The prompt explains policy, but code enforces it. Ask mode does not receive mutating tools. File tools canonicalize paths. Mutations and terminal commands require host approval. A prompt injection therefore cannot grant itself a capability.
 
-Prompt version `2026-07-13.1` deliberately starts small. New instructions should be added only for observed failures backed by tests or evaluations; copying every prompt found in another product would increase context cost and brittleness.
+Prompt version `2026-07-13.2` keeps Rules and Skills below product safety and mode policy. Rule and skill text can guide conventions and methods, but it cannot register tools, change risk levels, bypass approvals, or make Ask mode writable. New packaged instructions should be added only for observed failures backed by tests or evaluations; copying every prompt found in another product would increase context cost and brittleness.
 
 ## Future hosted architecture
 

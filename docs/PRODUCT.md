@@ -10,7 +10,7 @@ The more precise positioning is: **an AI coding platform for large codebases, le
 
 CodeAgent deliberately starts with a smaller promise: **an IDE-native, local-first coding agent whose actions are inspectable and approval-controlled**.
 
-| Dimension | Analyzed Augment plugin | CodeAgent 0.3 |
+| Dimension | Analyzed Augment plugin | CodeAgent 0.4 |
 | --- | --- | --- |
 | Primary workflow | Agent inside a broad coding platform | Focused project-level coding agent |
 | Context | Proprietary Context Engine and cloud services | Reused open ContextEngine, local SQLite index |
@@ -19,7 +19,7 @@ CodeAgent deliberately starts with a smaller promise: **an IDE-native, local-fir
 | Trust model | Product-managed policies and services | Read-only Ask mode and explicit mutation approvals |
 | Data boundary | Product cloud plus local IDE processes | Local index; model traffic only to the configured endpoint |
 
-## Version 0.3 scope
+## Version 0.4 scope
 
 - Persistent project tasks with search and switching.
 - ContextEngine indexing, health, progress, retrieval, and text search.
@@ -31,7 +31,8 @@ CodeAgent deliberately starts with a smaller promise: **an IDE-native, local-fir
 - Project file attachments, model/runtime settings, and Password Safe credentials.
 - JCEF interface with a Swing fallback when JCEF is unavailable.
 - JVM-owned, versioned prompt composition with root `AGENTS.md` workspace guidance.
+- Always-on repository Rules and explicitly selected, per-task Skills loaded by the JVM backend.
 
 ## Explicit boundaries
 
-Version 0.3 does not provide team accounts, cloud synchronization, billing, analytics, remote integrations, MCP configuration UI, semantic embeddings, repository Rules/Skills management, or automatic rollback of arbitrary terminal side effects. These are future product decisions, not hidden dependencies of the local agent loop.
+Version 0.4 does not provide team accounts, cloud synchronization, billing, analytics, remote integrations, MCP configuration UI, semantic embeddings, a visual Rules/Skills editor, or automatic rollback of arbitrary terminal side effects. These are future product decisions, not hidden dependencies of the local agent loop.
