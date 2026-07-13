@@ -163,6 +163,15 @@ data class ModelRegistryDto(
 )
 
 @Serializable
+data class BackendToolDto(
+    val name: String,
+    val catalogId: String,
+    val available: Boolean,
+    val unavailableReason: String? = null,
+    val requiredEnvironment: List<String> = emptyList(),
+)
+
+@Serializable
 data class WorkspaceRuleDto(
     val id: String,
     val name: String,
@@ -204,5 +213,6 @@ data class AppSnapshotDto(
     val context: ContextSnapshotDto = ContextSnapshotDto(),
     val backendHealth: BackendHealthDto = BackendHealthDto(),
     val models: ModelRegistryDto = ModelRegistryDto(),
+    val backendTools: List<BackendToolDto> = emptyList(),
     val customization: WorkspaceCustomizationDto = WorkspaceCustomizationDto(),
 )

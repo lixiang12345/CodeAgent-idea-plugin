@@ -12,7 +12,7 @@ cp .env.example .env
 npm start
 ```
 
-For deployment, build `backend/Dockerfile` and provide `CODEAGENT_AUTH_TOKEN`, `MODEL`, each enabled provider's base URL, API key, and model allowlist. The current production routes use OpenAI Responses, Anthropic Messages, and xAI Responses. The service exposes `GET /health`, authenticated `GET /v1/models`, and defaults to `127.0.0.1:8787` for local development.
+For deployment, build `backend/Dockerfile` and provide `CODEAGENT_AUTH_TOKEN`, `MODEL`, each enabled provider's base URL, API key, and model allowlist. Optional web/SaaS integration variables are listed in `backend/.env.example`. The service exposes `GET /health`, authenticated model/tool discovery, backend tool execution, and defaults to `127.0.0.1:8787` for local development.
 
 ## Install and use
 
@@ -23,9 +23,9 @@ For deployment, build `backend/Dockerfile` and provide `CODEAGENT_AUTH_TOKEN`, `
 
 The panel's workspace menu opens the prototype-aligned **Tasks**, **Git**, and **Image Canvas** pages. Tasks persist per thread and can be imported/exported as Markdown. Git reads the real index and working tree, opens JetBrains Diff, and requires explicit confirmation before committing. Image Canvas previews bounded raster assets from a user-selected directory inside the project and can attach them to the active conversation. Threads support pin, confirmed delete, and Markdown import/export. Messages entered during an active run are queued by the IDEA capability layer and dispatched in order.
 
-Settings reports the result of a real backend `/health` request, including protocol compatibility. A configured URL is not treated as an online backend.
+Settings reports the result of real backend health, model, and tool-discovery requests, including protocol compatibility and missing integration configuration. A configured URL is not treated as an online backend.
 
-The backend token is stored in JetBrains Password Safe. Model credentials stay on the deployed backend. ContextEngine's index stays local; selected repository context, rules, skills, messages, and tool results are sent to the configured backend for the active Agent run.
+The backend token is stored in JetBrains Password Safe. Model and integration credentials stay on the deployed backend. ContextEngine's index stays local; selected repository context, rules, skills, messages, and tool results are sent to the configured backend for the active Agent run.
 
 ## Development prerequisites
 

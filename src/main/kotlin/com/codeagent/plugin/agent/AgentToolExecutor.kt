@@ -42,11 +42,16 @@ import java.util.concurrent.CompletableFuture
 import java.util.regex.Pattern
 import kotlin.io.path.isRegularFile
 
-class AgentToolExecutor(private val project: Project) : AgentToolRunner {
+internal class AgentToolExecutor(
+    private val project: Project,
+    private val remoteClient: RemoteAgentClient? = null,
+    remoteCapabilities: List<RemoteToolCapability> = emptyList(),
+) : AgentToolRunner {
     private val root = Path.of(requireNotNull(project.basePath)).toAbsolutePath().normalize()
     private val guard = ProjectPathGuard(root)
     private val contextEngine = project.service<ContextEngineService>()
     private val conversations = project.service<ConversationStore>()
+    private val remoteTools = remoteCapabilities.filter(RemoteToolCapability::available).associateBy(RemoteToolCapability::name)
     private val json = Json { ignoreUnknownKeys = true }
     private val executor = AppExecutorUtil.getAppExecutorService()
 
@@ -176,6 +181,9 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
                 required = listOf("command"),
             )))
         }
+        remoteTools.values.forEach { remote ->
+            add(tool(remote.name, remote.description, remote.parameters))
+        }
         add(tool("open_file", "Open a project file in the IDE editor", schema(
             properties = mapOf("path" to stringProperty("Project-relative file path")),
             required = listOf("path"),
@@ -216,8 +224,19 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
             "run_terminal" -> runTerminal(args)
             "ask_user" -> askUser(args)
             "open_file" -> openFile(args)
-            else -> error("Unknown tool: ${call.name}")
+            else -> executeRemote(call.name, args)
         }
+    }
+
+    private fun executeRemote(name: String, args: JsonObject): ToolExecutionResult {
+        require(remoteTools.containsKey(name)) { "Unknown tool: $name" }
+        val client = requireNotNull(remoteClient) { "Backend tool client is unavailable" }
+        val result = client.executeTool(name, args).join()
+        return ToolExecutionResult(
+            output = result.output,
+            summary = result.summary,
+            detail = result.detail ?: result.output.take(MAX_DETAIL_CHARS),
+        )
     }
 
     private fun retrieve(args: JsonObject): ToolExecutionResult {

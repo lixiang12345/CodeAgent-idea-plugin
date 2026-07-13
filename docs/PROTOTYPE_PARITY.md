@@ -47,22 +47,26 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | Main panel | Implemented | 420 px IDEA tool window, interleaved user/assistant/tool timeline, context strip, tool cards, approvals, composer, stop/send states |
 | Threads | Implemented | Create, select, search, mode tags, pin ordering, confirmed delete, and Markdown import/export work |
 | Composer | Implemented | Modes, attachments, Skills, model picker, queue/stop/send, slash menu, @ mention menu, Auto, and real prompt enhancement via backend `/v1/enhance` |
-| Tools | Partial | Local tools now include conversation retrieval, remove/apply-patch, web-fetch, open-browser, ask-user plus the previous VFS/terminal/Git/task/mermaid set; catalog still marks cloud/MCP/subagent integrations unavailable |
+| Tools | Partial | Local tools remain IDEA-owned; backend-owned discovery/execution now connects configured web, GitHub, Linear, Notion, Jira, Confluence, Glean, allowlisted Supabase reads, and a synchronous model-only subagent |
 | Agent edits | Implemented | Native Diff, undo, keep/discard, Agent Edits overlay, and local checkpoints with restore |
 | Tasks | Implemented | Persistent per-thread tasks, filtering, add/delete/state, clear, Markdown import/export, run-one/run-all, and Agent task tools |
 | Git | Implemented | Real branch/index/worktree status, stage/unstage, native Diff, local message draft, confirmation, and commit |
 | Rules editor | Implemented | Repository Markdown, persisted description and trigger metadata, save, and manual per-thread selection work |
 | Image Canvas | Implemented | Project-contained directory selection, bounded raster gallery, settings, refresh, open, mention, and empty/error states |
 | Mermaid | Implemented | Strict rendering, diagram/code, zoom, fit, error states, and opening source in an IDEA editor tab work |
-| Settings | Partial | All prototype navigation sections render; backend health, services/token, ContextEngine, Rules, Skills, and chat zoom UX are real; MCP and remaining sections stay explicit shells |
+| Settings | Partial | Services now shows live backend tool availability and missing configuration; backend health, token, ContextEngine, Rules, Skills, and chat zoom UX are real; MCP and remaining sections stay explicit shells |
 | Tools catalog / Icon gallery / Feedback | Implemented | UI overlays for insert-tool seeding, icon name copy, and local feedback notice |
-| Subagents and cloud integrations | Unavailable | No success state is simulated; these require separately deployed capability providers and protocol work |
+| Cloud integrations | Conditional | Search/read adapters are advertised only when their backend environment is configured; provider errors and missing credentials remain explicit failures |
+| Subagents | Partial | Synchronous `subagent` is a real bounded model-only delegation call; `async-subagent` remains unavailable because durable job lifecycle, cancellation, and UI state are not implemented |
+| MCP | Unavailable | A general local MCP client still needs server configuration, process/transport lifecycle, tool discovery, cancellation, and auth handling; the shell remains explicit |
 
 ## Tool catalog
 
 The prototype defines 31 tool presentations. A card is shown as functional only when its backend or IDE capability is connected:
 
 `context-engine`, `conversation-retrieval`, `str-replace`, `view`, `read-file`, `save-file`, `remove-files`, `apply-patch`, `grep`, `shell`, `web-fetch`, `web`, `open-browser`, `diagnostics`, `git-commit`, `mermaid`, `add-tasks`, `view-tasks`, `update-tasks`, `reorg-tasks`, `subagent`, `async-subagent`, `ask-user`, `github`, `linear`, `notion`, `jira`, `confluence`, `glean`, `supabase`, `mcp`.
+
+Backend tools are discovered through authenticated `GET /v1/tools`. The JVM advertises only entries with `available=true` and proxies execution through `POST /v1/tools/{toolName}`. Required environment is documented in `backend/.env.example`; unavailable entries include a concrete reason and cannot be executed.
 
 ## Resource contract
 - Use the icon names and placement from the v9 registry (`prototypes/assets/icons-registry.js`), shipped as `frontend/src/lib/icons.ts` and rendered through `frontend/src/lib/Icon.svelte`.

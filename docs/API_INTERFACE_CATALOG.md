@@ -125,7 +125,7 @@ Transport:
 | `openMermaidEditor` | `{ title: string, code: string }` | editor tab |
 | `openTerminal` | none | focuses Terminal tool window |
 | `saveSettings` | `{ backendUrl, nodePath, backendToken, autoApproveReadOnly }` | `snapshot.settings` |
-| `checkBackend` | none | `snapshot.backendHealth` / models |
+| `checkBackend` | none | `snapshot.backendHealth` / models / backendTools |
 | `getContextStatus` | none | `snapshot.context` |
 | `indexWorkspace` | none | indexing progress via `snapshot.context` |
 
@@ -152,6 +152,7 @@ Errors for failed commands: event `error` with `{ message: string }`.
 | `context` | object | ContextEngine state/label/files/chunks |
 | `backendHealth` | object | online/offline + protocol/provider |
 | `models` | object | state, provider, default/selected, options[] |
+| `backendTools` | array | backend tool name/catalogId/availability/reason/required env |
 | `customization` | object | rules[], skills[], maxSelectedSkills |
 
 **ChatMessage**
@@ -241,7 +242,40 @@ Auth header on protected routes: `Authorization: Bearer <CODEAGENT_AUTH_TOKEN>`.
 | `data[].ownedBy` | string? |
 
 
-### 3.3 `POST /v1/enhance`
+### 3.3 `GET /v1/tools`
+
+Returns backend-owned tool schemas and runtime configuration status. The JVM advertises only `available=true` tools to the model.
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "name": "web_search",
+      "catalogId": "web",
+      "description": "Search the public web through the configured backend search provider",
+      "parameters": { "type": "object" },
+      "available": false,
+      "unavailableReason": "Set WEB_SEARCH_ENDPOINT",
+      "requiredEnvironment": ["WEB_SEARCH_ENDPOINT"]
+    }
+  ]
+}
+```
+
+### 3.4 `POST /v1/tools/{toolName}`
+
+Executes one configured backend-owned tool. Credentials remain in backend environment variables.
+
+```json
+{ "arguments": { "query": "CodeAgent" } }
+```
+
+Success returns `{ "output": "…", "summary": "…", "detail": "…" }`. Missing configuration returns `503 { "error": "…" }`; provider failures or invalid provider responses return `502`; unknown tools return `404`.
+
+Current adapters: `web_search`, `github_search`, `linear_search`, `notion_search`, `jira_search`, `confluence_search`, `glean_search`, `supabase_query`, and synchronous model-only `subagent`.
+
+### 3.5 `POST /v1/enhance`
 
 **Request headers:** `Authorization: Bearer …`
 
@@ -271,7 +305,7 @@ Auth header on protected routes: `Authorization: Bearer <CODEAGENT_AUTH_TOKEN>`.
 }
 ```
 
-### 3.4 `POST /v1/runs` (SSE)
+### 3.6 `POST /v1/runs` (SSE)
 
 **Request body: `RemoteRunRequest`**
 
@@ -330,7 +364,7 @@ Header: `x-codeagent-run-id: <runId>`
 | `run.error` | `{ message }` | Fatal run error |
 | comment heartbeat | `: heartbeat` | Every ~15s |
 
-### 3.5 `POST /v1/runs/{runId}/tool-results`
+### 3.7 `POST /v1/runs/{runId}/tool-results`
 
 **Request body**
 
@@ -358,7 +392,7 @@ Header: `x-codeagent-run-id: <runId>`
 { "accepted": true }
 ```
 
-### 3.6 `DELETE /v1/runs/{runId}`
+### 3.8 `DELETE /v1/runs/{runId}`
 
 **Response 202**
 
@@ -446,8 +480,9 @@ Conversation is a **node stream**, not a single assistant string:
 | Webview MessageBroker / RPCAdapter | `codeAgentPost` / `CodeAgent.receive` JSON |
 | Sidecar agent loop + cloud | Deployed `POST /v1/runs` SSE |
 | Sidecar IDE tool callbacks | JVM `AgentToolExecutor` |
+| Cloud search/read tools | Backend `GET /v1/tools` + `POST /v1/tools/{toolName}` proxied by `AgentToolExecutor` |
 | gRPC discovery + auth token | Settings backend URL + Password Safe token |
-| MCP / OAuth / Account APIs | Explicit **Not connected** shells |
+| MCP / OAuth / Account APIs | Explicit **Not connected** shells; no Augment OAuth/ACP port |
 | `postToolUseMessagesByToolId` | Multi assistant messages + interleaved timeline (coarse) |
 
 ---

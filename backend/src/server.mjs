@@ -3,14 +3,22 @@ import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { AgentRunner, validateRunRequest } from "./agent-runner.mjs";
+import { createIntegrationToolRegistryFromEnv } from "./integration-tools.mjs";
 import { createModelGatewayFromEnv } from "./model-gateway.mjs";
 
 const OPENAPI_DOCUMENT = JSON.parse(readFileSync(new URL("../openapi.json", import.meta.url), "utf8"));
 const DOCS_HTML = readFileSync(new URL("../docs.html", import.meta.url), "utf8");
 
-export function createCodeAgentServer({ modelGateway, authToken = "", corsOrigins = [], logger = console } = {}) {
+export function createCodeAgentServer({
+  modelGateway,
+  integrationTools,
+  authToken = "",
+  corsOrigins = [],
+  logger = console,
+} = {}) {
   const gateway = modelGateway || createModelGatewayFromEnv();
   const runner = new AgentRunner({ modelGateway: gateway });
+  const backendTools = integrationTools || createIntegrationToolRegistryFromEnv(process.env, fetch, gateway);
   const runs = new Map();
   const allowedCorsOrigins = new Set(normalizeCorsOrigins(corsOrigins));
 
@@ -48,6 +56,23 @@ export function createCodeAgentServer({ modelGateway, authToken = "", corsOrigin
           defaultModel: gateway.defaultModel || "",
           data,
         });
+      }
+
+      if (request.url === "/v1/tools" && request.method === "GET") {
+        return json(response, 200, {
+          object: "list",
+          data: backendTools.list(),
+        });
+      }
+
+      const backendToolMatch = request.url?.match(/^\/v1\/tools\/([^/?]+)$/);
+      if (backendToolMatch && request.method === "POST") {
+        const body = await readJson(request);
+        const args = body?.arguments;
+        const result = await backendTools.execute(decodeURIComponent(backendToolMatch[1]), args, {
+          signal: AbortSignal.timeout(120_000),
+        });
+        return json(response, 200, result);
       }
 
       if (request.url === "/v1/enhance" && request.method === "POST") {

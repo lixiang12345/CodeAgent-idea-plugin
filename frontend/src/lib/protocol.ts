@@ -106,6 +106,14 @@ export interface ModelRegistry {
   label: string;
 }
 
+export interface BackendToolCapability {
+  name: string;
+  catalogId: string;
+  available: boolean;
+  unavailableReason?: string;
+  requiredEnvironment: string[];
+}
+
 export interface WorkspaceRule {
   id: string;
   name: string;
@@ -149,6 +157,7 @@ export interface AppSnapshot {
     defaultModel?: string;
   };
   models: ModelRegistry;
+  backendTools: BackendToolCapability[];
   customization: {
     rules: WorkspaceRule[];
     skills: WorkspaceSkill[];
@@ -352,6 +361,21 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       ],
       label: "5 models",
     },
+    backendTools: [
+      {
+        name: "web_search",
+        catalogId: "web",
+        available: false,
+        unavailableReason: "Set WEB_SEARCH_ENDPOINT",
+        requiredEnvironment: ["WEB_SEARCH_ENDPOINT"],
+      },
+      {
+        name: "subagent",
+        catalogId: "subagent",
+        available: true,
+        requiredEnvironment: ["MODEL"],
+      },
+    ],
     customization: {
       rules: [
         {

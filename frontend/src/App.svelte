@@ -74,6 +74,15 @@
     open_file: "external-link",
     open_browser: "external-link",
     web_fetch: "globe",
+    web_search: "globe",
+    github_search: "github",
+    linear_search: "linear",
+    notion_search: "notion",
+    jira_search: "jira",
+    confluence_search: "confluence",
+    glean_search: "glean",
+    supabase_query: "supabase",
+    subagent: "bot",
     diagnostics: "circle-alert",
     git_history: "git-commit-horizontal",
     view_tasks: "list-checks",
@@ -371,10 +380,25 @@
     return ICON_NAMES.filter((name) => !q || name.includes(q)).slice(0, 240);
   }
 
+  function toolConnected(entry: (typeof TOOL_CATALOG)[number]) {
+    return entry.connected || Boolean(
+      entry.pluginTool && snapshot?.backendTools.some((tool) => tool.name === entry.pluginTool && tool.available),
+    );
+  }
+
+  function toolConnectionTitle(entry: (typeof TOOL_CATALOG)[number]) {
+    if (toolConnected(entry)) return "Connected";
+    return snapshot?.backendTools.find((tool) => tool.catalogId === entry.id)?.unavailableReason ?? "Not connected in this build";
+  }
+
+  function catalogName(catalogId: string) {
+    return TOOL_CATALOG.find((entry) => entry.id === catalogId)?.name ?? catalogId;
+  }
+
   function insertToolSeed(toolId: string) {
     const entry = TOOL_CATALOG.find((tool) => tool.id === toolId);
     if (!entry) return;
-    prompt = entry.connected
+    prompt = toolConnected(entry)
       ? `Use the ${entry.name} tool to help with: `
       : `[${entry.name}] is not connected in this build. `;
     currentView = "chat";
@@ -998,6 +1022,23 @@
                 </div>
                 <footer><button class="primary" onclick={saveSettings}>Save settings</button></footer>
               </section>
+              {#if settingsSection === "Services"}
+                <section class="settings-block list-block">
+                  <header><strong>Backend tools</strong><span>{snapshot.backendTools.filter((tool) => tool.available).length} connected</span></header>
+                  {#each snapshot.backendTools as tool}
+                    <div>
+                      <Icon name={TOOL_CATALOG.find((entry) => entry.id === tool.catalogId)?.icon ?? "plug"} size={14} />
+                      <span>
+                        <strong>{catalogName(tool.catalogId)}</strong>
+                        <small>{tool.available ? tool.name : tool.unavailableReason ?? "Not configured"}</small>
+                      </span>
+                      <i>{tool.available ? "On" : "Off"}</i>
+                    </div>
+                  {:else}
+                    <p>No backend tool capabilities reported.</p>
+                  {/each}
+                </section>
+              {/if}
             {:else if settingsSection === "Rules & Guidelines"}
               {#if ruleEditorOpen}
                 <div class="rule-editor-title">
@@ -1250,13 +1291,18 @@
           <label class="thread-search"><Icon name="search" size={13} /><input bind:value={toolFilter} placeholder="Filter tools…" /></label>
           <div class="catalog-list">
             {#each filteredTools() as tool}
-              <button class="catalog-card" class:connected={tool.connected} onclick={() => insertToolSeed(tool.id)}>
+              <button
+                class="catalog-card"
+                class:connected={toolConnected(tool)}
+                title={toolConnectionTitle(tool)}
+                onclick={() => insertToolSeed(tool.id)}
+              >
                 <span class="tool-icon"><Icon name={tool.icon} size={16} /></span>
                 <span>
                   <strong>{tool.name}</strong>
                   <small>{tool.desc}</small>
                 </span>
-                <i>{tool.connected ? "connected" : "unavailable"}</i>
+                <i>{toolConnected(tool) ? "connected" : "unavailable"}</i>
               </button>
             {:else}
               <div class="workspace-list-empty">No tools match this filter</div>

@@ -9,12 +9,16 @@ import com.intellij.ui.components.JBPanel
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
 import java.awt.BorderLayout
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Path
 import javax.swing.BorderFactory
 import javax.swing.JComponent
 
 class CodeAgentPanel(private val project: Project) : Disposable {
     private var browser: JBCefBrowser? = null
     private var bridge: IdeBridge? = null
+    private var webRoot: Path? = null
 
     val component: JComponent = if (JBCefApp.isSupported()) {
         createBrowserComponent()
@@ -28,11 +32,29 @@ class CodeAgentPanel(private val project: Project) : Disposable {
         browser = jcefBrowser
         bridge = ideBridge
 
-        val html = requireNotNull(javaClass.getResource("/web/index.html")) {
-            "Missing bundled CodeAgent frontend"
-        }.readText()
-        jcefBrowser.loadHTML(html.replace("</body>", "${ideBridge.injectBridgeScript()}</body>"))
+        val page = materializeWebPage(ideBridge.injectBridgeScript())
+        webRoot = page.parent
+        // file:// avoids JCEF data-URL size/module failures that render raw JS as text.
+        jcefBrowser.loadURL(page.toUri().toString())
         return jcefBrowser.component
+    }
+
+    private fun materializeWebPage(bridgeScript: String): Path {
+        val html = requireNotNull(javaClass.getResourceAsStream("/web/index.html")) {
+            "Missing bundled CodeAgent frontend"
+        }.use { stream -> stream.readBytes().toString(StandardCharsets.UTF_8) }
+
+        val dir = Files.createTempDirectory("codeagent-web-")
+        dir.toFile().deleteOnExit()
+        val page = dir.resolve("index.html")
+        val withBridge = if (html.contains("</body>")) {
+            html.replaceFirst("</body>", "$bridgeScript</body>")
+        } else {
+            html + bridgeScript
+        }
+        Files.writeString(page, withBridge, StandardCharsets.UTF_8)
+        page.toFile().deleteOnExit()
+        return page
     }
 
     private fun createFallbackComponent(): JComponent = JBPanel<JBPanel<*>>(BorderLayout()).apply {
@@ -46,7 +68,15 @@ class CodeAgentPanel(private val project: Project) : Disposable {
     override fun dispose() {
         bridge?.dispose()
         browser?.dispose()
+        webRoot?.let { root ->
+            runCatching {
+                Files.walk(root).use { stream ->
+                    stream.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
+                }
+            }
+        }
         bridge = null
         browser = null
+        webRoot = null
     }
 }

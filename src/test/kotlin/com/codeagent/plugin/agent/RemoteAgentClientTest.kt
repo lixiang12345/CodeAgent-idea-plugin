@@ -18,8 +18,10 @@ class RemoteAgentClientTest {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         var runAuthorization: String? = null
         var modelsAuthorization: String? = null
+        var toolsAuthorization: String? = null
         var runBody = ""
         var toolResultBody = ""
+        var backendToolBody = ""
         server.createContext("/health") { exchange ->
             val body = """{"ok":true,"service":"codeagent-backend","protocolVersion":1}""".toByteArray()
             exchange.sendResponseHeaders(200, body.size.toLong())
@@ -46,6 +48,29 @@ class RemoteAgentClientTest {
         server.createContext("/v1/models") { exchange ->
             modelsAuthorization = exchange.requestHeaders.getFirst("Authorization")
             val body = """{"provider":"multi-provider","defaultModel":"gpt-5.6-sol","data":[{"id":"gpt-5.6-sol","ownedBy":"openai"},{"id":"claude-fable-5","ownedBy":"anthropic"}]}""".toByteArray()
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        server.createContext("/v1/tools/web_search") { exchange ->
+            backendToolBody = exchange.requestBody.bufferedReader().readText()
+            val body = """{"output":"Search result","summary":"Found 1 web result","detail":"Search result"}""".toByteArray()
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        server.createContext("/v1/tools") { exchange ->
+            toolsAuthorization = exchange.requestHeaders.getFirst("Authorization")
+            val body = """
+                {"data":[
+                  {
+                    "name":"web_search",
+                    "catalogId":"web",
+                    "description":"Search the web",
+                    "parameters":{"type":"object"},
+                    "available":true,
+                    "requiredEnvironment":["WEB_SEARCH_ENDPOINT"]
+                  }
+                ]}
+            """.trimIndent().toByteArray()
             exchange.sendResponseHeaders(200, body.size.toLong())
             exchange.responseBody.use { it.write(body) }
         }
@@ -88,9 +113,12 @@ class RemoteAgentClientTest {
             client.submitToolResult("run-1", RemoteToolResult("call-1", "completed", output = "README"))
             val health = client.health().join()
             val models = client.models().join()
+            val tools = client.tools().join()
+            val backendTool = client.executeTool("web_search", buildJsonObject { put("query", "CodeAgent") }).join()
 
             assertEquals("Bearer backend-secret", runAuthorization)
             assertEquals("Bearer backend-secret", modelsAuthorization)
+            assertEquals("Bearer backend-secret", toolsAuthorization)
             assertEquals(listOf("run.started", "message.delta", "assistant.completed"), eventTypes)
             assertTrue(eventPayloads[1].contains("\"turnIndex\":0"))
             assertTrue(eventPayloads[2].contains("\"turnIndex\":0"))
@@ -103,6 +131,9 @@ class RemoteAgentClientTest {
             assertEquals("multi-provider", models.provider)
             assertEquals("gpt-5.6-sol", models.defaultModel)
             assertEquals(listOf("gpt-5.6-sol", "claude-fable-5"), models.data.map { it.id })
+            assertEquals(listOf("web_search"), tools.data.map { it.name })
+            assertEquals("Search result", backendTool.output)
+            assertTrue(backendToolBody.contains("\"query\":\"CodeAgent\""))
         } finally {
             server.stop(0)
         }

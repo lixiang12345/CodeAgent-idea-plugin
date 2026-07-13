@@ -49,6 +49,37 @@ internal class RemoteAgentClient(
         }
     }
 
+    fun tools(): CompletableFuture<RemoteToolsResponse> {
+        val uri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/tools")
+        return httpClient.sendAsync(
+            requestBuilder(uri).timeout(Duration.ofSeconds(30)).GET().build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            check(response.statusCode() == 200) {
+                "Backend tool discovery returned HTTP " + response.statusCode() + ": " + errorMessage(response.body())
+            }
+            json.decodeFromString<RemoteToolsResponse>(response.body())
+        }
+    }
+
+    fun executeTool(name: String, arguments: JsonObject): CompletableFuture<RemoteToolExecutionResponse> {
+        require(name.matches(Regex("[A-Za-z0-9_-]+"))) { "Invalid backend tool name: $name" }
+        val uri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/tools/$name")
+        val body = json.encodeToString(RemoteToolExecutionRequest(arguments))
+        return httpClient.sendAsync(
+            requestBuilder(uri)
+                .timeout(Duration.ofSeconds(130))
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            check(response.statusCode() == 200) {
+                "Backend tool '$name' returned HTTP " + response.statusCode() + ": " + errorMessage(response.body())
+            }
+            json.decodeFromString<RemoteToolExecutionResponse>(response.body())
+        }
+    }
+
     fun enhance(text: String, mode: String, model: String?): CompletableFuture<RemoteEnhanceResponse> {
         val uri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/enhance")
         val body = json.encodeToString(
@@ -266,6 +297,34 @@ internal data class RemoteModelsResponse(
     val provider: String = "unknown",
     val defaultModel: String? = null,
     val data: List<RemoteModel> = emptyList(),
+)
+
+@Serializable
+internal data class RemoteToolsResponse(
+    val data: List<RemoteToolCapability> = emptyList(),
+)
+
+@Serializable
+internal data class RemoteToolCapability(
+    val name: String,
+    val catalogId: String,
+    val description: String,
+    val parameters: JsonObject,
+    val available: Boolean,
+    val unavailableReason: String? = null,
+    val requiredEnvironment: List<String> = emptyList(),
+)
+
+@Serializable
+internal data class RemoteToolExecutionRequest(
+    val arguments: JsonObject,
+)
+
+@Serializable
+internal data class RemoteToolExecutionResponse(
+    val output: String,
+    val summary: String,
+    val detail: String? = null,
 )
 
 @Serializable

@@ -43,11 +43,12 @@ class AgentOrchestrator(private val project: Project) : Disposable {
             try {
                 require(mode in setOf("agent", "chat", "ask")) { "Unsupported mode: $mode" }
                 require(history.none { it.role == "system" }) { "Conversation history cannot contain system messages" }
-                val toolRunner = AgentToolExecutor(project)
-                val definitions = toolRunner.definitions(mode)
                 val customization = customizations.refresh()
                 val client = RemoteAgentClient(settings)
                 context.client.set(client)
+                val remoteTools = client.tools().join().data.filter(RemoteToolCapability::available)
+                val toolRunner = AgentToolExecutor(project, client, remoteTools)
+                val definitions = toolRunner.definitions(mode)
                 val request = RemoteRunRequest(
                     mode = mode,
                     model = model,
@@ -103,6 +104,8 @@ class AgentOrchestrator(private val project: Project) : Disposable {
     internal fun health(): CompletableFuture<RemoteBackendHealth> = RemoteAgentClient(settingsService.snapshot()).health()
 
     internal fun models(): CompletableFuture<RemoteModelsResponse> = RemoteAgentClient(settingsService.snapshot()).models()
+
+    internal fun tools(): CompletableFuture<RemoteToolsResponse> = RemoteAgentClient(settingsService.snapshot()).tools()
 
     internal fun enhance(text: String, mode: String, model: String?): CompletableFuture<RemoteEnhanceResponse> =
         RemoteAgentClient(settingsService.snapshot()).enhance(text, mode, model)

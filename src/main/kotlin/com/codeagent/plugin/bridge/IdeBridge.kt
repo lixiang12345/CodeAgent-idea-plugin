@@ -74,6 +74,9 @@ class IdeBridge(
     @Volatile
     private var modelRegistry = ModelRegistryDto(state = "loading", label = "Loading models")
 
+    @Volatile
+    private var backendTools = emptyList<BackendToolDto>()
+
     init {
         query.addHandler { raw ->
             runCatching { handle(raw) }
@@ -641,6 +644,7 @@ class IdeBridge(
                 context = context,
                 backendHealth = backendHealth,
                 models = modelRegistry.copy(selectedModel = active.selectedModelId ?: modelRegistry.defaultModel),
+                backendTools = backendTools,
                 customization = WorkspaceCustomizationDto(
                     rules = customization.rules.map { rule ->
                         WorkspaceRuleDto(
@@ -705,8 +709,12 @@ class IdeBridge(
                     defaultModel = health.defaultModel,
                 )
             }
+            if (backendHealth.state != "online") backendTools = emptyList()
             emitSnapshot()
-            if (backendHealth.state == "online") refreshModels()
+            if (backendHealth.state == "online") {
+                refreshModels()
+                refreshBackendTools()
+            }
         }
     }
 
@@ -729,6 +737,25 @@ class IdeBridge(
             val selected = synchronized(stateLock) { conversations.active().selectedModelId }
             if (selected != null && modelRegistry.options.none { it.id == selected }) {
                 synchronized(stateLock) { conversations.setSelectedModel(null) }
+            }
+            emitSnapshot()
+        }
+    }
+
+    private fun refreshBackendTools() {
+        agent.tools().whenComplete { response, error ->
+            backendTools = if (error != null) {
+                emptyList()
+            } else {
+                response.data.map { tool ->
+                    BackendToolDto(
+                        name = tool.name,
+                        catalogId = tool.catalogId,
+                        available = tool.available,
+                        unavailableReason = tool.unavailableReason,
+                        requiredEnvironment = tool.requiredEnvironment,
+                    )
+                }
             }
             emitSnapshot()
         }

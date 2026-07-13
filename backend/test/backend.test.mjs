@@ -183,6 +183,8 @@ test("serves the public OpenAPI contract", async () => {
     const contract = await response.json();
     assert.equal(contract.openapi, "3.1.0");
     assert.ok(contract.paths["/v1/runs"]);
+    assert.ok(contract.paths["/v1/tools"]);
+    assert.ok(contract.paths["/v1/tools/{toolName}"].post);
     assert.ok(contract.paths["/v1/runs/{runId}/tool-results"]);
     assert.ok(contract.paths["/v1/runs/{runId}"].delete);
     assert.equal(contract.components.schemas.MessageDeltaEvent.required.includes("turnIndex"), true);

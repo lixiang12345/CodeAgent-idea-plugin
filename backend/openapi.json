@@ -85,6 +85,97 @@
         }
       }
     },
+    "/v1/tools": {
+      "get": {
+        "summary": "List backend-owned integration tools and configuration status",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Configured and unavailable backend tool capabilities",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackendToolList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/tools/{toolName}": {
+      "post": {
+        "summary": "Execute one configured backend-owned integration tool",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ToolName"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackendToolExecutionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Real provider result normalized for the agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackendToolExecutionResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "502": {
+            "description": "Configured provider failed or returned an invalid response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Tool exists but its backend configuration is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/enhance": {
       "post": {
         "summary": "Rewrite a user prompt for the coding agent",
@@ -331,6 +422,15 @@
           "type": "string",
           "format": "uuid"
         }
+      },
+      "ToolName": {
+        "name": "toolName",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
       }
     },
     "responses": {
@@ -355,7 +455,7 @@
         }
       },
       "NotFound": {
-        "description": "Run not found",
+        "description": "Requested resource not found",
         "content": {
           "application/json": {
             "schema": {
@@ -436,6 +536,94 @@
             "type": "string"
           }
         }
+      },
+      "BackendToolList": {
+        "type": "object",
+        "required": [
+          "object",
+          "data"
+        ],
+        "properties": {
+          "object": {
+            "type": "string",
+            "const": "list"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BackendToolCapability"
+            }
+          }
+        }
+      },
+      "BackendToolCapability": {
+        "type": "object",
+        "required": [
+          "name",
+          "catalogId",
+          "description",
+          "parameters",
+          "available",
+          "requiredEnvironment"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "catalogId": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "object"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "unavailableReason": {
+            "type": "string"
+          },
+          "requiredEnvironment": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "BackendToolExecutionRequest": {
+        "type": "object",
+        "required": [
+          "arguments"
+        ],
+        "properties": {
+          "arguments": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BackendToolExecutionResult": {
+        "type": "object",
+        "required": [
+          "output",
+          "summary"
+        ],
+        "properties": {
+          "output": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "RunRequest": {
         "type": "object",
