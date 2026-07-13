@@ -214,6 +214,14 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
         detail: "Opened in the active IDE editor.",
         canRevert: false,
       },
+      {
+        id: "tool-mermaid",
+        name: "render_mermaid",
+        summary: "JWT login flow",
+        status: "completed",
+        detail: "flowchart LR\n  Client[Client] --> Controller[AuthController]\n  Controller --> Service[TokenService]\n  Service --> JWT[Signed JWT]",
+        canRevert: false,
+      },
     ],
     threads: [
       { id: "dev", title: "Implement login flow with JWT", updatedAt: Date.now(), active: true, mode: "agent" },

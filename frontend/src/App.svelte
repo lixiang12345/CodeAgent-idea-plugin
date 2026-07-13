@@ -27,8 +27,10 @@
     Library,
     ListChecks,
     Menu,
+    Maximize2,
     MessageCircle,
     MessageSquarePlus,
+    Minus,
     Paperclip,
     Play,
     Plug,
@@ -49,6 +51,7 @@
     X,
   } from "@lucide/svelte";
   import { onMount } from "svelte";
+  import MermaidCanvas from "./lib/MermaidCanvas.svelte";
   import {
     onHostEvent,
     sendCommand,
@@ -70,13 +73,17 @@
 
   let snapshot: AppSnapshot | null = null;
   let prompt = "";
-  let currentView: "chat" | "settings" = "chat";
+  let currentView: "chat" | "settings" | "mermaid" = "chat";
   let settingsSection = "Home";
   let settingsNavigationOpen = true;
   let threadDrawerOpen = false;
   let modeMenuOpen = false;
   let skillsOpen = false;
   let tasksOpen = true;
+  let mermaidSource = "flowchart LR\n  IDE[IDEA Plugin] --> Backend[Agent Backend]";
+  let mermaidTitle = "Agent architecture";
+  let mermaidMode: "diagram" | "code" = "diagram";
+  let mermaidScale = 1;
   let toolsExpanded = new Set<string>();
   let backendUrl = "";
   let nodePath = "";
@@ -206,6 +213,7 @@
       add_tasks: "Add Tasks",
       update_tasks: "Update Task List",
       reorg_tasks: "Reorganize Task List",
+      render_mermaid: "Render Mermaid",
     };
     return titles[tool.name] ?? tool.name.replaceAll("_", " ");
   }
@@ -218,6 +226,15 @@
 
   function changeTools() {
     return snapshot?.tools.filter((tool) => Boolean(tool.changePath)) ?? [];
+  }
+
+  function openMermaid(tool: ToolRun) {
+    if (!tool.detail) return;
+    mermaidSource = tool.detail;
+    mermaidTitle = tool.summary || "Mermaid diagram";
+    mermaidMode = "diagram";
+    mermaidScale = 1;
+    currentView = "mermaid";
   }
 </script>
 
@@ -233,7 +250,7 @@
 {#if !snapshot}
   <main class="loading"><Sparkles size={16} /><span>Starting CodeAgent</span></main>
 {:else}
-  <main class="shell" class:settings-active={currentView === "settings"}>
+  <main class="shell" class:settings-active={currentView === "settings"} class:canvas-active={currentView === "mermaid"}>
     <header class="app-header">
       <div class="app-title"><span class="app-logo"><Braces size={13} /></span><strong>CodeAgent</strong></div>
       <div class="header-actions">
@@ -317,6 +334,7 @@
                               {:else if tool.name === "diagnostics"}<CircleAlert size={14} />
                               {:else if tool.name === "git_history"}<GitCommitHorizontal size={14} />
                               {:else if tool.name.includes("tasks")}<ListChecks size={14} />
+                              {:else if tool.name === "render_mermaid"}<Workflow size={14} />
                               {:else if tool.name === "write_file" || tool.name === "replace_text"}<FilePen size={14} />
                               {:else if tool.name === "open_file"}<ExternalLink size={14} />
                               {:else}<File size={14} />{/if}
@@ -328,7 +346,10 @@
                           {#if toolsExpanded.has(tool.id)}
                             <div class="tool-detail">
                               <span class="detail-label">Details</span>
-                              {#if tool.detail}<pre>{tool.detail}</pre>{:else}<p>No additional output.</p>{/if}
+                              {#if tool.name === "render_mermaid" && tool.detail}
+                                <MermaidCanvas source={tool.detail} compact />
+                                <button class="secondary-action" onclick={() => openMermaid(tool)}><Maximize2 size={13} />Open Canvas</button>
+                              {:else if tool.detail}<pre>{tool.detail}</pre>{:else}<p>No additional output.</p>{/if}
                               {#if tool.changePath}
                                 <div class="file-actions"><span>{tool.changePath}</span><button onclick={() => sendCommand("openDiff", { toolId: tool.id })}><FileDiff size={13} />View Diff</button>{#if tool.canRevert}<button onclick={() => sendCommand("revertChange", { toolId: tool.id })}><Undo2 size={13} />Undo</button>{/if}</div>
                               {/if}
@@ -428,7 +449,7 @@
           </div>
         </footer>
       </section>
-    {:else}
+    {:else if currentView === "settings"}
       <section class="settings-view">
         <header class="settings-header"><button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><ChevronLeft size={15} /></button><strong>Settings</strong><span></span><button class="audit-button">Audit</button></header>
         <div class="settings-layout" class:navigation-open={settingsNavigationOpen}>
@@ -476,6 +497,21 @@
               <section class="settings-block unavailable"><Plug size={20} /><strong>Not connected</strong><p>No operation will be simulated from this page.</p></section>
             {/if}
           </div>
+        </div>
+      </section>
+    {:else}
+      <section class="mermaid-view">
+        <header class="canvas-header">
+          <button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><ChevronLeft size={15} /></button>
+          <strong>{mermaidTitle}</strong>
+          <div class="canvas-tabs"><button class:active={mermaidMode === "diagram"} onclick={() => mermaidMode = "diagram"}>Diagram</button><button class:active={mermaidMode === "code"} onclick={() => mermaidMode = "code"}>Code</button></div>
+          <button class="icon-button compact" title="Zoom out" disabled={mermaidMode === "code"} onclick={() => mermaidScale = Math.max(.5, mermaidScale - .1)}><Minus size={14} /></button>
+          <span class="zoom-value">{Math.round(mermaidScale * 100)}%</span>
+          <button class="icon-button compact" title="Zoom in" disabled={mermaidMode === "code"} onclick={() => mermaidScale = Math.min(2, mermaidScale + .1)}><Plus size={14} /></button>
+          <button class="fit-button" disabled={mermaidMode === "code"} onclick={() => mermaidScale = 1}><Maximize2 size={13} />Fit</button>
+        </header>
+        <div class="canvas-body">
+          {#if mermaidMode === "diagram"}<MermaidCanvas source={mermaidSource} scale={mermaidScale} />{:else}<pre>{mermaidSource}</pre>{/if}
         </div>
       </section>
     {/if}

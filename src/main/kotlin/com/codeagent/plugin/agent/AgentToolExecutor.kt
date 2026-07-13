@@ -84,6 +84,13 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
             ),
         )))
         add(tool("view_tasks", "View the persistent task list for the active thread", schema(emptyMap())))
+        add(tool("render_mermaid", "Prepare a Mermaid diagram for rendering in the CodeAgent canvas", schema(
+            properties = mapOf(
+                "code" to stringProperty("Complete Mermaid diagram source"),
+                "title" to stringProperty("Short diagram title"),
+            ),
+            required = listOf("code"),
+        )))
         if (mode == "agent") {
             add(tool("add_tasks", "Add ordered tasks to the active thread", schema(
                 properties = mapOf("tasks" to stringArrayProperty("Task names in the order they should run", 1, 20)),
@@ -151,6 +158,7 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
             "diagnostics" -> diagnostics(args)
             "git_history" -> gitHistory(args)
             "view_tasks" -> viewTasks()
+            "render_mermaid" -> renderMermaid(args)
             "add_tasks" -> addTasks(args)
             "update_tasks" -> updateTask(args)
             "reorg_tasks" -> reorganizeTasks(args)
@@ -272,6 +280,17 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
         val tasks = conversations.active().tasks
         val output = formatTasks(tasks)
         return ToolExecutionResult(output, taskSummary(tasks), output.take(MAX_DETAIL_CHARS))
+    }
+
+    private fun renderMermaid(args: JsonObject): ToolExecutionResult {
+        val code = args.requiredString("code")
+        require(code.length <= MAX_MERMAID_CHARS) { "Mermaid source exceeds $MAX_MERMAID_CHARS characters" }
+        val title = args.string("title")?.trim()?.take(120).orEmpty().ifBlank { code.lineSequence().first().take(120) }
+        return ToolExecutionResult(
+            output = code,
+            summary = title,
+            detail = code,
+        )
     }
 
     private fun addTasks(args: JsonObject): ToolExecutionResult {
@@ -449,6 +468,7 @@ class AgentToolExecutor(private val project: Project) : AgentToolRunner {
 
     companion object {
         private const val MAX_DETAIL_CHARS = 8_000
+        private const val MAX_MERMAID_CHARS = 8_000
         private val IGNORED_SEGMENTS = setOf(".git", ".idea", ".gradle", ".contextengine", "build", "dist", "node_modules", "out")
     }
 }
