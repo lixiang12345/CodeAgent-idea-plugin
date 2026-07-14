@@ -1,0 +1,110 @@
+[
+  {
+    "id": "cloud-conversation-sync",
+    "query": "reconcile local and cloud conversations across devices with tombstones and retry",
+    "expectPaths": ["CloudConversationSyncService.kt"],
+    "topK": 8
+  },
+  {
+    "id": "conversation-summaries",
+    "query": "generate and persist compact summaries for long conversation history",
+    "expectPaths": ["ConversationSummaryService.kt"],
+    "topK": 8
+  },
+  {
+    "id": "oidc-pkce",
+    "query": "OIDC PKCE browser login refresh tokens and JetBrains Password Safe",
+    "expectPaths": ["OidcLoginService.kt"],
+    "topK": 8
+  },
+  {
+    "id": "webview-bridge",
+    "query": "handle versioned webview commands and emit complete application snapshots",
+    "expectPaths": ["IdeBridge.kt"],
+    "topK": 8
+  },
+  {
+    "id": "context-process",
+    "query": "start bundled Node ContextEngine sidecar and exchange JSON Lines requests",
+    "expectPaths": ["ContextEngineClient.kt"],
+    "topK": 8
+  },
+  {
+    "id": "context-auto-index",
+    "query": "watch workspace file changes debounce and run automatic incremental indexing",
+    "expectPaths": ["sidecar/src/server.ts"],
+    "topK": 8
+  },
+  {
+    "id": "tool-approval",
+    "query": "pause an agent tool call for user approval and resume after the decision",
+    "expectPaths": ["AgentOrchestrator.kt"],
+    "topK": 8
+  },
+  {
+    "id": "tool-filesystem-safety",
+    "query": "canonical project path validation file mutation shell execution and patch application",
+    "expectPaths": ["AgentToolExecutor.kt"],
+    "topK": 8
+  },
+  {
+    "id": "change-review",
+    "query": "open native IntelliJ Diff and safely revert an agent file checkpoint",
+    "expectPaths": ["ChangeReviewService.kt"],
+    "topK": 8
+  },
+  {
+    "id": "git-workspace",
+    "query": "inspect staged and working tree changes open git diff and create a commit",
+    "expectPaths": ["GitWorkspaceService.kt"],
+    "topK": 8
+  },
+  {
+    "id": "server-prompt",
+    "query": "compose server owned system policy with repository rules skills and mode instructions",
+    "expectPaths": ["backend/src/prompt.mjs"],
+    "topK": 8
+  },
+  {
+    "id": "model-gateway",
+    "query": "normalize OpenAI Responses and Anthropic streaming tool calls through one model gateway",
+    "expectPaths": ["backend/src/model-gateway.mjs"],
+    "topK": 8
+  },
+  {
+    "id": "product-api",
+    "query": "serve account conversations durable jobs usage and product configuration APIs",
+    "expectPaths": ["backend/src/product-api.mjs"],
+    "topK": 8
+  },
+  {
+    "id": "frontend-settings",
+    "query": "render account services settings threads composer approvals and tool cards",
+    "expectPaths": ["frontend/src/App.svelte"],
+    "topK": 8
+  },
+  {
+    "id": "jcef-assets",
+    "query": "serve multiple bundled frontend JavaScript and CSS assets inside JCEF",
+    "expectPaths": ["WebResourceHandler.kt"],
+    "topK": 8
+  },
+  {
+    "id": "conversation-store",
+    "query": "persist threads messages tasks attachments queue and selected model per project",
+    "expectPaths": ["ConversationStore.kt"],
+    "topK": 8
+  },
+  {
+    "id": "workspace-customization",
+    "query": "discover repository rules guidelines and skills selected for an agent run",
+    "expectPaths": ["WorkspaceCustomizationService.kt"],
+    "topK": 8
+  },
+  {
+    "id": "remote-agent-stream",
+    "query": "consume backend SSE agent events and submit tool results for continuation",
+    "expectPaths": ["RemoteAgentClient.kt"],
+    "topK": 8
+  }
+]

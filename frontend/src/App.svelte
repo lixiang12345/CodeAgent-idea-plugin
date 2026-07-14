@@ -669,7 +669,7 @@
             <strong class="thread-title" title="Double-click to rename" ondblclick={beginRename}>{activeThread()?.title ?? "New thread"}</strong>
           {/if}
           <div class="ch-actions">
-            <button class="context-meter" title={snapshot.context.label} onclick={updateContext}><Icon name="gauge" size={12} /> Context <b>{snapshot.context.state === "ready" ? "42%" : "--"}</b></button>
+            <button class="context-meter" title={snapshot.context.label} onclick={updateContext}><Icon name="gauge" size={12} /> Context <b>{snapshot.context.state === "ready" ? snapshot.context.watching ? "Live" : "Ready" : "--"}</b></button>
             <button class="icon-button compact" title="Chat zoom out" onclick={() => adjustChatZoom(-5)}>−</button>
             <button class="icon-button compact" title="Chat zoom in" onclick={() => adjustChatZoom(5)}>+</button>
             <button class="icon-button compact" title="Share link to session" onclick={copyThread}><Icon name="share-2" size={13} /></button>
@@ -699,7 +699,7 @@
           <button class="chip accent" title="Repository guidelines" onclick={() => openSettings("Rules & Guidelines")}><Icon name="book-open" size={12} /><span>Guidelines</span></button>
           <span class="repository-spacer"></span>
           <button class="chip index-state {snapshot.context.state}" title={snapshot.context.label} onclick={updateContext}>
-            <Icon name="database" size={12} /><span>{snapshot.context.state === "ready" ? "Indexed" : snapshot.context.label}</span>
+            <Icon name={snapshot.context.watching ? "refresh-cw" : "database"} size={12} /><span>{snapshot.context.state === "ready" ? snapshot.context.watching ? "Auto-synced" : "Indexed" : snapshot.context.label}</span>
           </button>
         </div>
 
@@ -1005,6 +1005,12 @@
               <section class="settings-block">
                 <header><strong>Codebase Indexing</strong><button onclick={updateContext}>Rebuild Index</button></header>
                 <p>{snapshot.context.label}</p>
+                {#if snapshot.context.state === "ready"}
+                  <div class="context-signals">
+                    <span><Icon name={snapshot.context.watching ? "refresh-cw" : "pause"} size={11} />{snapshot.context.watching ? "File changes sync automatically" : "Automatic sync unavailable"}</span>
+                    <span><Icon name={snapshot.context.hasEmbeddings ? "sparkles" : "search"} size={11} />{snapshot.context.hasEmbeddings ? "Hybrid semantic retrieval" : "Lexical and symbol retrieval"}</span>
+                  </div>
+                {/if}
                 <div class="progress"><span class:ready={snapshot.context.state === "ready"}></span></div>
               </section>
               <section class="settings-block">

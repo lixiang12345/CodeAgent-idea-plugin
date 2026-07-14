@@ -495,6 +495,8 @@ Used when model requests `codebase_retrieval` or UI triggers index/status.
 Logical operations (capability gateway owned):
 
 - index workspace / get status / progress
+- start or stop debounced workspace watching
+- expose automatic-index state, last duration, and changed/deleted file counts
 - retrieve packed context under token budget
 - text/symbol search helpers as implemented by vendor ContextEngine
 

@@ -288,6 +288,8 @@ button { color: inherit; }
 .settings-block > header strong { flex: 1; font-size: 10px; }
 .settings-block > header button, .settings-form footer button { height: 24px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 3px; background: #2d3035; font-size: 8px; cursor: pointer; }
 .settings-block > p { margin: 7px 0 0; color: var(--muted); font-size: 8px; overflow-wrap: anywhere; }
+.context-signals { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 5px 12px; color: #aeb4bc; font-size: 8px; }
+.context-signals span { display: inline-flex; align-items: center; gap: 4px; }
 .service-status { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #777c84; box-shadow: 0 0 0 2px #31343a; }
 .service-status.online { background: #62b47a; box-shadow: 0 0 0 2px #2d4d36; }
 .service-status.offline, .service-status.incompatible { background: #dc6e74; box-shadow: 0 0 0 2px #523238; }

@@ -164,6 +164,9 @@ export interface AppSnapshot {
     label: string;
     files?: number;
     chunks?: number;
+    watching?: boolean;
+    hasEmbeddings?: boolean;
+    lastIndexedAt?: string;
   };
   backendHealth: {
     state: "unknown" | "checking" | "online" | "offline" | "incompatible";

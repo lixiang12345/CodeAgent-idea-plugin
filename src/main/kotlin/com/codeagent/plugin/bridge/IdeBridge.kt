@@ -738,9 +738,17 @@ class IdeBridge(
                 error != null -> ContextSnapshotDto(state = "error", label = error.rootMessage())
                 status.indexed -> ContextSnapshotDto(
                     state = "ready",
-                    label = "${status.fileCount} files indexed",
+                    label = buildString {
+                        append("${status.fileCount} files indexed")
+                        append(if (status.watching) " · Auto-sync on" else " · Manual refresh")
+                        if (status.hasEmbeddings) append(" · Semantic search")
+                        status.watchError?.let { append(" · Watch error: $it") }
+                    },
                     files = status.fileCount,
                     chunks = status.chunkCount,
+                    watching = status.watching,
+                    hasEmbeddings = status.hasEmbeddings,
+                    lastIndexedAt = status.lastIndexedAt,
                 )
                 else -> ContextSnapshotDto(state = "not_indexed", label = "Index project")
             }

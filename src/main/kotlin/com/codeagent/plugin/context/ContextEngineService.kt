@@ -21,14 +21,24 @@ class ContextEngineService(project: Project) : Disposable {
     private val client = ContextEngineClient(java.nio.file.Path.of(root)) { settings.snapshot().nodePath }
 
     fun status(): CompletableFuture<ContextStatus> =
-        client.request("status").thenApply { json.decodeFromJsonElement(it) }
+        client.request("status").thenCompose { payload ->
+            val status = json.decodeFromJsonElement<ContextStatus>(payload)
+            if (!status.indexed) {
+                CompletableFuture.completedFuture(status)
+            } else {
+                ensureWatching().thenCompose {
+                    client.request("status").thenApply { current -> json.decodeFromJsonElement(current) }
+                }
+            }
+        }
 
     fun index(onProgress: (IndexProgress) -> Unit): CompletableFuture<IndexResult> =
         client.request(
             type = "index",
             timeout = Duration.ofMinutes(20),
             onProgress = { onProgress(json.decodeFromJsonElement(it)) },
-        ).thenApply { json.decodeFromJsonElement(it) }
+        ).thenApply { json.decodeFromJsonElement<IndexResult>(it) }
+            .thenCompose { result -> ensureWatching().thenApply { result } }
 
     fun retrieve(
         informationRequest: String,
@@ -47,6 +57,12 @@ class ContextEngineService(project: Project) : Disposable {
     fun restart() = client.restart()
 
     override fun dispose() = client.dispose()
+
+    private fun ensureWatching(): CompletableFuture<ContextStatus> =
+        client.request(
+            type = "watch",
+            payload = buildJsonObject { put("debounceMs", 800) },
+        ).thenApply { json.decodeFromJsonElement(it) }
 }
 
 @Serializable
@@ -57,6 +73,16 @@ data class ContextStatus(
     val fileCount: Int = 0,
     val hasEmbeddings: Boolean = false,
     val lastIndexedAt: String? = null,
+    val watching: Boolean = false,
+    val watchDebounceMs: Int = 800,
+    val pendingChanges: Int = 0,
+    val automaticIndexRuns: Int = 0,
+    val lastAutomaticIndexAt: String? = null,
+    val lastAutomaticDurationMs: Long? = null,
+    val lastAutomaticFilesIndexed: Int = 0,
+    val lastAutomaticFilesRemoved: Int = 0,
+    val lastAutomaticChunksWritten: Int = 0,
+    val watchError: String? = null,
 )
 
 @Serializable

@@ -153,6 +153,9 @@ data class ContextSnapshotDto(
     val label: String = "Context unavailable",
     val files: Int? = null,
     val chunks: Int? = null,
+    val watching: Boolean = false,
+    val hasEmbeddings: Boolean = false,
+    val lastIndexedAt: String? = null,
 )
 
 @Serializable

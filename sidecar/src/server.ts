@@ -1,11 +1,14 @@
 #!/usr/bin/env node
+import { watch, type FSWatcher } from "node:fs";
 import { createInterface } from "node:readline";
 import path from "node:path";
 import { ContextEngine } from "../../vendor/context-engine/src/engine.ts";
+import type { IndexProgress } from "../../vendor/context-engine/src/types.ts";
+import type { IndexResult } from "../../vendor/context-engine/src/indexer/indexer.ts";
 
 interface RequestEnvelope {
   id: string;
-  type: "health" | "status" | "index" | "retrieve" | "search" | "shutdown";
+  type: "health" | "status" | "index" | "watch" | "unwatch" | "retrieve" | "search" | "shutdown";
   root?: string;
   payload?: Record<string, unknown>;
 }
@@ -16,22 +19,48 @@ interface ResponseEnvelope {
   payload?: unknown;
 }
 
-const engines = new Map<string, ContextEngine>();
+interface WorkspaceRuntime {
+  engine: ContextEngine;
+  root: string;
+  indexTail: Promise<void>;
+  watcher: FSWatcher | null;
+  watchTimer: NodeJS.Timeout | null;
+  watchDebounceMs: number;
+  pendingChanges: number;
+  automaticIndexRuns: number;
+  lastAutomaticIndexAt: string | null;
+  lastAutomaticResult: IndexResult | null;
+  lastWatchError: string | null;
+}
+
+const runtimes = new Map<string, WorkspaceRuntime>();
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 
 function send(response: ResponseEnvelope): void {
   process.stdout.write(`${JSON.stringify(response)}\n`);
 }
 
-function getEngine(rootValue: string | undefined): ContextEngine {
+function getRuntime(rootValue: string | undefined): WorkspaceRuntime {
   if (!rootValue) throw new Error("A project root is required");
   const root = path.resolve(rootValue);
-  let engine = engines.get(root);
-  if (!engine) {
-    engine = ContextEngine.open({ root });
-    engines.set(root, engine);
+  let runtime = runtimes.get(root);
+  if (!runtime) {
+    runtime = {
+      engine: ContextEngine.open({ root }),
+      root,
+      indexTail: Promise.resolve(),
+      watcher: null,
+      watchTimer: null,
+      watchDebounceMs: 800,
+      pendingChanges: 0,
+      automaticIndexRuns: 0,
+      lastAutomaticIndexAt: null,
+      lastAutomaticResult: null,
+      lastWatchError: null,
+    };
+    runtimes.set(root, runtime);
   }
-  return engine;
+  return runtime;
 }
 
 async function handle(request: RequestEnvelope): Promise<void> {
@@ -40,34 +69,52 @@ async function handle(request: RequestEnvelope): Promise<void> {
       send({
         id: request.id,
         type: "result",
-        payload: { ok: true, nodeVersion: process.versions.node, protocolVersion: 1 },
+        payload: {
+          ok: true,
+          nodeVersion: process.versions.node,
+          protocolVersion: 1,
+          capabilities: ["incremental-index", "workspace-watch"],
+        },
       });
       return;
     case "status": {
-      const engine = getEngine(request.root);
+      const runtime = getRuntime(request.root);
+      await runtime.indexTail;
       send({
         id: request.id,
         type: "result",
-        payload: engine.hasIndex()
-          ? { indexed: true, ...engine.stats() }
-          : { indexed: false, root: engine.config.root },
+        payload: statusPayload(runtime),
       });
       return;
     }
     case "index": {
-      const engine = getEngine(request.root);
-      const result = await engine.index((progress) => {
+      const runtime = getRuntime(request.root);
+      const result = await queueIndex(runtime, false, (progress) => {
         send({ id: request.id, type: "progress", payload: progress });
       });
       send({ id: request.id, type: "result", payload: result });
       return;
     }
+    case "watch": {
+      const runtime = getRuntime(request.root);
+      if (!runtime.engine.hasIndex()) throw new Error("Project is not indexed");
+      startWatching(runtime, toDebounceMs(request.payload?.debounceMs));
+      send({ id: request.id, type: "result", payload: statusPayload(runtime) });
+      return;
+    }
+    case "unwatch": {
+      const runtime = getRuntime(request.root);
+      stopWatching(runtime);
+      send({ id: request.id, type: "result", payload: statusPayload(runtime) });
+      return;
+    }
     case "retrieve": {
-      const engine = getEngine(request.root);
-      if (!engine.hasIndex()) throw new Error("Project is not indexed");
+      const runtime = getRuntime(request.root);
+      await runtime.indexTail;
+      if (!runtime.engine.hasIndex()) throw new Error("Project is not indexed");
       const informationRequest = String(request.payload?.informationRequest ?? "").trim();
       if (!informationRequest) throw new Error("informationRequest is required");
-      const packed = await engine.codebaseRetrieval(informationRequest, {
+      const packed = await runtime.engine.codebaseRetrieval(informationRequest, {
         topK: toOptionalInteger(request.payload?.topK),
         maxTokens: toOptionalInteger(request.payload?.maxTokens),
       });
@@ -75,11 +122,12 @@ async function handle(request: RequestEnvelope): Promise<void> {
       return;
     }
     case "search": {
-      const engine = getEngine(request.root);
-      if (!engine.hasIndex()) throw new Error("Project is not indexed");
+      const runtime = getRuntime(request.root);
+      await runtime.indexTail;
+      if (!runtime.engine.hasIndex()) throw new Error("Project is not indexed");
       const query = String(request.payload?.query ?? "").trim();
       if (!query) throw new Error("query is required");
-      const hits = await engine.search({
+      const hits = await runtime.engine.search({
         query,
         topK: toOptionalInteger(request.payload?.topK) ?? 10,
         pathPrefix: typeof request.payload?.pathPrefix === "string" ? request.payload.pathPrefix : undefined,
@@ -91,14 +139,124 @@ async function handle(request: RequestEnvelope): Promise<void> {
       return;
     }
     case "shutdown":
-      for (const engine of engines.values()) engine.close();
+      closeAll();
       send({ id: request.id, type: "result", payload: { ok: true } });
       process.exit(0);
   }
 }
 
+function queueIndex(
+  runtime: WorkspaceRuntime,
+  automatic: boolean,
+  onProgress?: (progress: IndexProgress) => void,
+): Promise<IndexResult> {
+  const run = runtime.indexTail
+    .catch(() => undefined)
+    .then(async () => {
+      const result = await runtime.engine.index(onProgress);
+      if (automatic) {
+        runtime.automaticIndexRuns += 1;
+        runtime.lastAutomaticIndexAt = new Date().toISOString();
+        runtime.lastAutomaticResult = result;
+        runtime.lastWatchError = null;
+      }
+      return result;
+    });
+  runtime.indexTail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+function startWatching(runtime: WorkspaceRuntime, debounceMs: number): void {
+  runtime.watchDebounceMs = debounceMs;
+  if (runtime.watcher) return;
+  runtime.lastWatchError = null;
+  try {
+    runtime.watcher = watch(runtime.root, { recursive: true }, (_event, filename) => {
+      if (filename && shouldIgnoreWatchPath(filename.toString())) return;
+      runtime.pendingChanges += 1;
+      if (runtime.watchTimer) clearTimeout(runtime.watchTimer);
+      runtime.watchTimer = setTimeout(() => {
+        runtime.watchTimer = null;
+        runtime.pendingChanges = 0;
+        void queueIndex(runtime, true).catch((error) => {
+          runtime.lastWatchError = errorMessage(error);
+          process.stderr.write(`ContextEngine automatic index failed for ${runtime.root}: ${runtime.lastWatchError}\n`);
+        });
+      }, runtime.watchDebounceMs);
+    });
+    runtime.watcher.on("error", (error) => {
+      runtime.lastWatchError = errorMessage(error);
+      stopWatching(runtime, false);
+    });
+  } catch (error) {
+    runtime.lastWatchError = errorMessage(error);
+    runtime.watcher = null;
+  }
+}
+
+function stopWatching(runtime: WorkspaceRuntime, clearError = true): void {
+  if (runtime.watchTimer) clearTimeout(runtime.watchTimer);
+  runtime.watchTimer = null;
+  runtime.pendingChanges = 0;
+  runtime.watcher?.close();
+  runtime.watcher = null;
+  if (clearError) runtime.lastWatchError = null;
+}
+
+function shouldIgnoreWatchPath(value: string): boolean {
+  const relative = value.split(path.sep).join("/");
+  const ignoredSegments = new Set([
+    ".contextengine",
+    ".git",
+    ".idea",
+    "node_modules",
+    "dist",
+    "build",
+    "out",
+  ]);
+  return relative.split("/").some((segment) => ignoredSegments.has(segment));
+}
+
+function statusPayload(runtime: WorkspaceRuntime): Record<string, unknown> {
+  const watch = {
+    watching: runtime.watcher !== null,
+    watchDebounceMs: runtime.watchDebounceMs,
+    pendingChanges: runtime.pendingChanges,
+    automaticIndexRuns: runtime.automaticIndexRuns,
+    lastAutomaticIndexAt: runtime.lastAutomaticIndexAt,
+    lastAutomaticDurationMs: runtime.lastAutomaticResult?.durationMs ?? null,
+    lastAutomaticFilesIndexed: runtime.lastAutomaticResult?.filesIndexed ?? 0,
+    lastAutomaticFilesRemoved: runtime.lastAutomaticResult?.filesRemoved ?? 0,
+    lastAutomaticChunksWritten: runtime.lastAutomaticResult?.chunksWritten ?? 0,
+    watchError: runtime.lastWatchError,
+  };
+  return runtime.engine.hasIndex()
+    ? { indexed: true, ...runtime.engine.stats(), ...watch }
+    : { indexed: false, root: runtime.root, ...watch };
+}
+
+function closeAll(): void {
+  for (const runtime of runtimes.values()) {
+    stopWatching(runtime);
+    runtime.engine.close();
+  }
+  runtimes.clear();
+}
+
 function toOptionalInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) ? value : undefined;
+}
+
+function toDebounceMs(value: unknown): number {
+  const parsed = toOptionalInteger(value) ?? 800;
+  return Math.min(10_000, Math.max(100, parsed));
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 input.on("line", (line) => {
@@ -122,5 +280,5 @@ input.on("line", (line) => {
 });
 
 input.on("close", () => {
-  for (const engine of engines.values()) engine.close();
+  closeAll();
 });

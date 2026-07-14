@@ -2,7 +2,7 @@
 
 CodeAgent is an IDE-native AI coding agent for IntelliJ IDEA and other JetBrains IDEs. It combines a separately deployed Agent backend with the open [ContextEngine](https://github.com/lixiang12345/ContextEngine-plugin) retrieval component running locally beside the IDE.
 
-The IDEA plugin is a capability gateway: it owns project access, ContextEngine, approvals, editor actions, terminal execution, and Diff/revert. The deployable backend in `backend/` owns prompts, model credentials, streamed model calls, and tool-call orchestration. See the [prototype parity contract](docs/PROTOTYPE_PARITY.md), [product definition](docs/PRODUCT.md), [Rules and Skills guide](docs/RULES_AND_SKILLS.md), [prompt architecture](docs/PROMPT_ARCHITECTURE.md), [provider and data flow](docs/PROVIDER_AND_DATA_FLOW.md), and [architecture analysis](docs/ARCHITECTURE.md).
+The IDEA plugin is a capability gateway: it owns project access, ContextEngine, approvals, editor actions, terminal execution, and Diff/revert. The deployable backend in `backend/` owns prompts, model credentials, streamed model calls, and tool-call orchestration. See the [prototype parity contract](docs/PROTOTYPE_PARITY.md), [product definition](docs/PRODUCT.md), [Rules and Skills guide](docs/RULES_AND_SKILLS.md), [prompt architecture](docs/PROMPT_ARCHITECTURE.md), [ContextEngine deployment guide](docs/CONTEXT_ENGINE.md), [provider and data flow](docs/PROVIDER_AND_DATA_FLOW.md), and [architecture analysis](docs/ARCHITECTURE.md).
 
 ## Run the backend
 
@@ -21,7 +21,7 @@ For a hosted deployment, build `backend/Dockerfile` and provide the unified mode
 1. Install the ZIP from `build/distributions/` through **Settings > Plugins > Install Plugin from Disk**.
 2. Open **Tools > Show CodeAgent** (`Ctrl+Alt+I`, or `Control+Command+I` on macOS).
 3. With the local Docker backend running, no backend URL or token entry is required. For a hosted deployment, set its URL under **Settings > Services**, then sign in from **Settings > Account**. CodeAgent discovers `node` and common Node.js installation paths automatically; Advanced Settings can override the Node.js 22.5+ executable.
-4. Select **Index project**, then use **Agent** for approved code changes, **Chat** for code-aware collaboration, or **Ask** for read-only analysis.
+4. Select **Index project** once. The local sidecar then watches project files and incrementally updates changed or deleted files. Use **Agent** for approved code changes, **Chat** for code-aware collaboration, or **Ask** for read-only analysis.
 
 The panel's workspace menu opens the prototype-aligned **Tasks**, **Git**, and **Image Canvas** pages. Tasks persist per thread and can be imported/exported as Markdown. Git reads the real index and working tree, opens JetBrains Diff, and requires explicit confirmation before committing. Image Canvas previews bounded raster assets from a user-selected directory inside the project and can attach them to the active conversation. Threads support pin, confirmed delete, and Markdown import/export. Messages entered during an active run are queued by the IDEA capability layer and dispatched in order.
 
@@ -53,7 +53,7 @@ cd backend && npm test && cd ..
 
 The installable ZIP is written to `build/distributions/`.
 
-ContextEngine is pinned as a Git submodule and bundled into the local Node sidecar. Its MIT license is included in the plugin distribution; see [third-party notices](THIRD_PARTY_NOTICES.md).
+ContextEngine is pinned as a Git submodule and bundled into the local Node sidecar. Its SQLite index and file watcher run on each developer machine. Lexical, symbol, path, graph, and Git-lineage retrieval need no model; an OpenAI-compatible embedding endpoint can be added for semantic retrieval without moving filesystem authority to the backend. Its MIT license is included in the plugin distribution; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## Verify
 

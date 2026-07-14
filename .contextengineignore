@@ -1,0 +1,6 @@
+# Evaluation fixtures repeat golden queries and must not influence retrieval.
+evaluation/
+
+# Generated or local artifacts with very low engineering-context value.
+frontend/src/lib/icons.ts
+omp-session-*.html
