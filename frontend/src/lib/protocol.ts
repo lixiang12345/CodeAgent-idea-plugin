@@ -90,6 +90,13 @@ export interface SettingsSnapshot {
   nodePath: string;
   backendTokenConfigured: boolean;
   autoApproveReadOnly: boolean;
+  contextMode: "lexical" | "private-semantic";
+  contextEmbeddingBaseUrl: string;
+  contextEmbeddingModel: string;
+  contextEmbeddingTokenConfigured: boolean;
+  contextNeuralRerank: boolean;
+  contextRerankBaseUrl: string;
+  contextRerankModel: string;
 }
 
 export interface AccountUsage {

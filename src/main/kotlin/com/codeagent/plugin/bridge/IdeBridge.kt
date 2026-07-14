@@ -686,13 +686,27 @@ class IdeBridge(
                 nodePath = request.nodePath,
                 autoApproveReadOnly = request.autoApproveReadOnly,
                 backendToken = request.backendToken,
+                contextMode = request.contextMode,
+                contextEmbeddingBaseUrl = request.contextEmbeddingBaseUrl,
+                contextEmbeddingModel = request.contextEmbeddingModel,
+                contextEmbeddingApiKey = request.contextEmbeddingApiKey,
+                contextNeuralRerank = request.contextNeuralRerank,
+                contextRerankBaseUrl = request.contextRerankBaseUrl,
+                contextRerankModel = request.contextRerankModel,
             ),
         )
         val current = settingsService.snapshot()
         if (previous.backendUrl != current.backendUrl || request.backendToken?.isNotBlank() == true) {
             resetCloudSync()
         }
-        if (previous.nodePath != current.nodePath) {
+        if (previous.nodePath != current.nodePath ||
+            previous.contextMode != current.contextMode ||
+            previous.contextEmbeddingBaseUrl != current.contextEmbeddingBaseUrl ||
+            previous.contextEmbeddingModel != current.contextEmbeddingModel ||
+            previous.contextEmbeddingApiKey != current.contextEmbeddingApiKey ||
+            previous.contextNeuralRerank != current.contextNeuralRerank ||
+            previous.contextRerankBaseUrl != current.contextRerankBaseUrl ||
+            previous.contextRerankModel != current.contextRerankModel) {
             contextEngine.restart()
             refreshContextStatus()
         } else {
@@ -728,6 +742,13 @@ class IdeBridge(
                     nodePath = settings.nodePath,
                     backendTokenConfigured = !settings.backendToken.isNullOrBlank(),
                     autoApproveReadOnly = settings.autoApproveReadOnly,
+                    contextMode = settings.contextMode,
+                    contextEmbeddingBaseUrl = settings.contextEmbeddingBaseUrl,
+                    contextEmbeddingModel = settings.contextEmbeddingModel,
+                    contextEmbeddingTokenConfigured = !settings.contextEmbeddingApiKey.isNullOrBlank(),
+                    contextNeuralRerank = settings.contextNeuralRerank,
+                    contextRerankBaseUrl = settings.contextRerankBaseUrl,
+                    contextRerankModel = settings.contextRerankModel,
                 ),
                 account = account,
                 context = context,
@@ -1427,6 +1448,13 @@ class IdeBridge(
         val nodePath: String,
         val autoApproveReadOnly: Boolean = true,
         val backendToken: String? = null,
+        val contextMode: String = "lexical",
+        val contextEmbeddingBaseUrl: String = "http://127.0.0.1:8000/v1",
+        val contextEmbeddingModel: String = "Qwen/Qwen3-Embedding-0.6B",
+        val contextEmbeddingApiKey: String? = null,
+        val contextNeuralRerank: Boolean = false,
+        val contextRerankBaseUrl: String = "",
+        val contextRerankModel: String = "Qwen/Qwen3-Reranker-0.6B",
     )
 
     @Serializable

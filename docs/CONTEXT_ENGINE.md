@@ -2,6 +2,8 @@
 
 CodeAgent vendors the upstream `lixiang12345/ContextEngine-plugin` commit as a pinned Git submodule and compiles its public `ContextEngine` API into the local Node sidecar. The IDE plugin does not maintain a second retrieval implementation.
 
+- Current upstream pin: `ce361c499131dfcc2421fd066753da86b8f87f47` (`v0.4.0`, verified July 13, 2026).
+
 ## Runtime ownership
 
 - The SQLite index, source scan, file watcher, searcher, and retrieval packing run on the developer machine.
@@ -22,7 +24,14 @@ Production deployments should support three modes:
 | Private semantic | User or organization hosts an OpenAI-compatible embedding endpoint | Privacy-sensitive teams and stronger conceptual retrieval |
 | Managed semantic | Product operator hosts the embedding endpoint | Managed accounts with centralized capacity and observability |
 
-The plugin should not silently download or start a multi-gigabyte model. For private semantic retrieval, the current upstream production recommendation is `Qwen/Qwen3-Embedding-0.6B`, optionally paired with `Qwen/Qwen3-Reranker-0.6B`, served through an OpenAI-compatible endpoint. Endpoint settings and credentials belong in a dedicated Context settings page and JetBrains Password Safe.
+The current plugin exposes the first two modes. Managed semantic remains deliberately disabled until the backend has an authenticated short-lived proxy/token-refresh path suitable for a long-lived local sidecar.
+
+- Local lexical is the default and requires no model, account, or download.
+- Private semantic accepts an OpenAI-compatible `/v1/embeddings` endpoint and optional `/v1/rerank` endpoint.
+- The plugin does not silently download or start a multi-gigabyte model.
+- The production open-weight recommendation is `Qwen/Qwen3-Embedding-0.6B`, optionally paired with `Qwen/Qwen3-Reranker-0.6B`.
+- Endpoint credentials are stored in JetBrains Password Safe and are injected only into the ContextEngine child process.
+- Switching retrieval mode restarts the sidecar. Enabling embeddings requires an explicit index rebuild so a settings save never starts an unexpected GPU or network workload.
 
 ## Accuracy baseline
 
@@ -39,9 +48,9 @@ The current local lexical baseline for this repository is stored in `evaluation/
 
 | Suite | Passed | Recall@8 | MRR | nDCG@8 |
 | --- | ---: | ---: | ---: | ---: |
-| CodeAgent architecture queries | 14 / 18 | 0.778 | 0.619 | 0.697 |
+| CodeAgent architecture queries | 13 / 18 | 0.722 | 0.577 | 0.633 |
 
-The missed conceptual queries cover tool-approval orchestration, JCEF asset serving, workspace rule/skill discovery, and remote SSE continuation. They are retained as regression targets for query expansion, semantic retrieval, and the planned Context Agent. On the same checkout, a no-op incremental pass scanned 93 eligible files, rewrote 0 files, and completed in 151 ms. These measurements are development baselines, not release guarantees.
+The July 14, 2026 lexical run missed five conceptual targets: ContextEngine process ownership, tool-approval orchestration, JCEF asset serving, workspace rule/skill discovery, and remote SSE continuation. Adding a same-domain runtime-settings test displaced the ContextEngine client from the top results, which demonstrates that raw chunk-level lexical ranking remains sensitive to repository growth. These cases are retained as regression targets for file-level reranking, query planning, semantic retrieval, and the Context Agent. These measurements are development baselines, not release guarantees.
 
 ## Verification
 

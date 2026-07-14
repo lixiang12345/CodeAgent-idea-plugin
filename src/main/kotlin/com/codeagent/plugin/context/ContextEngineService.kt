@@ -4,6 +4,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import com.codeagent.plugin.settings.CodeAgentSettings
 import com.codeagent.plugin.settings.CodeAgentSettingsService
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -18,7 +19,9 @@ class ContextEngineService(project: Project) : Disposable {
     private val json = Json { ignoreUnknownKeys = true }
     private val root = requireNotNull(project.basePath) { "CodeAgent requires a project base path" }
     private val settings = service<CodeAgentSettingsService>()
-    private val client = ContextEngineClient(java.nio.file.Path.of(root)) { settings.snapshot().nodePath }
+    private val client = ContextEngineClient(java.nio.file.Path.of(root)) {
+        contextEngineRuntimeSettings(settings.snapshot())
+    }
 
     fun status(): CompletableFuture<ContextStatus> =
         client.request("status").thenCompose { payload ->
@@ -63,6 +66,32 @@ class ContextEngineService(project: Project) : Disposable {
             type = "watch",
             payload = buildJsonObject { put("debounceMs", 800) },
         ).thenApply { json.decodeFromJsonElement(it) }
+}
+
+internal fun contextEngineRuntimeSettings(
+    current: CodeAgentSettings,
+    resolvedNodePath: String = NodeRuntimeLocator.find(current.nodePath),
+): ContextEngineRuntimeSettings {
+    if (current.contextMode != "private-semantic") {
+        return ContextEngineRuntimeSettings(nodePath = resolvedNodePath)
+    }
+
+    val apiKey = current.contextEmbeddingApiKey?.takeIf { it.isNotBlank() } ?: "codeagent-local-endpoint"
+    val environment = buildMap {
+        put("CONTEXTENGINE_EMBEDDING_API_KEY", apiKey)
+        put("CONTEXTENGINE_EMBEDDING_BASE_URL", current.contextEmbeddingBaseUrl)
+        put("CONTEXTENGINE_EMBEDDING_MODEL", current.contextEmbeddingModel)
+        if (current.contextNeuralRerank) {
+            put("CONTEXTENGINE_NEURAL_RERANK", "1")
+            put("CONTEXTENGINE_RERANK_API_KEY", apiKey)
+            put(
+                "CONTEXTENGINE_RERANK_BASE_URL",
+                current.contextRerankBaseUrl.ifBlank { current.contextEmbeddingBaseUrl },
+            )
+            put("CONTEXTENGINE_RERANK_MODEL", current.contextRerankModel)
+        }
+    }
+    return ContextEngineRuntimeSettings(nodePath = resolvedNodePath, environment = environment)
 }
 
 @Serializable

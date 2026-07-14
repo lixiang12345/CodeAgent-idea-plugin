@@ -129,6 +129,13 @@ data class SettingsSnapshotDto(
     val nodePath: String = "node",
     val backendTokenConfigured: Boolean = false,
     val autoApproveReadOnly: Boolean = true,
+    val contextMode: String = "lexical",
+    val contextEmbeddingBaseUrl: String = "http://127.0.0.1:8000/v1",
+    val contextEmbeddingModel: String = "Qwen/Qwen3-Embedding-0.6B",
+    val contextEmbeddingTokenConfigured: Boolean = false,
+    val contextNeuralRerank: Boolean = false,
+    val contextRerankBaseUrl: String = "",
+    val contextRerankModel: String = "Qwen/Qwen3-Reranker-0.6B",
 )
 
 @Serializable

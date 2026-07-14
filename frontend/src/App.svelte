@@ -121,6 +121,13 @@
   let nodePath = "";
   let backendToken = "";
   let autoApproveReadOnly = true;
+  let contextMode: "lexical" | "private-semantic" = "lexical";
+  let contextEmbeddingBaseUrl = "http://127.0.0.1:8000/v1";
+  let contextEmbeddingModel = "Qwen/Qwen3-Embedding-0.6B";
+  let contextEmbeddingApiKey = "";
+  let contextNeuralRerank = false;
+  let contextRerankBaseUrl = "";
+  let contextRerankModel = "Qwen/Qwen3-Reranker-0.6B";
   let error = "";
   let notice = "";
   let threadSearch = "";
@@ -158,6 +165,12 @@
       backendUrl = snapshot.settings.backendUrl;
       nodePath = snapshot.settings.nodePath;
       autoApproveReadOnly = snapshot.settings.autoApproveReadOnly;
+      contextMode = snapshot.settings.contextMode;
+      contextEmbeddingBaseUrl = snapshot.settings.contextEmbeddingBaseUrl;
+      contextEmbeddingModel = snapshot.settings.contextEmbeddingModel;
+      contextNeuralRerank = snapshot.settings.contextNeuralRerank;
+      contextRerankBaseUrl = snapshot.settings.contextRerankBaseUrl;
+      contextRerankModel = snapshot.settings.contextRerankModel;
       return;
     }
     if (event.type === "error") {
@@ -296,8 +309,21 @@
   }
 
   function saveSettings() {
-    sendCommand("saveSettings", { backendUrl, nodePath, backendToken, autoApproveReadOnly });
+    sendCommand("saveSettings", {
+      backendUrl,
+      nodePath,
+      backendToken,
+      autoApproveReadOnly,
+      contextMode,
+      contextEmbeddingBaseUrl,
+      contextEmbeddingModel,
+      contextEmbeddingApiKey,
+      contextNeuralRerank,
+      contextRerankBaseUrl,
+      contextRerankModel,
+    });
     backendToken = "";
+    contextEmbeddingApiKey = "";
   }
 
   function signIn() {
@@ -328,7 +354,19 @@
 
   function toggleAutoRun() {
     autoApproveReadOnly = !autoApproveReadOnly;
-    sendCommand("saveSettings", { backendUrl, nodePath, backendToken: "", autoApproveReadOnly });
+    sendCommand("saveSettings", {
+      backendUrl,
+      nodePath,
+      backendToken: "",
+      autoApproveReadOnly,
+      contextMode,
+      contextEmbeddingBaseUrl,
+      contextEmbeddingModel,
+      contextEmbeddingApiKey: "",
+      contextNeuralRerank,
+      contextRerankBaseUrl,
+      contextRerankModel,
+    });
   }
 
   function updateContext() {
@@ -1090,7 +1128,7 @@
               <h1>{settingsSection === "API Keys" ? "API Keys" : "Services"}</h1>
               <p class="settings-lead">
                 {#if settingsSection === "API Keys"}
-                  Backend model credentials stay on the deployed Agent service. Use this page for the IDE gateway token only.
+                  Agent model credentials stay on the deployed backend. Private Context Engine endpoint credentials remain in JetBrains Password Safe.
                 {:else}
                   Connect this IDE capability gateway to the deployed Agent backend.
                 {/if}
@@ -1099,6 +1137,20 @@
                 <label><span>Backend URL</span><input bind:value={backendUrl} /></label>
                 <label><span>Backend token</span><input type="password" bind:value={backendToken} placeholder={snapshot.settings.backendTokenConfigured ? "Configured" : "Not configured"} /></label>
                 <label><span>Node.js executable</span><input bind:value={nodePath} /></label>
+                <label><span>Context retrieval</span><select bind:value={contextMode}><option value="lexical">Local lexical and symbol index</option><option value="private-semantic">Private semantic endpoint</option></select></label>
+                {#if contextMode === "private-semantic"}
+                  <label><span>Embedding API URL</span><input bind:value={contextEmbeddingBaseUrl} /></label>
+                  <label><span>Embedding model</span><input bind:value={contextEmbeddingModel} /></label>
+                  <label><span>Embedding token</span><input type="password" bind:value={contextEmbeddingApiKey} placeholder={snapshot.settings.contextEmbeddingTokenConfigured ? "Configured" : "Optional for local endpoints"} /></label>
+                  <label class="toggle-row">
+                    <input type="checkbox" bind:checked={contextNeuralRerank} />
+                    <span><strong>Neural rerank</strong><small>Apply an optional cross-encoder to the top retrieval candidates</small></span>
+                  </label>
+                  {#if contextNeuralRerank}
+                    <label><span>Rerank API URL</span><input bind:value={contextRerankBaseUrl} placeholder="Use embedding endpoint" /></label>
+                    <label><span>Rerank model</span><input bind:value={contextRerankModel} /></label>
+                  {/if}
+                {/if}
                 <label class="toggle-row">
                   <input type="checkbox" bind:checked={autoApproveReadOnly} />
                   <span><strong>Auto-run read-only tools</strong><small>Context retrieval, search, and file reads</small></span>

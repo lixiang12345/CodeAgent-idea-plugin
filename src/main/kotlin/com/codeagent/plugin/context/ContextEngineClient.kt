@@ -22,7 +22,9 @@ import java.util.concurrent.TimeUnit
 
 class ContextEngineClient(
     private val root: Path,
-    private val configuredNodePath: () -> String? = { null },
+    private val runtimeSettings: () -> ContextEngineRuntimeSettings = {
+        ContextEngineRuntimeSettings(NodeRuntimeLocator.find(null))
+    },
 ) : Disposable {
     private val json = Json { ignoreUnknownKeys = true }
     private val pending = ConcurrentHashMap<String, PendingRequest>()
@@ -34,6 +36,7 @@ class ContextEngineClient(
     private var process: Process? = null
     private var writer: BufferedWriter? = null
     private var extractedServer: Path? = null
+    private var activeRuntime: ContextEngineRuntimeSettings? = null
 
     fun request(
         type: String,
@@ -84,6 +87,7 @@ class ContextEngineClient(
             val current = process
             process = null
             writer = null
+            activeRuntime = null
             current
         }
         active?.destroy()
@@ -93,18 +97,22 @@ class ContextEngineClient(
 
     private fun ensureStarted() {
         synchronized(processLock) {
-            if (process?.isAlive == true) return
+            val runtime = runtimeSettings()
+            if (process?.isAlive == true && activeRuntime == runtime) return
 
             process?.destroyForcibly()
             failPending(IllegalStateException("ContextEngine process restarted"))
 
-            val node = NodeRuntimeLocator.find(configuredNodePath())
             val server = extractedServer ?: extractServer().also { extractedServer = it }
-            val started = ProcessBuilder(node, server.toString())
+            val builder = ProcessBuilder(runtime.nodePath, server.toString())
                 .directory(root.toFile())
-                .start()
+            val environment = builder.environment()
+            CONTEXT_ENVIRONMENT_KEYS.forEach(environment::remove)
+            environment.putAll(runtime.environment)
+            val started = builder.start()
             process = started
             writer = started.outputWriter()
+            activeRuntime = runtime
             executor.execute { readStdout(started) }
             executor.execute { readStderr(started) }
         }
@@ -193,5 +201,24 @@ class ContextEngineClient(
 
     companion object {
         private val LOG = logger<ContextEngineClient>()
+        private val CONTEXT_ENVIRONMENT_KEYS = setOf(
+            "CONTEXTENGINE_EMBEDDING_API_KEY",
+            "CONTEXTENGINE_EMBEDDING_BASE_URL",
+            "CONTEXTENGINE_EMBEDDING_MODEL",
+            "CONTEXTENGINE_NEURAL_RERANK",
+            "CONTEXTENGINE_RERANK_API_KEY",
+            "CONTEXTENGINE_RERANK_BASE_URL",
+            "CONTEXTENGINE_RERANK_MODEL",
+            "OPENAI_API_KEY",
+            "OPENAI_BASE_URL",
+            "OPENAI_EMBEDDING_MODEL",
+            "OPENAI_RERANK_MODEL",
+            "EMBEDDING_API_KEY",
+        )
     }
 }
+
+data class ContextEngineRuntimeSettings(
+    val nodePath: String,
+    val environment: Map<String, String> = emptyMap(),
+)
