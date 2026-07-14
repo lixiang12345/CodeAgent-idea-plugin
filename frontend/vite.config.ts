@@ -1,21 +1,24 @@
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { defineConfig } from "vite";
-import { viteSingleFile } from "vite-plugin-singlefile";
 
+// Match original IDEA plugin packaging: multi-file HTML + assets under a relative base.
+// The JVM serves these via a custom JCEF resource handler at http://codeagent.localhost/.
 export default defineConfig({
-  plugins: [
-    svelte(),
-    viteSingleFile({
-      removeViteModuleLoader: true,
-      deleteInlinedFiles: true,
-    }),
-  ],
+  plugins: [svelte()],
+  base: "./",
   build: {
-    // Plugin host loads this via file:// temp URL. Keep ESM/module so Svelte 5 + Mermaid stay valid.
-    // Do not use JBCefBrowser.loadHTML/data URLs for this multi-MB page.
     target: "chrome120",
-    cssMinify: true,
-    assetsInlineLimit: 100_000_000,
+    cssCodeSplit: true,
+    assetsInlineLimit: 4096,
     modulePreload: false,
+    outDir: "dist",
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        entryFileNames: "assets/[name]-[hash].js",
+        chunkFileNames: "assets/[name]-[hash].js",
+        assetFileNames: "assets/[name]-[hash][extname]",
+      },
+    },
   },
 });

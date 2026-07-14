@@ -88,11 +88,15 @@ class IdeBridge(
         }
     }
 
-    fun injectBridgeScript(): String = """
-        <script>
+    fun injectBridgeJavaScript(): String = """
           window.codeAgentPost = function(payload) {
             ${query.inject("payload")}
           };
+    """.trimIndent()
+
+    fun injectBridgeScript(): String = """
+        <script>
+          ${injectBridgeJavaScript()}
         </script>
     """.trimIndent()
 

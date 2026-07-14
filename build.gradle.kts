@@ -30,8 +30,15 @@ configurations.runtimeClasspath {
 val buildFrontend = tasks.register<Exec>("buildFrontend") {
     workingDir(layout.projectDirectory.dir("frontend"))
     commandLine("npm", "run", "build")
-    inputs.files(fileTree("frontend/src"), file("frontend/index.html"), file("frontend/package.json"), file("frontend/package-lock.json"), file("frontend/vite.config.ts"))
-    outputs.file("frontend/dist/index.html")
+    inputs.files(
+        fileTree("frontend/src"),
+        file("frontend/index.html"),
+        file("frontend/package.json"),
+        file("frontend/package-lock.json"),
+        file("frontend/vite.config.ts"),
+        file("frontend/scripts/jcef-postbuild.mjs"),
+    )
+    outputs.dir("frontend/dist")
 }
 
 val buildSidecar = tasks.register<Exec>("buildSidecar") {

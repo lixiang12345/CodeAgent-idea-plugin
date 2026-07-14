@@ -17,7 +17,6 @@
     "svelte-check": "4.7.2",
     "type-fest": "^4.41.0",
     "typescript": "5.9.3",
-    "vite": "8.1.4",
-    "vite-plugin-singlefile": "2.3.3"
+    "vite": "8.1.4"
   }
 }
