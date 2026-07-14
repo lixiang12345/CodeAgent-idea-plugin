@@ -2,7 +2,7 @@
 
 CodeAgent vendors the upstream `lixiang12345/ContextEngine-plugin` commit as a pinned Git submodule and compiles its public `ContextEngine` API into the local Node sidecar. The IDE plugin does not maintain a second retrieval implementation.
 
-- Current upstream pin: `ce361c499131dfcc2421fd066753da86b8f87f47` (`v0.4.0`, verified July 13, 2026).
+- Current upstream pin: `772d2f8bca0e12ead21cb4b6d9c338769ebe86a8` (`v0.4.0` plus no-model lexical retrieval improvements, verified July 14, 2026).
 
 ## Runtime ownership
 
@@ -48,9 +48,9 @@ The current local lexical baseline for this repository is stored in `evaluation/
 
 | Suite | Passed | Recall@8 | MRR | nDCG@8 |
 | --- | ---: | ---: | ---: | ---: |
-| CodeAgent architecture queries | 13 / 18 | 0.722 | 0.577 | 0.633 |
+| CodeAgent architecture queries | 18 / 18 | 1.000 | 0.736 | 0.801 |
 
-The July 14, 2026 lexical run missed five conceptual targets: ContextEngine process ownership, tool-approval orchestration, JCEF asset serving, workspace rule/skill discovery, and remote SSE continuation. Adding a same-domain runtime-settings test displaced the ContextEngine client from the top results, which demonstrates that raw chunk-level lexical ranking remains sensitive to repository growth. These cases are retained as regression targets for file-level reranking, query planning, semantic retrieval, and the Context Agent. These measurements are development baselines, not release guarantees.
+Five fresh, isolated no-model indexes produced the same July 14, 2026 result: all 18 retained architecture queries passed with identical ranking metrics. The upstream fixes remove ordinary prose from the symbol channel, filter common query stop words, aggregate evidence across chunks at file level, deepen the lexical candidate pool before aggregation, avoid over-penalizing files in the same source package, prevent duplicate files from consuming result slots, and enforce the requested `topK`. The five previous misses remain in the suite as regression targets. MRR and nDCG still show room for query planning and stronger top-rank precision, so these measurements are development baselines rather than release guarantees.
 
 ## Verification
 
