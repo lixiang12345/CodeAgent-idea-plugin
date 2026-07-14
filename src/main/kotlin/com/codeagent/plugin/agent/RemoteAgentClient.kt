@@ -227,13 +227,23 @@ internal class RemoteAgentClient(
         }
     }
 
-    fun enhance(text: String, mode: String, model: String?): CompletableFuture<RemoteEnhanceResponse> {
+    fun enhance(
+        text: String,
+        mode: String,
+        model: String?,
+        agentProfileId: String,
+        repositoryContext: String,
+        conversationContext: String,
+    ): CompletableFuture<RemoteEnhanceResponse> {
         val uri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/enhance")
         val body = json.encodeToString(
             RemoteEnhanceRequest(
                 text = text,
                 mode = mode,
                 model = model,
+                agentProfileId = agentProfileId,
+                repositoryContext = repositoryContext,
+                conversationContext = conversationContext,
             ),
         )
         return httpClient.sendAsync(
@@ -377,6 +387,9 @@ internal data class RemoteEnhanceRequest(
     val text: String,
     val mode: String? = null,
     val model: String? = null,
+    val agentProfileId: String = "general",
+    val repositoryContext: String? = null,
+    val conversationContext: String? = null,
 )
 
 @Serializable

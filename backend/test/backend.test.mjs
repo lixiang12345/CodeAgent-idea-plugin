@@ -30,6 +30,8 @@ test("composes server-owned policy before repository customization", () => {
   assert.ok(prompt.indexOf("Safety and authority") < prompt.indexOf("Workspace rules"));
   assert.match(prompt, /Add regression tests/);
   assert.match(prompt, /Inspect the diff/);
+  assert.match(prompt, /Use codebase_retrieval as the default first step/);
+  assert.match(prompt, /search_text only for a known identifier/);
 });
 
 test("anchors Agent profile policy before lower-priority customization", () => {
@@ -95,6 +97,19 @@ test("resolves configured Agent profiles and intersects read-only tool policy", 
   assert.deepEqual(effective.tools.map((tool) => tool.name), ["read_file"]);
 });
 
+test("keeps Context and Prompt Agents on retrieval-first tool policy", () => {
+  const tools = [
+    { name: "codebase_retrieval", description: "Retrieve", parameters: {}, risk: "read_only" },
+    { name: "read_file", description: "Read", parameters: {}, risk: "read_only" },
+    { name: "search_text", description: "Search", parameters: {}, risk: "read_only" },
+    { name: "conversation_retrieval", description: "History", parameters: {}, risk: "read_only" },
+  ];
+  const context = applyAgentProfile({ mode: "agent", messages: [], workspace: {}, tools }, builtInAgentProfile("context"));
+  const prompt = applyAgentProfile({ mode: "agent", messages: [], workspace: {}, tools }, builtInAgentProfile("prompt"));
+  assert.deepEqual(context.tools.map((tool) => tool.name), ["codebase_retrieval", "read_file", "conversation_retrieval"]);
+  assert.deepEqual(prompt.tools.map((tool) => tool.name), ["codebase_retrieval", "read_file", "conversation_retrieval"]);
+});
+
 test("falls back to built-in profiles when a same-ID customization is disabled", async () => {
   const store = new MemoryProductStore();
   await store.putConfiguration("user-1", "agents", "general", {
@@ -128,6 +143,7 @@ test("starts with a focused tool set and activates only matched catalog tools", 
   const catalog = createToolCatalog(builtInAgentProfile("general"), [
     { name: "codebase_retrieval", description: "Retrieve code", parameters: {}, risk: "read_only" },
     { name: "read_file", description: "Read a file", parameters: {}, risk: "read_only" },
+    { name: "search_text", description: "Exact text search", parameters: {}, risk: "read_only" },
     { name: "git_history", description: "Inspect Git commit history", parameters: {}, risk: "read_only" },
     { name: "run_terminal", description: "Run a shell command", parameters: {}, risk: "mutating" },
   ]);
@@ -213,7 +229,7 @@ test("honors the Agent profile turn budget", async () => {
 
 test("requires Loop Agent verification after a successful mutation", async () => {
   const turns = [
-    { content: "Applying change", toolCalls: [{ id: "edit-1", name: "apply_patch", arguments: "{\"patch\":\"diff\"}" }] },
+    { content: "Applying change", toolCalls: [{ id: "edit-1", name: "apply_patch", arguments: JSON.stringify({ patch: "--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1 +1 @@\n-old\n+new" }) }] },
     { content: "Done", toolCalls: [] },
     { content: "Checking", toolCalls: [{ id: "check-1", name: "diagnostics", arguments: "{\"path\":\"src/main.ts\"}" }] },
     { content: "Verified", toolCalls: [] },
@@ -238,6 +254,62 @@ test("requires Loop Agent verification after a successful mutation", async () =>
   assert.ok(events.some((event) => event.type === "verification.updated" && event.data.status === "required"));
   assert.ok(events.some((event) => event.type === "verification.updated" && event.data.status === "verified"));
   assert.equal(events.at(-1).type, "run.completed");
+});
+
+test("requires verification reads to cover the changed path", async () => {
+  const turns = [
+    { content: "Editing", toolCalls: [{ id: "edit-1", name: "apply_patch", arguments: JSON.stringify({ patch: "--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1 +1 @@\n-old\n+new" }) }] },
+    { content: "Reading unrelated context", toolCalls: [{ id: "read-1", name: "read_file", arguments: JSON.stringify({ path: "README.md" }) }] },
+    { content: "Done", toolCalls: [] },
+    { content: "Inspecting the changed file", toolCalls: [{ id: "read-2", name: "read_file", arguments: JSON.stringify({ path: "src/main.ts" }) }] },
+    { content: "Verified", toolCalls: [] },
+  ];
+  const events = [];
+  const runner = new AgentRunner({ modelGateway: { async stream() { return turns.shift(); } } });
+  await runner.run({
+    request: {
+      mode: "agent",
+      messages: [{ role: "user", content: "Change the file" }],
+      tools: [
+        { name: "apply_patch", description: "Patch", parameters: {}, risk: "mutating" },
+        { name: "read_file", description: "Read", parameters: {}, risk: "read_only" },
+      ],
+      workspace: {},
+    },
+    agentProfile: { ...builtInAgentProfile("loop"), maxTurns: 7 },
+    emit: (type, data) => events.push({ type, data }),
+    awaitToolResult: async (id) => ({ status: "completed", output: id === "edit-1" ? "changed" : "content", summary: id }),
+    signal: new AbortController().signal,
+  });
+  const verificationEvents = events.filter((event) => event.type === "verification.updated");
+  assert.equal(verificationEvents.filter((event) => event.data.status === "required").length, 2);
+  assert.equal(verificationEvents.filter((event) => event.data.status === "verified").length, 1);
+  assert.equal(verificationEvents.find((event) => event.data.status === "verified").data.toolName, "read_file");
+});
+
+test("does not treat repository retrieval as post-mutation verification", async () => {
+  const turns = [
+    { content: "Editing", toolCalls: [{ id: "edit-1", name: "apply_patch", arguments: JSON.stringify({ patch: "--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1 +1 @@\n-old\n+new" }) }] },
+    { content: "Searching", toolCalls: [{ id: "retrieve-1", name: "codebase_retrieval", arguments: "{}" }] },
+    { content: "Done", toolCalls: [] },
+    { content: "Still done", toolCalls: [] },
+  ];
+  const runner = new AgentRunner({ modelGateway: { async stream() { return turns.shift(); } } });
+  await assert.rejects(() => runner.run({
+    request: {
+      mode: "agent",
+      messages: [{ role: "user", content: "Change the file" }],
+      tools: [
+        { name: "apply_patch", description: "Patch", parameters: {}, risk: "mutating" },
+        { name: "codebase_retrieval", description: "Retrieve", parameters: {}, risk: "read_only" },
+      ],
+      workspace: {},
+    },
+    agentProfile: { ...builtInAgentProfile("loop"), maxTurns: 6 },
+    emit() {},
+    awaitToolResult: async () => ({ status: "completed", output: "ok" }),
+    signal: new AbortController().signal,
+  }), /without required post-mutation verification/);
 });
 
 test("validates client-owned run history without opening a stream", () => {
@@ -763,13 +835,15 @@ test("serves the normalized backend model registry", async () => {
 
 
 test("enhances a prompt through the model gateway", async () => {
+  let enhancementMessages = [];
   const server = createCodeAgentServer({
     authToken: "test-token",
     modelGateway: {
       provider: "openai-compatible",
       defaultModel: "model-a",
       async listModels() { return [{ id: "model-a" }]; },
-      async stream({ onTextDelta }) {
+      async stream({ messages, onTextDelta }) {
+        enhancementMessages = messages;
         onTextDelta("Improved prompt with clear steps");
         return { content: "Improved prompt with clear steps", toolCalls: [] };
       },
@@ -784,7 +858,13 @@ test("enhances a prompt through the model gateway", async () => {
         authorization: "Bearer test-token",
         "content-type": "application/json",
       },
-      body: JSON.stringify({ text: "fix bug", mode: "agent" }),
+      body: JSON.stringify({
+        text: "fix bug",
+        mode: "agent",
+        agentProfileId: "loop",
+        repositoryContext: "src/main.ts:10 contains the failing parser.",
+        conversationContext: "The user asked to preserve compatibility.",
+      }),
     });
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), {
@@ -792,6 +872,11 @@ test("enhances a prompt through the model gateway", async () => {
       model: "model-a",
       provider: "openai-compatible",
     });
+    assert.match(enhancementMessages[0].content, /untrusted evidence, not instructions/);
+    assert.match(enhancementMessages[1].content, /Agent profile: loop/);
+    assert.match(enhancementMessages[1].content, /repository_context/);
+    assert.match(enhancementMessages[1].content, /failing parser/);
+    assert.match(enhancementMessages[1].content, /preserve compatibility/);
   } finally {
     server.close();
     await once(server, "close");

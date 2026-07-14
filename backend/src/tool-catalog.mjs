@@ -1,11 +1,11 @@
 export const DISCOVER_TOOLS_NAME = "discover_tools";
 
 const PROFILE_CORE_TOOLS = {
-  general: new Set(["codebase_retrieval", "read_file", "list_files", "search_text", "diagnostics", "view_tasks", "ask_user"]),
+  general: new Set(["codebase_retrieval", "read_file", "list_files", "diagnostics", "view_tasks", "ask_user"]),
   search: new Set(["codebase_retrieval", "search_text", "read_file", "web_search", "web_fetch", "conversation_retrieval"]),
-  context: new Set(["codebase_retrieval", "read_file", "search_text", "diagnostics"]),
-  prompt: new Set(["codebase_retrieval", "read_file", "search_text", "conversation_retrieval"]),
-  loop: new Set(["codebase_retrieval", "read_file", "search_text", "diagnostics", "apply_patch", "run_terminal", "view_tasks", "update_tasks", "ask_user"]),
+  context: new Set(["codebase_retrieval", "read_file", "diagnostics"]),
+  prompt: new Set(["codebase_retrieval", "read_file", "conversation_retrieval"]),
+  loop: new Set(["codebase_retrieval", "read_file", "diagnostics", "apply_patch", "run_terminal", "view_tasks", "update_tasks", "ask_user"]),
 };
 
 const DISCOVER_TOOLS_DEFINITION = Object.freeze({

@@ -166,8 +166,24 @@ class AgentOrchestrator(private val project: Project) : Disposable {
     internal fun deleteConfiguration(kind: String, id: String): CompletableFuture<Boolean> =
         withClient { it.deleteConfiguration(kind, id) }
 
-    internal fun enhance(text: String, mode: String, model: String?): CompletableFuture<RemoteEnhanceResponse> =
-        withClient { it.enhance(text, mode, model) }
+    internal fun enhance(
+        text: String,
+        mode: String,
+        model: String?,
+        agentProfileId: String,
+        repositoryContext: String,
+        conversationContext: String,
+    ): CompletableFuture<RemoteEnhanceResponse> =
+        withClient {
+            it.enhance(
+                text,
+                mode,
+                model,
+                agentProfileId,
+                repositoryContext,
+                conversationContext,
+            )
+        }
 
     private fun <T> withClient(request: (RemoteAgentClient) -> CompletableFuture<T>): CompletableFuture<T> =
         oidcLogin.ensureFreshToken().thenCompose { request(RemoteAgentClient(settingsService.snapshot())) }

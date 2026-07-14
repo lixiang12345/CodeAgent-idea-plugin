@@ -44,7 +44,6 @@ const TYPE_TOOL_DEFAULTS = {
     "codebase_retrieval",
     "read_file",
     "list_files",
-    "search_text",
     "diagnostics",
     "git_history",
     "conversation_retrieval",
@@ -54,7 +53,6 @@ const TYPE_TOOL_DEFAULTS = {
     "codebase_retrieval",
     "read_file",
     "list_files",
-    "search_text",
     "conversation_retrieval",
   ]),
 };

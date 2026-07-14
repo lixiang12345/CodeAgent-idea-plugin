@@ -395,9 +395,24 @@ class IdeBridge(
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<EnhancePromptPayload>(it) }
                 require(request.text.isNotBlank()) { "Prompt text is required" }
                 require(runState != "running" && runState != "awaiting_approval") { "Cannot enhance while the agent is running" }
-                val mode = request.mode.ifBlank { conversations.active().mode }
-                val model = conversations.active().selectedModelId
-                agent.enhance(request.text.trim(), mode, model).whenComplete { result, error ->
+                val active = synchronized(stateLock) { conversations.active() }
+                val mode = request.mode.ifBlank { active.mode }
+                val conversationContext = enhancementConversationContext(active)
+                contextEngine.retrievePlanned(
+                    informationRequest = request.text.trim(),
+                    strategy = "balanced",
+                    maxTokens = 2_000,
+                ).handle { packed, _ -> packed?.packedText.orEmpty() }
+                    .thenCompose { repositoryContext ->
+                        agent.enhance(
+                            text = request.text.trim(),
+                            mode = mode,
+                            model = active.selectedModelId,
+                            agentProfileId = active.selectedAgentProfileId,
+                            repositoryContext = repositoryContext,
+                            conversationContext = conversationContext,
+                        )
+                    }.whenComplete { result, error ->
                     when {
                         error != null -> emit("error", mapOf("message" to error.rootMessage()))
                         result == null || result.text.isBlank() -> emit("error", mapOf("message" to "Enhancer returned empty text"))
@@ -1194,6 +1209,23 @@ class IdeBridge(
     }
 
     private fun syncActiveConversation() = syncConversation(conversations.active())
+
+    private fun enhancementConversationContext(snapshot: ConversationSnapshot): String = buildString {
+        snapshot.summary?.takeIf { it.isNotBlank() }?.let {
+            appendLine("Conversation summary:")
+            appendLine(it.take(4_000))
+        }
+        val recent = snapshot.messages.takeLast(8)
+        if (recent.isNotEmpty()) {
+            if (isNotEmpty()) appendLine()
+            appendLine("Recent conversation:")
+            recent.forEach { message ->
+                append(message.role)
+                append(": ")
+                appendLine(message.content.replace(Regex("\\s+"), " ").trim().take(1_200))
+            }
+        }
+    }.trim().take(12_000)
 
     private fun restoreConversationPresentation(snapshot: ConversationSnapshot = conversations.active()) {
         synchronized(stateLock) {

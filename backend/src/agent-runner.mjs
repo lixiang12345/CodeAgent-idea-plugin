@@ -21,6 +21,8 @@ export class AgentRunner {
     let toolCallCount = 0;
     let subagentCallCount = 0;
     let pendingVerification = false;
+    const pendingMutationPaths = new Set();
+    let pendingUnknownMutation = false;
     let verificationReminderCount = 0;
     let previousToolSignature = null;
     let repeatedToolCallCount = 0;
@@ -58,7 +60,12 @@ export class AgentRunner {
             throw new Error("Agent finished without required post-mutation verification");
           }
           verificationReminderCount += 1;
-          const message = "A project mutation completed without follow-up verification. Inspect the changed behavior and run the smallest meaningful diagnostic, test, build, or focused read before finishing.";
+          const scope = pendingMutationPaths.size
+            ? ` Pending changed paths: ${[...pendingMutationPaths].slice(0, 8).join(", ")}.`
+            : pendingUnknownMutation
+              ? " The mutation scope could not be derived from tool arguments."
+              : "";
+          const message = `A project mutation completed without relevant follow-up verification. Inspect the changed behavior and run the smallest meaningful diagnostic, test, build, or focused read of every changed path before finishing.${scope}`;
           emit("verification.updated", { turnIndex, status: "required", message });
           messages.push({ role: "system", content: `Runtime verification gate: ${message}` });
           continue;
@@ -122,13 +129,24 @@ export class AgentRunner {
         if (result.status === "completed") {
           const risk = toolRiskByName.get(call.name) || "read_only";
           if (isMutationCall(call, risk)) {
+            const paths = mutationPaths(call);
+            if (paths.length === 0) pendingUnknownMutation = true;
+            for (const path of paths) pendingMutationPaths.add(path);
             pendingVerification = true;
             verificationReminderCount = 0;
             emit("verification.updated", { turnIndex, status: "required", toolName: call.name, message: "Project mutation requires follow-up verification" });
-          } else if (pendingVerification && isVerificationCall(call)) {
-            pendingVerification = false;
-            verificationReminderCount = 0;
-            emit("verification.updated", { turnIndex, status: "verified", toolName: call.name, message: "Post-mutation verification completed" });
+          } else if (pendingVerification) {
+            const verification = consumeVerificationCall(
+              call,
+              pendingMutationPaths,
+              pendingUnknownMutation,
+            );
+            pendingUnknownMutation = verification.unknownPending;
+            if (verification.completed) {
+              pendingVerification = false;
+              verificationReminderCount = 0;
+              emit("verification.updated", { turnIndex, status: "verified", toolName: call.name, message: "Post-mutation verification completed" });
+            }
           }
         }
       }
@@ -152,18 +170,82 @@ function sortJson(value) {
 }
 
 function isMutationCall(call, risk) {
-  return risk === "mutating" && !isVerificationCall(call);
+  return risk === "mutating" && !isGlobalVerificationCall(call);
 }
 
-function isVerificationCall(call) {
-  if (["diagnostics", "read_file", "search_text", "codebase_retrieval"].includes(call.name)) return true;
-  if (call.name !== "run_terminal") return false;
-  try {
-    const command = String(JSON.parse(call.arguments)?.command || "").toLowerCase();
-    return /(^|\s|\/)(test|tests|check|build|lint|verify|gradle|gradlew|mvn|npm|pnpm|yarn|cargo|pytest|jest|vitest|git)(\s|$)/.test(command);
-  } catch {
-    return false;
+function consumeVerificationCall(call, pendingPaths, unknownPending) {
+  if (isGlobalVerificationCall(call)) {
+    pendingPaths.clear();
+    return { completed: true, unknownPending: false };
   }
+  if (!["diagnostics", "read_file"].includes(call.name)) {
+    return { completed: false, unknownPending };
+  }
+  const path = normalizeToolPath(parseArguments(call)?.path);
+  if (!path) return { completed: false, unknownPending };
+  for (const pendingPath of [...pendingPaths]) {
+    if (pathsRelated(path, pendingPath)) pendingPaths.delete(pendingPath);
+  }
+  return {
+    completed: pendingPaths.size === 0 && !unknownPending,
+    unknownPending,
+  };
+}
+
+function isGlobalVerificationCall(call) {
+  if (call.name !== "run_terminal") return false;
+  const command = String(parseArguments(call)?.command || "").toLowerCase();
+  if (!command) return false;
+  if (/\bgit\s+diff\s+--check\b/.test(command)) return true;
+  return /(?:^|[;&|]\s*)(?:env\s+(?:\S+=\S+\s+)*)?(?:(?:\.\/)?(?:gradlew|gradle)\s+(?:[^;&|]*\s)?(?:test|check|build|lint|verify)\b|(?:\.\/)?(?:mvnw|mvn)\s+(?:[^;&|]*\s)?(?:test|verify|package)\b|(?:npm|pnpm|yarn|bun)\s+(?:test|check|lint|build|typecheck|run\s+(?:test|check|lint|build|typecheck|verify))\b|cargo\s+(?:test|check|clippy|build)\b|go\s+test\b|pytest\b|python\s+-m\s+(?:pytest|unittest)\b|node\s+--test\b|(?:jest|vitest|tsc|eslint|biome|ruff|mypy|ctest|ninja|xcodebuild)\b|swift\s+test\b)/.test(command);
+}
+
+function mutationPaths(call) {
+  const args = parseArguments(call);
+  if (!args) return [];
+  const paths = new Set();
+  const add = (value) => {
+    const normalized = normalizeToolPath(value);
+    if (normalized) paths.add(normalized);
+  };
+  add(args.path);
+  add(args.filePath);
+  for (const value of Array.isArray(args.paths) ? args.paths : []) add(value);
+  for (const value of Array.isArray(args.files) ? args.files : []) {
+    if (typeof value === "string") add(value);
+    else if (value && typeof value === "object") add(value.path);
+  }
+  if (call.name === "apply_patch" && typeof args.patch === "string") {
+    for (const line of args.patch.split(/\r?\n/)) {
+      const structured = line.match(/^\*\*\* (?:Add|Update|Delete) File:\s+(.+)$/);
+      if (structured) add(structured[1]);
+      const unified = line.match(/^(?:---|\+\+\+)\s+(.+)$/);
+      if (unified) add(unified[1].split("\t", 1)[0]);
+    }
+  }
+  return [...paths];
+}
+
+function parseArguments(call) {
+  try {
+    const value = JSON.parse(call.arguments || "{}");
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeToolPath(value) {
+  if (typeof value !== "string") return "";
+  let path = value.trim().replaceAll("\\", "/");
+  if (!path || path === "/dev/null") return "";
+  path = path.replace(/^["']|["']$/g, "");
+  path = path.replace(/^(?:a|b)\//, "").replace(/^\.\//, "");
+  return path.replace(/\/{2,}/g, "/").replace(/\/$/, "");
+}
+
+function pathsRelated(left, right) {
+  return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
 }
 
 export function validateRunRequest(request) {

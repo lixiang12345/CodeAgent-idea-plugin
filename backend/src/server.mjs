@@ -116,12 +116,38 @@ export function createCodeAgentServer({
           throw error;
         }
         const mode = typeof body?.mode === "string" ? body.mode : "agent";
+        if (!["agent", "chat", "ask"].includes(mode)) {
+          const error = new Error("mode must be agent, chat, or ask");
+          error.statusCode = 400;
+          throw error;
+        }
+        const agentProfileId = typeof body?.agentProfileId === "string" && body.agentProfileId.trim()
+          ? body.agentProfileId.trim()
+          : "general";
+        if (!/^[A-Za-z0-9._-]{1,120}$/.test(agentProfileId)) {
+          const error = new Error("agentProfileId is invalid");
+          error.statusCode = 400;
+          throw error;
+        }
+        const repositoryContext = typeof body?.repositoryContext === "string" ? body.repositoryContext.trim() : "";
+        const conversationContext = typeof body?.conversationContext === "string" ? body.conversationContext.trim() : "";
+        if (repositoryContext.length > 40_000 || conversationContext.length > 20_000) {
+          const error = new Error("enhancement context exceeds the allowed size");
+          error.statusCode = 400;
+          throw error;
+        }
         const model = typeof body?.model === "string" && body.model.trim() ? body.model.trim() : gateway.defaultModel;
         let enhanced = "";
         const turn = await gateway.stream({
           model,
           tools: [],
-          messages: promptEnhancementMessages({ text, mode }),
+          messages: promptEnhancementMessages({
+            text,
+            mode,
+            agentProfileId,
+            repositoryContext,
+            conversationContext,
+          }),
           onTextDelta: (delta) => {
             enhanced += delta || "";
           },
