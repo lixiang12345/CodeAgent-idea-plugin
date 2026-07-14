@@ -1226,6 +1226,40 @@ test("validates and persists typed product configurations", async () => {
     assert.equal(invalidCommandMode.status, 400);
     assert.match((await invalidCommandMode.json()).error, /mode must be one of/);
 
+    const hookResponse = await fetch(`${baseUrl}/v1/configurations/hooks/verify-run`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Verify run",
+        event: "after-run",
+        command: "npm test",
+        timeoutSeconds: 120,
+        runPolicy: "automatic",
+        failurePolicy: "fail-run",
+        requiredEnvironment: ["PATH", "CI"],
+      }),
+    });
+    assert.equal(hookResponse.status, 200);
+    assert.deepEqual((await hookResponse.json()).value, {
+      name: "Verify run",
+      description: null,
+      enabled: true,
+      event: "after-run",
+      command: "npm test",
+      timeoutSeconds: 120,
+      runPolicy: "automatic",
+      failurePolicy: "fail-run",
+      requiredEnvironment: ["PATH", "CI"],
+    });
+
+    const invalidHookEnvironment = await fetch(`${baseUrl}/v1/configurations/hooks/invalid-environment`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Invalid", event: "before-run", command: "true", requiredEnvironment: ["NOT SAFE"] }),
+    });
+    assert.equal(invalidHookEnvironment.status, 400);
+    assert.match((await invalidHookEnvironment.json()).error, /environment variable names/);
+
     const invalidId = await fetch(`${baseUrl}/v1/configurations/commands/not%20safe`, {
       method: "PUT",
       headers: { "content-type": "application/json" },

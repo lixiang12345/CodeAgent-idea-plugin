@@ -7,6 +7,8 @@ import com.codeagent.plugin.agent.AgentToolCall
 import com.codeagent.plugin.agent.ChangeReviewService
 import com.codeagent.plugin.agent.FileChange
 import com.codeagent.plugin.agent.GitWorkspaceService
+import com.codeagent.plugin.agent.HookRuntimeService
+import com.codeagent.plugin.agent.HookRuntimeSnapshot
 import com.codeagent.plugin.agent.ImageCanvasService
 import com.codeagent.plugin.agent.McpRuntimeService
 import com.codeagent.plugin.agent.McpRuntimeSnapshot
@@ -74,6 +76,7 @@ class IdeBridge(
     private val contextEngine = project.service<ContextEngineService>()
     private val agent = project.service<AgentOrchestrator>()
     private val mcpRuntimeService = project.service<McpRuntimeService>()
+    private val hookRuntimeService = project.service<HookRuntimeService>()
     private val changeReview = project.service<ChangeReviewService>()
     private val gitWorkspace = project.service<GitWorkspaceService>()
     private val imageCanvas = project.service<ImageCanvasService>()
@@ -104,6 +107,9 @@ class IdeBridge(
     private var mcpRuntime = mcpRuntimeService.snapshot().toDto()
 
     @Volatile
+    private var hookRuntime = hookRuntimeService.snapshot().toDto()
+
+    @Volatile
     private var productJobs = ProductJobSnapshotDto()
 
     private var productJobsGeneration = 0L
@@ -122,6 +128,10 @@ class IdeBridge(
         }
         mcpRuntimeService.setChangeListener {
             mcpRuntime = mcpRuntimeService.snapshot().toDto()
+            emitSnapshot()
+        }
+        hookRuntimeService.setChangeListener {
+            hookRuntime = hookRuntimeService.snapshot().toDto()
             emitSnapshot()
         }
         conversationSummaries.setChangeListener { snapshot ->
@@ -155,6 +165,7 @@ class IdeBridge(
         agent.cancel()
         cloudSync.setChangeListener(null)
         mcpRuntimeService.setChangeListener(null)
+        hookRuntimeService.setChangeListener(null)
         conversationSummaries.setChangeListener(null)
         syncedAccountUserId = null
         cloudSync.reset()
@@ -281,6 +292,10 @@ class IdeBridge(
             "deleteConfiguration" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<DeleteConfigurationPayload>(it) }
                 deleteConfiguration(request)
+            }
+            "testHook" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<HookPayload>(it) }
+                testHook(request.hookId)
             }
             "cancelRun" -> {
                 synchronized(stateLock) {
@@ -895,6 +910,7 @@ class IdeBridge(
                 backendTools = backendTools,
                 configurations = configurations,
                 mcpRuntime = mcpRuntime,
+                hookRuntime = hookRuntime,
                 jobs = productJobs,
                 customization = WorkspaceCustomizationDto(
                     rules = customization.rules.map { rule ->
@@ -1177,6 +1193,7 @@ class IdeBridge(
     private fun clearAuthenticatedCapabilities(label: String) {
         synchronized(stateLock) { productJobsGeneration += 1 }
         mcpRuntimeService.reconcile(emptyList()).exceptionally { null }
+        hookRuntimeService.reconcile(emptyList())
         modelRegistry = ModelRegistryDto(state = "error", label = label)
         backendTools = emptyList()
         configurations = ConfigurationSnapshotDto(state = "unavailable", label = label)
@@ -1256,6 +1273,7 @@ class IdeBridge(
                 mcpRuntimeService.reconcile(requests.getValue("mcp").join().data).whenComplete { _, mcpError ->
                     if (mcpError != null) emit("error", mapOf("message" to "MCP activation failed: ${mcpError.rootMessage()}"))
                 }
+                hookRuntimeService.reconcile(requests.getValue("hooks").join().data)
                 val selected = synchronized(stateLock) { conversations.active().selectedAgentProfileId }
                 if (!isKnownAgentProfile(selected)) {
                     synchronized(stateLock) { conversations.setSelectedAgentProfile("general") }
@@ -1460,6 +1478,35 @@ class IdeBridge(
     private fun RemoteJob.roleLabel(): String =
         (input.role ?: output?.role ?: type).replace('-', ' ')
 
+    private fun HookRuntimeSnapshot.toDto() = HookRuntimeSnapshotDto(
+        state = when {
+            configured == 0 -> "idle"
+            recent.firstOrNull()?.status in setOf("failed", "timeout") -> "degraded"
+            else -> "ready"
+        },
+        label = when {
+            configured == 0 -> "No hooks configured"
+            automatic == 0 -> "$configured hooks · manual execution"
+            else -> "$configured hooks · $automatic automatic"
+        },
+        configured = configured,
+        automatic = automatic,
+        recent = recent.map { execution ->
+            HookExecutionDto(
+                id = execution.id,
+                hookId = execution.hookId,
+                hookName = execution.hookName,
+                event = execution.event,
+                status = execution.status,
+                exitCode = execution.exitCode,
+                startedAt = execution.startedAt,
+                durationMs = execution.durationMs,
+                summary = execution.summary,
+                detail = execution.detail,
+            )
+        },
+    )
+
     private fun saveConfiguration(request: SaveConfigurationPayload) {
         configurations = configurations.copy(state = "loading", label = "Saving ${request.id}")
         emitSnapshot()
@@ -1493,6 +1540,18 @@ class IdeBridge(
                     emit("notice", mapOf("message" to "Deleted ${request.id}"))
                     refreshConfigurations()
                 }
+            }
+        }
+    }
+
+    private fun testHook(hookId: String) {
+        require(hookId.isNotBlank()) { "Hook ID is required" }
+        hookRuntimeService.test(hookId).whenComplete { execution, error ->
+            if (error != null) {
+                emit("error", mapOf("message" to error.rootMessage()))
+            } else {
+                emit("notice", mapOf("message" to "${execution.hookName}: ${execution.summary}"))
+                emitSnapshot()
             }
         }
     }
@@ -1877,6 +1936,9 @@ class IdeBridge(
 
     @Serializable
     private data class McpServerPayload(val serverId: String)
+
+    @Serializable
+    private data class HookPayload(val hookId: String)
 
     @Serializable
     private data class CreateJobPayload(

@@ -12,6 +12,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
 import java.io.Closeable
 import java.nio.file.Path
+import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -25,6 +26,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
     private val activeRun = AtomicReference<RunContext?>()
     private val customizations = project.service<WorkspaceCustomizationService>()
     private val mcpRuntime = project.service<McpRuntimeService>()
+    private val hookRuntime = project.service<HookRuntimeService>()
     private val guidanceLoader = WorkspaceGuidanceLoader(project.basePath?.let(Path::of))
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -45,6 +47,10 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         executor.execute {
             listener.onRunStateChanged("running")
             try {
+                hookRuntime.runLifecycle(
+                    "before-run",
+                    HookExecutionContext(context.hookRunId, "before-run"),
+                )
                 require(mode in setOf("agent", "chat", "ask")) { "Unsupported mode: $mode" }
                 require(history.none { it.role == "system" }) { "Conversation history cannot contain system messages" }
                 oidcLogin.ensureFreshToken().join()
@@ -107,12 +113,25 @@ class AgentOrchestrator(private val project: Project) : Disposable {
                         )
                     },
                 )
-                if (!context.cancelled.get()) listener.onRunStateChanged("idle")
+                if (!context.cancelled.get()) {
+                    hookRuntime.runLifecycle(
+                        "after-run",
+                        HookExecutionContext(context.hookRunId, "after-run"),
+                    )
+                    listener.onRunStateChanged("idle")
+                }
             } catch (_: RemoteRunCancelledException) {
                 listener.onRunStateChanged("idle")
             } catch (error: Throwable) {
                 if (!context.cancelled.get()) {
-                    listener.onError(error.rootMessage())
+                    val message = error.rootMessage()
+                    runCatching {
+                        hookRuntime.runLifecycle(
+                            "on-error",
+                            HookExecutionContext(context.hookRunId, "on-error", error = message),
+                        )
+                    }
+                    listener.onError(message)
                     listener.onRunStateChanged("failed")
                 }
             } finally {
@@ -170,6 +189,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
     override fun dispose() = cancel()
 
     private data class RunContext(
+        val hookRunId: String = UUID.randomUUID().toString(),
         val cancelled: AtomicBoolean = AtomicBoolean(false),
         val remoteRunId: AtomicReference<String?> = AtomicReference(null),
         val client: AtomicReference<RemoteAgentClient?> = AtomicReference(null),
@@ -237,6 +257,24 @@ class AgentOrchestrator(private val project: Project) : Disposable {
             return
         }
 
+        try {
+            hookRuntime.runLifecycle(
+                "before-tool",
+                HookExecutionContext(
+                    runId = context.hookRunId,
+                    event = "before-tool",
+                    toolId = call.id,
+                    toolName = call.name,
+                    toolStatus = "running",
+                ),
+            )
+        } catch (error: Throwable) {
+            val message = error.rootMessage()
+            listener.onToolChanged(call, message, "failed", message, request.turnIndex)
+            client.submitToolResult(runId, RemoteToolResult(call.id, "failed", error = message))
+            throw error
+        }
+
         listener.onToolChanged(call, "Running", "running", call.arguments, request.turnIndex)
         val future = toolRunner.execute(call)
         context.activeFuture.set(future)
@@ -244,6 +282,16 @@ class AgentOrchestrator(private val project: Project) : Disposable {
             val result = future.join()
             ensureActive(context)
             result.fileChange?.let { listener.onFileChanged(call, it) }
+            hookRuntime.runLifecycle(
+                "after-tool",
+                HookExecutionContext(
+                    runId = context.hookRunId,
+                    event = "after-tool",
+                    toolId = call.id,
+                    toolName = call.name,
+                    toolStatus = "completed",
+                ),
+            )
             listener.onToolChanged(call, result.summary, "completed", result.detail, request.turnIndex)
             client.submitToolResult(
                 runId,
@@ -252,6 +300,35 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         } catch (error: Throwable) {
             if (context.cancelled.get()) throw RemoteRunCancelledException()
             val message = error.rootMessage()
+            if (error is HookExecutionException) {
+                listener.onToolChanged(call, message, "failed", message, request.turnIndex)
+                client.submitToolResult(runId, RemoteToolResult(call.id, "failed", error = message))
+                throw error
+            }
+            runCatching {
+                hookRuntime.runLifecycle(
+                    "after-tool",
+                    HookExecutionContext(
+                        runId = context.hookRunId,
+                        event = "after-tool",
+                        toolId = call.id,
+                        toolName = call.name,
+                        toolStatus = "failed",
+                        error = message,
+                    ),
+                )
+                hookRuntime.runLifecycle(
+                    "on-error",
+                    HookExecutionContext(
+                        runId = context.hookRunId,
+                        event = "on-error",
+                        toolId = call.id,
+                        toolName = call.name,
+                        toolStatus = "failed",
+                        error = message,
+                    ),
+                )
+            }
             listener.onToolChanged(call, message, "failed", message, request.turnIndex)
             client.submitToolResult(runId, RemoteToolResult(call.id, "failed", error = message))
         } finally {

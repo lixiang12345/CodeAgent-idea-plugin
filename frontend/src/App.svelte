@@ -1419,6 +1419,7 @@
                 section={settingsSection}
                 configurationSnapshot={snapshot.configurations}
                 mcpRuntime={snapshot.mcpRuntime}
+                hookRuntime={snapshot.hookRuntime}
                 models={snapshot.models.options}
               />
             {:else if settingsSection === "Feature Flags"}

@@ -303,20 +303,30 @@ function normalizeConfiguration(kind, value) {
           throw badRequest("agentProfileId must use letters, numbers, dots, underscores, or hyphens");
         }
         return {
-        ...common,
-        prompt: boundedText(value.prompt, "prompt", 100_000),
-        argumentHint: optionalText(value.argumentHint, "argumentHint", 500),
+          ...common,
+          prompt: boundedText(value.prompt, "prompt", 100_000),
+          argumentHint: optionalText(value.argumentHint, "argumentHint", 500),
           mode: enumValue(value.mode, "mode", ["inherit", "agent", "chat", "ask"], "inherit"),
           agentProfileId,
         };
       }
-    case "hooks":
+    case "hooks": {
+      const requiredEnvironment = stringList(value.requiredEnvironment, "requiredEnvironment", 64, 128);
+      for (const name of requiredEnvironment) {
+        if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name)) {
+          throw badRequest("requiredEnvironment must contain environment variable names");
+        }
+      }
       return {
         ...common,
         event: enumValue(value.event, "event", ["before-run", "after-run", "before-tool", "after-tool", "on-error"]),
         command: boundedText(value.command, "command", 8_000),
         timeoutSeconds: boundedInteger(value.timeoutSeconds, 1, 600, 60),
+        runPolicy: enumValue(value.runPolicy, "runPolicy", ["manual", "automatic"], "manual"),
+        failurePolicy: enumValue(value.failurePolicy, "failurePolicy", ["continue", "fail-run"], "continue"),
+        requiredEnvironment,
       };
+    }
     case "agents": {
       const agentType = enumValue(value.agentType, "agentType", ["general", "search", "context", "prompt", "loop"], "general");
       const runtimeDefaults = AGENT_CONFIGURATION_DEFAULTS[agentType];

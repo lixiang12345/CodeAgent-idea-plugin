@@ -241,6 +241,29 @@ data class ConfigurationSnapshotDto(
 )
 
 @Serializable
+data class HookExecutionDto(
+    val id: String,
+    val hookId: String,
+    val hookName: String,
+    val event: String,
+    val status: String,
+    val exitCode: Int? = null,
+    val startedAt: String,
+    val durationMs: Long,
+    val summary: String,
+    val detail: String? = null,
+)
+
+@Serializable
+data class HookRuntimeSnapshotDto(
+    val state: String = "idle",
+    val label: String = "No hooks configured",
+    val configured: Int = 0,
+    val automatic: Int = 0,
+    val recent: List<HookExecutionDto> = emptyList(),
+)
+
+@Serializable
 data class McpToolDto(
     val id: String,
     val serverId: String,
@@ -353,6 +376,7 @@ data class AppSnapshotDto(
     val backendTools: List<BackendToolDto> = emptyList(),
     val configurations: ConfigurationSnapshotDto = ConfigurationSnapshotDto(),
     val mcpRuntime: McpRuntimeSnapshotDto = McpRuntimeSnapshotDto(),
+    val hookRuntime: HookRuntimeSnapshotDto = HookRuntimeSnapshotDto(),
     val jobs: ProductJobSnapshotDto = ProductJobSnapshotDto(),
     val customization: WorkspaceCustomizationDto = WorkspaceCustomizationDto(),
 )

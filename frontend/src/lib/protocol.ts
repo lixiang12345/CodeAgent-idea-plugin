@@ -175,6 +175,27 @@ export interface ConfigurationSnapshot {
   items: Partial<Record<ConfigurationKind, ProductConfiguration[]>>;
 }
 
+export interface HookExecution {
+  id: string;
+  hookId: string;
+  hookName: string;
+  event: "before-run" | "after-run" | "before-tool" | "after-tool" | "on-error";
+  status: "completed" | "failed" | "timeout";
+  exitCode?: number;
+  startedAt: string;
+  durationMs: number;
+  summary: string;
+  detail?: string;
+}
+
+export interface HookRuntimeSnapshot {
+  state: "idle" | "ready" | "degraded";
+  label: string;
+  configured: number;
+  automatic: number;
+  recent: HookExecution[];
+}
+
 export type McpRuntimeState = "disabled" | "stopped" | "starting" | "ready" | "degraded" | "error" | "stopping";
 
 export interface McpTool {
@@ -290,6 +311,7 @@ export interface AppSnapshot {
   backendTools: BackendToolCapability[];
   configurations: ConfigurationSnapshot;
   mcpRuntime: McpRuntimeSnapshot;
+  hookRuntime: HookRuntimeSnapshot;
   jobs: ProductJobSnapshot;
   customization: {
     rules: WorkspaceRule[];
@@ -563,6 +585,23 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
             },
           },
         ],
+        hooks: [
+          {
+            id: "verify-run",
+            kind: "hooks",
+            value: {
+              name: "Verify run",
+              description: "Runs the focused verification script after an Agent run.",
+              enabled: true,
+              event: "after-run",
+              command: "./gradlew test",
+              timeoutSeconds: 120,
+              runPolicy: "manual",
+              failurePolicy: "continue",
+              requiredEnvironment: [],
+            },
+          },
+        ],
         agents: [
           {
             id: "context-researcher",
@@ -654,6 +693,26 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
             additionalProperties: false,
           },
           risk: "read_only",
+        },
+      ],
+    },
+    hookRuntime: {
+      state: "ready",
+      label: "1 hook · manual execution",
+      configured: 1,
+      automatic: 0,
+      recent: [
+        {
+          id: "hook-run-1",
+          hookId: "verify-run",
+          hookName: "Verify run",
+          event: "after-run",
+          status: "completed",
+          exitCode: 0,
+          startedAt: new Date(Date.now() - 45_000).toISOString(),
+          durationMs: 4218,
+          summary: "Completed",
+          detail: "BUILD SUCCESSFUL in 4s",
         },
       ],
     },

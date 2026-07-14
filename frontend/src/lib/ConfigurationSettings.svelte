@@ -4,6 +4,8 @@
     sendCommand,
     type ConfigurationKind,
     type ConfigurationSnapshot,
+    type HookExecution,
+    type HookRuntimeSnapshot,
     type McpRuntimeSnapshot,
     type McpServerRuntime,
     type ModelOption,
@@ -13,6 +15,7 @@
   export let section: string;
   export let configurationSnapshot: ConfigurationSnapshot;
   export let mcpRuntime: McpRuntimeSnapshot;
+  export let hookRuntime: HookRuntimeSnapshot;
   export let models: ModelOption[] = [];
 
   type Draft = {
@@ -25,6 +28,8 @@
     commandMode: string;
     commandAgentProfileId: string;
     event: string;
+    hookRunPolicy: string;
+    hookFailurePolicy: string;
     command: string;
     timeoutSeconds: number;
     agentType: string;
@@ -72,7 +77,7 @@
     },
     hooks: {
       title: "Hooks",
-      lead: "Bounded lifecycle commands. Execution remains subject to IDE approval and runtime policy.",
+      lead: "Bounded lifecycle commands with explicit activation, environment inheritance, failure policy, and execution audit.",
       singular: "hook",
       icon: "workflow",
     },
@@ -123,6 +128,8 @@ $: if (section !== previousSection) {
       commandMode: "inherit",
       commandAgentProfileId: "",
       event: "before-run",
+      hookRunPolicy: "manual",
+      hookFailurePolicy: "continue",
       command: "",
       timeoutSeconds: 60,
       agentType: "general",
@@ -184,6 +191,8 @@ $: if (section !== previousSection) {
       commandMode: text(value.mode) || "inherit",
       commandAgentProfileId: text(value.agentProfileId),
       event: text(value.event) || "before-run",
+      hookRunPolicy: text(value.runPolicy) || "manual",
+      hookFailurePolicy: text(value.failurePolicy) || "continue",
       command: text(value.command),
       timeoutSeconds: numberValue(value.timeoutSeconds, 60),
       agentType: text(value.agentType) || "general",
@@ -237,7 +246,15 @@ $: if (section !== previousSection) {
       };
     }
     if (kind === "hooks") {
-      return { ...common, event: draft.event, command: draft.command, timeoutSeconds: draft.timeoutSeconds };
+      return {
+        ...common,
+        event: draft.event,
+        runPolicy: draft.hookRunPolicy,
+        failurePolicy: draft.hookFailurePolicy,
+        command: draft.command,
+        timeoutSeconds: draft.timeoutSeconds,
+        requiredEnvironment: parseList(draft.requiredEnvironment),
+      };
     }
     if (kind === "agents") {
       return {
@@ -299,6 +316,11 @@ $: if (section !== previousSection) {
 
   function save() {
     if (!canSave()) return;
+    if (
+      kind === "hooks"
+      && draft.hookRunPolicy === "automatic"
+      && !window.confirm("Allow this hook to execute project commands automatically for its selected lifecycle event?")
+    ) return;
     sendCommand("saveConfiguration", { kind, id: configurationId(), value: buildValue() });
     editorOpen = false;
   }
@@ -329,7 +351,14 @@ $: if (section !== previousSection) {
       const profile = text(value.agentProfileId);
       return [text(value.argumentHint) || "Prompt command", mode, profile].filter(Boolean).join(" · ");
     }
-    if (kind === "hooks") return `${text(value.event) || "before-run"} · ${numberValue(value.timeoutSeconds, 60)}s`;
+    if (kind === "hooks") {
+      return [
+        text(value.event) || "before-run",
+        text(value.runPolicy) || "manual",
+        text(value.failurePolicy) || "continue",
+        `${numberValue(value.timeoutSeconds, 60)}s`,
+      ].join(" · ");
+    }
     if (kind === "agents") return `${text(value.agentType) || "general"} · ${numberValue(value.maxTurns, 12)} turns · ${numberValue(value.maxToolCalls, 48)} tools · ${Math.round(numberValue(value.contextWindowTokens, 64000) / 1000)}k context`;
     return text(value.version) || text(value.source) || "Extension source";
   }
@@ -340,6 +369,20 @@ $: if (section !== previousSection) {
 
   function controlMcp(command: "startMcpServer" | "stopMcpServer" | "restartMcpServer" | "testMcpServer", serverId: string) {
     sendCommand(command, { serverId });
+  }
+
+  function testHook(hookId: string) {
+    sendCommand("testHook", { hookId });
+  }
+
+  function hookDuration(execution: HookExecution): string {
+    if (execution.durationMs < 1000) return `${execution.durationMs} ms`;
+    return `${(execution.durationMs / 1000).toFixed(execution.durationMs < 10_000 ? 1 : 0)} s`;
+  }
+
+  function hookStartedAt(execution: HookExecution): string {
+    const parsed = new Date(execution.startedAt);
+    return Number.isNaN(parsed.getTime()) ? execution.startedAt : parsed.toLocaleString();
   }
 </script>
 
@@ -372,8 +415,12 @@ $: if (section !== previousSection) {
       <div class="runtime-note"><Icon name="info" size={13} /><span>Use <code>&#123;&#123;arguments&#125;&#125;</code>, <code>&#123;&#123;project&#125;&#125;</code>, and <code>&#123;&#123;command&#125;&#125;</code> placeholders. Arguments are appended in a bounded block when the template omits the arguments placeholder.</span></div>
     {:else if kind === "hooks"}
       <label><span>Event</span><select bind:value={draft.event}><option value="before-run">Before run</option><option value="after-run">After run</option><option value="before-tool">Before tool</option><option value="after-tool">After tool</option><option value="on-error">On error</option></select></label>
+      <label><span>Run policy</span><select bind:value={draft.hookRunPolicy}><option value="manual">Manual only</option><option value="automatic">Automatic on lifecycle event</option></select></label>
+      <label><span>Failure policy</span><select bind:value={draft.hookFailurePolicy}><option value="continue">Record failure and continue</option><option value="fail-run">Stop the Agent run</option></select></label>
       <label><span>Command</span><textarea class="command-textarea" bind:value={draft.command} spellcheck="false"></textarea></label>
+      <label><span>Required environment</span><textarea class="list-textarea" bind:value={draft.requiredEnvironment} spellcheck="false" placeholder="API_TOKEN"></textarea><small>Names only. Values are inherited from the IDE process when explicitly allowlisted.</small></label>
       <label><span>Timeout seconds</span><input type="number" min="1" max="600" bind:value={draft.timeoutSeconds} /></label>
+      <div class="runtime-note"><Icon name="shield" size={13} /><span>Hooks run in the project root with a bounded timeout and minimal environment. New hooks default to manual execution; automatic hooks require explicit confirmation.</span></div>
     {:else if kind === "agents"}
       <label><span>Agent type</span><select bind:value={draft.agentType}><option value="general">General</option><option value="search">Search</option><option value="context">Context</option><option value="prompt">Prompt engineer</option><option value="loop">Loop / verifier</option></select></label>
       <label><span>Model</span><select bind:value={draft.model}><option value="">Backend default</option>{#each models as model}<option value={model.id}>{model.id}</option>{/each}</select></label>
@@ -442,6 +489,14 @@ $: if (section !== previousSection) {
     </div>
   {/if}
 
+  {#if kind === "hooks"}
+    <div class="configuration-status hook-runtime-status">
+      <span class="status-dot {hookRuntime.state}"></span>
+      <span><strong>Hook runtime · {hookRuntime.state}</strong><small>{hookRuntime.label}</small></span>
+      <i>{hookRuntime.automatic}/{hookRuntime.configured} automatic</i>
+    </div>
+  {/if}
+
   {#if configurationSnapshot.state === "unavailable" || configurationSnapshot.state === "error"}
     <section class="configuration-empty">
       <Icon name="circle-alert" size={19} />
@@ -463,6 +518,9 @@ $: if (section !== previousSection) {
             <input type="checkbox" checked={item.value.enabled !== false} disabled={busy} onchange={() => toggle(item)} />
             <span></span>
           </label>
+          {#if kind === "hooks"}
+            <button class="icon-button compact" title="Test hook" disabled={busy || item.value.enabled === false} onclick={() => testHook(item.id)}><Icon name="play" size={11} /></button>
+          {/if}
           <button class="icon-button compact" title="Edit" disabled={busy} onclick={() => beginEdit(item)}><Icon name="pencil" size={12} /></button>
           <button class="icon-button compact danger" title="Delete" disabled={busy} onclick={() => remove(item)}><Icon name="trash-2" size={12} /></button>
           {#if kind === "mcp"}
@@ -503,6 +561,30 @@ $: if (section !== previousSection) {
       {/each}
     </section>
   {/if}
+
+  {#if kind === "hooks"}
+    <section class="hook-audit">
+      <header>
+        <span><strong>Recent executions</strong><small>Latest {hookRuntime.recent.length} of 50 retained for this IDE session</small></span>
+        <i>{hookRuntime.recent.length}</i>
+      </header>
+      {#each hookRuntime.recent as execution}
+        <details class="hook-execution">
+          <summary>
+            <span class="hook-execution-state {execution.status}"><Icon name={execution.status === "completed" ? "check" : "circle-alert"} size={11} /></span>
+            <span class="hook-execution-copy"><strong>{execution.hookName}</strong><small>{execution.event} · {hookDuration(execution)} · {hookStartedAt(execution)}</small></span>
+            <i>{execution.summary}</i>
+          </summary>
+          <div class="hook-execution-detail">
+            <span>Hook <code>{execution.hookId}</code>{#if execution.exitCode !== undefined} · exit {execution.exitCode}{/if}</span>
+            {#if execution.detail}<pre>{execution.detail}</pre>{/if}
+          </div>
+        </details>
+      {:else}
+        <div class="hook-audit-empty"><Icon name="activity" size={16} /><span>No hook executions in this IDE session.</span></div>
+      {/each}
+    </section>
+  {/if}
 {/if}
 
 <style>
@@ -522,6 +604,8 @@ $: if (section !== previousSection) {
   .status-dot.loading { background: #d0a05b; box-shadow: 0 0 0 2px #51432d; }
   .status-dot.error, .status-dot.degraded { background: #dc6e74; box-shadow: 0 0 0 2px #523238; }
   .mcp-gateway-status { margin-top: -2px; }
+  .hook-runtime-status { margin-top: -2px; }
+  .hook-runtime-status > i { color: #8793a2; font: normal 7px var(--mono); white-space: nowrap; }
   .configuration-list { overflow: hidden; border: 1px solid var(--line); border-radius: 5px; background: #202225; }
   .configuration-list article { min-height: 62px; padding: 6px 7px; display: flex; align-items: center; gap: 6px; }
   .configuration-list article + article { border-top: 1px solid var(--line); }
@@ -575,6 +659,25 @@ $: if (section !== previousSection) {
   .configuration-segments button { min-width: 0; flex: 1; border: 0; border-radius: 3px; color: var(--muted); background: transparent; font-size: 8px; cursor: pointer; }
   .configuration-segments button.active { color: var(--text); background: #30343a; }
   .runtime-note { margin: 2px 0 11px; padding: 8px; display: flex; align-items: flex-start; gap: 6px; border-left: 2px solid #52739f; color: #9faab8; background: #1b2027; font-size: 8px; line-height: 1.45; }
+  .hook-audit { margin-top: 8px; overflow: hidden; border: 1px solid var(--line); border-radius: 5px; background: #202225; }
+  .hook-audit > header { min-height: 39px; padding: 6px 8px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
+  .hook-audit > header > span { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+  .hook-audit > header strong { font-size: 8px; }
+  .hook-audit > header small { color: var(--muted); font-size: 7.5px; }
+  .hook-audit > header > i { min-width: 20px; padding: 2px 5px; border-radius: 3px; color: #9ba9bc; background: #2d3239; font: normal 7px var(--mono); text-align: center; }
+  .hook-execution + .hook-execution { border-top: 1px solid var(--line); }
+  .hook-execution summary { min-height: 45px; padding: 6px 8px; display: flex; align-items: center; gap: 7px; cursor: pointer; list-style: none; }
+  .hook-execution summary::-webkit-details-marker { display: none; }
+  .hook-execution-state { width: 22px; height: 22px; flex: 0 0 22px; display: grid; place-items: center; border-radius: 4px; color: #e0a4aa; background: #482b30; }
+  .hook-execution-state.completed { color: #a9d9b5; background: #294331; }
+  .hook-execution-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+  .hook-execution-copy strong, .hook-execution-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hook-execution-copy strong { font-size: 8px; }
+  .hook-execution-copy small { color: var(--muted); font: 7px var(--mono); }
+  .hook-execution summary > i { max-width: 34%; overflow: hidden; text-overflow: ellipsis; color: #929dab; font: normal 7px var(--mono); white-space: nowrap; }
+  .hook-execution-detail { padding: 0 8px 8px 37px; color: var(--muted); font: 7.5px/1.45 var(--mono); }
+  .hook-execution-detail pre { max-height: 180px; margin: 6px 0 0; padding: 7px; overflow: auto; border: 1px solid #343940; border-radius: 4px; color: #bec4cb; background: #181a1d; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .hook-audit-empty { min-height: 74px; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--muted); font-size: 8px; }
   .configuration-editor footer { display: flex; justify-content: flex-end; gap: 6px; }
   .configuration-editor footer button { height: 26px; padding: 0 9px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line-strong); border-radius: 3px; background: #2d3035; font-size: 8px; cursor: pointer; }
   .configuration-editor footer button.primary { border-color: #416aa9; color: white; background: #3665ac; }
