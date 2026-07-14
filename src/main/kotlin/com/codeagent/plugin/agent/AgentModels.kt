@@ -19,6 +19,7 @@ data class AgentToolDefinition(
     val name: String,
     val description: String,
     val parameters: JsonObject,
+    val risk: ToolRisk = ToolRisk.READ_ONLY,
 )
 
 data class FileChange(

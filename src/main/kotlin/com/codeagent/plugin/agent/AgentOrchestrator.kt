@@ -30,6 +30,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
     fun start(
         history: List<AgentMessage>,
         mode: String,
+        agentProfileId: String,
         model: String?,
         enabledSkillIds: Set<String>,
         enabledRuleIds: Set<String>,
@@ -54,9 +55,21 @@ class AgentOrchestrator(private val project: Project) : Disposable {
                 val definitions = toolRunner.definitions(mode)
                 val request = RemoteRunRequest(
                     mode = mode,
+                    agentProfileId = agentProfileId,
                     model = model,
                     messages = history.map { RemoteMessage(it.role, it.content) },
-                    tools = definitions.map { RemoteToolDefinition(it.name, it.description, it.parameters) },
+                    tools = definitions.map { definition ->
+                        RemoteToolDefinition(
+                            definition.name,
+                            definition.description,
+                            definition.parameters,
+                            when (definition.risk) {
+                                ToolRisk.READ_ONLY -> "read_only"
+                                ToolRisk.LOCAL_STATE -> "local_state"
+                                ToolRisk.MUTATING -> "mutating"
+                            },
+                        )
+                    },
                     workspace = RemoteWorkspace(
                         guidance = guidanceLoader.load(),
                         rules = customization.rules

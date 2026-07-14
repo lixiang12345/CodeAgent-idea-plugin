@@ -1,3 +1,5 @@
+import { productJobMessages } from "./prompt.mjs";
+
 export class ProductJobRunner {
   constructor({ store, modelGateway, concurrency = 4, logger = console }) {
     this.store = store;
@@ -74,15 +76,10 @@ export class ProductJobRunner {
   async #run(job, signal) {
     if (!["subagent", "history-summary"].includes(job.type)) throw new Error(`Unsupported job type: ${job.type}`);
     const prompt = requiredText(job.input?.prompt, "Job prompt");
-    const system = typeof job.input?.system === "string" && job.input.system.trim()
-      ? job.input.system.trim()
-      : job.type === "history-summary"
-        ? "Summarize this conversation accurately and compactly. Preserve decisions, changed files, failures, and open work."
-        : "Complete the delegated coding analysis task. Return a concise, self-contained result.";
     let content = "";
     const turn = await this.modelGateway.stream({
       model: typeof job.input?.model === "string" ? job.input.model : undefined,
-      messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
+      messages: productJobMessages({ type: job.type, prompt, system: job.input?.system }),
       tools: [],
       signal,
       onTextDelta: (delta) => { content += delta || ""; },

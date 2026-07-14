@@ -367,6 +367,7 @@ internal data class RemoteEnhanceResponse(
 @Serializable
 internal data class RemoteRunRequest(
     val mode: String,
+    val agentProfileId: String = "general",
     val model: String? = null,
     val messages: List<RemoteMessage>,
     val tools: List<RemoteToolDefinition>,
@@ -384,6 +385,7 @@ internal data class RemoteToolDefinition(
     val name: String,
     val description: String,
     val parameters: JsonObject,
+    val risk: String,
 )
 
 @Serializable
@@ -503,6 +505,7 @@ internal data class RemoteConversation(
     val title: String,
     val mode: String,
     val updatedAt: Long,
+    val selectedAgentProfileId: String = "general",
     val selectedModelId: String? = null,
     val selectedSkillIds: List<String> = emptyList(),
     val selectedRuleIds: List<String> = emptyList(),

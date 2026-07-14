@@ -66,6 +66,24 @@ class ConversationStoreTest {
     }
 
     @Test
+    fun `persists Agent profile selection per thread`() {
+        val store = ConversationStore()
+        val first = store.active()
+        store.setSelectedAgentProfile("context")
+        assertEquals("context", store.active().selectedAgentProfileId)
+
+        val second = store.newThread()
+        assertEquals("general", second.selectedAgentProfileId)
+        store.setSelectedAgentProfile("review-agent")
+
+        store.select(first.id)
+        assertEquals("context", store.active().selectedAgentProfileId)
+        store.select(second.id)
+        assertEquals("review-agent", store.active().selectedAgentProfileId)
+        assertFailsWith<IllegalArgumentException> { store.setSelectedAgentProfile("not valid") }
+    }
+
+    @Test
     fun `persists and reorders tasks per thread`() {
         val store = ConversationStore()
         val tasks = store.addTasks(listOf("Inspect auth flow", "Add regression tests"))
@@ -144,6 +162,7 @@ class ConversationStoreTest {
         assertEquals(listOf("cloud-thread"), store.threads().map { it.id })
         assertEquals("cloud-thread", store.active().id)
         assertEquals("Cloud message", store.active().messages.single().content)
+        assertEquals("context", store.active().selectedAgentProfileId)
     }
 
     @Test
@@ -213,6 +232,7 @@ class ConversationStoreTest {
         title = "Cloud thread",
         updatedAt = updatedAt,
         mode = "agent",
+        selectedAgentProfileId = "context",
         selectedModelId = "model-a",
         selectedSkillIds = emptyList(),
         selectedRuleIds = emptyList(),

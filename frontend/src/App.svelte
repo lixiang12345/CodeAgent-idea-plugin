@@ -102,6 +102,7 @@
   let settingsNavigationOpen = true;
   let threadDrawerOpen = false;
   let modeMenuOpen = false;
+  let agentProfileMenuOpen = false;
   let modelMenuOpen = false;
   let skillsOpen = false;
   let tasksOpen = true;
@@ -213,6 +214,7 @@
     moreMenuOpen = false;
     threadOptOpen = false;
     modeMenuOpen = false;
+    agentProfileMenuOpen = false;
     modelMenuOpen = false;
     skillsOpen = false;
     slashOpen = false;
@@ -240,6 +242,40 @@
     snapshot = { ...snapshot, mode };
     modeMenuOpen = false;
     sendCommand("setMode", { mode });
+  }
+
+  type AgentProfileOption = { id: string; name: string; description: string; agentType: string; builtin: boolean };
+
+  const builtInAgentProfiles: AgentProfileOption[] = [
+    { id: "general", name: "General Agent", description: "Balanced implementation and verification", agentType: "general", builtin: true },
+    { id: "search", name: "Search Agent", description: "Evidence-first repository and connected search", agentType: "search", builtin: true },
+    { id: "context", name: "Context Agent", description: "Builds a compact cited project context pack", agentType: "context", builtin: true },
+    { id: "prompt", name: "Prompt Engineer", description: "Refines tasks into execution-ready prompts", agentType: "prompt", builtin: true },
+    { id: "loop", name: "Loop Agent", description: "Implements and verifies through bounded iterations", agentType: "loop", builtin: true },
+  ];
+
+  function agentProfiles(): AgentProfileOption[] {
+    const profiles = new Map(builtInAgentProfiles.map((profile) => [profile.id, profile]));
+    for (const configuration of snapshot?.configurations.items.agents ?? []) {
+      if (configuration.value.enabled === false) continue;
+      const name = typeof configuration.value.name === "string" ? configuration.value.name : configuration.id;
+      const description = typeof configuration.value.description === "string" ? configuration.value.description : "Custom Agent profile";
+      const agentType = typeof configuration.value.agentType === "string" ? configuration.value.agentType : "general";
+      profiles.set(configuration.id, { id: configuration.id, name, description, agentType, builtin: false });
+    }
+    return [...profiles.values()];
+  }
+
+  function activeAgentProfile(): AgentProfileOption {
+    const selected = snapshot?.selectedAgentProfileId ?? "general";
+    return agentProfiles().find((profile) => profile.id === selected) ?? builtInAgentProfiles[0];
+  }
+
+  function selectAgentProfile(agentProfileId: string) {
+    if (!snapshot || isBusy()) return;
+    snapshot = { ...snapshot, selectedAgentProfileId: agentProfileId };
+    agentProfileMenuOpen = false;
+    sendCommand("selectAgentProfile", { agentProfileId });
   }
 
   function selectModel(modelId: string) {
@@ -525,6 +561,7 @@
     slashOpen = true;
     atOpen = false;
     modeMenuOpen = false;
+    agentProfileMenuOpen = false;
     modelMenuOpen = false;
     skillsOpen = false;
   }
@@ -533,6 +570,7 @@
     atOpen = true;
     slashOpen = false;
     modeMenuOpen = false;
+    agentProfileMenuOpen = false;
     modelMenuOpen = false;
     skillsOpen = false;
   }
@@ -888,7 +926,7 @@
             ></textarea>
             <div class="composer-toolbar abar">
               <div class="mode-control">
-                <button class="mode-button dd-btn" onclick={() => { modeMenuOpen = !modeMenuOpen; modelMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}>
+                <button class="mode-button dd-btn" onclick={() => { modeMenuOpen = !modeMenuOpen; agentProfileMenuOpen = false; modelMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}>
                   <span class="tag {snapshot.mode}">{modeLabel()}</span>
                   <Icon name="chevron-down" size={12} />
                 </button>
@@ -913,12 +951,32 @@
                   </div>
                 {/if}
               </div>
+              <div class="profile-control">
+                <button
+                  class="profile-button model-btn"
+                  title={`${activeAgentProfile().name}: ${activeAgentProfile().description}`}
+                  disabled={isBusy()}
+                  onclick={() => { agentProfileMenuOpen = !agentProfileMenuOpen; modeMenuOpen = false; modelMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}
+                ><Icon name="bot" size={12} /><span>{activeAgentProfile().name}</span><Icon name="chevron-down" size={11} /></button>
+                {#if agentProfileMenuOpen}
+                  <div class="model-menu profile-menu drop">
+                    <header><span>Agent profile</span><small>{agentProfiles().length} available</small></header>
+                    {#each agentProfiles() as profile}
+                      <button class:active={(snapshot.selectedAgentProfileId ?? "general") === profile.id} onclick={() => selectAgentProfile(profile.id)}>
+                        <Icon name={profile.agentType === "search" ? "search" : profile.agentType === "context" ? "layers-2" : profile.agentType === "prompt" ? "sparkles" : profile.agentType === "loop" ? "repeat-2" : "bot"} size={13} />
+                        <span><strong>{profile.name}</strong><small>{profile.description}</small></span>
+                        {#if (snapshot.selectedAgentProfileId ?? "general") === profile.id}<Icon name="check" size={13} />{/if}
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
               <div class="model-control">
                 <button
                   class="model-select model-btn"
                   title={snapshot.models.selectedModel ?? snapshot.models.defaultModel ?? snapshot.models.label}
                   disabled={isBusy() || snapshot.models.state !== "ready" || snapshot.models.options.length === 0}
-                  onclick={() => { modelMenuOpen = !modelMenuOpen; modeMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}
+                  onclick={() => { modelMenuOpen = !modelMenuOpen; modeMenuOpen = false; agentProfileMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}
                 ><span>{snapshot.models.selectedModel ?? snapshot.models.defaultModel ?? "auto-detect"}</span><Icon name="chevron-down" size={11} /></button>
                 {#if modelMenuOpen}
                   <div class="model-menu drop">
@@ -938,7 +996,7 @@
               <button title="Attach file/image" onclick={() => sendCommand("pickContext")}><Icon name="file-input" size={14} /></button>
               <button title={enhancing ? "Enhancing…" : "Enhance prompt"} disabled={!prompt.trim() || enhancing || isBusy()} onclick={enhancePrompt}><Icon name="sparkles" size={14} /></button>
               <div class="skill-control">
-                <button class:active={skillsOpen} title="Skills" onclick={() => { skillsOpen = !skillsOpen; modeMenuOpen = false; modelMenuOpen = false; }}>
+                <button class:active={skillsOpen} title="Skills" onclick={() => { skillsOpen = !skillsOpen; modeMenuOpen = false; agentProfileMenuOpen = false; modelMenuOpen = false; }}>
                   <Icon name="wand-sparkles" size={14} />
                   {#if selectedSkillCount() > 0}<i>{selectedSkillCount()}</i>{/if}
                 </button>
@@ -1207,7 +1265,7 @@
               <h1>Beta <em>Beta</em></h1>
               <p class="settings-lead">Connected previews with explicit maturity and execution boundaries.</p>
               <section class="settings-block capability-list">
-                <div><Icon name="bot" size={14} /><span class="capability-copy"><strong>Specialized Agent profiles</strong><small>Search, context, prompt, loop, and general profiles can be stored with model and tool budgets.</small></span><i class:ready={snapshot.configurations.state === "ready"}>{snapshot.configurations.state === "ready" ? "Preview" : "Unavailable"}</i></div>
+                <div><Icon name="bot" size={14} /><span class="capability-copy"><strong>Specialized Agent profiles</strong><small>Search, context, prompt, loop, and general profiles can be stored with model and tool budgets.</small></span><i class:ready={snapshot.configurations.state === "ready"}>{snapshot.configurations.state === "ready" ? "Active" : "Unavailable"}</i></div>
                 <div><Icon name="square-terminal" size={14} /><span class="capability-copy"><strong>Reusable commands</strong><small>Prompt commands are persisted now; composer invocation is the next runtime connection.</small></span><i class:ready={snapshot.configurations.state === "ready"}>{snapshot.configurations.state === "ready" ? "Preview" : "Unavailable"}</i></div>
                 <div><Icon name="list-checks" size={14} /><span class="capability-copy"><strong>Durable subagent jobs</strong><small>Backend jobs survive IDE reconnects and can be restored through the account session.</small></span><i class:ready={snapshot.account.state === "signed_in"}>{snapshot.account.state === "signed_in" ? "Preview" : "Sign in"}</i></div>
                 <div><Icon name="wand-sparkles" size={14} /><span class="capability-copy"><strong>Repository skills</strong><small>Skills are loaded from repository instructions and selected per conversation.</small></span><i class:ready={snapshot.customization.skills.length > 0}>{snapshot.customization.skills.length > 0 ? "Preview" : "None found"}</i></div>

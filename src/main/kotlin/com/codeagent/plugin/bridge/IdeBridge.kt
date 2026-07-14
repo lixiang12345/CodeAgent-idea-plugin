@@ -173,6 +173,20 @@ class IdeBridge(
                 syncActiveConversation()
                 emitSnapshot()
             }
+            "selectAgentProfile" -> {
+                val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<AgentProfileSelectionPayload>(it) }
+                synchronized(stateLock) {
+                    require(runState != "running" && runState != "awaiting_approval") {
+                        "Cannot change Agent profile while the agent is running"
+                    }
+                    require(isKnownAgentProfile(selection.agentProfileId)) {
+                        "Unknown Agent profile: ${selection.agentProfileId}"
+                    }
+                    conversations.setSelectedAgentProfile(selection.agentProfileId)
+                }
+                syncActiveConversation()
+                emitSnapshot()
+            }
             "newThread" -> newThread(command.payload)
             "sendMessage" -> sendMessage(requireNotNull(command.payload) { "sendMessage requires payload" })
             "queueMessage" -> {
@@ -567,8 +581,9 @@ class IdeBridge(
         }
         val enabledSkillIds = synchronized(stateLock) { conversations.active().selectedSkillIds.toSet() }
         val enabledRuleIds = synchronized(stateLock) { conversations.active().selectedRuleIds.toSet() }
+        val selectedAgentProfileId = synchronized(stateLock) { conversations.active().selectedAgentProfileId }
         val selectedModel = synchronized(stateLock) { conversations.active().selectedModelId }
-        agent.start(history, request.mode, selectedModel, enabledSkillIds, enabledRuleIds, object : AgentRunListener {
+        agent.start(history, request.mode, selectedAgentProfileId, selectedModel, enabledSkillIds, enabledRuleIds, object : AgentRunListener {
             private var streamingMessageId: String? = null
             private var streamingTurnIndex: Int? = null
             private fun emitRunSnapshot() = this@IdeBridge.emitSnapshot()
@@ -696,6 +711,7 @@ class IdeBridge(
             AppSnapshotDto(
                 projectName = project.name,
                 mode = active.mode,
+                selectedAgentProfileId = active.selectedAgentProfileId,
                 runState = runState,
                 messages = active.messages.map { message ->
                     ChatMessageDto(message.id, message.role, message.content, message.createdAt, messageTurns[message.id])
@@ -746,6 +762,11 @@ class IdeBridge(
         }
         emit("snapshot", json.encodeToJsonElement(snapshot))
     }
+
+    private fun isKnownAgentProfile(agentProfileId: String): Boolean =
+        agentProfileId in BUILT_IN_AGENT_PROFILES || configurations.items["agents"].orEmpty().any { configuration ->
+            configuration.id == agentProfileId && configuration.value["enabled"]?.toString() != "false"
+        }
 
     private fun refreshContextStatus() {
         contextEngine.status().whenComplete { status, error ->
@@ -1008,6 +1029,13 @@ class IdeBridge(
                     label = "${items.values.sumOf(List<ProductConfigurationDto>::size)} configurations",
                     items = items,
                 )
+            }
+            if (error == null) {
+                val selected = synchronized(stateLock) { conversations.active().selectedAgentProfileId }
+                if (!isKnownAgentProfile(selected)) {
+                    synchronized(stateLock) { conversations.setSelectedAgentProfile("general") }
+                    syncActiveConversation()
+                }
             }
             emitSnapshot()
         }
@@ -1382,6 +1410,9 @@ class IdeBridge(
     private data class ModelSelectionPayload(val modelId: String)
 
     @Serializable
+    private data class AgentProfileSelectionPayload(val agentProfileId: String)
+
+    @Serializable
     private data class EnhancePromptPayload(val text: String, val mode: String = "agent")
 
     @Serializable
@@ -1415,6 +1446,7 @@ class IdeBridge(
         private val LOG = logger<IdeBridge>()
         private const val MAX_THREAD_IMPORT_BYTES = 2_000_000L
         private const val MAX_QUEUED_MESSAGES = 10
+        private val BUILT_IN_AGENT_PROFILES = setOf("general", "search", "context", "prompt", "loop")
         private val CONFIGURATION_KINDS = listOf("mcp", "hooks", "commands", "agents", "plugins", "tool-permissions")
     }
 }

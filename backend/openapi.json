@@ -1104,6 +1104,11 @@
               "ask"
             ]
           },
+          "agentProfileId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{1,120}$",
+            "default": "general"
+          },
           "model": {
             "type": "string"
           },
@@ -1163,6 +1168,14 @@
           },
           "parameters": {
             "type": "object"
+          },
+          "risk": {
+            "type": "string",
+            "enum": [
+              "read_only",
+              "local_state",
+              "mutating"
+            ]
           }
         },
         "additionalProperties": false
@@ -1219,7 +1232,10 @@
           "runId",
           "protocolVersion",
           "provider",
-          "model"
+          "model",
+          "agentProfileId",
+          "agentType",
+          "promptVersion"
         ],
         "properties": {
           "runId": {
@@ -1234,6 +1250,22 @@
             "type": "string"
           },
           "model": {
+            "type": "string"
+          },
+          "agentProfileId": {
+            "type": "string"
+          },
+          "agentType": {
+            "type": "string",
+            "enum": [
+              "general",
+              "search",
+              "context",
+              "prompt",
+              "loop"
+            ]
+          },
+          "promptVersion": {
             "type": "string"
           }
         },

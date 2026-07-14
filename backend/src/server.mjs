@@ -9,6 +9,8 @@ import { createAuthenticatorFromEnv, SharedTokenAuthenticator } from "./auth.mjs
 import { ProductJobRunner } from "./job-runner.mjs";
 import { createProductStoreFromEnv } from "./product-store.mjs";
 import { createRuntimeManifestFromEnv, handleProductRequest, handlePublicProductRequest } from "./product-api.mjs";
+import { applyAgentProfile, resolveAgentProfile } from "./agent-profile.mjs";
+import { PROMPT_VERSION, promptEnhancementMessages } from "./prompt.mjs";
 
 const OPENAPI_DOCUMENT = JSON.parse(readFileSync(new URL("../openapi.json", import.meta.url), "utf8"));
 const DOCS_HTML = readFileSync(new URL("../docs.html", import.meta.url), "utf8");
@@ -117,16 +119,7 @@ export function createCodeAgentServer({
         const turn = await gateway.stream({
           model,
           tools: [],
-          messages: [
-            {
-              role: "system",
-              content: "Rewrite the user's coding prompt to be clearer and more actionable for an IDE coding agent. Preserve intent. Return only the improved prompt text with no preface or quotes.",
-            },
-            {
-              role: "user",
-              content: `Mode: ${mode}\n\nOriginal prompt:\n${text}`,
-            },
-          ],
+          messages: promptEnhancementMessages({ text, mode }),
           onTextDelta: (delta) => {
             enhanced += delta || "";
           },
@@ -149,23 +142,45 @@ export function createCodeAgentServer({
       if (request.url === "/v1/runs" && request.method === "POST") {
         const body = await readJson(request);
         validateRunRequest(body);
+        const agentProfile = await resolveAgentProfile({
+          store,
+          userId: principal.id,
+          profileId: body.agentProfileId,
+        });
+        const effectiveRequest = applyAgentProfile(body, agentProfile);
+        const selectedModel = effectiveRequest.model || gateway.defaultModel || "";
+        if (selectedModel) effectiveRequest.model = selectedModel;
         const run = new RunSession({ id: randomUUID(), userId: principal.id, response, onClose: () => runs.delete(run.id) });
         runs.set(run.id, run);
         run.emit("run.started", {
           runId: run.id,
           protocolVersion: 1,
           provider: gateway.provider || "custom",
-          model: body.model || gateway.defaultModel || "",
+          model: selectedModel,
+          agentProfileId: agentProfile.id,
+          agentType: agentProfile.agentType,
+          promptVersion: PROMPT_VERSION,
         });
         void runner.run({
-          request: body,
+          request: effectiveRequest,
+          agentProfile,
           emit: run.emit.bind(run),
           awaitToolResult: run.awaitToolResult.bind(run),
           signal: run.signal,
         }).catch((error) => {
           if (!run.signal.aborted) run.emit("run.error", { message: rootMessage(error) });
         }).finally(async () => {
-          await store.recordUsage(principal.id, { kind: "agent-run", units: 1, metadata: { runId: run.id, model: body.model || gateway.defaultModel || "" } });
+          await store.recordUsage(principal.id, {
+            kind: "agent-run",
+            units: 1,
+            metadata: {
+              runId: run.id,
+              model: selectedModel,
+              agentProfileId: agentProfile.id,
+              agentType: agentProfile.agentType,
+              promptVersion: PROMPT_VERSION,
+            },
+          });
           run.close();
         });
         return;
@@ -328,7 +343,7 @@ function applyCors(request, response, allowedOrigins) {
   const origin = request.headers.origin;
   if (!origin || (!allowedOrigins.has(origin) && !allowedOrigins.has("*"))) return false;
   response.setHeader("access-control-allow-origin", allowedOrigins.has("*") ? "*" : origin);
-  response.setHeader("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
+  response.setHeader("access-control-allow-methods", "GET, POST, PUT, DELETE, OPTIONS");
   response.setHeader("access-control-allow-headers", "Authorization, Content-Type, Accept");
   response.setHeader("access-control-expose-headers", "X-CodeAgent-Run-Id");
   response.setHeader("access-control-max-age", "600");

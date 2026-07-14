@@ -144,7 +144,8 @@ export class PostgresProductStore {
 
   async getConversation(userId, id) {
     const { rows } = await this.pool.query(
-      `SELECT id, title, mode, selected_model_id AS "selectedModelId",
+      `SELECT id, title, mode, COALESCE(selected_agent_profile_id, 'general') AS "selectedAgentProfileId",
+         selected_model_id AS "selectedModelId",
          selected_skill_ids AS "selectedSkillIds", selected_rule_ids AS "selectedRuleIds",
          pinned, summary, version::int AS version, client_updated_at::float8 AS "updatedAt",
          created_at AS "createdAt", updated_at AS "syncedAt",
@@ -182,12 +183,13 @@ export class PostgresProductStore {
       const nextVersion = currentVersion + 1;
       const { rows } = await client.query(
         `INSERT INTO codeagent_conversations
-           (user_id, id, title, mode, selected_model_id, selected_skill_ids, selected_rule_ids,
+           (user_id, id, title, mode, selected_agent_profile_id, selected_model_id, selected_skill_ids, selected_rule_ids,
             pinned, summary, client_updated_at, version)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12)
          ON CONFLICT (user_id, id) DO UPDATE SET
            title = EXCLUDED.title,
            mode = EXCLUDED.mode,
+           selected_agent_profile_id = EXCLUDED.selected_agent_profile_id,
            selected_model_id = EXCLUDED.selected_model_id,
            selected_skill_ids = EXCLUDED.selected_skill_ids,
            selected_rule_ids = EXCLUDED.selected_rule_ids,
@@ -196,7 +198,8 @@ export class PostgresProductStore {
            client_updated_at = EXCLUDED.client_updated_at,
            version = EXCLUDED.version,
            updated_at = now()
-         RETURNING id, title, mode, selected_model_id AS "selectedModelId",
+         RETURNING id, title, mode, selected_agent_profile_id AS "selectedAgentProfileId",
+           selected_model_id AS "selectedModelId",
            selected_skill_ids AS "selectedSkillIds", selected_rule_ids AS "selectedRuleIds",
            pinned, summary, version::int AS version, client_updated_at::float8 AS "updatedAt",
            created_at AS "createdAt", updated_at AS "syncedAt"`,
@@ -205,6 +208,7 @@ export class PostgresProductStore {
           conversation.id,
           conversation.title,
           conversation.mode,
+          conversation.selectedAgentProfileId || "general",
           conversation.selectedModelId,
           JSON.stringify(conversation.selectedSkillIds),
           JSON.stringify(conversation.selectedRuleIds),
@@ -253,6 +257,15 @@ export class PostgresProductStore {
       [userId, kind],
     );
     return rows;
+  }
+
+  async getConfiguration(userId, kind, id) {
+    const { rows } = await this.pool.query(
+      `SELECT id, kind, value, created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM codeagent_configurations WHERE user_id = $1 AND kind = $2 AND id = $3`,
+      [userId, kind, id],
+    );
+    return rows[0] || null;
   }
 
   async putConfiguration(userId, kind, id, value) {
@@ -461,6 +474,10 @@ export class MemoryProductStore {
     return [...map.values()].filter((item) => item.kind === kind).sort((a, b) => a.id.localeCompare(b.id)).map(clone);
   }
 
+  async getConfiguration(userId, kind, id) {
+    return clone(this.#userMap(this.configurations, userId).get(`${kind}:${id}`) || null);
+  }
+
   async putConfiguration(userId, kind, id, value) {
     const map = this.#userMap(this.configurations, userId);
     const key = `${kind}:${id}`;
@@ -568,6 +585,7 @@ CREATE TABLE IF NOT EXISTS codeagent_conversations (
   title text NOT NULL,
   mode text NOT NULL CHECK (mode IN ('agent', 'chat', 'ask')),
   snapshot jsonb,
+  selected_agent_profile_id text NOT NULL DEFAULT 'general',
   selected_model_id text,
   selected_skill_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   selected_rule_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -580,6 +598,7 @@ CREATE TABLE IF NOT EXISTS codeagent_conversations (
   PRIMARY KEY (user_id, id)
 );
 ALTER TABLE codeagent_conversations ALTER COLUMN snapshot DROP NOT NULL;
+ALTER TABLE codeagent_conversations ADD COLUMN IF NOT EXISTS selected_agent_profile_id text NOT NULL DEFAULT 'general';
 ALTER TABLE codeagent_conversations ADD COLUMN IF NOT EXISTS selected_model_id text;
 ALTER TABLE codeagent_conversations ADD COLUMN IF NOT EXISTS selected_skill_ids jsonb NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE codeagent_conversations ADD COLUMN IF NOT EXISTS selected_rule_ids jsonb NOT NULL DEFAULT '[]'::jsonb;

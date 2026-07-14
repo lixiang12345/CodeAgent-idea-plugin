@@ -1,3 +1,5 @@
+import { delegatedSubagentMessages } from "./prompt.mjs";
+
 const MAX_OUTPUT_CHARS = 24_000;
 
 export class IntegrationToolRegistry {
@@ -483,16 +485,7 @@ function createSubagentTool(modelGateway) {
       const turn = await modelGateway.stream({
         model: modelGateway.defaultModel,
         tools: [],
-        messages: [
-          {
-            role: "system",
-            content: "You are a delegated software-engineering subagent. Complete only the assigned analysis task. Be concise, explicit about uncertainty, and return findings for the parent agent.",
-          },
-          {
-            role: "user",
-            content: context ? `${task}\n\nContext:\n${context}` : task,
-          },
-        ],
+        messages: delegatedSubagentMessages({ task, context }),
         signal,
         onTextDelta: (delta) => {
           output += delta || "";

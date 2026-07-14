@@ -144,9 +144,10 @@ class RemoteAgentClientTest {
             client.stream(
                 request = RemoteRunRequest(
                     mode = "agent",
+                    agentProfileId = "context-review",
                     model = "claude-fable-5",
                     messages = listOf(RemoteMessage("user", "Inspect the project")),
-                    tools = listOf(RemoteToolDefinition("read_file", "Read", buildJsonObject { put("type", "object") })),
+                    tools = listOf(RemoteToolDefinition("read_file", "Read", buildJsonObject { put("type", "object") }, "read_only")),
                     workspace = RemoteWorkspace(
                         guidance = "Use repository conventions.",
                         rules = listOf(RemoteWorkspaceEntry("Tests", ".codeagent/rules/tests.md", "Add tests.")),
@@ -189,8 +190,10 @@ class RemoteAgentClientTest {
             assertTrue(eventPayloads[1].contains("\"turnIndex\":0"))
             assertTrue(eventPayloads[2].contains("\"turnIndex\":0"))
             assertTrue(runBody.contains("\"model\":\"claude-fable-5\""))
+            assertTrue(runBody.contains("\"agentProfileId\":\"context-review\""))
             assertTrue(runBody.contains("Use repository conventions."))
             assertTrue(runBody.contains("\"read_file\""))
+            assertTrue(runBody.contains("\"risk\":\"read_only\""))
             assertTrue(toolResultBody.contains("\"toolCallId\":\"call-1\""))
             assertTrue(health.ok)
             assertEquals("user-1", account.user.id)

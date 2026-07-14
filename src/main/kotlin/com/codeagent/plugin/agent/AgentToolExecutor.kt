@@ -192,7 +192,7 @@ internal class AgentToolExecutor(
 
     override fun risk(toolName: String): ToolRisk = when (toolName) {
         "write_file", "replace_text", "remove_files", "apply_patch", "run_terminal" -> ToolRisk.MUTATING
-        "add_tasks", "update_tasks", "reorg_tasks", "ask_user" -> ToolRisk.LOCAL_STATE
+        "add_tasks", "update_tasks", "reorg_tasks", "ask_user", "open_browser", "open_file", "render_mermaid" -> ToolRisk.LOCAL_STATE
         else -> ToolRisk.READ_ONLY
     }
 
@@ -679,7 +679,7 @@ internal class AgentToolExecutor(
     }
 
     private fun tool(name: String, description: String, parameters: JsonObject) =
-        AgentToolDefinition(name, description, parameters)
+        AgentToolDefinition(name, description, parameters, risk(name))
 
     private fun schema(properties: Map<String, JsonObject>, required: List<String> = emptyList()) = buildJsonObject {
         put("type", "object")

@@ -1,20 +1,25 @@
 import { composeSystemPrompt } from "./prompt.mjs";
+import { builtInAgentProfile } from "./agent-profile.mjs";
 
 export class AgentRunner {
-  constructor({ modelGateway, maxTurns = 12 }) {
+  constructor({ modelGateway, maxTurns = 64, maxToolCalls = 128 }) {
     this.modelGateway = modelGateway;
     this.maxTurns = maxTurns;
+    this.maxToolCalls = maxToolCalls;
   }
 
-  async run({ request, emit, awaitToolResult, signal }) {
+  async run({ request, agentProfile = builtInAgentProfile("general"), emit, awaitToolResult, signal }) {
     validateRunRequest(request);
+    const maxTurns = Math.min(this.maxTurns, agentProfile.maxTurns);
     const allowedTools = new Set(request.tools.map((tool) => tool.name));
+    const seenToolCallIds = new Set();
+    let toolCallCount = 0;
     const messages = [
-      { role: "system", content: composeSystemPrompt(request) },
+      { role: "system", content: composeSystemPrompt({ ...request, agentProfile }) },
       ...request.messages.map(normalizeMessage),
     ];
 
-    for (let turnIndex = 0; turnIndex < this.maxTurns; turnIndex += 1) {
+    for (let turnIndex = 0; turnIndex < maxTurns; turnIndex += 1) {
       throwIfAborted(signal);
       emit("turn.started", { turnIndex });
       const turn = await this.modelGateway.stream({
@@ -35,9 +40,15 @@ export class AgentRunner {
         emit("run.completed", { turnCount: turnIndex + 1 });
         return;
       }
+      if (turn.toolCalls.length > 32) throw new Error("Model requested too many tools in one turn");
 
       for (const call of turn.toolCalls) {
         throwIfAborted(signal);
+        validateToolCall(call);
+        if (seenToolCallIds.has(call.id)) throw new Error(`Duplicate tool call ID: ${call.id}`);
+        seenToolCallIds.add(call.id);
+        toolCallCount += 1;
+        if (toolCallCount > this.maxToolCalls) throw new Error(`Agent exceeded ${this.maxToolCalls} tool calls`);
         if (!allowedTools.has(call.name)) {
           messages.push(toolMessage(call.id, `Tool '${call.name}' is not available`));
           continue;
@@ -49,7 +60,7 @@ export class AgentRunner {
         messages.push(toolMessage(call.id, result.output || result.error || result.status));
       }
     }
-    throw new Error(`Agent exceeded ${this.maxTurns} model turns`);
+    throw new Error(`Agent exceeded ${maxTurns} model turns`);
   }
 }
 
@@ -64,14 +75,31 @@ export function validateRunRequest(request) {
   if (request.model !== undefined && (typeof request.model !== "string" || !request.model.trim())) {
     throw new Error("model must be a non-empty string when provided");
   }
+  if (request.agentProfileId !== undefined &&
+      (typeof request.agentProfileId !== "string" || !/^[A-Za-z0-9._-]{1,120}$/.test(request.agentProfileId))) {
+    throw new Error("agentProfileId is invalid");
+  }
   for (const message of request.messages) normalizeMessage(message);
+  const toolNames = new Set();
   for (const tool of request.tools) {
     if (!tool?.name || typeof tool.name !== "string") throw new Error("Every tool requires a name");
+    if (toolNames.has(tool.name)) throw new Error(`Tool names must be unique: ${tool.name}`);
+    toolNames.add(tool.name);
     if (typeof tool.description !== "string") throw new Error("Every tool requires a description");
     if (!tool.parameters || typeof tool.parameters !== "object" || Array.isArray(tool.parameters)) {
       throw new Error("Every tool requires object parameters");
     }
+    if (tool.risk !== undefined && !["read_only", "local_state", "mutating"].includes(tool.risk)) {
+      throw new Error(`Unsupported tool risk: ${tool.risk}`);
+    }
   }
+}
+
+function validateToolCall(call) {
+  if (!call || typeof call !== "object") throw new Error("Model returned an invalid tool call");
+  if (typeof call.id !== "string" || !call.id.trim()) throw new Error("Model tool call requires an ID");
+  if (typeof call.name !== "string" || !call.name.trim()) throw new Error("Model tool call requires a name");
+  if (typeof call.arguments !== "string") throw new Error("Model tool call arguments must be JSON text");
 }
 
 function normalizeMessage(message) {
@@ -89,5 +117,5 @@ function toolMessage(toolCallId, content) {
 }
 
 function throwIfAborted(signal) {
-  if (signal.aborted) throw signal.reason || new Error("Run cancelled");
+  if (signal?.aborted) throw signal.reason || new Error("Run cancelled");
 }

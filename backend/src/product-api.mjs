@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { inlineCompletionMessages } from "./prompt.mjs";
 
 const CONFIGURATION_KINDS = new Set(["mcp", "hooks", "commands", "agents", "plugins", "tool-permissions"]);
 
@@ -127,20 +128,12 @@ export async function handleProductRequest(request, response, { principal, authe
     const prefix = boundedText(body.prefix, "prefix", 100_000, true);
     const suffix = boundedText(body.suffix || "", "suffix", 100_000, true);
     if (!prefix.trim()) throw badRequest("prefix is required");
-    const prompt = [
-      `File: ${boundedText(body.path || "unknown", "path", 4_000, true)}`,
-      `Language: ${boundedText(body.language || "unknown", "language", 100, true)}`,
-      "Return only text that should be inserted at the cursor. Do not repeat the prefix or suffix.",
-      `<prefix>${prefix}</prefix>`,
-      `<suffix>${suffix}</suffix>`,
-    ].join("\n");
+    const path = boundedText(body.path || "unknown", "path", 4_000, true);
+    const language = boundedText(body.language || "unknown", "language", 100, true);
     let completion = "";
     const turn = await modelGateway.stream({
       model: typeof body.model === "string" ? body.model : undefined,
-      messages: [
-        { role: "system", content: "You are an IDE inline completion engine. Produce a short, syntactically valid continuation only." },
-        { role: "user", content: prompt },
-      ],
+      messages: inlineCompletionMessages({ path, language, prefix, suffix }),
       tools: [],
       signal: AbortSignal.timeout(30_000),
       onTextDelta: (delta) => { completion += delta || ""; },
@@ -165,6 +158,7 @@ function normalizeConversation(body, id) {
     title: boundedText(body.title || "New conversation", "title", 200),
     mode: ["agent", "chat", "ask"].includes(body.mode) ? body.mode : "agent",
     updatedAt: boundedTimestamp(body.updatedAt),
+    selectedAgentProfileId: optionalText(body.selectedAgentProfileId, "selectedAgentProfileId", 120) || "general",
     selectedModelId: optionalText(body.selectedModelId, "selectedModelId", 240),
     selectedSkillIds: stringList(body.selectedSkillIds, "selectedSkillIds", 8, 500),
     selectedRuleIds: stringList(body.selectedRuleIds, "selectedRuleIds", 32, 500),

@@ -155,6 +155,17 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     }
 
     @Synchronized
+    fun setSelectedAgentProfile(agentProfileId: String) {
+        val normalized = agentProfileId.trim()
+        require(AGENT_PROFILE_ID.matches(normalized)) { "Agent profile ID is invalid" }
+        val thread = mutableActive()
+        if (thread.selectedAgentProfileId != normalized) {
+            thread.selectedAgentProfileId = normalized
+            thread.updatedAt = System.currentTimeMillis()
+        }
+    }
+
+    @Synchronized
     fun setSelectedSkills(skillIds: Collection<String>) {
         val selected = skillIds.distinct()
         require(selected.size <= MAX_SELECTED_SKILLS) { "Select at most $MAX_SELECTED_SKILLS skills" }
@@ -373,6 +384,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         require(conversation.title.isNotBlank() && conversation.title.length <= 200) { "Cloud conversation title is invalid" }
         require(conversation.mode in setOf("agent", "chat", "ask")) { "Cloud conversation mode is invalid" }
         require(conversation.updatedAt >= 0) { "Cloud conversation timestamp is invalid" }
+        require(AGENT_PROFILE_ID.matches(conversation.selectedAgentProfileId)) { "Cloud Agent profile ID is invalid" }
         require(conversation.selectedSkillIds.size <= MAX_SELECTED_SKILLS) { "Cloud conversation has too many skills" }
         require(conversation.selectedRuleIds.size <= MAX_SELECTED_RULES) { "Cloud conversation has too many rules" }
         require(conversation.messages.size <= MAX_MESSAGES_PER_THREAD) { "Cloud conversation has too many messages" }
@@ -389,6 +401,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         state.title = title
         state.updatedAt = updatedAt
         state.mode = mode
+        state.selectedAgentProfileId = selectedAgentProfileId
         state.selectedModelId = selectedModelId.orEmpty()
         state.selectedSkillIds = selectedSkillIds.toMutableList()
         state.selectedRuleIds = selectedRuleIds.toMutableList()
@@ -442,6 +455,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         title = title,
         updatedAt = updatedAt,
         mode = mode,
+        selectedAgentProfileId = selectedAgentProfileId,
         selectedModelId = selectedModelId.takeIf { it.isNotBlank() },
         selectedSkillIds = selectedSkillIds.toList(),
         selectedRuleIds = selectedRuleIds.toList(),
@@ -464,6 +478,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         private const val MAX_TASK_NAME_CHARS = 240
         private const val MAX_IMPORTED_MESSAGE_CHARS = 40_000
         private const val MAX_MODEL_ID_CHARS = 240
+        private val AGENT_PROFILE_ID = Regex("^[A-Za-z0-9._-]{1,120}$")
         private const val MAX_SUMMARY_CHARS = 20_000
         private const val MAX_CLOUD_TOMBSTONES = 200
         private val TASK_STATES = setOf("not_started", "in_progress", "completed", "cancelled")
@@ -478,6 +493,7 @@ data class ConversationSnapshot(
     val title: String,
     val updatedAt: Long,
     val mode: String,
+    val selectedAgentProfileId: String = "general",
     val selectedModelId: String?,
     val selectedSkillIds: List<String>,
     val selectedRuleIds: List<String>,
@@ -517,6 +533,7 @@ class ConversationThreadState {
     var title: String = "New task"
     var updatedAt: Long = 0
     var mode: String = "agent"
+    var selectedAgentProfileId: String = "general"
     var selectedModelId: String = ""
     var selectedSkillIds: MutableList<String> = mutableListOf()
     var selectedRuleIds: MutableList<String> = mutableListOf()

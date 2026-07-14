@@ -240,6 +240,7 @@ data class WorkspaceCustomizationDto(
 data class AppSnapshotDto(
     val projectName: String,
     val mode: String = "agent",
+    val selectedAgentProfileId: String = "general",
     val runState: String = "idle",
     val messages: List<ChatMessageDto> = emptyList(),
     val tools: List<ToolRunDto> = emptyList(),

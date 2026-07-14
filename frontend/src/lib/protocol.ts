@@ -166,6 +166,7 @@ export interface WorkspaceSkill {
 export interface AppSnapshot {
   projectName: string;
   mode: Mode;
+  selectedAgentProfileId?: string;
   runState: RunState;
   messages: ChatMessage[];
   tools: ToolRun[];

@@ -14,6 +14,7 @@ test("persists normalized conversations, messages, and tasks in PostgreSQL", { s
     title: "PostgreSQL conversation",
     mode: "agent",
     updatedAt: 1_000,
+    selectedAgentProfileId: "context",
     selectedModelId: "model-a",
     selectedSkillIds: ["review"],
     selectedRuleIds: ["tests"],
@@ -34,6 +35,7 @@ test("persists normalized conversations, messages, and tasks in PostgreSQL", { s
     assert.deepEqual(created.tasks, conversation.tasks);
 
     const restored = await store.getConversation(userId, conversation.id);
+    assert.equal(restored.selectedAgentProfileId, "context");
     assert.equal(restored.selectedModelId, "model-a");
     assert.deepEqual(restored.selectedSkillIds, ["review"]);
     assert.deepEqual(restored.selectedRuleIds, ["tests"]);
