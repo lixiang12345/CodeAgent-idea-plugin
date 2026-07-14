@@ -29,6 +29,7 @@ data class ChatMessageDto(
     val content: String,
     val createdAt: Long,
     val turnIndex: Int? = null,
+    val runId: String? = null,
 )
 
 @Serializable
@@ -69,6 +70,8 @@ data class ToolRunDto(
     val changePath: String? = null,
     val canRevert: Boolean = false,
     val turnIndex: Int? = null,
+    val runId: String? = null,
+    val createdAt: Long = 0,
 )
 
 @Serializable

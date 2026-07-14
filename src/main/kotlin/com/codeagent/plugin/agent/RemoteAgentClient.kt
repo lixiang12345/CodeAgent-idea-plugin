@@ -549,6 +549,7 @@ internal data class RemoteConversationSummary(
     val updatedAt: Long,
     val messageCount: Int = 0,
     val taskCount: Int = 0,
+    val toolCount: Int = 0,
     val pinned: Boolean = false,
     val summary: String? = null,
 )
@@ -567,6 +568,7 @@ internal data class RemoteConversation(
     val summary: String? = null,
     val messages: List<RemoteConversationMessage> = emptyList(),
     val tasks: List<RemoteConversationTask> = emptyList(),
+    val tools: List<RemoteConversationTool> = emptyList(),
     val version: Int = 0,
 )
 
@@ -575,6 +577,22 @@ internal data class RemoteConversationMessage(
     val id: String,
     val role: String,
     val content: String,
+    val createdAt: Long,
+    val runId: String? = null,
+    val turnIndex: Int? = null,
+)
+
+@Serializable
+internal data class RemoteConversationTool(
+    val id: String,
+    val name: String,
+    val summary: String,
+    val status: String,
+    val detail: String? = null,
+    val changePath: String? = null,
+    val canRevert: Boolean = false,
+    val runId: String? = null,
+    val turnIndex: Int? = null,
     val createdAt: Long,
 )
 

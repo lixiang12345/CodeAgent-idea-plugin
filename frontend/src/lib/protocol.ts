@@ -10,6 +10,7 @@ export interface ChatMessage {
   content: string;
   createdAt: number;
   turnIndex?: number;
+  runId?: string;
 }
 
 export interface ToolRun {
@@ -21,6 +22,8 @@ export interface ToolRun {
   changePath?: string;
   canRevert: boolean;
   turnIndex?: number;
+  runId?: string;
+  createdAt?: number;
 }
 
 export interface AgentRunTelemetry {
@@ -491,6 +494,13 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       nodePath: "node",
       backendTokenConfigured: false,
       autoApproveReadOnly: true,
+      contextMode: "lexical",
+      contextEmbeddingBaseUrl: "",
+      contextEmbeddingModel: "",
+      contextEmbeddingTokenConfigured: false,
+      contextNeuralRerank: false,
+      contextRerankBaseUrl: "",
+      contextRerankModel: "",
     },
     account: {
       state: "signed_in",

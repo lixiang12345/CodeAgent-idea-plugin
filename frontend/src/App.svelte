@@ -697,7 +697,7 @@
   type TimelineItem =
     | { kind: "user"; message: TimelineMessage }
     | { kind: "assistant"; message: TimelineMessage }
-    | { kind: "tools"; turnIndex: number; tools: ToolRun[] }
+    | { kind: "tools"; runId?: string; turnIndex: number; tools: ToolRun[] }
     | { kind: "activity"; label: string }
     | { kind: "tasks" };
 
@@ -706,18 +706,18 @@
     const items: TimelineItem[] = [];
     const messages = snapshot.messages;
     const tools = snapshot.tools;
-    let lastUserIndex = -1;
-    const insertedToolTurns = new Set<number>();
+    const insertedToolTurns = new Set<string>();
 
-    for (let index = 0; index < messages.length; index += 1) {
-      if (messages[index].role === "user") lastUserIndex = index;
+    function groupKey(runId: string | undefined, turnIndex: number) {
+      return `${runId ?? "legacy"}:${turnIndex}`;
     }
 
-    function insertToolTurn(turnIndex: number) {
-      if (insertedToolTurns.has(turnIndex)) return;
-      const turnTools = tools.filter((tool) => (tool.turnIndex ?? 0) === turnIndex);
-      if (turnTools.length > 0) items.push({ kind: "tools", turnIndex, tools: turnTools });
-      insertedToolTurns.add(turnIndex);
+    function insertToolTurn(runId: string | undefined, turnIndex: number) {
+      const key = groupKey(runId, turnIndex);
+      if (insertedToolTurns.has(key)) return;
+      const turnTools = tools.filter((tool) => tool.runId === runId && (tool.turnIndex ?? 0) === turnIndex);
+      if (turnTools.length > 0) items.push({ kind: "tools", runId, turnIndex, tools: turnTools });
+      insertedToolTurns.add(key);
     }
 
     for (let index = 0; index < messages.length; index += 1) {
@@ -727,25 +727,23 @@
         continue;
       }
       if (message.role !== "assistant") continue;
-
-      const afterLastUser = lastUserIndex >= 0 && index > lastUserIndex;
       const turnIndex = message.turnIndex;
-      if (afterLastUser && turnIndex !== undefined) {
+      if (turnIndex !== undefined) {
         tools
+          .filter((tool) => tool.runId === message.runId)
           .map((tool) => tool.turnIndex ?? 0)
           .filter((toolTurn) => toolTurn < turnIndex)
           .sort((left, right) => left - right)
-          .forEach(insertToolTurn);
+          .forEach((toolTurn) => insertToolTurn(message.runId, toolTurn));
       }
 
       items.push({ kind: "assistant", message });
-      if (afterLastUser && turnIndex !== undefined) insertToolTurn(turnIndex);
+      if (turnIndex !== undefined) insertToolTurn(message.runId, turnIndex);
     }
 
-    tools
-      .map((tool) => tool.turnIndex ?? 0)
-      .sort((left, right) => left - right)
-      .forEach(insertToolTurn);
+    [...tools]
+      .sort((left, right) => (left.createdAt ?? 0) - (right.createdAt ?? 0))
+      .forEach((tool) => insertToolTurn(tool.runId, tool.turnIndex ?? 0));
 
     const hasRunningTool = tools.some((tool) => tool.status === "running");
     if (snapshot.runState === "running" && (tools.length === 0 || hasRunningTool)) {
@@ -872,7 +870,7 @@
             </div>
           {:else}
             <div class="message-list">
-              {#each conversationTimeline() as item (item.kind === "user" || item.kind === "assistant" ? item.message.id : item.kind === "tools" ? `tools-${item.turnIndex}` : item.kind)}
+              {#each conversationTimeline() as item (item.kind === "user" || item.kind === "assistant" ? item.message.id : item.kind === "tools" ? `tools-${item.runId ?? "legacy"}-${item.turnIndex}` : item.kind)}
                 {#if item.kind === "user"}
                   <article class="user-message">
                     <header><span>You</span><time>{formatTime(item.message.createdAt)}</time><Icon name="user-round" size={14} /></header>

@@ -1044,20 +1044,21 @@ test("persists product conversations and exposes the local account", async () =>
     const createdResponse = await fetch(`${baseUrl}/v1/conversations`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: "thread-1", title: "Thread", mode: "agent", updatedAt: 1_000, selectedAgentProfileId: "context", selectedModelId: "model-a", selectedSkillIds: ["review"], selectedRuleIds: ["tests"], pinned: true, messages: [{ id: "message-1", role: "user", content: "Hi", createdAt: 900 }], tasks: [{ id: "task-1", name: "Review change", state: "in_progress" }] }),
+      body: JSON.stringify({ id: "thread-1", title: "Thread", mode: "agent", updatedAt: 1_000, selectedAgentProfileId: "context", selectedModelId: "model-a", selectedSkillIds: ["review"], selectedRuleIds: ["tests"], pinned: true, messages: [{ id: "message-1", role: "user", content: "Hi", createdAt: 900, runId: "run-1", turnIndex: 0 }], tasks: [{ id: "task-1", name: "Review change", state: "in_progress" }], tools: [{ id: "tool-1", name: "read_file", summary: "Read source", status: "completed", canRevert: false, runId: "run-1", turnIndex: 0, createdAt: 950 }] }),
     });
     assert.equal(createdResponse.status, 201);
     const created = await createdResponse.json();
     assert.equal(created.version, 1);
     assert.equal(created.messages[0].id, "message-1");
     assert.equal(created.tasks[0].state, "in_progress");
+    assert.equal(created.tools[0].id, "tool-1");
     assert.equal(created.selectedAgentProfileId, "context");
     assert.equal(created.selectedModelId, "model-a");
 
     const updatedResponse = await fetch(`${baseUrl}/v1/conversations/thread-1`, {
       method: "PUT",
       headers: { "content-type": "application/json", "if-match": "1" },
-      body: JSON.stringify({ title: "Updated", mode: "chat", updatedAt: 2_000, selectedAgentProfileId: "loop", selectedModelId: "model-a", selectedSkillIds: [], selectedRuleIds: [], pinned: false, messages: [{ id: "message-1", role: "user", content: "Hi", createdAt: 900 }, { id: "message-2", role: "assistant", content: "Hello", createdAt: 1_100 }], tasks: [{ id: "task-1", name: "Review change", state: "completed" }] }),
+      body: JSON.stringify({ title: "Updated", mode: "chat", updatedAt: 2_000, selectedAgentProfileId: "loop", selectedModelId: "model-a", selectedSkillIds: [], selectedRuleIds: [], pinned: false, messages: [{ id: "message-1", role: "user", content: "Hi", createdAt: 900, runId: "run-1", turnIndex: 0 }, { id: "message-2", role: "assistant", content: "Hello", createdAt: 1_100, runId: "run-1", turnIndex: 1 }], tasks: [{ id: "task-1", name: "Review change", state: "completed" }], tools: [{ id: "tool-1", name: "read_file", summary: "Read source", status: "completed", canRevert: false, runId: "run-1", turnIndex: 0, createdAt: 950 }] }),
     });
     assert.equal(updatedResponse.status, 200);
     assert.equal((await updatedResponse.json()).version, 2);
@@ -1078,6 +1079,7 @@ test("persists product conversations and exposes the local account", async () =>
     assert.equal(restored.selectedAgentProfileId, "loop");
     assert.deepEqual(restored.messages.map((message) => message.id), ["message-1", "message-2"]);
     assert.deepEqual(restored.tasks, [{ id: "task-1", name: "Review change", state: "completed" }]);
+    assert.deepEqual(restored.tools.map((tool) => tool.id), ["tool-1"]);
     const me = await fetch(`${baseUrl}/v1/me`);
     assert.equal((await me.json()).user.id, "local-user");
   } finally {

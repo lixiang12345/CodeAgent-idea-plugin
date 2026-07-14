@@ -99,6 +99,35 @@ class ConversationStoreTest {
     }
 
     @Test
+    fun `persists tool cards and message turn identity per thread`() {
+        val store = ConversationStore()
+        val first = store.active()
+        store.addMessage("user", "Inspect auth", runId = "run-1")
+        store.addMessage("assistant", "Done", runId = "run-1", turnIndex = 2)
+        store.upsertTool(
+            ConversationTool(
+                id = "tool-1",
+                name = "read_file",
+                summary = "Read auth service",
+                status = "completed",
+                detail = "src/Auth.kt",
+                runId = "run-1",
+                turnIndex = 1,
+                createdAt = 1_000,
+            ),
+        )
+
+        assertEquals("run-1", store.active().messages.last().runId)
+        assertEquals(2, store.active().messages.last().turnIndex)
+        assertEquals(listOf("tool-1"), store.active().tools.map { it.id })
+
+        store.newThread()
+        assertTrue(store.active().tools.isEmpty())
+        store.select(first.id)
+        assertEquals("Read auth service", store.active().tools.single().summary)
+    }
+
+    @Test
     fun `persists manual rule selection per thread`() {
         val store = ConversationStore()
         store.setSelectedRules(listOf(".codeagent/rules/review.md"))
@@ -153,6 +182,17 @@ class ConversationStoreTest {
             id = "cloud-thread",
             updatedAt = 2_000,
             messages = listOf(ConversationMessage("message-1", "user", "Cloud message", 1_900)),
+            tools = listOf(
+                ConversationTool(
+                    id = "tool-cloud",
+                    name = "read_file",
+                    summary = "Read cloud file",
+                    status = "completed",
+                    runId = "run-cloud",
+                    turnIndex = 1,
+                    createdAt = 1_950,
+                ),
+            ),
         )
 
         val result = store.mergeCloudSnapshot(listOf(cloud))
@@ -162,6 +202,7 @@ class ConversationStoreTest {
         assertEquals(listOf("cloud-thread"), store.threads().map { it.id })
         assertEquals("cloud-thread", store.active().id)
         assertEquals("Cloud message", store.active().messages.single().content)
+        assertEquals("tool-cloud", store.active().tools.single().id)
         assertEquals("context", store.active().selectedAgentProfileId)
     }
 
@@ -227,6 +268,7 @@ class ConversationStoreTest {
         updatedAt: Long,
         messages: List<ConversationMessage>,
         summary: String? = null,
+        tools: List<ConversationTool> = emptyList(),
     ) = ConversationSnapshot(
         id = id,
         title = "Cloud thread",
@@ -241,5 +283,6 @@ class ConversationStoreTest {
         active = false,
         pinned = false,
         summary = summary,
+        tools = tools,
     )
 }

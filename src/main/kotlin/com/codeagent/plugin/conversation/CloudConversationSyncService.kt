@@ -4,6 +4,7 @@ import com.codeagent.plugin.agent.RemoteAgentClient
 import com.codeagent.plugin.agent.RemoteConversation
 import com.codeagent.plugin.agent.RemoteConversationMessage
 import com.codeagent.plugin.agent.RemoteConversationTask
+import com.codeagent.plugin.agent.RemoteConversationTool
 import com.codeagent.plugin.agent.RemoteHttpException
 import com.codeagent.plugin.settings.CodeAgentSettingsService
 import com.codeagent.plugin.settings.OidcLoginService
@@ -223,8 +224,22 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
         selectedRuleIds = selectedRuleIds,
         pinned = pinned,
         summary = summary,
-        messages = messages.map { RemoteConversationMessage(it.id, it.role, it.content, it.createdAt) },
+        messages = messages.map { RemoteConversationMessage(it.id, it.role, it.content, it.createdAt, it.runId, it.turnIndex) },
         tasks = tasks.map { RemoteConversationTask(it.id, it.name, it.state) },
+        tools = tools.map { tool ->
+            RemoteConversationTool(
+                id = tool.id,
+                name = tool.name,
+                summary = tool.summary,
+                status = tool.status,
+                detail = tool.detail,
+                changePath = tool.changePath,
+                canRevert = tool.canRevert,
+                runId = tool.runId,
+                turnIndex = tool.turnIndex,
+                createdAt = tool.createdAt,
+            )
+        },
         version = version,
     )
 
@@ -237,15 +252,29 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
         selectedModelId = selectedModelId,
         selectedSkillIds = selectedSkillIds,
         selectedRuleIds = selectedRuleIds,
-        messages = messages.map { ConversationMessage(it.id, it.role, it.content, it.createdAt) },
+        messages = messages.map { ConversationMessage(it.id, it.role, it.content, it.createdAt, it.runId, it.turnIndex) },
         tasks = tasks.map { ConversationTask(it.id, it.name, it.state) },
         active = false,
         pinned = pinned,
         summary = summary,
+        tools = tools.map { tool ->
+            ConversationTool(
+                id = tool.id,
+                name = tool.name,
+                summary = tool.summary,
+                status = tool.status,
+                detail = tool.detail,
+                changePath = tool.changePath,
+                canRevert = tool.canRevert,
+                runId = tool.runId,
+                turnIndex = tool.turnIndex,
+                createdAt = tool.createdAt,
+            )
+        },
     )
 
     private fun ConversationSnapshot.isPristine(): Boolean =
-        title == "New task" && messages.isEmpty() && tasks.isEmpty() && !pinned && summary.isNullOrBlank()
+        title == "New task" && messages.isEmpty() && tasks.isEmpty() && tools.isEmpty() && !pinned && summary.isNullOrBlank()
 
     private fun Throwable.rootCause(): Throwable {
         var current = this

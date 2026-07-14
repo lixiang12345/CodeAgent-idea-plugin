@@ -19,6 +19,7 @@ import com.codeagent.plugin.agent.RemoteVerificationUpdated
 import com.codeagent.plugin.agent.WorkspaceCustomizationService
 import com.codeagent.plugin.conversation.ConversationStore
 import com.codeagent.plugin.conversation.ConversationSnapshot
+import com.codeagent.plugin.conversation.ConversationTool
 import com.codeagent.plugin.conversation.ConversationSummaryService
 import com.codeagent.plugin.conversation.CloudConversationSyncService
 import com.codeagent.plugin.context.ContextEngineService
@@ -114,7 +115,11 @@ class IdeBridge(
     private var syncedAccountUserId: String? = null
 
     init {
-        cloudSync.setChangeListener { emitSnapshot() }
+        restoreConversationPresentation()
+        cloudSync.setChangeListener {
+            restoreConversationPresentation()
+            emitSnapshot()
+        }
         mcpRuntimeService.setChangeListener {
             mcpRuntime = mcpRuntimeService.snapshot().toDto()
             emitSnapshot()
@@ -302,13 +307,11 @@ class IdeBridge(
                     when {
                         error != null -> emit("error", mapOf("message" to error.rootMessage()))
                         reverted -> {
-                            if (synchronized(stateLock) {
-                                val tool = tools[selection.toolId] ?: return@synchronized false
-                                tools[selection.toolId] = tool.copy(
+                            if (updateTool(selection.toolId) { tool ->
+                                tool.copy(
                                     summary = "Reverted ${tool.changePath}",
                                     canRevert = false,
                                 )
-                                true
                             }) emitSnapshot()
                         }
                     }
@@ -321,9 +324,7 @@ class IdeBridge(
             "keepChanges" -> {
                 val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ChangesPayload>(it) }
                 val kept = changeReview.keep(selection.toolIds)
-                synchronized(stateLock) {
-                    kept.forEach { toolId -> tools[toolId]?.let { tools[toolId] = it.copy(canRevert = false) } }
-                }
+                kept.forEach { toolId -> updateTool(toolId) { it.copy(canRevert = false) } }
                 emitSnapshot()
             }
             "discardChanges" -> {
@@ -332,11 +333,9 @@ class IdeBridge(
                     when {
                         error != null -> emit("error", mapOf("message" to error.rootMessage()))
                         reverted.isNotEmpty() -> {
-                            synchronized(stateLock) {
-                                reverted.forEach { toolId ->
-                                    tools[toolId]?.let { tool ->
-                                        tools[toolId] = tool.copy(summary = "Reverted ${tool.changePath}", canRevert = false)
-                                    }
+                            reverted.forEach { toolId ->
+                                updateTool(toolId) { tool ->
+                                    tool.copy(summary = "Reverted ${tool.changePath}", canRevert = false)
                                 }
                             }
                             emitSnapshot()
@@ -373,11 +372,9 @@ class IdeBridge(
                     when {
                         error != null -> emit("error", mapOf("message" to error.rootMessage()))
                         else -> {
-                            synchronized(stateLock) {
-                                reverted.forEach { toolId ->
-                                    tools[toolId]?.let { tool ->
-                                        tools[toolId] = tool.copy(summary = "Restored ${tool.changePath}", canRevert = false)
-                                    }
+                            reverted.forEach { toolId ->
+                                updateTool(toolId) { tool ->
+                                    tool.copy(summary = "Restored ${tool.changePath}", canRevert = false)
                                 }
                             }
                             emitSnapshot()
@@ -392,8 +389,7 @@ class IdeBridge(
                 synchronized(stateLock) {
                     runs.invalidate()
                     conversations.select(selection.threadId)
-                    tools.clear()
-                    messageTurns.clear()
+                    restoreConversationPresentation()
                     agentRun = AgentRunTelemetryDto()
                     attachments.clear()
                     messageQueue.clear()
@@ -607,12 +603,11 @@ class IdeBridge(
     private fun sendMessage(payload: JsonElement) {
         val request = json.decodeFromJsonElement<SendMessagePayload>(payload)
         require(request.text.isNotBlank()) { "Message must not be blank" }
+        val presentationRunId = UUID.randomUUID().toString()
         val runId = synchronized(stateLock) {
             require(runState != "running" && runState != "awaiting_approval") { "Agent is already running" }
             conversations.setMode(request.mode)
-            conversations.addMessage("user", request.text.trim())
-            tools.clear()
-            messageTurns.clear()
+            conversations.addMessage("user", request.text.trim(), runId = presentationRunId)
             agentRun = AgentRunTelemetryDto()
             runState = "running"
             runs.next()
@@ -690,7 +685,12 @@ class IdeBridge(
                 var firstDelta = false
                 if (withCurrentRun(runId) {
                     if (streamingTurnIndex != turnIndex) streamingMessageId = null
-                    messageId = streamingMessageId ?: conversations.addMessage("assistant", "").id.also {
+                    messageId = streamingMessageId ?: conversations.addMessage(
+                        role = "assistant",
+                        content = "",
+                        runId = presentationRunId,
+                        turnIndex = turnIndex,
+                    ).id.also {
                         streamingMessageId = it
                         streamingTurnIndex = turnIndex
                         messageTurns[it] = turnIndex
@@ -707,7 +707,12 @@ class IdeBridge(
                     val messageId = streamingMessageId.takeIf { streamingTurnIndex == turnIndex }
                     if (!content.isNullOrBlank()) {
                         if (messageId == null) {
-                            conversations.addMessage("assistant", content).also { messageTurns[it.id] = turnIndex }
+                            conversations.addMessage(
+                                role = "assistant",
+                                content = content,
+                                runId = presentationRunId,
+                                turnIndex = turnIndex,
+                            ).also { messageTurns[it.id] = turnIndex }
                         } else {
                             conversations.replaceMessage(messageId, content)
                         }
@@ -732,7 +737,8 @@ class IdeBridge(
                 turnIndex: Int,
             ) {
                 if (withCurrentRun(runId) {
-                    tools[call.id] = ToolRunDto(
+                    val previous = tools[call.id]
+                    val tool = ToolRunDto(
                         id = call.id,
                         name = call.name,
                         summary = summary,
@@ -741,7 +747,11 @@ class IdeBridge(
                         changePath = changeReview.path(call.id),
                         canRevert = changeReview.canRevert(call.id),
                         turnIndex = turnIndex,
+                        runId = presentationRunId,
+                        createdAt = previous?.createdAt?.takeIf { it > 0 } ?: System.currentTimeMillis(),
                     )
+                    tools[call.id] = tool
+                    conversations.upsertTool(tool.toConversationTool())
                     runState = if (status == "approval") "awaiting_approval" else "running"
                 }) emitRunSnapshot()
             }
@@ -826,7 +836,14 @@ class IdeBridge(
                 runState = runState,
                 agentRun = agentRun,
                 messages = active.messages.map { message ->
-                    ChatMessageDto(message.id, message.role, message.content, message.createdAt, messageTurns[message.id])
+                    ChatMessageDto(
+                        id = message.id,
+                        role = message.role,
+                        content = message.content,
+                        createdAt = message.createdAt,
+                        turnIndex = message.turnIndex ?: messageTurns[message.id],
+                        runId = message.runId,
+                    )
                 },
                 tools = tools.values.toList(),
                 threads = conversations.threads().map { thread ->
@@ -1065,6 +1082,63 @@ class IdeBridge(
     }
 
     private fun syncActiveConversation() = syncConversation(conversations.active())
+
+    private fun restoreConversationPresentation(snapshot: ConversationSnapshot = conversations.active()) {
+        synchronized(stateLock) {
+            tools.clear()
+            snapshot.tools.forEach { persisted ->
+                val tool = persisted.toDto().let { restored ->
+                    if (restored.status == "running" || restored.status == "approval") {
+                        restored.copy(
+                            status = "failed",
+                            summary = "Interrupted before completion",
+                            canRevert = false,
+                        )
+                    } else restored
+                }
+                tools[tool.id] = tool
+                if (tool.status != persisted.status) conversations.upsertTool(tool.toConversationTool())
+            }
+            messageTurns.clear()
+            snapshot.messages.forEach { message ->
+                message.turnIndex?.let { messageTurns[message.id] = it }
+            }
+        }
+    }
+
+    private fun ConversationTool.toDto() = ToolRunDto(
+        id = id,
+        name = name,
+        summary = summary,
+        status = status,
+        detail = detail,
+        changePath = changePath,
+        canRevert = canRevert,
+        turnIndex = turnIndex,
+        runId = runId,
+        createdAt = createdAt,
+    )
+
+    private fun ToolRunDto.toConversationTool() = ConversationTool(
+        id = id,
+        name = name,
+        summary = summary,
+        status = status,
+        detail = detail,
+        changePath = changePath,
+        canRevert = canRevert,
+        turnIndex = turnIndex,
+        runId = runId,
+        createdAt = createdAt.takeIf { it > 0 } ?: System.currentTimeMillis(),
+    )
+
+    private fun updateTool(toolId: String, update: (ToolRunDto) -> ToolRunDto): Boolean = synchronized(stateLock) {
+        val current = tools[toolId] ?: return@synchronized false
+        val updated = update(current)
+        tools[toolId] = updated
+        conversations.upsertTool(updated.toConversationTool())
+        true
+    }
 
     private fun syncConversation(snapshot: ConversationSnapshot) {
         if (cloudServicesActive()) cloudSync.schedule(snapshot)
@@ -1474,6 +1548,7 @@ class IdeBridge(
                     runState = "idle"
                 }
                 conversations.deleteThread(threadId)
+                if (wasActive) restoreConversationPresentation()
             }
             if (wasActive) agent.cancel()
             conversationSummaries.forget(threadId)

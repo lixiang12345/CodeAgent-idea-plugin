@@ -158,8 +158,11 @@ function normalizeConversation(body, id) {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw badRequest("Conversation is required");
   const messages = normalizeMessages(body.messages);
   const tasks = normalizeTasks(body.tasks);
+  const tools = normalizeConversationTools(body.tools);
   const totalMessageChars = messages.reduce((total, message) => total + message.content.length, 0);
   if (totalMessageChars > 2_000_000) throw badRequest("Conversation message content is too large");
+  const totalToolChars = tools.reduce((total, tool) => total + tool.summary.length + (tool.detail?.length || 0), 0);
+  if (totalToolChars > 5_000_000) throw badRequest("Conversation tool content is too large");
   return {
     id: boundedText(id, "id", 200),
     title: boundedText(body.title || "New conversation", "title", 200),
@@ -173,6 +176,7 @@ function normalizeConversation(body, id) {
     summary: optionalText(body.summary, "summary", 20_000),
     messages,
     tasks,
+    tools,
   };
 }
 
@@ -185,11 +189,41 @@ function normalizeMessages(value) {
     if (seen.has(id)) throw badRequest("Message IDs must be unique");
     seen.add(id);
     if (!["user", "assistant"].includes(message.role)) throw badRequest("Message role is invalid");
+    const runId = optionalText(message.runId, "message.runId", 200);
+    const turnIndex = optionalInteger(message.turnIndex, "message.turnIndex", 0, 10_000);
     return {
       id,
       role: message.role,
       content: boundedText(message.content, "message.content", 100_000, true),
       createdAt: boundedTimestamp(message.createdAt),
+      ...(runId ? { runId } : {}),
+      ...(turnIndex === null ? {} : { turnIndex }),
+    };
+  });
+}
+
+function normalizeConversationTools(value) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > 1_000) throw badRequest("tools must contain at most 1000 items");
+  const seen = new Set();
+  return value.map((tool) => {
+    if (!tool || typeof tool !== "object" || Array.isArray(tool)) throw badRequest("Tool record is invalid");
+    const id = boundedText(tool.id, "tool.id", 200);
+    if (seen.has(id)) throw badRequest("Tool IDs must be unique");
+    seen.add(id);
+    const runId = optionalText(tool.runId, "tool.runId", 200);
+    const turnIndex = optionalInteger(tool.turnIndex, "tool.turnIndex", 0, 10_000);
+    return {
+      id,
+      name: boundedText(tool.name, "tool.name", 240),
+      summary: boundedText(tool.summary || "Tool call", "tool.summary", 8_000, true),
+      status: enumValue(tool.status, "tool.status", ["approval", "running", "completed", "failed", "rejected"], "completed"),
+      detail: optionalText(tool.detail, "tool.detail", 100_000),
+      changePath: optionalText(tool.changePath, "tool.changePath", 4_000),
+      canRevert: optionalBoolean(tool.canRevert, false),
+      ...(runId ? { runId } : {}),
+      ...(turnIndex === null ? {} : { turnIndex }),
+      createdAt: boundedTimestamp(tool.createdAt),
     };
   });
 }
@@ -386,6 +420,13 @@ function boundedInteger(value, min, max, fallback) {
   if (value === null || value === undefined || value === "") return fallback;
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed < min || parsed > max) throw badRequest(`Value must be between ${min} and ${max}`);
+  return parsed;
+}
+
+function optionalInteger(value, field, min, max) {
+  if (value === undefined || value === null || value === "") return null;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) throw badRequest(`${field} must be between ${min} and ${max}`);
   return parsed;
 }
 

@@ -188,13 +188,20 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     }
 
     @Synchronized
-    fun addMessage(role: String, content: String): ConversationMessage {
+    fun addMessage(
+        role: String,
+        content: String,
+        runId: String? = null,
+        turnIndex: Int? = null,
+    ): ConversationMessage {
         val thread = mutableActive()
         val message = ConversationMessageState().apply {
             id = UUID.randomUUID().toString()
             this.role = role
             this.content = content
             createdAt = System.currentTimeMillis()
+            this.runId = runId.orEmpty()
+            this.turnIndex = turnIndex ?: -1
         }
         thread.messages.add(message)
         if (role == "user" && thread.messages.count { it.role == "user" } == 1) {
@@ -227,6 +234,32 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         message.content = content
         thread.updatedAt = System.currentTimeMillis()
         return message.toDomain()
+    }
+
+    @Synchronized
+    fun upsertTool(tool: ConversationTool): ConversationTool {
+        require(tool.id.isNotBlank()) { "Tool ID must not be blank" }
+        require(tool.name.isNotBlank()) { "Tool name must not be blank" }
+        require(tool.status in TOOL_STATES) { "Unsupported tool state: ${tool.status}" }
+        require(tool.summary.length <= MAX_TOOL_SUMMARY_CHARS) { "Tool summary is too long" }
+        require(tool.detail.orEmpty().length <= MAX_TOOL_DETAIL_CHARS) { "Tool detail is too long" }
+        val thread = mutableActive()
+        val state = thread.tools.firstOrNull { it.id == tool.id } ?: ConversationToolState().also(thread.tools::add)
+        state.id = tool.id
+        state.name = tool.name
+        state.summary = tool.summary
+        state.status = tool.status
+        state.detail = tool.detail.orEmpty()
+        state.changePath = tool.changePath.orEmpty()
+        state.canRevert = tool.canRevert
+        state.runId = tool.runId.orEmpty()
+        state.turnIndex = tool.turnIndex ?: -1
+        state.createdAt = if (state.createdAt > 0) state.createdAt else tool.createdAt
+        if (thread.tools.size > MAX_TOOLS_PER_THREAD) {
+            thread.tools = thread.tools.takeLast(MAX_TOOLS_PER_THREAD).toMutableList()
+        }
+        thread.updatedAt = System.currentTimeMillis()
+        return state.toDomain()
     }
 
     @Synchronized
@@ -389,10 +422,13 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         require(conversation.selectedRuleIds.size <= MAX_SELECTED_RULES) { "Cloud conversation has too many rules" }
         require(conversation.messages.size <= MAX_MESSAGES_PER_THREAD) { "Cloud conversation has too many messages" }
         require(conversation.tasks.size <= MAX_TASKS_PER_THREAD) { "Cloud conversation has too many tasks" }
+        require(conversation.tools.size <= MAX_TOOLS_PER_THREAD) { "Cloud conversation has too many tools" }
         require(conversation.messages.all { it.role == "user" || it.role == "assistant" }) { "Cloud message role is invalid" }
         require(conversation.tasks.all { it.state in TASK_STATES }) { "Cloud task state is invalid" }
+        require(conversation.tools.all { it.status in TOOL_STATES }) { "Cloud tool state is invalid" }
         require(conversation.messages.map { it.id }.distinct().size == conversation.messages.size) { "Cloud message IDs must be unique" }
         require(conversation.tasks.map { it.id }.distinct().size == conversation.tasks.size) { "Cloud task IDs must be unique" }
+        require(conversation.tools.map { it.id }.distinct().size == conversation.tools.size) { "Cloud tool IDs must be unique" }
         require(conversation.summary.orEmpty().length <= MAX_SUMMARY_CHARS) { "Cloud summary is too long" }
     }
 
@@ -411,6 +447,8 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
                 it.role = message.role
                 it.content = message.content
                 it.createdAt = message.createdAt
+                it.runId = message.runId.orEmpty()
+                it.turnIndex = message.turnIndex ?: -1
             }
         }
         state.tasks = tasks.mapTo(mutableListOf()) { task ->
@@ -420,12 +458,26 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
                 it.state = task.state
             }
         }
+        state.tools = tools.mapTo(mutableListOf()) { tool ->
+            ConversationToolState().also {
+                it.id = tool.id
+                it.name = tool.name
+                it.summary = tool.summary
+                it.status = tool.status
+                it.detail = tool.detail.orEmpty()
+                it.changePath = tool.changePath.orEmpty()
+                it.canRevert = tool.canRevert
+                it.runId = tool.runId.orEmpty()
+                it.turnIndex = tool.turnIndex ?: -1
+                it.createdAt = tool.createdAt
+            }
+        }
         state.pinned = pinned
         state.summary = summary.orEmpty()
     }
 
     private fun ConversationThreadState.isPristine(): Boolean =
-        title == "New task" && messages.isEmpty() && tasks.isEmpty() && !pinned && summary.isBlank()
+        title == "New task" && messages.isEmpty() && tasks.isEmpty() && tools.isEmpty() && !pinned && summary.isBlank()
 
     private fun mutableActive(): ConversationThreadState {
         ensureActive()
@@ -464,24 +516,49 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         active = id == data.activeThreadId,
         pinned = pinned,
         summary = summary.takeIf { it.isNotBlank() },
+        tools = tools.map { it.toDomain() },
     )
 
-    private fun ConversationMessageState.toDomain() = ConversationMessage(id, role, content, createdAt)
+    private fun ConversationMessageState.toDomain() = ConversationMessage(
+        id = id,
+        role = role,
+        content = content,
+        createdAt = createdAt,
+        runId = runId.takeIf(String::isNotBlank),
+        turnIndex = turnIndex.takeIf { it >= 0 },
+    )
 
     private fun ConversationTaskState.toDomain() = ConversationTask(id, name, state)
+
+    private fun ConversationToolState.toDomain() = ConversationTool(
+        id = id,
+        name = name,
+        summary = summary,
+        status = status,
+        detail = detail.takeIf(String::isNotBlank),
+        changePath = changePath.takeIf(String::isNotBlank),
+        canRevert = canRevert,
+        runId = runId.takeIf(String::isNotBlank),
+        turnIndex = turnIndex.takeIf { it >= 0 },
+        createdAt = createdAt,
+    )
 
     companion object {
         private const val MAX_THREADS = 50
         private const val MAX_MESSAGES_PER_THREAD = 200
         private const val MAX_TASKS_PER_THREAD = 100
+        private const val MAX_TOOLS_PER_THREAD = 1_000
         private const val MAX_TASKS_PER_OPERATION = 20
         private const val MAX_TASK_NAME_CHARS = 240
+        private const val MAX_TOOL_SUMMARY_CHARS = 8_000
+        private const val MAX_TOOL_DETAIL_CHARS = 100_000
         private const val MAX_IMPORTED_MESSAGE_CHARS = 40_000
         private const val MAX_MODEL_ID_CHARS = 240
         private val AGENT_PROFILE_ID = Regex("^[A-Za-z0-9._-]{1,120}$")
         private const val MAX_SUMMARY_CHARS = 20_000
         private const val MAX_CLOUD_TOMBSTONES = 200
         private val TASK_STATES = setOf("not_started", "in_progress", "completed", "cancelled")
+        private val TOOL_STATES = setOf("approval", "running", "completed", "failed", "rejected")
         const val MAX_SELECTED_SKILLS = 8
         const val MAX_SELECTED_RULES = 32
         const val MAX_IMPORT_TASKS = 100
@@ -502,6 +579,7 @@ data class ConversationSnapshot(
     val active: Boolean,
     val pinned: Boolean,
     val summary: String? = null,
+    val tools: List<ConversationTool> = emptyList(),
 )
 
 data class CloudMergeResult(
@@ -514,12 +592,27 @@ data class ConversationMessage(
     val role: String,
     val content: String,
     val createdAt: Long,
+    val runId: String? = null,
+    val turnIndex: Int? = null,
 )
 
 data class ConversationTask(
     val id: String,
     val name: String,
     val state: String,
+)
+
+data class ConversationTool(
+    val id: String,
+    val name: String,
+    val summary: String,
+    val status: String,
+    val detail: String? = null,
+    val changePath: String? = null,
+    val canRevert: Boolean = false,
+    val runId: String? = null,
+    val turnIndex: Int? = null,
+    val createdAt: Long = System.currentTimeMillis(),
 )
 
 class ConversationStoreState {
@@ -539,6 +632,7 @@ class ConversationThreadState {
     var selectedRuleIds: MutableList<String> = mutableListOf()
     var messages: MutableList<ConversationMessageState> = mutableListOf()
     var tasks: MutableList<ConversationTaskState> = mutableListOf()
+    var tools: MutableList<ConversationToolState> = mutableListOf()
     var summary: String = ""
 
     var pinned: Boolean = false
@@ -548,6 +642,21 @@ class ConversationMessageState {
     var id: String = ""
     var role: String = "user"
     var content: String = ""
+    var createdAt: Long = 0
+    var runId: String = ""
+    var turnIndex: Int = -1
+}
+
+class ConversationToolState {
+    var id: String = ""
+    var name: String = ""
+    var summary: String = ""
+    var status: String = "completed"
+    var detail: String = ""
+    var changePath: String = ""
+    var canRevert: Boolean = false
+    var runId: String = ""
+    var turnIndex: Int = -1
     var createdAt: Long = 0
 }
 

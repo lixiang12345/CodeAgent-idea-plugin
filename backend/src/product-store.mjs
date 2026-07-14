@@ -135,7 +135,8 @@ export class PostgresProductStore {
       `SELECT id, title, mode, pinned, summary, version::int AS version,
          client_updated_at::float8 AS "updatedAt", created_at AS "createdAt", updated_at AS "syncedAt",
          (SELECT COUNT(*)::int FROM codeagent_messages WHERE user_id = $1 AND conversation_id = codeagent_conversations.id) AS "messageCount",
-         (SELECT COUNT(*)::int FROM codeagent_tasks WHERE user_id = $1 AND conversation_id = codeagent_conversations.id) AS "taskCount"
+         (SELECT COUNT(*)::int FROM codeagent_tasks WHERE user_id = $1 AND conversation_id = codeagent_conversations.id) AS "taskCount",
+         (SELECT COUNT(*)::int FROM codeagent_tools WHERE user_id = $1 AND conversation_id = codeagent_conversations.id) AS "toolCount"
        FROM codeagent_conversations WHERE user_id = $1 ORDER BY updated_at DESC`,
       [userId],
     );
@@ -150,9 +151,10 @@ export class PostgresProductStore {
          pinned, summary, version::int AS version, client_updated_at::float8 AS "updatedAt",
          created_at AS "createdAt", updated_at AS "syncedAt",
          COALESCE((
-           SELECT jsonb_agg(jsonb_build_object(
-             'id', message.id, 'role', message.role, 'content', message.content, 'createdAt', message.created_at_ms
-           ) ORDER BY message.created_at_ms, message.id)
+           SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+             'id', message.id, 'role', message.role, 'content', message.content,
+             'createdAt', message.created_at_ms, 'runId', message.run_id, 'turnIndex', message.turn_index
+           )) ORDER BY message.created_at_ms, message.id)
            FROM codeagent_messages message
            WHERE message.user_id = $1 AND message.conversation_id = codeagent_conversations.id
          ), '[]'::jsonb) AS messages,
@@ -162,7 +164,16 @@ export class PostgresProductStore {
            ) ORDER BY task.position, task.id)
            FROM codeagent_tasks task
            WHERE task.user_id = $1 AND task.conversation_id = codeagent_conversations.id
-         ), '[]'::jsonb) AS tasks
+         ), '[]'::jsonb) AS tasks,
+         COALESCE((
+           SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+             'id', tool.id, 'name', tool.name, 'summary', tool.summary, 'status', tool.status,
+             'detail', tool.detail, 'changePath', tool.change_path, 'canRevert', tool.can_revert,
+             'runId', tool.run_id, 'turnIndex', tool.turn_index, 'createdAt', tool.created_at_ms
+           )) ORDER BY tool.created_at_ms, tool.id)
+           FROM codeagent_tools tool
+           WHERE tool.user_id = $1 AND tool.conversation_id = codeagent_conversations.id
+         ), '[]'::jsonb) AS tools
        FROM codeagent_conversations WHERE user_id = $1 AND id = $2`,
       [userId, id],
     );
@@ -220,9 +231,10 @@ export class PostgresProductStore {
       );
       await client.query(`DELETE FROM codeagent_messages WHERE user_id = $1 AND conversation_id = $2`, [userId, conversation.id]);
       await client.query(
-        `INSERT INTO codeagent_messages (user_id, conversation_id, id, role, content, created_at_ms)
-         SELECT $1, $2, message.id, message.role, message.content, message."createdAt"
-         FROM jsonb_to_recordset($3::jsonb) AS message(id text, role text, content text, "createdAt" bigint)`,
+        `INSERT INTO codeagent_messages (user_id, conversation_id, id, role, content, created_at_ms, run_id, turn_index)
+         SELECT $1, $2, message.id, message.role, message.content, message."createdAt", message."runId", message."turnIndex"
+         FROM jsonb_to_recordset($3::jsonb)
+           AS message(id text, role text, content text, "createdAt" bigint, "runId" text, "turnIndex" integer)`,
         [userId, conversation.id, JSON.stringify(conversation.messages)],
       );
       await client.query(`DELETE FROM codeagent_tasks WHERE user_id = $1 AND conversation_id = $2`, [userId, conversation.id]);
@@ -232,8 +244,25 @@ export class PostgresProductStore {
          FROM jsonb_array_elements($3::jsonb) WITH ORDINALITY AS task(value, position)`,
         [userId, conversation.id, JSON.stringify(conversation.tasks)],
       );
+      await client.query(`DELETE FROM codeagent_tools WHERE user_id = $1 AND conversation_id = $2`, [userId, conversation.id]);
+      await client.query(
+        `INSERT INTO codeagent_tools
+           (user_id, conversation_id, id, name, summary, status, detail, change_path, can_revert, run_id, turn_index, created_at_ms)
+         SELECT $1, $2, tool.id, tool.name, tool.summary, tool.status, tool.detail, tool."changePath",
+           tool."canRevert", tool."runId", tool."turnIndex", tool."createdAt"
+         FROM jsonb_to_recordset($3::jsonb) AS tool(
+           id text, name text, summary text, status text, detail text, "changePath" text, "canRevert" boolean,
+           "runId" text, "turnIndex" integer, "createdAt" bigint
+         )`,
+        [userId, conversation.id, JSON.stringify(conversation.tools)],
+      );
       await client.query("COMMIT");
-      return { ...rows[0], messages: clone(conversation.messages), tasks: clone(conversation.tasks) };
+      return {
+        ...rows[0],
+        messages: clone(conversation.messages),
+        tasks: clone(conversation.tasks),
+        tools: clone(conversation.tools),
+      };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -440,10 +469,11 @@ export class MemoryProductStore {
 
   async listConversations(userId) {
     return [...this.#userMap(this.conversations, userId).values()]
-      .map(({ messages, tasks, ...conversation }) => ({
+      .map(({ messages, tasks, tools, ...conversation }) => ({
         ...conversation,
         messageCount: messages.length,
         taskCount: tasks.length,
+        toolCount: tools.length,
       }))
       .sort((a, b) => String(b.syncedAt).localeCompare(String(a.syncedAt)));
   }
@@ -613,9 +643,13 @@ CREATE TABLE IF NOT EXISTS codeagent_messages (
   role text NOT NULL CHECK (role IN ('user', 'assistant')),
   content text NOT NULL,
   created_at_ms bigint NOT NULL,
+  run_id text,
+  turn_index integer,
   PRIMARY KEY (user_id, conversation_id, id),
   FOREIGN KEY (user_id, conversation_id) REFERENCES codeagent_conversations(user_id, id) ON DELETE CASCADE
 );
+ALTER TABLE codeagent_messages ADD COLUMN IF NOT EXISTS run_id text;
+ALTER TABLE codeagent_messages ADD COLUMN IF NOT EXISTS turn_index integer;
 CREATE INDEX IF NOT EXISTS codeagent_messages_order_idx ON codeagent_messages(user_id, conversation_id, created_at_ms, id);
 CREATE TABLE IF NOT EXISTS codeagent_tasks (
   user_id text NOT NULL,
@@ -628,6 +662,23 @@ CREATE TABLE IF NOT EXISTS codeagent_tasks (
   FOREIGN KEY (user_id, conversation_id) REFERENCES codeagent_conversations(user_id, id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS codeagent_tasks_order_idx ON codeagent_tasks(user_id, conversation_id, position, id);
+CREATE TABLE IF NOT EXISTS codeagent_tools (
+  user_id text NOT NULL,
+  conversation_id text NOT NULL,
+  id text NOT NULL,
+  name text NOT NULL,
+  summary text NOT NULL,
+  status text NOT NULL CHECK (status IN ('running', 'approval', 'completed', 'failed', 'rejected')),
+  detail text,
+  change_path text,
+  can_revert boolean NOT NULL DEFAULT false,
+  run_id text,
+  turn_index integer,
+  created_at_ms bigint NOT NULL,
+  PRIMARY KEY (user_id, conversation_id, id),
+  FOREIGN KEY (user_id, conversation_id) REFERENCES codeagent_conversations(user_id, id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS codeagent_tools_order_idx ON codeagent_tools(user_id, conversation_id, created_at_ms, id);
 CREATE TABLE IF NOT EXISTS codeagent_configurations (
   user_id text NOT NULL REFERENCES codeagent_users(id) ON DELETE CASCADE,
   kind text NOT NULL,
@@ -667,7 +718,9 @@ function validateConversation(conversation) {
   if (typeof conversation.title !== "string" || !conversation.title.trim()) throw badRequest("Conversation title is required");
   if (!["agent", "chat", "ask"].includes(conversation.mode)) throw badRequest("Unsupported conversation mode");
   if (!Number.isSafeInteger(conversation.updatedAt) || conversation.updatedAt < 0) throw badRequest("Conversation updatedAt is invalid");
-  if (!Array.isArray(conversation.messages) || !Array.isArray(conversation.tasks)) throw badRequest("Conversation messages and tasks are required");
+  if (!Array.isArray(conversation.messages) || !Array.isArray(conversation.tasks) || !Array.isArray(conversation.tools)) {
+    throw badRequest("Conversation messages, tasks, and tools are required");
+  }
 }
 
 
