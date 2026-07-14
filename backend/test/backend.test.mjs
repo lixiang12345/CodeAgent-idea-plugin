@@ -195,6 +195,9 @@ test("serves the public OpenAPI contract", async () => {
     assert.ok(contract.paths["/v1/auth/token"].post);
     assert.ok(contract.paths["/v1/auth/logout"].post);
     assert.ok(contract.paths["/v1/me"].get);
+    assert.ok(contract.paths["/v1/configurations/{kind}"].get);
+    assert.ok(contract.paths["/v1/configurations/{kind}/{id}"].put);
+    assert.ok(contract.paths["/v1/configurations/{kind}/{id}"].delete);
     assert.equal(contract.paths["/v1/me"].get.responses["200"].content["application/json"].schema.$ref, "#/components/schemas/AccountResponse");
     assert.equal(contract.components.schemas.MessageDeltaEvent.required.includes("turnIndex"), true);
     assert.equal(contract.components.schemas.ToolRequestEvent.required.includes("turnIndex"), true);
@@ -759,6 +762,111 @@ test("persists product conversations and exposes the local account", async () =>
     assert.deepEqual(restored.tasks, [{ id: "task-1", name: "Review change", state: "completed" }]);
     const me = await fetch(`${baseUrl}/v1/me`);
     assert.equal((await me.json()).user.id, "local-user");
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("validates and persists typed product configurations", async () => {
+  const server = createCodeAgentServer({
+    modelGateway: {
+      provider: "test",
+      defaultModel: "model-a",
+      async listModels() { return [{ id: "model-a" }]; },
+    },
+    logger: { error() {} },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const savedResponse = await fetch(`${baseUrl}/v1/configurations/agents/code-review`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Code review",
+        description: "Inspect changes before release",
+        enabled: true,
+        agentType: "loop",
+        systemPrompt: "Review the diff, run focused checks, then review again.",
+        model: "model-a",
+        allowedTools: ["read_file", "search_text"],
+        maxTurns: 8,
+        secret: "must-not-survive",
+      }),
+    });
+    assert.equal(savedResponse.status, 200);
+    const saved = await savedResponse.json();
+    assert.equal(saved.id, "code-review");
+    assert.equal(saved.kind, "agents");
+    assert.equal(saved.value.agentType, "loop");
+    assert.equal(saved.value.maxTurns, 8);
+    assert.equal(saved.value.secret, undefined);
+
+    const listResponse = await fetch(`${baseUrl}/v1/configurations/agents`);
+    assert.equal(listResponse.status, 200);
+    const list = await listResponse.json();
+    assert.deepEqual(list.data.map((item) => item.id), ["code-review"]);
+    assert.deepEqual(list.data[0].value.allowedTools, ["read_file", "search_text"]);
+
+    const mcpResponse = await fetch(`${baseUrl}/v1/configurations/mcp/local-context`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Local context",
+        transport: "streamable-http",
+        url: "http://127.0.0.1:3939/mcp",
+        authMode: "bearer-environment",
+        tokenEnvironment: "CONTEXT_MCP_TOKEN",
+        requiredEnvironment: ["CONTEXT_MCP_TOKEN"],
+      }),
+    });
+    assert.equal(mcpResponse.status, 200);
+    const mcp = await mcpResponse.json();
+    assert.equal(mcp.value.url, "http://127.0.0.1:3939/mcp");
+    assert.equal(mcp.value.tokenEnvironment, "CONTEXT_MCP_TOKEN");
+
+    const invalidMcp = await fetch(`${baseUrl}/v1/configurations/mcp/public-insecure`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Unsafe", transport: "sse", url: "http://example.com/sse" }),
+    });
+    assert.equal(invalidMcp.status, 400);
+    assert.match((await invalidMcp.json()).error, /must use https/);
+
+    const invalidAgent = await fetch(`${baseUrl}/v1/configurations/agents/unbounded`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Unbounded", systemPrompt: "Keep going", maxTurns: 1000 }),
+    });
+    assert.equal(invalidAgent.status, 400);
+    assert.match((await invalidAgent.json()).error, /between 1 and 64/);
+
+    const permissionResponse = await fetch(`${baseUrl}/v1/configurations/tool-permissions/read-file`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tool: "read_file", policy: "allow", scope: "workspace" }),
+    });
+    assert.equal(permissionResponse.status, 200);
+    const permission = await permissionResponse.json();
+    assert.deepEqual(permission.value, {
+      tool: "read_file",
+      policy: "allow",
+      scope: "workspace",
+      enabled: true,
+    });
+
+    const invalidId = await fetch(`${baseUrl}/v1/configurations/commands/not%20safe`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Unsafe ID", prompt: "Run checks" }),
+    });
+    assert.equal(invalidId.status, 400);
+
+    const deleted = await fetch(`${baseUrl}/v1/configurations/agents/code-review`, { method: "DELETE" });
+    assert.equal(deleted.status, 204);
+    assert.deepEqual((await (await fetch(`${baseUrl}/v1/configurations/agents`)).json()).data, []);
   } finally {
     server.close();
     await once(server, "close");

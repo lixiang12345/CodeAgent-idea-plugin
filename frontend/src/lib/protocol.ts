@@ -129,6 +129,22 @@ export interface BackendToolCapability {
   requiredEnvironment: string[];
 }
 
+export type ConfigurationKind = "mcp" | "hooks" | "commands" | "agents" | "plugins" | "tool-permissions";
+
+export interface ProductConfiguration {
+  id: string;
+  kind: ConfigurationKind;
+  value: Record<string, unknown>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ConfigurationSnapshot {
+  state: "unavailable" | "loading" | "ready" | "error";
+  label: string;
+  items: Partial<Record<ConfigurationKind, ProductConfiguration[]>>;
+}
+
 export interface WorkspaceRule {
   id: string;
   name: string;
@@ -177,6 +193,7 @@ export interface AppSnapshot {
   };
   models: ModelRegistry;
   backendTools: BackendToolCapability[];
+  configurations: ConfigurationSnapshot;
   customization: {
     rules: WorkspaceRule[];
     skills: WorkspaceSkill[];
@@ -408,6 +425,61 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
         requiredEnvironment: ["MODEL"],
       },
     ],
+    configurations: {
+      state: "ready",
+      label: "3 configurations",
+      items: {
+        commands: [
+          {
+            id: "review",
+            kind: "commands",
+            value: {
+              name: "Review changes",
+              description: "Review the current diff and run focused verification.",
+              enabled: true,
+              prompt: "Inspect the current changes for bugs, regressions, and missing tests.",
+              argumentHint: "[scope]",
+            },
+          },
+        ],
+        agents: [
+          {
+            id: "context-researcher",
+            kind: "agents",
+            value: {
+              name: "Context researcher",
+              description: "Builds an evidence-backed repository context pack.",
+              enabled: true,
+              agentType: "context",
+              systemPrompt: "Retrieve the smallest complete set of repository evidence needed to answer the task.",
+              model: "gpt-5.6-sol",
+              allowedTools: ["codebase_retrieval", "read_file", "search_text"],
+              maxTurns: 10,
+            },
+          },
+        ],
+        mcp: [
+          {
+            id: "local-context",
+            kind: "mcp",
+            value: {
+              name: "Local Context MCP",
+              description: "Saved local development endpoint.",
+              enabled: false,
+              transport: "streamable-http",
+              command: null,
+              args: [],
+              cwd: null,
+              url: "http://127.0.0.1:3939/mcp",
+              authMode: "none",
+              tokenEnvironment: null,
+              requiredEnvironment: [],
+              timeoutSeconds: 60,
+            },
+          },
+        ],
+      },
+    },
     customization: {
       rules: [
         {

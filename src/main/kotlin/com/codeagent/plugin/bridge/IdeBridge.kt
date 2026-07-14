@@ -36,6 +36,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 import java.nio.file.Path
@@ -43,6 +44,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.awt.datatransfer.StringSelection
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 
 class IdeBridge(
     private val project: Project,
@@ -83,6 +85,9 @@ class IdeBridge(
 
     @Volatile
     private var backendTools = emptyList<BackendToolDto>()
+
+    @Volatile
+    private var configurations = ConfigurationSnapshotDto()
 
     @Volatile
     private var account = AccountSnapshotDto()
@@ -196,6 +201,15 @@ class IdeBridge(
             "saveSettings" -> saveSettings(requireNotNull(command.payload) { "saveSettings requires payload" })
             "signIn" -> signIn()
             "signOut" -> signOut()
+            "refreshConfigurations" -> refreshConfigurations()
+            "saveConfiguration" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<SaveConfigurationPayload>(it) }
+                saveConfiguration(request)
+            }
+            "deleteConfiguration" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<DeleteConfigurationPayload>(it) }
+                deleteConfiguration(request)
+            }
             "cancelRun" -> {
                 synchronized(stateLock) {
                     runs.invalidate()
@@ -704,6 +718,7 @@ class IdeBridge(
                 backendHealth = backendHealth,
                 models = modelRegistry.copy(selectedModel = active.selectedModelId ?: modelRegistry.defaultModel),
                 backendTools = backendTools,
+                configurations = configurations,
                 customization = WorkspaceCustomizationDto(
                     rules = customization.rules.map { rule ->
                         WorkspaceRuleDto(
@@ -779,6 +794,7 @@ class IdeBridge(
             if (backendHealth.state != "online") {
                 backendTools = emptyList()
                 modelRegistry = ModelRegistryDto(state = "error", label = backendHealth.label)
+                configurations = ConfigurationSnapshotDto(state = "error", label = backendHealth.label)
             }
             emitSnapshot()
             if (backendHealth.state == "online") refreshAccount()
@@ -864,6 +880,7 @@ class IdeBridge(
                 emitSnapshot()
                 refreshModels()
                 refreshBackendTools()
+                refreshConfigurations()
                 restoreCloudConversations(response.user.id)
             }
         }
@@ -920,6 +937,7 @@ class IdeBridge(
     private fun clearAuthenticatedCapabilities(label: String) {
         modelRegistry = ModelRegistryDto(state = "error", label = label)
         backendTools = emptyList()
+        configurations = ConfigurationSnapshotDto(state = "unavailable", label = label)
     }
 
     private fun refreshModels() {
@@ -963,6 +981,72 @@ class IdeBridge(
                 }
             }
             emitSnapshot()
+        }
+    }
+
+    private fun refreshConfigurations() {
+        configurations = configurations.copy(state = "loading", label = "Loading product configurations")
+        emitSnapshot()
+        val requests = CONFIGURATION_KINDS.associateWith(agent::configurations)
+        CompletableFuture.allOf(*requests.values.toTypedArray()).whenComplete { _, error ->
+            configurations = if (error != null) {
+                ConfigurationSnapshotDto(state = "error", label = error.rootMessage())
+            } else {
+                val items = requests.mapValues { (_, request) ->
+                    request.join().data.map { item ->
+                        ProductConfigurationDto(
+                            id = item.id,
+                            kind = item.kind,
+                            value = item.value,
+                            createdAt = item.createdAt,
+                            updatedAt = item.updatedAt,
+                        )
+                    }
+                }
+                ConfigurationSnapshotDto(
+                    state = "ready",
+                    label = "${items.values.sumOf(List<ProductConfigurationDto>::size)} configurations",
+                    items = items,
+                )
+            }
+            emitSnapshot()
+        }
+    }
+
+    private fun saveConfiguration(request: SaveConfigurationPayload) {
+        configurations = configurations.copy(state = "loading", label = "Saving ${request.id}")
+        emitSnapshot()
+        agent.putConfiguration(request.kind, request.id, request.value).whenComplete { _, error ->
+            if (error != null) {
+                configurations = configurations.copy(state = "error", label = error.rootMessage())
+                emitSnapshot()
+                emit("error", mapOf("message" to error.rootMessage()))
+            } else {
+                emit("notice", mapOf("message" to "Saved ${request.id}"))
+                refreshConfigurations()
+            }
+        }
+    }
+
+    private fun deleteConfiguration(request: DeleteConfigurationPayload) {
+        configurations = configurations.copy(state = "loading", label = "Deleting ${request.id}")
+        emitSnapshot()
+        agent.deleteConfiguration(request.kind, request.id).whenComplete { deleted, error ->
+            when {
+                error != null -> {
+                    configurations = configurations.copy(state = "error", label = error.rootMessage())
+                    emitSnapshot()
+                    emit("error", mapOf("message" to error.rootMessage()))
+                }
+                deleted != true -> {
+                    emit("error", mapOf("message" to "Configuration no longer exists"))
+                    refreshConfigurations()
+                }
+                else -> {
+                    emit("notice", mapOf("message" to "Deleted ${request.id}"))
+                    refreshConfigurations()
+                }
+            }
         }
     }
 
@@ -1314,9 +1398,23 @@ class IdeBridge(
         val backendToken: String? = null,
     )
 
+    @Serializable
+    private data class SaveConfigurationPayload(
+        val kind: String,
+        val id: String,
+        val value: JsonObject,
+    )
+
+    @Serializable
+    private data class DeleteConfigurationPayload(
+        val kind: String,
+        val id: String,
+    )
+
     companion object {
         private val LOG = logger<IdeBridge>()
         private const val MAX_THREAD_IMPORT_BYTES = 2_000_000L
         private const val MAX_QUEUED_MESSAGES = 10
+        private val CONFIGURATION_KINDS = listOf("mcp", "hooks", "commands", "agents", "plugins", "tool-permissions")
     }
 }

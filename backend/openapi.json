@@ -181,6 +181,115 @@
       }
     },
 
+    "/v1/configurations/{kind}": {
+      "get": {
+        "summary": "List typed product configuration records",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ConfigurationKind"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuration records for the requested kind",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/configurations/{kind}/{id}": {
+      "put": {
+        "summary": "Create or replace a typed product configuration record",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ConfigurationKind"
+          },
+          {
+            "$ref": "#/components/parameters/ConfigurationId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigurationValue"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored configuration record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a product configuration record",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ConfigurationKind"
+          },
+          {
+            "$ref": "#/components/parameters/ConfigurationId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Configuration deleted"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/v1/models": {
       "get": {
         "summary": "List the configured model allowlist",
@@ -552,6 +661,31 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9_-]+$"
         }
+      },
+      "ConfigurationKind": {
+        "name": "kind",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "mcp",
+            "hooks",
+            "commands",
+            "agents",
+            "plugins",
+            "tool-permissions"
+          ]
+        }
+      },
+      "ConfigurationId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,120}$"
+        }
       }
     },
     "responses": {
@@ -742,6 +876,213 @@
           },
           "detail": {
             "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ConfigurationList": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfigurationRecord"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ConfigurationRecord": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "value",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/ConfigurationValue"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ConfigurationValue": {
+        "type": "object",
+        "description": "Server-normalized value. Required fields depend on the configuration kind.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "prompt": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "argumentHint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event": {
+            "type": "string",
+            "enum": [
+              "before-run",
+              "after-run",
+              "before-tool",
+              "after-tool",
+              "on-error"
+            ]
+          },
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timeoutSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 600
+          },
+          "agentType": {
+            "type": "string",
+            "enum": [
+              "general",
+              "search",
+              "context",
+              "prompt",
+              "loop"
+            ]
+          },
+          "systemPrompt": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "allowedTools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "maxTurns": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "source": {
+            "type": "string"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "transport": {
+            "type": "string",
+            "enum": [
+              "stdio",
+              "streamable-http",
+              "sse"
+            ]
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "authMode": {
+            "type": "string",
+            "enum": [
+              "none",
+              "bearer-environment"
+            ]
+          },
+          "tokenEnvironment": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requiredEnvironment": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tool": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "allow",
+              "deny"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "account"
+            ]
           }
         },
         "additionalProperties": false

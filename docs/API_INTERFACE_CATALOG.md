@@ -125,6 +125,9 @@ Transport:
 | `openMermaidEditor` | `{ title: string, code: string }` | editor tab |
 | `openTerminal` | none | focuses Terminal tool window |
 | `saveSettings` | `{ backendUrl, nodePath, backendToken, autoApproveReadOnly }` | `snapshot.settings` |
+| `refreshConfigurations` | none | `snapshot.configurations` |
+| `saveConfiguration` | `{ kind, id, value }` | validates/persists then refreshes `snapshot.configurations` |
+| `deleteConfiguration` | `{ kind, id }` | deletes then refreshes `snapshot.configurations` |
 | `checkBackend` | none | `snapshot.backendHealth` / models / backendTools |
 | `getContextStatus` | none | `snapshot.context` |
 | `indexWorkspace` | none | indexing progress via `snapshot.context` |
@@ -149,10 +152,12 @@ Errors for failed commands: event `error` with `{ message: string }`.
 | `messageQueue` | `QueuedMessage[]` | Queued prompts |
 | `attachments` | `ContextItem[]` | Composer chips |
 | `settings` | object | backendUrl, nodePath, tokenConfigured, autoApproveReadOnly |
+| `account` | object | authentication state, identity, session mode, usage, and label |
 | `context` | object | ContextEngine state/label/files/chunks |
 | `backendHealth` | object | online/offline + protocol/provider |
 | `models` | object | state, provider, default/selected, options[] |
 | `backendTools` | array | backend tool name/catalogId/availability/reason/required env |
+| `configurations` | object | state, label, and typed MCP/command/hook/agent/plugin/tool-permission records |
 | `customization` | object | rules[], skills[], maxSelectedSkills |
 
 **ChatMessage**
@@ -305,7 +310,17 @@ Current adapters: `web_search`, `github_search`, `linear_search`, `notion_search
 }
 ```
 
-### 3.6 `POST /v1/runs` (SSE)
+### 3.6 Product configuration CRUD
+
+Configuration kinds are `mcp`, `commands`, `hooks`, `agents`, `plugins`, and `tool-permissions`. IDs use 1-120 ASCII letters, numbers, dots, underscores, or hyphens. Values are normalized by kind and unknown fields are discarded.
+
+- `GET /v1/configurations/{kind}` returns `{ "object": "list", "data": ProductConfiguration[] }`.
+- `PUT /v1/configurations/{kind}/{id}` validates and account-persists one definition, then returns the normalized record.
+- `DELETE /v1/configurations/{kind}/{id}` returns `204`; unknown records return `404`.
+
+MCP definitions reference credential environment-variable names only. Remote endpoints require HTTPS except loopback HTTP, and URLs containing embedded credentials are rejected. Persisting an MCP definition does not imply that its process or transport is active.
+
+### 3.7 `POST /v1/runs` (SSE)
 
 **Request body: `RemoteRunRequest`**
 
@@ -364,7 +379,7 @@ Header: `x-codeagent-run-id: <runId>`
 | `run.error` | `{ message }` | Fatal run error |
 | comment heartbeat | `: heartbeat` | Every ~15s |
 
-### 3.7 `POST /v1/runs/{runId}/tool-results`
+### 3.8 `POST /v1/runs/{runId}/tool-results`
 
 **Request body**
 
@@ -392,7 +407,7 @@ Header: `x-codeagent-run-id: <runId>`
 { "accepted": true }
 ```
 
-### 3.8 `DELETE /v1/runs/{runId}`
+### 3.9 `DELETE /v1/runs/{runId}`
 
 **Response 202**
 

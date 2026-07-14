@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import Icon from "./lib/Icon.svelte";
+  import ConfigurationSettings from "./lib/ConfigurationSettings.svelte";
   import MermaidCanvas from "./lib/MermaidCanvas.svelte";
   import { ICON_NAMES } from "./lib/icons";
   import { MENTION_KINDS, SLASH_COMMANDS, TOOL_CATALOG } from "./lib/tools-catalog";
@@ -1186,14 +1187,54 @@
                 <strong>Notifications & sound</strong>
                 <p>Not connected in this build.</p>
               </section>
-            {:else if settingsSection === "MCP Servers"}
-              <h1>MCP Servers</h1>
-              <p class="settings-lead">Prototype surface for Easy MCP / remote MCP. No server lifecycle is connected.</p>
-              <section class="settings-block unavailable">
-                <Icon name="mcp" size={20} />
-                <strong>Not connected</strong>
-                <p>Install/Add/Import actions are hidden until a real MCP gateway exists.</p>
+            {:else if ["MCP Servers", "Commands", "Hooks", "Agents", "Plugins"].includes(settingsSection)}
+              <ConfigurationSettings
+                section={settingsSection}
+                configurationSnapshot={snapshot.configurations}
+                models={snapshot.models.options}
+              />
+            {:else if settingsSection === "Feature Flags"}
+              <h1>Feature Flags</h1>
+              <p class="settings-lead">Runtime capability report derived from the current plugin, backend, and ContextEngine state.</p>
+              <section class="settings-block capability-list">
+                <div><Icon name="database-zap" size={14} /><span class="capability-copy"><strong>Incremental context index</strong><small>Project changes are synchronized into the local index.</small></span><i class:ready={snapshot.context.watching}>{snapshot.context.watching ? "Active" : "Inactive"}</i></div>
+                <div><Icon name="scan-search" size={14} /><span class="capability-copy"><strong>Semantic retrieval</strong><small>Embedding-backed search is available only when the local ContextEngine reports vectors.</small></span><i class:ready={snapshot.context.hasEmbeddings}>{snapshot.context.hasEmbeddings ? "Active" : "Lexical"}</i></div>
+                <div><Icon name="cloud" size={14} /><span class="capability-copy"><strong>Cloud sessions</strong><small>Account-scoped conversations and durable jobs require a signed-in backend session.</small></span><i class:ready={snapshot.account.state === "signed_in"}>{snapshot.account.state === "signed_in" ? "Active" : "Inactive"}</i></div>
+                <div><Icon name="server" size={14} /><span class="capability-copy"><strong>Backend agent runtime</strong><small>Prompt enhancement, model routing, and bounded agent runs use the deployed backend.</small></span><i class:ready={snapshot.backendHealth.state === "online"}>{snapshot.backendHealth.state === "online" ? "Active" : "Offline"}</i></div>
+                <div><Icon name="mcp" size={14} /><span class="capability-copy"><strong>MCP runtime</strong><small>Definitions are persisted; process lifecycle and tool discovery are not connected yet.</small></span><i>Planned</i></div>
               </section>
+            {:else if settingsSection === "Beta"}
+              <h1>Beta <em>Beta</em></h1>
+              <p class="settings-lead">Connected previews with explicit maturity and execution boundaries.</p>
+              <section class="settings-block capability-list">
+                <div><Icon name="bot" size={14} /><span class="capability-copy"><strong>Specialized Agent profiles</strong><small>Search, context, prompt, loop, and general profiles can be stored with model and tool budgets.</small></span><i class:ready={snapshot.configurations.state === "ready"}>{snapshot.configurations.state === "ready" ? "Preview" : "Unavailable"}</i></div>
+                <div><Icon name="square-terminal" size={14} /><span class="capability-copy"><strong>Reusable commands</strong><small>Prompt commands are persisted now; composer invocation is the next runtime connection.</small></span><i class:ready={snapshot.configurations.state === "ready"}>{snapshot.configurations.state === "ready" ? "Preview" : "Unavailable"}</i></div>
+                <div><Icon name="list-checks" size={14} /><span class="capability-copy"><strong>Durable subagent jobs</strong><small>Backend jobs survive IDE reconnects and can be restored through the account session.</small></span><i class:ready={snapshot.account.state === "signed_in"}>{snapshot.account.state === "signed_in" ? "Preview" : "Sign in"}</i></div>
+                <div><Icon name="wand-sparkles" size={14} /><span class="capability-copy"><strong>Repository skills</strong><small>Skills are loaded from repository instructions and selected per conversation.</small></span><i class:ready={snapshot.customization.skills.length > 0}>{snapshot.customization.skills.length > 0 ? "Preview" : "None found"}</i></div>
+              </section>
+            {:else if settingsSection === "Subscription"}
+              <h1>Subscription</h1>
+              <p class="settings-lead">Current identity and metered usage reported by the connected backend.</p>
+              {#if snapshot.account.state === "signed_in"}
+                <section class="settings-block subscription-summary">
+                  <header><span><strong>{snapshot.account.displayName ?? "CodeAgent user"}</strong><small>{snapshot.account.email ?? snapshot.account.userId ?? "Signed-in account"}</small></span><i>{snapshot.account.mode}</i></header>
+                  <div class="usage-grid">
+                    {#each snapshot.account.usage as item}
+                      <article><span>{usageLabel(item.kind)}</span><strong>{item.units.toLocaleString()}</strong></article>
+                    {:else}
+                      <p>No metered usage has been reported.</p>
+                    {/each}
+                  </div>
+                  <p>Plan names, quotas, invoices, and payment management are shown only when the backend exposes a billing contract.</p>
+                </section>
+              {:else}
+                <section class="settings-block unavailable">
+                  <Icon name="credit-card" size={20} />
+                  <strong>No subscription session</strong>
+                  <p>Sign in to load account usage. Billing actions are not simulated.</p>
+                  <button onclick={() => chooseSettingsSection("Account")}>Open Account</button>
+                </section>
+              {/if}
             {:else}
               <h1>{settingsSection}{#if settingsGroups.some((group) => group.items.some((item) => item.id === settingsSection && item.badge))} <em>Beta</em>{/if}</h1>
               <p class="settings-lead">This surface is unavailable until its backend capability is connected.</p>

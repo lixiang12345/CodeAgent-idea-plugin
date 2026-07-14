@@ -3,6 +3,7 @@ package com.codeagent.plugin.bridge
 import com.codeagent.plugin.settings.DEFAULT_BACKEND_URL
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 const val BRIDGE_PROTOCOL_VERSION = 1
 
@@ -193,6 +194,22 @@ data class BackendToolDto(
 )
 
 @Serializable
+data class ProductConfigurationDto(
+    val id: String,
+    val kind: String,
+    val value: JsonObject,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+)
+
+@Serializable
+data class ConfigurationSnapshotDto(
+    val state: String = "unavailable",
+    val label: String = "Configurations unavailable",
+    val items: Map<String, List<ProductConfigurationDto>> = emptyMap(),
+)
+
+@Serializable
 data class WorkspaceRuleDto(
     val id: String,
     val name: String,
@@ -237,5 +254,6 @@ data class AppSnapshotDto(
     val backendHealth: BackendHealthDto = BackendHealthDto(),
     val models: ModelRegistryDto = ModelRegistryDto(),
     val backendTools: List<BackendToolDto> = emptyList(),
+    val configurations: ConfigurationSnapshotDto = ConfigurationSnapshotDto(),
     val customization: WorkspaceCustomizationDto = WorkspaceCustomizationDto(),
 )

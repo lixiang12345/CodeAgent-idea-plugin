@@ -109,11 +109,10 @@ export async function handleProductRequest(request, response, { principal, authe
   const configurationMatch = path.match(/^\/v1\/configurations\/([^/]+)\/([^/]+)$/);
   if (configurationMatch) {
     const kind = configurationKind(configurationMatch[1]);
-    const id = decodeURIComponent(configurationMatch[2]);
+    const id = configurationId(configurationMatch[2]);
     if (request.method === "PUT") {
       const body = await readJson(request);
-      if (!body || typeof body !== "object" || Array.isArray(body)) throw badRequest("Configuration value must be an object");
-      return sendJson(response, 200, await store.putConfiguration(principal.id, kind, id, body));
+      return sendJson(response, 200, await store.putConfiguration(principal.id, kind, id, normalizeConfiguration(kind, body)));
     }
     if (request.method === "DELETE") {
       if (!await store.deleteConfiguration(principal.id, kind, id)) throw notFound("Configuration not found");
@@ -231,6 +230,134 @@ function configurationKind(value) {
   const kind = decodeURIComponent(value);
   if (!CONFIGURATION_KINDS.has(kind)) throw badRequest("Unsupported configuration kind");
   return kind;
+}
+
+function configurationId(value) {
+  const id = decodeURIComponent(value);
+  if (!/^[A-Za-z0-9._-]{1,120}$/.test(id)) {
+    throw badRequest("Configuration ID must use 1-120 letters, numbers, dots, underscores, or hyphens");
+  }
+  return id;
+}
+
+function normalizeConfiguration(kind, value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw badRequest("Configuration value must be an object");
+  }
+
+  if (kind === "tool-permissions") {
+    return {
+      tool: boundedText(value.tool || value.name, "tool", 240),
+      policy: enumValue(value.policy, "policy", ["ask", "allow", "deny"], "ask"),
+      scope: enumValue(value.scope, "scope", ["workspace", "account"], "workspace"),
+      enabled: optionalBoolean(value.enabled, true),
+    };
+  }
+
+  const common = {
+    name: boundedText(value.name, "name", 160),
+    description: optionalText(value.description, "description", 2_000),
+    enabled: optionalBoolean(value.enabled, true),
+  };
+
+  switch (kind) {
+    case "commands":
+      return {
+        ...common,
+        prompt: boundedText(value.prompt, "prompt", 100_000),
+        argumentHint: optionalText(value.argumentHint, "argumentHint", 500),
+      };
+    case "hooks":
+      return {
+        ...common,
+        event: enumValue(value.event, "event", ["before-run", "after-run", "before-tool", "after-tool", "on-error"]),
+        command: boundedText(value.command, "command", 8_000),
+        timeoutSeconds: boundedInteger(value.timeoutSeconds, 1, 600, 60),
+      };
+    case "agents":
+      return {
+        ...common,
+        agentType: enumValue(value.agentType, "agentType", ["general", "search", "context", "prompt", "loop"], "general"),
+        systemPrompt: boundedText(value.systemPrompt, "systemPrompt", 100_000),
+        model: optionalText(value.model, "model", 240),
+        allowedTools: stringList(value.allowedTools, "allowedTools", 128, 240),
+        maxTurns: boundedInteger(value.maxTurns, 1, 64, 12),
+      };
+    case "plugins":
+      return {
+        ...common,
+        source: boundedText(value.source, "source", 2_000),
+        version: optionalText(value.version, "version", 240),
+        capabilities: stringList(value.capabilities, "capabilities", 128, 240),
+      };
+    case "mcp":
+      return normalizeMcpConfiguration(value, common);
+    default:
+      throw badRequest("Unsupported configuration kind");
+  }
+}
+
+function normalizeMcpConfiguration(value, common) {
+  const transport = enumValue(value.transport, "transport", ["stdio", "streamable-http", "sse"], "stdio");
+  const command = transport === "stdio" ? boundedText(value.command, "command", 4_000) : null;
+  const url = transport === "stdio" ? null : normalizedRemoteUrl(value.url);
+  const requiredEnvironment = stringList(value.requiredEnvironment, "requiredEnvironment", 64, 128);
+  for (const name of requiredEnvironment) {
+    if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(name)) {
+      throw badRequest("requiredEnvironment must contain uppercase environment variable names");
+    }
+  }
+  const authMode = transport === "stdio"
+    ? "none"
+    : enumValue(value.authMode, "authMode", ["none", "bearer-environment"], "none");
+  const tokenEnvironment = authMode === "bearer-environment"
+    ? boundedText(value.tokenEnvironment, "tokenEnvironment", 128)
+    : null;
+  if (tokenEnvironment && !/^[A-Z][A-Z0-9_]{0,127}$/.test(tokenEnvironment)) {
+    throw badRequest("tokenEnvironment must be an uppercase environment variable name");
+  }
+  return {
+    ...common,
+    transport,
+    command,
+    args: transport === "stdio" ? stringList(value.args, "args", 128, 2_000) : [],
+    cwd: transport === "stdio" ? optionalText(value.cwd, "cwd", 4_000) : null,
+    url,
+    authMode,
+    tokenEnvironment,
+    requiredEnvironment,
+    timeoutSeconds: boundedInteger(value.timeoutSeconds, 1, 600, 60),
+  };
+}
+
+function enumValue(value, field, values, fallback) {
+  const normalized = value === undefined || value === null || value === "" ? fallback : value;
+  if (typeof normalized !== "string" || !values.includes(normalized)) {
+    throw badRequest(`${field} must be one of: ${values.join(", ")}`);
+  }
+  return normalized;
+}
+
+function optionalBoolean(value, fallback) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== "boolean") throw badRequest("enabled must be a boolean");
+  return value;
+}
+
+function normalizedRemoteUrl(value) {
+  const text = boundedText(value, "url", 4_000);
+  let url;
+  try {
+    url = new URL(text);
+  } catch {
+    throw badRequest("url must be a valid absolute URL");
+  }
+  const loopback = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+    throw badRequest("Remote MCP URLs must use https; loopback http is allowed for local development");
+  }
+  if (url.username || url.password) throw badRequest("MCP URLs must not contain credentials");
+  return url.toString();
 }
 
 function parseExpectedVersion(value) {

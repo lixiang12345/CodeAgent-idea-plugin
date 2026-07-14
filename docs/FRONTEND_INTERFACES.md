@@ -100,7 +100,10 @@ System prompts and provider credentials **never** leave the backend process.
 | Tasks / Git / Image / Mermaid / Rules / Skills | bridge / local IDE |
 | Tools catalog / Icon gallery | pure UI (seed prompt / copy name) |
 | Feedback | local notice only |
-| MCP / Account / Subscription / Hooks / Agents / Plugins / cloud tools | explicit **Not connected** shells |
+| MCP / Commands / Hooks / Agents / Plugins | typed account configuration CRUD; runtime execution remains capability-gated |
+| Account / Subscription | real backend identity, session state, and metered usage; no simulated billing actions |
+| Feature Flags / Beta | read-only live capability and maturity reports |
+| Unconfigured cloud tools | explicit **Not connected** states |
 
 ## 5. Final prototype
 

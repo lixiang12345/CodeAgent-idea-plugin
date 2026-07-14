@@ -54,11 +54,11 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | Rules editor | Implemented | Repository Markdown, persisted description and trigger metadata, save, and manual per-thread selection work |
 | Image Canvas | Implemented | Project-contained directory selection, bounded raster gallery, settings, refresh, open, mention, and empty/error states |
 | Mermaid | Implemented | Strict rendering, diagram/code, zoom, fit, error states, and opening source in an IDEA editor tab work |
-| Settings | Partial | Services now shows live backend tool availability and missing configuration; backend health, token, ContextEngine, Rules, Skills, and chat zoom UX are real; MCP and remaining sections stay explicit shells |
+| Settings | Partial | Backend health, account, subscription usage, ContextEngine, Rules, Skills, chat zoom, Commands, Hooks, Agent profiles, plugin sources, and MCP definitions are real; feature and Beta pages report live capability state instead of simulated toggles |
 | Tools catalog / Icon gallery / Feedback | Implemented | UI overlays for insert-tool seeding, icon name copy, and local feedback notice |
 | Cloud integrations | Conditional | Search/read adapters are advertised only when their backend environment is configured; provider errors and missing credentials remain explicit failures |
-| Subagents | Partial | Synchronous `subagent` is a real bounded model-only delegation call; `async-subagent` remains unavailable because durable job lifecycle, cancellation, and UI state are not implemented |
-| MCP | Unavailable | A general local MCP client still needs server configuration, process/transport lifecycle, tool discovery, cancellation, and auth handling; the shell remains explicit |
+| Subagents | Partial | Synchronous `subagent` and durable asynchronous job persistence are real; cancellation, progress streaming, and complete IDE navigation still need runtime wiring |
+| MCP | Partial | Typed stdio/HTTP/SSE definitions are validated and account-persisted without secrets; process/transport lifecycle, tool discovery, cancellation, and auth injection remain explicit next steps |
 
 ## Tool catalog
 

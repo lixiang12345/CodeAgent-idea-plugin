@@ -112,6 +112,15 @@ class AgentOrchestrator(private val project: Project) : Disposable {
 
     internal fun tools(): CompletableFuture<RemoteToolsResponse> = withClient(RemoteAgentClient::tools)
 
+    internal fun configurations(kind: String): CompletableFuture<RemoteConfigurationList> =
+        withClient { it.configurations(kind) }
+
+    internal fun putConfiguration(kind: String, id: String, value: kotlinx.serialization.json.JsonObject): CompletableFuture<RemoteConfiguration> =
+        withClient { it.putConfiguration(kind, id, value) }
+
+    internal fun deleteConfiguration(kind: String, id: String): CompletableFuture<Boolean> =
+        withClient { it.deleteConfiguration(kind, id) }
+
     internal fun enhance(text: String, mode: String, model: String?): CompletableFuture<RemoteEnhanceResponse> =
         withClient { it.enhance(text, mode, model) }
 

@@ -149,6 +149,44 @@ internal class RemoteAgentClient(
         }
     }
 
+    fun configurations(kind: String): CompletableFuture<RemoteConfigurationList> {
+        val uri = configurationUri(kind)
+        return httpClient.sendAsync(
+            requestBuilder(uri).timeout(Duration.ofSeconds(30)).GET().build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            if (response.statusCode() != 200) throw remoteHttpError("Configuration discovery", response)
+            json.decodeFromString<RemoteConfigurationList>(response.body())
+        }
+    }
+
+    fun putConfiguration(kind: String, id: String, value: JsonObject): CompletableFuture<RemoteConfiguration> {
+        val uri = configurationUri(kind, id)
+        return httpClient.sendAsync(
+            requestBuilder(uri)
+                .timeout(Duration.ofSeconds(30))
+                .PUT(HttpRequest.BodyPublishers.ofString(json.encodeToString(value)))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            if (response.statusCode() != 200) throw remoteHttpError("Configuration write", response)
+            json.decodeFromString<RemoteConfiguration>(response.body())
+        }
+    }
+
+    fun deleteConfiguration(kind: String, id: String): CompletableFuture<Boolean> {
+        return httpClient.sendAsync(
+            requestBuilder(configurationUri(kind, id)).timeout(Duration.ofSeconds(30)).DELETE().build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            when (response.statusCode()) {
+                204 -> true
+                404 -> false
+                else -> throw remoteHttpError("Configuration delete", response)
+            }
+        }
+    }
+
     fun executeTool(name: String, arguments: JsonObject): CompletableFuture<RemoteToolExecutionResponse> {
         require(name.matches(Regex("[A-Za-z0-9_-]+"))) { "Invalid backend tool name: $name" }
         val uri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/tools/$name")
@@ -256,6 +294,15 @@ internal class RemoteAgentClient(
         return URI.create("${settings.backendUrl.trimEnd('/')}/v1/jobs/$id")
     }
 
+    private fun configurationUri(kind: String, id: String? = null): URI {
+        require(kind in CONFIGURATION_KINDS) { "Invalid configuration kind" }
+        if (id != null) {
+            require(id.matches(Regex("[A-Za-z0-9._-]{1,120}"))) { "Invalid configuration ID" }
+        }
+        val suffix = id?.let { "/$it" }.orEmpty()
+        return URI.create("${settings.backendUrl.trimEnd('/')}/v1/configurations/$kind$suffix")
+    }
+
     private fun remoteHttpError(operation: String, response: HttpResponse<String>): RemoteHttpException =
         RemoteHttpException(response.statusCode(), "$operation returned HTTP ${response.statusCode()}: ${errorMessage(response.body())}")
 
@@ -296,6 +343,10 @@ internal class RemoteAgentClient(
             }
         }
         dispatch()
+    }
+
+    companion object {
+        private val CONFIGURATION_KINDS = setOf("mcp", "hooks", "commands", "agents", "plugins", "tool-permissions")
     }
 }
 
@@ -515,6 +566,20 @@ internal data class RemoteModelsResponse(
 @Serializable
 internal data class RemoteToolsResponse(
     val data: List<RemoteToolCapability> = emptyList(),
+)
+
+@Serializable
+internal data class RemoteConfigurationList(
+    val data: List<RemoteConfiguration> = emptyList(),
+)
+
+@Serializable
+internal data class RemoteConfiguration(
+    val id: String,
+    val kind: String,
+    val value: JsonObject,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
 )
 
 @Serializable

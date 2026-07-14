@@ -22,10 +22,13 @@ class RemoteAgentClientTest {
         var toolsAuthorization: String? = null
         var accountAuthorization: String? = null
         var jobsAuthorization: String? = null
+        var configurationAuthorization: String? = null
         var runBody = ""
         var toolResultBody = ""
         var backendToolBody = ""
         var jobBody = ""
+        var configurationBody = ""
+        var configurationDeleted = false
         server.createContext("/health") { exchange ->
             val body = """{"ok":true,"service":"codeagent-backend","protocolVersion":1}""".toByteArray()
             exchange.sendResponseHeaders(200, body.size.toLong())
@@ -102,6 +105,28 @@ class RemoteAgentClientTest {
             exchange.sendResponseHeaders(202, body.size.toLong())
             exchange.responseBody.use { it.write(body) }
         }
+        server.createContext("/v1/configurations/agents/review-agent") { exchange ->
+            configurationAuthorization = exchange.requestHeaders.getFirst("Authorization")
+            when (exchange.requestMethod) {
+                "PUT" -> {
+                    configurationBody = exchange.requestBody.bufferedReader().readText()
+                    val body = """{"id":"review-agent","kind":"agents","value":{"name":"Review Agent","enabled":true,"agentType":"loop","systemPrompt":"Review twice","allowedTools":["read_file"],"maxTurns":8},"createdAt":"2026-07-14T00:00:00Z","updatedAt":"2026-07-14T00:00:00Z"}""".toByteArray()
+                    exchange.sendResponseHeaders(200, body.size.toLong())
+                    exchange.responseBody.use { it.write(body) }
+                }
+                "DELETE" -> {
+                    configurationDeleted = true
+                    exchange.sendResponseHeaders(204, -1)
+                    exchange.close()
+                }
+            }
+        }
+        server.createContext("/v1/configurations/agents") { exchange ->
+            configurationAuthorization = exchange.requestHeaders.getFirst("Authorization")
+            val body = """{"data":[{"id":"review-agent","kind":"agents","value":{"name":"Review Agent","enabled":true,"agentType":"loop","systemPrompt":"Review twice","allowedTools":["read_file"],"maxTurns":8}}]}""".toByteArray()
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
         server.start()
 
         try {
@@ -143,12 +168,23 @@ class RemoteAgentClientTest {
                 RemoteJobRequest("history-summary", RemoteJobInput("Summarize the conversation")),
             ).join()
             val completedJob = client.job(createdJob.id).join()
+            val configurations = client.configurations("agents").join()
+            val savedConfiguration = client.putConfiguration(
+                "agents",
+                "review-agent",
+                buildJsonObject {
+                    put("name", "Review Agent")
+                    put("systemPrompt", "Review twice")
+                },
+            ).join()
+            val deletedConfiguration = client.deleteConfiguration("agents", "review-agent").join()
 
             assertEquals("Bearer backend-secret", runAuthorization)
             assertEquals("Bearer backend-secret", modelsAuthorization)
             assertEquals("Bearer backend-secret", toolsAuthorization)
             assertEquals("Bearer backend-secret", accountAuthorization)
             assertEquals("Bearer backend-secret", jobsAuthorization)
+            assertEquals("Bearer backend-secret", configurationAuthorization)
             assertEquals(listOf("run.started", "message.delta", "assistant.completed"), eventTypes)
             assertTrue(eventPayloads[1].contains("\"turnIndex\":0"))
             assertTrue(eventPayloads[2].contains("\"turnIndex\":0"))
@@ -170,6 +206,11 @@ class RemoteAgentClientTest {
             assertTrue(backendToolBody.contains("\"query\":\"CodeAgent\""))
             assertTrue(jobBody.contains("\"type\":\"history-summary\""))
             assertEquals("Conversation summary", completedJob.output?.content)
+            assertEquals(listOf("review-agent"), configurations.data.map { it.id })
+            assertEquals("loop", savedConfiguration.value["agentType"].toString().trim('"'))
+            assertTrue(configurationBody.contains("\"systemPrompt\":\"Review twice\""))
+            assertTrue(deletedConfiguration)
+            assertTrue(configurationDeleted)
         } finally {
             server.stop(0)
         }
