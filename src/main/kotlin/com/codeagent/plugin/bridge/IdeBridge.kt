@@ -1041,12 +1041,15 @@ class IdeBridge(
                     state = "ready",
                     label = buildString {
                         append("${status.fileCount} files indexed")
+                        if (status.roots.size > 1) append(" across ${status.roots.size} roots")
                         append(if (status.watching) " · Auto-sync on" else " · Manual refresh")
                         if (status.hasEmbeddings) append(" · Semantic search")
                         status.watchError?.let { append(" · Watch error: $it") }
                     },
                     files = status.fileCount,
                     chunks = status.chunkCount,
+                    roots = status.roots.size.coerceAtLeast(1),
+                    watchedRoots = status.watchedRootCount,
                     watching = status.watching,
                     hasEmbeddings = status.hasEmbeddings,
                     lastIndexedAt = status.lastIndexedAt,

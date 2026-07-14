@@ -29,7 +29,14 @@ interface RequestEnvelope {
     | "mcp.call"
     | "shutdown";
   root?: string;
+  extraRoots?: IndexRootInput[];
   payload?: Record<string, unknown>;
+}
+
+interface IndexRootInput {
+  name: string;
+  path: string;
+  kind?: "code" | "docs";
 }
 
 interface ResponseEnvelope {
@@ -41,8 +48,9 @@ interface ResponseEnvelope {
 interface WorkspaceRuntime {
   engine: ContextEngine;
   root: string;
+  roots: string[];
   indexTail: Promise<void>;
-  watcher: FSWatcher | null;
+  watchers: Map<string, FSWatcher>;
   watchTimer: NodeJS.Timeout | null;
   watchDebounceMs: number;
   pendingChanges: number;
@@ -60,16 +68,19 @@ function send(response: ResponseEnvelope): void {
   process.stdout.write(`${JSON.stringify(response)}\n`);
 }
 
-function getRuntime(rootValue: string | undefined): WorkspaceRuntime {
+function getRuntime(rootValue: string | undefined, extraRootValues: IndexRootInput[] | undefined): WorkspaceRuntime {
   if (!rootValue) throw new Error("A project root is required");
   const root = path.resolve(rootValue);
+  const extraRoots = normalizeExtraRoots(root, extraRootValues);
+  const roots = [root, ...extraRoots.map((entry) => entry.path)];
   let runtime = runtimes.get(root);
   if (!runtime) {
     runtime = {
-      engine: ContextEngine.open({ root }),
+      engine: ContextEngine.open({ root, extraRoots }),
       root,
+      roots,
       indexTail: Promise.resolve(),
-      watcher: null,
+      watchers: new Map(),
       watchTimer: null,
       watchDebounceMs: 800,
       pendingChanges: 0,
@@ -79,6 +90,8 @@ function getRuntime(rootValue: string | undefined): WorkspaceRuntime {
       lastWatchError: null,
     };
     runtimes.set(root, runtime);
+  } else if (!sameRoots(runtime.roots, roots)) {
+    throw new Error("ContextEngine roots changed; restart the sidecar before reconfiguring project roots");
   }
   return runtime;
 }
@@ -92,13 +105,13 @@ async function handle(request: RequestEnvelope): Promise<void> {
         payload: {
           ok: true,
           nodeVersion: process.versions.node,
-          protocolVersion: 2,
-          capabilities: ["incremental-index", "workspace-watch", "mcp-runtime"],
+          protocolVersion: 3,
+          capabilities: ["incremental-index", "workspace-watch", "multi-root-index", "mcp-runtime"],
         },
       });
       return;
     case "status": {
-      const runtime = getRuntime(request.root);
+      const runtime = getRuntime(request.root, request.extraRoots);
       await runtime.indexTail;
       send({
         id: request.id,
@@ -108,7 +121,7 @@ async function handle(request: RequestEnvelope): Promise<void> {
       return;
     }
     case "index": {
-      const runtime = getRuntime(request.root);
+      const runtime = getRuntime(request.root, request.extraRoots);
       const result = await queueIndex(runtime, false, (progress) => {
         send({ id: request.id, type: "progress", payload: progress });
       });
@@ -116,20 +129,20 @@ async function handle(request: RequestEnvelope): Promise<void> {
       return;
     }
     case "watch": {
-      const runtime = getRuntime(request.root);
+      const runtime = getRuntime(request.root, request.extraRoots);
       if (!runtime.engine.hasIndex()) throw new Error("Project is not indexed");
       startWatching(runtime, toDebounceMs(request.payload?.debounceMs));
       send({ id: request.id, type: "result", payload: statusPayload(runtime) });
       return;
     }
     case "unwatch": {
-      const runtime = getRuntime(request.root);
+      const runtime = getRuntime(request.root, request.extraRoots);
       stopWatching(runtime);
       send({ id: request.id, type: "result", payload: statusPayload(runtime) });
       return;
     }
     case "retrieve": {
-      const runtime = getRuntime(request.root);
+      const runtime = getRuntime(request.root, request.extraRoots);
       await runtime.indexTail;
       if (!runtime.engine.hasIndex()) throw new Error("Project is not indexed");
       const informationRequest = String(request.payload?.informationRequest ?? "").trim();
@@ -142,7 +155,7 @@ async function handle(request: RequestEnvelope): Promise<void> {
       return;
     }
     case "search": {
-      const runtime = getRuntime(request.root);
+      const runtime = getRuntime(request.root, request.extraRoots);
       await runtime.indexTail;
       if (!runtime.engine.hasIndex()) throw new Error("Project is not indexed");
       const query = String(request.payload?.query ?? "").trim();
@@ -222,38 +235,45 @@ function queueIndex(
 
 function startWatching(runtime: WorkspaceRuntime, debounceMs: number): void {
   runtime.watchDebounceMs = debounceMs;
-  if (runtime.watcher) return;
   runtime.lastWatchError = null;
-  try {
-    runtime.watcher = watch(runtime.root, { recursive: true }, (_event, filename) => {
-      if (filename && shouldIgnoreWatchPath(filename.toString())) return;
-      runtime.pendingChanges += 1;
-      if (runtime.watchTimer) clearTimeout(runtime.watchTimer);
-      runtime.watchTimer = setTimeout(() => {
-        runtime.watchTimer = null;
-        runtime.pendingChanges = 0;
-        void queueIndex(runtime, true).catch((error) => {
-          runtime.lastWatchError = errorMessage(error);
-          process.stderr.write(`ContextEngine automatic index failed for ${runtime.root}: ${runtime.lastWatchError}\n`);
-        });
-      }, runtime.watchDebounceMs);
-    });
-    runtime.watcher.on("error", (error) => {
-      runtime.lastWatchError = errorMessage(error);
-      stopWatching(runtime, false);
-    });
-  } catch (error) {
-    runtime.lastWatchError = errorMessage(error);
-    runtime.watcher = null;
+  for (const root of runtime.roots) {
+    if (runtime.watchers.has(root)) continue;
+    try {
+      const watcher = watch(root, { recursive: true }, (_event, filename) => {
+        if (filename && shouldIgnoreWatchPath(filename.toString())) return;
+        scheduleAutomaticIndex(runtime);
+      });
+      watcher.on("error", (error) => {
+        runtime.lastWatchError = `Watch failed for ${root}: ${errorMessage(error)}`;
+        runtime.watchers.get(root)?.close();
+        runtime.watchers.delete(root);
+      });
+      runtime.watchers.set(root, watcher);
+    } catch (error) {
+      runtime.lastWatchError = `Watch failed for ${root}: ${errorMessage(error)}`;
+    }
   }
+}
+
+function scheduleAutomaticIndex(runtime: WorkspaceRuntime): void {
+  runtime.pendingChanges += 1;
+  if (runtime.watchTimer) clearTimeout(runtime.watchTimer);
+  runtime.watchTimer = setTimeout(() => {
+    runtime.watchTimer = null;
+    runtime.pendingChanges = 0;
+    void queueIndex(runtime, true).catch((error) => {
+      runtime.lastWatchError = errorMessage(error);
+      process.stderr.write(`ContextEngine automatic index failed for ${runtime.root}: ${runtime.lastWatchError}\n`);
+    });
+  }, runtime.watchDebounceMs);
 }
 
 function stopWatching(runtime: WorkspaceRuntime, clearError = true): void {
   if (runtime.watchTimer) clearTimeout(runtime.watchTimer);
   runtime.watchTimer = null;
   runtime.pendingChanges = 0;
-  runtime.watcher?.close();
-  runtime.watcher = null;
+  for (const watcher of runtime.watchers.values()) watcher.close();
+  runtime.watchers.clear();
   if (clearError) runtime.lastWatchError = null;
 }
 
@@ -273,7 +293,9 @@ function shouldIgnoreWatchPath(value: string): boolean {
 
 function statusPayload(runtime: WorkspaceRuntime): Record<string, unknown> {
   const watch = {
-    watching: runtime.watcher !== null,
+    roots: runtime.roots,
+    watching: runtime.watchers.size === runtime.roots.length,
+    watchedRootCount: runtime.watchers.size,
     watchDebounceMs: runtime.watchDebounceMs,
     pendingChanges: runtime.pendingChanges,
     automaticIndexRuns: runtime.automaticIndexRuns,
@@ -296,6 +318,31 @@ async function closeAll(): Promise<void> {
     runtime.engine.close();
   }
   runtimes.clear();
+}
+
+function normalizeExtraRoots(root: string, values: IndexRootInput[] | undefined): IndexRootInput[] {
+  if (!Array.isArray(values)) return [];
+  const names = new Set<string>();
+  const paths = new Set<string>([root]);
+  const normalized: IndexRootInput[] = [];
+  for (const value of values) {
+    if (!value || typeof value.name !== "string" || typeof value.path !== "string") continue;
+    const name = value.name.trim();
+    const resolved = path.resolve(value.path);
+    if (!/^[A-Za-z0-9._-]{1,64}$/.test(name) || name === "main" || names.has(name) || paths.has(resolved)) continue;
+    names.add(name);
+    paths.add(resolved);
+    normalized.push({
+      name,
+      path: resolved,
+      kind: value.kind === "docs" ? "docs" : "code",
+    });
+  }
+  return normalized;
+}
+
+function sameRoots(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function requiredPayloadText(request: RequestEnvelope, field: string): string {

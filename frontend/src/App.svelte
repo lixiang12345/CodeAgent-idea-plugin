@@ -1362,6 +1362,7 @@
                 {#if snapshot.context.state === "ready"}
                   <div class="context-signals">
                     <span><Icon name={snapshot.context.watching ? "refresh-cw" : "pause"} size={11} />{snapshot.context.watching ? "File changes sync automatically" : "Automatic sync unavailable"}</span>
+                    <span><Icon name="folders" size={11} />{snapshot.context.watchedRoots ?? 0}/{snapshot.context.roots ?? 1} roots watched</span>
                     <span><Icon name={snapshot.context.hasEmbeddings ? "sparkles" : "search"} size={11} />{snapshot.context.hasEmbeddings ? "Hybrid semantic retrieval" : "Lexical and symbol retrieval"}</span>
                   </div>
                 {/if}

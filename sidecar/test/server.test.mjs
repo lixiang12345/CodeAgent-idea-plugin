@@ -99,12 +99,71 @@ test("indexes and retrieves project context over JSON Lines", async (t) => {
   await once(child, "exit");
 });
 
-async function waitForAutomaticIndex(child, responses, root, expectedRuns, timeoutMs = 15_000) {
+test("indexes and incrementally watches additional project roots", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "codeagent-main-"));
+  const sharedRoot = await mkdtemp(path.join(os.tmpdir(), "codeagent-shared-"));
+  await mkdir(path.join(root, "src"));
+  await mkdir(path.join(sharedRoot, "src"));
+  await writeFile(path.join(root, "src", "main.ts"), "export const mainWorkspace = true;\n");
+  await writeFile(path.join(sharedRoot, "src", "shared.ts"), "export const sharedContract = 'v1';\n");
+
+  const child = spawn(process.execPath, ["dist/server.mjs"], {
+    cwd: path.resolve(import.meta.dirname, ".."),
+    stdio: ["pipe", "pipe", "inherit"],
+  });
+  t.after(async () => {
+    child.kill();
+    await rm(root, { recursive: true, force: true });
+    await rm(sharedRoot, { recursive: true, force: true });
+  });
+
+  const lines = createInterface({ input: child.stdout });
+  const responses = [];
+  lines.on("line", (line) => responses.push(JSON.parse(line)));
+  const extraRoots = [{ name: "shared", path: sharedRoot, kind: "code" }];
+
+  child.stdin.write(`${JSON.stringify({ id: "index", type: "index", root, extraRoots })}\n`);
+  const indexed = await waitFor(responses, (item) => item.id === "index" && item.type === "result", 15_000);
+  assert.deepEqual(indexed.payload.roots, [root, sharedRoot]);
+
+  child.stdin.write(`${JSON.stringify({
+    id: "watch",
+    type: "watch",
+    root,
+    extraRoots,
+    payload: { debounceMs: 100 },
+  })}\n`);
+  const watch = await waitFor(responses, (item) => item.id === "watch" && item.type === "result");
+  assert.equal(watch.payload.watching, true);
+  assert.equal(watch.payload.watchedRootCount, 2);
+
+  await writeFile(
+    path.join(sharedRoot, "src", "shared.ts"),
+    "export const sharedContract = 'v2-automatic-sync';\n",
+  );
+  await waitForAutomaticIndex(child, responses, root, 1, 15_000, extraRoots);
+
+  child.stdin.write(`${JSON.stringify({
+    id: "search-shared",
+    type: "search",
+    root,
+    extraRoots,
+    payload: { query: "v2 automatic sync sharedContract", topK: 5, mode: "bm25" },
+  })}\n`);
+  const updated = await waitFor(responses, (item) => item.id === "search-shared" && item.type === "result");
+  assert.equal(updated.payload[0].chunk.path, "shared/src/shared.ts");
+  assert.match(updated.payload[0].chunk.content, /v2-automatic-sync/);
+
+  child.stdin.write(`${JSON.stringify({ id: "shutdown", type: "shutdown" })}\n`);
+  await once(child, "exit");
+});
+
+async function waitForAutomaticIndex(child, responses, root, expectedRuns, timeoutMs = 15_000, extraRoots = undefined) {
   const started = Date.now();
   let sequence = 0;
   while (Date.now() - started < timeoutMs) {
     const id = `watch-status-${expectedRuns}-${sequence++}`;
-    child.stdin.write(`${JSON.stringify({ id, type: "status", root })}\n`);
+    child.stdin.write(`${JSON.stringify({ id, type: "status", root, extraRoots })}\n`);
     const status = await waitFor(responses, (item) => item.id === id && item.type === "result", 2_000);
     if (status.payload.automaticIndexRuns >= expectedRuns) return status;
     await new Promise((resolve) => setTimeout(resolve, 100));

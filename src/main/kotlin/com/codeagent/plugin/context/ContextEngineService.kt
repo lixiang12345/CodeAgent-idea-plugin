@@ -4,6 +4,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.roots.ProjectRootManager
 import com.codeagent.plugin.settings.CodeAgentSettings
 import com.codeagent.plugin.settings.CodeAgentSettingsService
 import kotlinx.serialization.Serializable
@@ -13,15 +14,18 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.put
+import java.nio.file.Path
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
 
 @Service(Service.Level.PROJECT)
 class ContextEngineService(project: Project) : Disposable {
     private val json = Json { ignoreUnknownKeys = true }
-    private val root = requireNotNull(project.basePath) { "CodeAgent requires a project base path" }
+    private val root = Path.of(requireNotNull(project.basePath) { "CodeAgent requires a project base path" })
+        .toAbsolutePath()
+        .normalize()
     private val settings = service<CodeAgentSettingsService>()
-    private val client = ContextEngineClient(java.nio.file.Path.of(root)) {
+    private val client = ContextEngineClient(root, projectContextRoots(project, root)) {
         contextEngineRuntimeSettings(settings.snapshot())
     }
 
@@ -141,11 +145,13 @@ internal fun contextEngineRuntimeSettings(
 data class ContextStatus(
     val indexed: Boolean,
     val root: String,
+    val roots: List<String> = emptyList(),
     val chunkCount: Int = 0,
     val fileCount: Int = 0,
     val hasEmbeddings: Boolean = false,
     val lastIndexedAt: String? = null,
     val watching: Boolean = false,
+    val watchedRootCount: Int = 0,
     val watchDebounceMs: Int = 800,
     val pendingChanges: Int = 0,
     val automaticIndexRuns: Int = 0,
@@ -156,6 +162,36 @@ data class ContextStatus(
     val lastAutomaticChunksWritten: Int = 0,
     val watchError: String? = null,
 )
+
+internal fun projectContextRoots(project: Project, primaryRoot: Path): List<ContextIndexRoot> {
+    val normalizedPrimary = primaryRoot.toAbsolutePath().normalize()
+    val usedNames = mutableSetOf("main")
+    return ProjectRootManager.getInstance(project).contentRoots
+        .asSequence()
+        .mapNotNull { virtualFile ->
+            runCatching { Path.of(virtualFile.path).toAbsolutePath().normalize() }.getOrNull()
+        }
+        .filter { candidate -> candidate != normalizedPrimary && !candidate.startsWith(normalizedPrimary) }
+        .distinct()
+        .map { candidate ->
+            val baseName = candidate.fileName
+                ?.toString()
+                .orEmpty()
+                .lowercase()
+                .replace(Regex("[^a-z0-9._-]+"), "-")
+                .trim('-')
+                .ifBlank { "root" }
+                .take(48)
+            var name = baseName
+            var suffix = 2
+            while (!usedNames.add(name)) {
+                name = "${baseName.take(43)}-$suffix"
+                suffix += 1
+            }
+            ContextIndexRoot(name = name, path = candidate.toString())
+        }
+        .toList()
+}
 
 @Serializable
 data class IndexProgress(

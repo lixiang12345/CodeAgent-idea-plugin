@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit
 
 class ContextEngineClient(
     private val root: Path,
+    private val extraRoots: List<ContextIndexRoot> = emptyList(),
     private val runtimeSettings: () -> ContextEngineRuntimeSettings = {
         ContextEngineRuntimeSettings(NodeRuntimeLocator.find(null))
     },
@@ -59,7 +60,13 @@ class ContextEngineClient(
                 requestFuture.whenComplete { value, error ->
                     if (error != null) result.completeExceptionally(error) else result.complete(value)
                 }
-                val request = SidecarRequest(id = id, type = type, root = root.toString(), payload = payload)
+                val request = SidecarRequest(
+                    id = id,
+                    type = type,
+                    root = root.toString(),
+                    extraRoots = extraRoots,
+                    payload = payload,
+                )
                 synchronized(processLock) {
                     writer?.apply {
                         write(json.encodeToString(request))
@@ -189,6 +196,7 @@ class ContextEngineClient(
         val id: String,
         val type: String,
         val root: String,
+        val extraRoots: List<ContextIndexRoot> = emptyList(),
         val payload: JsonObject? = null,
     )
 
@@ -209,6 +217,7 @@ class ContextEngineClient(
             "CONTEXTENGINE_RERANK_API_KEY",
             "CONTEXTENGINE_RERANK_BASE_URL",
             "CONTEXTENGINE_RERANK_MODEL",
+            "CONTEXTENGINE_EXTRA_ROOTS",
             "OPENAI_API_KEY",
             "OPENAI_BASE_URL",
             "OPENAI_EMBEDDING_MODEL",
@@ -217,6 +226,13 @@ class ContextEngineClient(
         )
     }
 }
+
+@Serializable
+data class ContextIndexRoot(
+    val name: String,
+    val path: String,
+    val kind: String = "code",
+)
 
 data class ContextEngineRuntimeSettings(
     val nodePath: String,

@@ -191,6 +191,8 @@ data class ContextSnapshotDto(
     val label: String = "Context unavailable",
     val files: Int? = null,
     val chunks: Int? = null,
+    val roots: Int = 0,
+    val watchedRoots: Int = 0,
     val watching: Boolean = false,
     val hasEmbeddings: Boolean = false,
     val lastIndexedAt: String? = null,

@@ -2,14 +2,14 @@
 
 CodeAgent vendors the upstream `lixiang12345/ContextEngine-plugin` commit as a pinned Git submodule and compiles its public `ContextEngine` API into the local Node sidecar. The IDE plugin does not maintain a second retrieval implementation.
 
-- Current upstream pin: `772d2f8bca0e12ead21cb4b6d9c338769ebe86a8` (`v0.4.0` plus no-model lexical retrieval improvements, verified July 14, 2026).
+- Current upstream pin: `2490d91cfc36b0f0e76a409ff164aecd62caad6a` (`v0.4.0` plus no-model lexical retrieval and Kotlin chunking fixes, verified July 14, 2026).
 
 ## Runtime ownership
 
 - The SQLite index, source scan, file watcher, searcher, and retrieval packing run on the developer machine.
 - The deployed Agent backend never receives the complete index or direct filesystem access.
 - Only context selected by the user or returned by an approved retrieval tool is sent to the model gateway.
-- A project is indexed once manually. The sidecar then watches it recursively and runs an 800 ms debounced incremental pass.
+- A project is indexed once manually. The sidecar then watches the primary project root and any external IntelliJ content roots recursively, and runs one 800 ms debounced incremental pass across the complete root set.
 - Incremental passes compare content hashes, rewrite only changed files, and remove deleted files. Reads wait for an active index pass so the Agent does not use a half-updated searcher.
 
 ## Model deployment

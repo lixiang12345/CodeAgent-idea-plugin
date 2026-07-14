@@ -339,6 +339,8 @@ export interface AppSnapshot {
     label: string;
     files?: number;
     chunks?: number;
+    roots?: number;
+    watchedRoots?: number;
     watching?: boolean;
     hasEmbeddings?: boolean;
     lastIndexedAt?: string;
