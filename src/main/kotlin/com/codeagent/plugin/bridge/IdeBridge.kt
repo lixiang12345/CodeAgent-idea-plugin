@@ -638,6 +638,15 @@ class IdeBridge(
                 CopyPasteManager.getInstance().setContents(StringSelection(threadMarkdown(conversations.active())))
                 emit("notice", mapOf("message" to "Thread copied as Markdown"))
             }
+            "copyText" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<CopyTextPayload>(it) }
+                require(request.text.isNotBlank()) { "Clipboard text must not be blank" }
+                require(request.text.length <= MAX_CLIPBOARD_TEXT_LENGTH) {
+                    "Clipboard text exceeds $MAX_CLIPBOARD_TEXT_LENGTH characters"
+                }
+                CopyPasteManager.getInstance().setContents(StringSelection(request.text))
+                emit("notice", mapOf("message" to "Copied to clipboard"))
+            }
             "exportThread" -> exportThread()
             "renameThread" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<RenameThreadPayload>(it) }
@@ -2151,6 +2160,9 @@ class IdeBridge(
     private data class MermaidEditorPayload(val title: String, val code: String)
 
     @Serializable
+    private data class CopyTextPayload(val text: String)
+
+    @Serializable
     private data class ModelSelectionPayload(val modelId: String)
 
     @Serializable
@@ -2224,6 +2236,7 @@ class IdeBridge(
         private val LOG = logger<IdeBridge>()
         private const val MAX_THREAD_IMPORT_BYTES = 2_000_000L
         private const val MAX_QUEUED_MESSAGES = 10
+        private const val MAX_CLIPBOARD_TEXT_LENGTH = 512_000
         private val BUILT_IN_AGENT_PROFILES = setOf("general", "search", "context", "prompt", "loop")
         private val CONFIGURATION_KINDS = listOf("mcp", "hooks", "commands", "agents", "plugins", "tool-permissions")
         private val SUBAGENT_ROLES = setOf("research", "review", "test", "security", "planner")

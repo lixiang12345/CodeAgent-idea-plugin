@@ -58,7 +58,7 @@ Intentionally **not** productized as success paths: Augment sign-in cloud, Exten
 
 ## Settings sections
 
-Home, Services, MCP Servers, Rules & Guidelines, API Keys, Commands, Skills, Hooks, Agents, Plugins, User Experience, Feature Flags, Beta, Account, Subscription.
+Home, Services, MCP Servers, Rules & Guidelines, API Keys, Commands, Skills, Hooks, Agents, Plugins, User Experience, Feature Flags, Beta, Account, Subscription, plus the settings-header System Audit action.
 
 Connected in plugin today: Home (partial), Services, API Keys (gateway token), Rules, Skills, Context index actions.  
 Others: visible shell + **Not connected** (no fake success).

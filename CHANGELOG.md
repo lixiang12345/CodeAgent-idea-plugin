@@ -17,6 +17,7 @@
 
 - Added managed MCP runtime tooling, reusable slash commands, lifecycle hooks, and declarative extension manifests.
 - Added persistent notifications and activity timeline telemetry for long-running Agent work.
+- Added a live, redacted System Audit and bounded local support bundle without exposing credentials or tool payloads.
 - Lazy-loaded Mermaid so the main JCEF bundle stays smaller while retaining diagram tool support.
 
 ### Delivery

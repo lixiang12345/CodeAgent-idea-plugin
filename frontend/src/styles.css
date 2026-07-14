@@ -278,7 +278,8 @@ button { color: inherit; }
 
 .settings-header { height: 37px; flex: 0 0 37px; padding: 0 7px; display: grid; grid-template-columns: 25px 1fr 1fr auto; align-items: center; border-bottom: 1px solid var(--line); }
 .settings-header strong { font-size: 11px; }
-.audit-button { height: 23px; padding: 0 8px; border: 0; border-radius: 3px; color: #aeb3bb; background: transparent; font-size: 8px; }
+.audit-button { height: 23px; padding: 0 8px; display: inline-flex; align-items: center; gap: 4px; border: 0; border-radius: 3px; color: #aeb3bb; background: transparent; font-size: 8px; cursor: pointer; }
+.audit-button:hover, .audit-button.active { color: #dce4ef; background: #2b3441; }
 .settings-layout { min-height: 0; flex: 1; display: grid; grid-template-columns: 165px minmax(0,1fr); }
 .settings-navigation { min-height: 0; overflow-y: auto; padding: 8px 6px 14px; border-right: 1px solid var(--line); background: #1e2023; }
 .settings-group-label { margin: 10px 7px 4px; color: #676c74; font-size: 7.5px; text-transform: uppercase; }
@@ -362,6 +363,8 @@ button { color: inherit; }
 .capability-list small { color: var(--muted); font-size: 8px; line-height: 1.4; }
 .capability-list i { flex: 0 0 auto; padding: 2px 5px; border: 1px solid #4c4f54; border-radius: 3px; color: #989da4; background: #292b2f; font: normal 7px var(--mono); }
 .capability-list i.ready { border-color: #3d6547; color: #9ed0aa; background: #25352a; }
+.audit-report footer { margin-top: 10px; display: flex; justify-content: flex-end; gap: 6px; }
+.audit-report footer button { height: 24px; padding: 0 8px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line-strong); border-radius: 3px; color: #c2c7ce; background: #2d3035; font-size: 8px; cursor: pointer; }
 .subscription-summary > header { min-height: 46px; padding-bottom: 9px; border-bottom: 1px solid var(--line); }
 .subscription-summary > header > span { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .subscription-summary > header strong { color: #dfe3e8; font-size: 10px; }

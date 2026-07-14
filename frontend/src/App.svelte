@@ -6,6 +6,7 @@
   import { ICON_NAMES } from "./lib/icons";
   import { MENTION_KINDS, SLASH_COMMANDS, TOOL_CATALOG } from "./lib/tools-catalog";
   import {
+    PROTOCOL_VERSION,
     onHostEvent,
     sendCommand,
     type AppSnapshot,
@@ -439,6 +440,104 @@
 
   function copyThread() {
     sendCommand("copyThread");
+  }
+
+  function copyText(text: string, successMessage: string) {
+    if (window.codeAgentPost) {
+      sendCommand("copyText", { text });
+      notice = successMessage;
+      return;
+    }
+    void navigator.clipboard.writeText(text)
+      .then(() => {
+        notice = successMessage;
+      })
+      .catch((cause) => {
+        error = `Could not copy text: ${cause instanceof Error ? cause.message : String(cause)}`;
+      });
+  }
+
+  function buildAuditReport(includeConversation = false) {
+    if (!snapshot) return "CodeAgent audit unavailable: application state is not ready.";
+    const active = snapshot.threads.find((thread) => thread.active);
+    const lines = [
+      "# CodeAgent runtime audit",
+      "",
+      `Generated: ${new Date().toISOString()}`,
+      `Bridge protocol: ${PROTOCOL_VERSION}`,
+      `Project: ${snapshot.projectName}`,
+      `Thread: ${active?.id ?? "none"} (${snapshot.mode})`,
+      `Run state: ${snapshot.runState}`,
+      "",
+      "## Backend",
+      `State: ${snapshot.backendHealth.state}`,
+      `Label: ${snapshot.backendHealth.label}`,
+      `Protocol: ${snapshot.backendHealth.protocolVersion ?? "unknown"}`,
+      `Provider: ${snapshot.backendHealth.provider ?? snapshot.models.provider ?? "unknown"}`,
+      `Models: ${snapshot.models.state} (${snapshot.models.options.length})`,
+      `Backend tools: ${snapshot.backendTools.filter((tool) => tool.available).length}/${snapshot.backendTools.length} available`,
+      "",
+      "## ContextEngine",
+      `State: ${snapshot.context.state}`,
+      `Label: ${snapshot.context.label}`,
+      `Files/chunks: ${snapshot.context.files ?? 0}/${snapshot.context.chunks ?? 0}`,
+      `Watched roots: ${snapshot.context.watchedRoots ?? 0}/${snapshot.context.roots ?? 0}`,
+      `Incremental watcher: ${snapshot.context.watching ? "active" : "inactive"}`,
+      `Retrieval: ${snapshot.context.hasEmbeddings ? "hybrid semantic" : "lexical and symbol"}`,
+      `Last indexed: ${snapshot.context.lastIndexedAt ?? "unknown"}`,
+      "",
+      "## Managed runtimes",
+      `Account: ${snapshot.account.state} (${snapshot.account.mode})`,
+      `Configurations: ${snapshot.configurations.state} (${Object.values(snapshot.configurations.items).flat().length})`,
+      `MCP: ${snapshot.mcpRuntime.state} (${snapshot.mcpRuntime.servers.length} servers, ${snapshot.mcpRuntime.tools.length} tools)`,
+      `Hooks: ${snapshot.hookRuntime.state} (${snapshot.hookRuntime.configured} configured, ${snapshot.hookRuntime.recent.length} recent)`,
+      `Plugins: ${snapshot.pluginRuntime.state} (${snapshot.pluginRuntime.items.length} configured, ${snapshot.pluginRuntime.commands.length} commands)`,
+      `Jobs: ${snapshot.jobs.state} (${snapshot.jobs.items.length} retained)`,
+      "",
+      "## Conversation state",
+      `Messages: ${snapshot.messages.length}`,
+      `Tool cards: ${snapshot.tools.length}`,
+      `Tasks: ${snapshot.tasks.length}`,
+      `Queued messages: ${snapshot.messageQueue.length}`,
+      `Attachments: ${snapshot.attachments.length}`,
+      `Agent profile: ${snapshot.selectedAgentProfileId ?? "general"}`,
+      `Agent turn: ${snapshot.agentRun.turnIndex + 1}`,
+      `Verification: ${snapshot.agentRun.verificationState}`,
+      "",
+      "## Recent tool activity",
+      ...snapshot.tools.slice(-40).map((tool) =>
+        `- ${tool.name}: ${tool.status} - ${tool.summary.slice(0, 500).replaceAll("\n", " ")}`
+      ),
+    ];
+    if (includeConversation) {
+      lines.push(
+        "",
+        "## Recent conversation",
+        "This section may contain repository or user-provided content because support export was explicitly requested.",
+        ...snapshot.messages.slice(-40).flatMap((message) => [
+          "",
+          `### ${message.role.toUpperCase()} ${new Date(message.createdAt).toISOString()}`,
+          message.content.slice(0, 8_000),
+        ]),
+      );
+    }
+    lines.push("", "Secrets, tokens, endpoint credentials, tool arguments, and tool result details are intentionally excluded.");
+    return lines.join("\n");
+  }
+
+  function copyAuditReport(includeConversation = false) {
+    copyText(
+      buildAuditReport(includeConversation),
+      includeConversation ? "Support bundle copied" : "Runtime audit copied",
+    );
+  }
+
+  function refreshAudit() {
+    sendCommand("checkBackend");
+    sendCommand("getContextStatus");
+    sendCommand("refreshConfigurations");
+    sendCommand("refreshJobs");
+    notice = "Runtime audit refresh requested";
   }
 
   function exportThread() {
@@ -1060,7 +1159,7 @@
                         </div>
                       {/if}
                       <div class="assistant-actions">
-                        <button title="Copy response" aria-label="Copy response" onclick={() => { void navigator.clipboard.writeText(item.message.content); notice = "Response copied"; }}><Icon name="copy" size={13} /></button>
+                        <button title="Copy response" aria-label="Copy response" onclick={() => copyText(item.message.content, "Response copied")}><Icon name="copy" size={13} /></button>
                       </div>
                     </section>
                   {/if}
@@ -1330,7 +1429,7 @@
           <button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><Icon name="chevron-left" size={15} /></button>
           <strong>Settings</strong>
           <span></span>
-          <button class="audit-button" disabled title="Audit is not connected">Audit</button>
+          <button class="audit-button" class:active={settingsSection === "Audit"} title="Open runtime audit" onclick={() => chooseSettingsSection("Audit")}><Icon name="scan-search" size={12} />Audit</button>
         </header>
         <div class="settings-layout" class:navigation-open={settingsNavigationOpen}>
           <nav class="settings-navigation">
@@ -1381,6 +1480,54 @@
               <section class="settings-block">
                 <header><strong>Workspace</strong></header>
                 <div class="workspace-row"><Icon name="folder" size={15} /><span>{snapshot.projectName}</span><i>active</i></div>
+              </section>
+            {:else if settingsSection === "Audit"}
+              <div class="section-title">
+                <div>
+                  <h1>System Audit</h1>
+                  <p class="settings-lead">Live capability and lifecycle state collected from the current IDE session.</p>
+                </div>
+                <button onclick={refreshAudit}><Icon name="refresh-ccw" size={12} />Refresh</button>
+              </div>
+              <section class="settings-block capability-list">
+                <div>
+                  <Icon name="server" size={14} />
+                  <span class="capability-copy"><strong>Agent backend</strong><small>{snapshot.backendHealth.label} · {snapshot.models.options.length} models · {snapshot.backendTools.filter((tool) => tool.available).length}/{snapshot.backendTools.length} backend tools</small></span>
+                  <i class:ready={snapshot.backendHealth.state === "online"}>{snapshot.backendHealth.state}</i>
+                </div>
+                <div>
+                  <Icon name="database-zap" size={14} />
+                  <span class="capability-copy"><strong>ContextEngine</strong><small>{snapshot.context.files ?? 0} files · {snapshot.context.chunks ?? 0} chunks · {snapshot.context.watchedRoots ?? 0}/{snapshot.context.roots ?? 0} roots watched · {snapshot.context.hasEmbeddings ? "hybrid" : "no-model lexical"}</small></span>
+                  <i class:ready={snapshot.context.state === "ready" && !!snapshot.context.watching}>{snapshot.context.state}</i>
+                </div>
+                <div>
+                  <Icon name="mcp" size={14} />
+                  <span class="capability-copy"><strong>MCP gateway</strong><small>{snapshot.mcpRuntime.servers.length} servers · {snapshot.mcpRuntime.tools.length} namespaced tools · approval policy enforced by the IDE</small></span>
+                  <i class:ready={snapshot.mcpRuntime.state === "ready"}>{snapshot.mcpRuntime.state}</i>
+                </div>
+                <div>
+                  <Icon name="workflow" size={14} />
+                  <span class="capability-copy"><strong>Hooks</strong><small>{snapshot.hookRuntime.configured} configured · {snapshot.hookRuntime.automatic} automatic · {snapshot.hookRuntime.recent.length} retained executions</small></span>
+                  <i class:ready={snapshot.hookRuntime.state === "ready"}>{snapshot.hookRuntime.state}</i>
+                </div>
+                <div>
+                  <Icon name="layers" size={14} />
+                  <span class="capability-copy"><strong>Declarative plugins</strong><small>{snapshot.pluginRuntime.items.length} configured · {snapshot.pluginRuntime.commands.length} active command contributions</small></span>
+                  <i class:ready={snapshot.pluginRuntime.state === "ready"}>{snapshot.pluginRuntime.state}</i>
+                </div>
+                <div>
+                  <Icon name="bot" size={14} />
+                  <span class="capability-copy"><strong>Durable jobs</strong><small>{snapshot.jobs.items.filter((job) => job.status === "queued" || job.status === "running").length} active · {snapshot.jobs.items.length} retained · account {snapshot.account.state}</small></span>
+                  <i class:ready={snapshot.jobs.state === "ready"}>{snapshot.jobs.state}</i>
+                </div>
+              </section>
+              <section class="settings-block audit-report">
+                <header><Icon name="circle-check" size={14} /><strong>Redacted support report</strong></header>
+                <p>Copies runtime states, counts, lifecycle labels, and recent tool-card summaries. Credentials, endpoints, tool arguments, and tool result details are excluded.</p>
+                <footer>
+                  <button onclick={() => copyAuditReport(false)}><Icon name="copy" size={12} />Copy audit report</button>
+                  <button onclick={() => openWorkspaceView("feedback")}><Icon name="flag" size={12} />Report issue</button>
+                </footer>
               </section>
             {:else if settingsSection === "Services" || settingsSection === "API Keys"}
               <h1>{settingsSection === "API Keys" ? "API Keys" : "Services"}</h1>
@@ -1905,7 +2052,7 @@
           <label class="thread-search"><Icon name="search" size={13} /><input bind:value={iconFilter} placeholder="Filter icons…" /></label>
           <div class="icon-grid">
             {#each filteredIcons() as name}
-              <button class="icon-tile" title={name} onclick={async () => { try { await navigator.clipboard.writeText(name); notice = `Copied ${name}`; } catch { notice = name; } }}>
+              <button class="icon-tile" title={name} onclick={() => copyText(name, `Copied ${name}`)}>
                 <Icon name={name} size={18} />
                 <span>{name}</span>
               </button>
@@ -1967,11 +2114,11 @@
           <section class="settings-block rule-editor">
             <label><span>Describe the issue</span><textarea bind:value={feedbackText} placeholder="What went wrong or what should improve?" spellcheck="true"></textarea></label>
             <footer>
-              <button onclick={() => { copyThread(); notice = "Thread copied for support context"; }}>Export Logs / Thread</button>
+              <button onclick={() => copyAuditReport(true)}>Copy Support Bundle</button>
               <button class="primary" disabled={!feedbackText.trim()} onclick={() => { notice = "Feedback noted locally. No remote report endpoint is connected."; feedbackText = ""; }}>Submit</button>
             </footer>
           </section>
-          <p class="settings-lead">No remote feedback service is connected. Submit only stores a local notice so the UI stays honest.</p>
+          <p class="settings-lead">The support bundle contains a redacted runtime audit plus the latest bounded conversation context. No remote feedback service is connected; Submit only stores a local notice.</p>
         </div>
       </section>
     {:else if currentView === "mermaid"}
