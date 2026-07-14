@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 0.7.0 - 2026-07-14
+
+### Agent, Context, and collaboration
+
+- Persisted local and synchronized tool cards so completed tool activity remains visible after a run ends or a cloud conversation is restored.
+- Added bounded cloud conversation recovery, multi-device session restoration, and stored conversation summaries.
+- Added specialized Agent policies, context-first retrieval guidance, scoped verification gates, and bounded prompt enhancement over untrusted repository and conversation context.
+- Added multi-root ContextEngine watchers so external IntelliJ content roots receive automatic add, update, and delete indexing without local embedding or reranker models.
+- Preserved Kotlin constructor-lambda class bodies during ContextEngine chunking to improve lexical and symbol retrieval quality.
+- Added durable subagent live output, cancellation/retry state, and read-only IDE result opening.
+
+### Extensibility and product workflow
+
+- Added managed MCP runtime tooling, reusable slash commands, lifecycle hooks, and declarative extension manifests.
+- Added persistent notifications and activity timeline telemetry for long-running Agent work.
+- Lazy-loaded Mermaid so the main JCEF bundle stays smaller while retaining diagram tool support.
+
+### Delivery
+
+- Added backend and ContextEngine test coverage, production dependency audits, plugin ZIP artifacts, signed Marketplace publication, and tag/version validation to GitHub Actions.
+- Verified the 0.7.0 plugin with JetBrains Plugin Verifier against IntelliJ IDEA Community 2025.2.6.2.
+
 ### IDEA plugin
 
 - Matched the extracted Augment 0.482.3 message anatomy: assistant content renders without an avatar/name row, live generation stays in the transcript, and tool-resolution status follows active tool output.

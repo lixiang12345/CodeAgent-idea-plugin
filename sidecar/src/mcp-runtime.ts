@@ -258,7 +258,7 @@ export class McpRuntimeManager {
       validateEnvironment(runtime.config);
       const transport = this.createTransport(runtime);
       const client = new Client(
-        { name: "CodeAgent", version: "0.6.0" },
+        { name: "CodeAgent", version: "0.7.0" },
         { capabilities: {} },
       );
       runtime.transport = transport;

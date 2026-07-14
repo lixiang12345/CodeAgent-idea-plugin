@@ -27,6 +27,38 @@ configurations.runtimeClasspath {
     exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
 }
 
+intellijPlatform {
+    pluginConfiguration {
+        ideaVersion {
+            sinceBuild.set("252")
+        }
+        changeNotes.set(
+            """
+            <h2>0.7.0</h2>
+            <ul>
+              <li>Added durable tool cards, cloud conversation recovery, and live subagent output.</li>
+              <li>Added managed MCP tools, slash commands, lifecycle hooks, and declarative plugin contributions.</li>
+              <li>Added context-first Agent policies plus multi-root incremental ContextEngine indexing.</li>
+              <li>Improved reliability with persistent notifications, activity timeline telemetry, and lazy Mermaid loading.</li>
+            </ul>
+            """.trimIndent(),
+        )
+    }
+    signing {
+        certificateChain.set(providers.environmentVariable("CERTIFICATE_CHAIN"))
+        privateKey.set(providers.environmentVariable("PRIVATE_KEY"))
+        password.set(providers.environmentVariable("PRIVATE_KEY_PASSWORD"))
+    }
+    publishing {
+        token.set(providers.environmentVariable("PUBLISH_TOKEN"))
+        channels.set(
+            providers.environmentVariable("PUBLISH_CHANNEL")
+                .map { listOf(it) }
+                .orElse(listOf("default")),
+        )
+    }
+}
+
 val buildFrontend = tasks.register<Exec>("buildFrontend") {
     workingDir(layout.projectDirectory.dir("frontend"))
     commandLine("npm", "run", "build")
@@ -62,11 +94,6 @@ tasks {
             into("third-party")
             rename { "ContextEngine-LICENSE.txt" }
         }
-    }
-
-    patchPluginXml {
-        sinceBuild.set("252")
-        untilBuild.set("261.*")
     }
 
     withType<JavaCompile>().configureEach {

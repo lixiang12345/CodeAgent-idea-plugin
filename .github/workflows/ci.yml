@@ -31,6 +31,8 @@ jobs:
           cache-dependency-path: |
             frontend/package-lock.json
             sidecar/package-lock.json
+            backend/package-lock.json
+            vendor/context-engine/package-lock.json
 
       - name: Install frontend dependencies
         run: npm ci
@@ -40,6 +42,14 @@ jobs:
         run: npm ci
         working-directory: sidecar
 
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+
+      - name: Install ContextEngine dependencies
+        run: npm ci
+        working-directory: vendor/context-engine
+
       - name: Check frontend
         run: npm run check
         working-directory: frontend
@@ -48,5 +58,40 @@ jobs:
         run: npm test
         working-directory: sidecar
 
+      - name: Test backend
+        run: npm test
+        working-directory: backend
+
+      - name: Test ContextEngine
+        run: npm test
+        working-directory: vendor/context-engine
+
+      - name: Build ContextEngine
+        run: npm run build
+        working-directory: vendor/context-engine
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+        working-directory: frontend
+
+      - name: Audit sidecar dependencies
+        run: npm audit --omit=dev
+        working-directory: sidecar
+
+      - name: Audit backend dependencies
+        run: npm audit --omit=dev
+        working-directory: backend
+
+      - name: Audit ContextEngine dependencies
+        run: npm audit --omit=dev
+        working-directory: vendor/context-engine
+
       - name: Test and package plugin
         run: ./gradlew test buildPlugin verifyPlugin --stacktrace
+
+      - name: Upload plugin distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodeAgent-plugin
+          path: build/distributions/*.zip
+          if-no-files-found: error

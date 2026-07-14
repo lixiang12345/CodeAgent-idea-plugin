@@ -41,7 +41,8 @@ OIDC access and refresh tokens (or the local shared backend token) are stored in
 git submodule update --init --recursive
 cd frontend && npm ci && cd ..
 cd sidecar && npm ci && cd ..
-cd backend && npm test && cd ..
+cd backend && npm ci && cd ..
+cd vendor/context-engine && npm ci && cd ../..
 ./gradlew buildPlugin
 ```
 
@@ -63,7 +64,21 @@ CodeAgent plugins are bounded declarative JSON manifests, not executable IDEA pl
 cd frontend && npm run check && cd ..
 cd sidecar && npm test && cd ..
 cd backend && npm test && cd ..
+cd vendor/context-engine && npm test && npm run build && cd ../..
 ./gradlew test buildPlugin verifyPlugin
 ```
 
 The first Gradle verification run downloads the target IntelliJ IDEA distribution and Plugin Verifier, so it is substantially slower than subsequent runs.
+
+## Release
+
+Release tags must exactly match the version in `gradle.properties`, for example `v0.7.0`. The `Publish plugin` workflow checks that relationship, installs and tests every JavaScript workspace, verifies the signed ZIP, publishes it to JetBrains Marketplace, and uploads the exact distribution as a workflow artifact.
+
+Configure the protected `release` environment with these GitHub Actions secrets:
+
+- `JETBRAINS_MARKETPLACE_TOKEN`
+- `JETBRAINS_CERTIFICATE_CHAIN`
+- `JETBRAINS_PRIVATE_KEY`
+- `JETBRAINS_PRIVATE_KEY_PASSWORD`
+
+The release workflow maps those secrets to the IntelliJ Platform Gradle Plugin only during `publishPlugin`; signing material is never committed to the repository.
