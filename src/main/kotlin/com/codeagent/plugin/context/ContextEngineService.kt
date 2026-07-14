@@ -57,6 +57,41 @@ class ContextEngineService(project: Project) : Disposable {
         timeout = Duration.ofMinutes(2),
     ).thenApply { json.decodeFromJsonElement(it) }
 
+    internal fun retrievePlanned(
+        informationRequest: String,
+        strategy: String = "balanced",
+        focusPaths: List<String> = emptyList(),
+        maxTokens: Int = 8_000,
+    ): CompletableFuture<PlannedContextPack> {
+        val plan = ContextQueryPlanner.plan(informationRequest, strategy, focusPaths)
+        val topK = when (plan.strategy) {
+            "fast" -> 12
+            "deep" -> 16
+            else -> 12
+        }
+        val searches = plan.queries.map { query ->
+            search(query.text, topK, query.pathPrefix).thenApply { hits -> ContextQueryResult(query, hits) }
+        }
+        return CompletableFuture.allOf(*searches.toTypedArray()).thenApply {
+            ContextPackBuilder.build(plan, searches.map { future -> future.join() }, maxTokens)
+        }
+    }
+
+    private fun search(
+        query: String,
+        topK: Int,
+        pathPrefix: String?,
+    ): CompletableFuture<List<ContextSearchHit>> = client.request(
+        type = "search",
+        payload = buildJsonObject {
+            put("query", query)
+            put("topK", topK)
+            put("mode", "auto")
+            pathPrefix?.let { put("pathPrefix", it) }
+        },
+        timeout = Duration.ofMinutes(2),
+    ).thenApply { json.decodeFromJsonElement(it) }
+
     fun restart() = client.restart()
 
     override fun dispose() = client.dispose()

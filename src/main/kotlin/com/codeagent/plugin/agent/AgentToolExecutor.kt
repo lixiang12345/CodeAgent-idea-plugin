@@ -56,10 +56,12 @@ internal class AgentToolExecutor(
     private val executor = AppExecutorUtil.getAppExecutorService()
 
     override fun definitions(mode: String): List<AgentToolDefinition> = buildList {
-        add(tool("codebase_retrieval", "Retrieve ranked project context before reading or changing code", schema(
+        add(tool("codebase_retrieval", "Plan and execute multi-stage project retrieval, then return a deduplicated evidence pack with path and line citations", schema(
             properties = mapOf(
                 "information_request" to stringProperty("A specific description of the code, behavior, or symbols needed"),
                 "max_tokens" to integerProperty("Maximum packed context tokens", 500, 20_000),
+                "strategy" to enumStringProperty("Retrieval depth: fast for a focused lookup, balanced by default, deep for cross-cutting flows", listOf("fast", "balanced", "deep")),
+                "focus_paths" to stringArrayProperty("Optional project-relative files or directories to prioritize", 0, 8),
             ),
             required = listOf("information_request"),
         )))
@@ -241,11 +243,19 @@ internal class AgentToolExecutor(
 
     private fun retrieve(args: JsonObject): ToolExecutionResult {
         val request = args.requiredString("information_request")
-        val maxTokens = args["max_tokens"]?.jsonPrimitive?.intOrNull ?: 8_000
-        val packed = contextEngine.retrieve(request, maxTokens = maxTokens).join()
+        val maxTokens = (args["max_tokens"]?.jsonPrimitive?.intOrNull ?: 8_000).coerceIn(500, 20_000)
+        val strategy = args.string("strategy") ?: "balanced"
+        require(strategy in setOf("fast", "balanced", "deep")) { "strategy must be fast, balanced, or deep" }
+        val focusPaths = args.stringList("focus_paths").take(8)
+        val packed = contextEngine.retrievePlanned(
+            informationRequest = request,
+            strategy = strategy,
+            focusPaths = focusPaths,
+            maxTokens = maxTokens,
+        ).join()
         return ToolExecutionResult(
             output = packed.packedText,
-            summary = "Retrieved ${packed.estimatedTokens} tokens",
+            summary = "Context pack ${packed.hitCount}/${packed.availableHitCount} hits from ${packed.fileCount} files (${packed.estimatedTokens} tokens)",
             detail = packed.packedText.take(MAX_DETAIL_CHARS),
         )
     }

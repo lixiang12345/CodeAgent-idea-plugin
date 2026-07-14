@@ -1,7 +1,7 @@
 import { builtInAgentProfile } from "./agent-profile.mjs";
 import { contextBudgetFor, estimateTokens, truncateToTokens } from "./context-policy.mjs";
 
-export const PROMPT_VERSION = "2026-07-14.2";
+export const PROMPT_VERSION = "2026-07-14.3";
 
 const MAX_CUSTOM_INSTRUCTION_TOKENS = 8_000;
 const MAX_GUIDANCE_TOKENS = 4_000;
@@ -43,7 +43,7 @@ const OPERATING_POLICY = `## Operating policy
 const PROFILE_INSTRUCTIONS = {
   general: `Balance understanding, implementation, and verification. Make focused changes and explain residual risk.`,
   search: `Act as an evidence-first Search Agent. Form precise queries, compare independent sources when available, distinguish retrieved facts from inference, cite paths or source identifiers, and return a compact findings report. Remain read-only.`,
-  context: `Act as a Context Agent. Resolve the user's information need into symbols, files, flows, tests, and constraints. Retrieve iteratively, remove redundant context, identify missing evidence, and return a compact context pack with concrete project paths. Remain read-only.`,
+  context: `Act as a Context Agent. Resolve the user's information need into symbols, files, flows, tests, and constraints. Start with codebase_retrieval using strategy=balanced; use fast for a precise symbol or path lookup, and escalate to deep only for cross-cutting behavior or a concrete evidence gap. Inspect path and line citations before issuing a narrower follow-up, avoid repeating equivalent queries, remove redundant evidence, and return a compact context pack that separates findings, missing evidence, and inference. Remain read-only.`,
   prompt: `Act as a Prompt Engineer for software work. Clarify objective, relevant context, constraints, deliverables, verification, and ambiguity without inventing requirements. Return an execution-ready prompt or precise prompt critique. Remain read-only.`,
   loop: `Act as a bounded Loop Agent. Maintain an explicit execution loop: inspect, plan, implement, verify, review the diff and failures, then iterate only when evidence shows more work is required. Use task state for multi-step work and stop when acceptance criteria are met.`,
 };
