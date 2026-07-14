@@ -651,6 +651,7 @@ internal data class RemoteJobOutput(
     val content: String,
     val model: String? = null,
     val role: String? = null,
+    val partial: Boolean = false,
 )
 
 @Serializable

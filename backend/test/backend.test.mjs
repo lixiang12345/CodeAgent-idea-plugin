@@ -1479,6 +1479,49 @@ test("runs asynchronous subagent jobs and inline completions", async () => {
   }
 });
 
+test("persists partial durable-job output before completion", async () => {
+  let release;
+  const server = createCodeAgentServer({
+    modelGateway: {
+      provider: "test",
+      defaultModel: "model-a",
+      async listModels() { return [{ id: "model-a" }]; },
+      async stream({ onTextDelta }) {
+        onTextDelta("partial durable output");
+        await new Promise((resolve) => { release = resolve; });
+        onTextDelta(" finalized");
+        return { content: "partial durable output finalized", toolCalls: [] };
+      },
+    },
+    logger: { error() {} },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const response = await fetch(`${baseUrl}/v1/jobs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "subagent", input: { prompt: "Inspect streaming" } }),
+    });
+    assert.equal(response.status, 202);
+    const job = await response.json();
+    const partial = await waitForJobMatching(
+      baseUrl,
+      job.id,
+      (current) => current.status === "running" && current.output?.partial === true,
+    );
+    assert.equal(partial.output.content, "partial durable output");
+    release();
+    const completed = await waitForJob(baseUrl, job.id);
+    assert.equal(completed.output.content, "partial durable output finalized");
+    assert.equal(completed.output.partial, false);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
 async function waitForJob(baseUrl, id) {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     const response = await fetch(`${baseUrl}/v1/jobs/${id}`);
@@ -1487,6 +1530,16 @@ async function waitForJob(baseUrl, id) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error("Job did not finish");
+}
+
+async function waitForJobMatching(baseUrl, id, predicate) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const response = await fetch(`${baseUrl}/v1/jobs/${id}`);
+    const job = await response.json();
+    if (predicate(job)) return job;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("Job did not reach the requested state");
 }
 
 function sseResponse(events) {

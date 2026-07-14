@@ -1796,11 +1796,15 @@
                       {#if job.expectedOutput}<div><strong>Expected output</strong><p>{job.expectedOutput}</p></div>{/if}
                     </details>
                   {/if}
-                  {#if job.output}<pre>{job.output}</pre>{/if}
+                  {#if job.output}
+                    <div class="job-output-label"><Icon name={job.outputPartial ? "activity" : "file-text"} size={11} />{job.outputPartial ? "Live output" : "Result"}</div>
+                    <pre>{job.output}</pre>
+                  {/if}
                   {#if job.error}<div class="job-error"><Icon name="circle-alert" size={12} /><span>{job.error}</span></div>{/if}
                   <footer>
                     {#if job.status === "queued" || job.status === "running"}<button class="danger" onclick={() => sendCommand("cancelJob", { jobId: job.id })}><Icon name="square" size={11} />Cancel</button>{/if}
                     {#if job.status === "completed" || job.status === "failed" || job.status === "cancelled"}<button onclick={() => sendCommand("retryJob", { jobId: job.id })}><Icon name="refresh-ccw" size={11} />Retry</button>{/if}
+                    {#if job.output}<button onclick={() => sendCommand("openJobResult", { jobId: job.id })}><Icon name="external-link" size={11} />Open result</button>{/if}
                     {#if job.output}<button class="primary" onclick={() => useJobOutput(job)}><Icon name="copy" size={11} />Use result</button>{/if}
                   </footer>
                 </article>

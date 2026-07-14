@@ -62,7 +62,9 @@ export class ProductJobRunner {
     if (!job || job.status === "cancelled") return;
     await this.store.updateJob(userId, id, { status: "running", error: null });
     try {
-      const output = await this.#run(job, controller.signal);
+      const output = await this.#run(job, controller.signal, (partial) =>
+        this.store.updateJob(userId, id, { output: partial }),
+      );
       if (controller.signal.aborted) return;
       await this.store.updateJob(userId, id, { status: "completed", output, error: null });
       await this.store.recordUsage(userId, { kind: `job:${job.type}`, units: 1, metadata: { jobId: id } });
@@ -73,10 +75,24 @@ export class ProductJobRunner {
     }
   }
 
-  async #run(job, signal) {
+  async #run(job, signal, onProgress) {
     if (!["subagent", "history-summary"].includes(job.type)) throw new Error(`Unsupported job type: ${job.type}`);
     const prompt = requiredText(job.input?.prompt, "Job prompt");
     let content = "";
+    let lastPersistedLength = 0;
+    let lastPersistedAt = 0;
+    let progressTail = Promise.resolve();
+    const model = job.input?.model || this.modelGateway.defaultModel || "";
+    const role = job.type === "subagent" ? normalizeSubagentRole(job.input?.role) : undefined;
+    const persistProgress = (force = false) => {
+      if (!content.trim()) return;
+      const now = Date.now();
+      if (!force && content.length - lastPersistedLength < 256 && now - lastPersistedAt < 750) return;
+      lastPersistedLength = content.length;
+      lastPersistedAt = now;
+      const snapshot = { content, model, role, partial: true };
+      progressTail = progressTail.then(() => onProgress(snapshot));
+    };
     const turn = await this.modelGateway.stream({
       model: typeof job.input?.model === "string" ? job.input.model : undefined,
       messages: productJobMessages({
@@ -90,11 +106,16 @@ export class ProductJobRunner {
       maxOutputTokens: boundedJobInteger(job.input?.maxOutputTokens, 1_024, 16_000, 4_096),
       tools: [],
       signal,
-      onTextDelta: (delta) => { content += delta || ""; },
+      onTextDelta: (delta) => {
+        content += delta || "";
+        persistProgress();
+      },
     });
     if (!content && typeof turn?.content === "string") content = turn.content;
     if (!content.trim()) throw new Error("Job model returned empty content");
-    return { content, model: job.input?.model || this.modelGateway.defaultModel || "", role: job.type === "subagent" ? normalizeSubagentRole(job.input?.role) : undefined };
+    persistProgress(true);
+    await progressTail;
+    return { content, model, role, partial: false };
   }
 
   #key(userId, id) {

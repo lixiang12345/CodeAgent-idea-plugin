@@ -363,6 +363,7 @@ data class ProductJobDto(
     val maxOutputTokens: Int? = null,
     val model: String? = null,
     val output: String? = null,
+    val outputPartial: Boolean = false,
     val error: String? = null,
     val createdAt: String? = null,
     val updatedAt: String? = null,

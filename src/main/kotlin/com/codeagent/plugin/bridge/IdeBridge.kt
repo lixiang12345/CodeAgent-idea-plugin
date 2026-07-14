@@ -284,6 +284,10 @@ class IdeBridge(
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<JobPayload>(it) }
                 retryProductJob(request.jobId)
             }
+            "openJobResult" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<JobPayload>(it) }
+                openProductJobResult(request.jobId)
+            }
             "refreshConfigurations" -> refreshConfigurations()
             "refreshMcpRuntime" -> refreshMcpRuntime()
             "startMcpServer" -> {
@@ -1583,6 +1587,34 @@ class IdeBridge(
         )
     }
 
+    private fun openProductJobResult(jobId: String) {
+        val job = productJobs.items.firstOrNull { it.id == jobId }
+            ?: error("Job no longer exists in the current snapshot")
+        val output = requireNotNull(job.output?.takeIf { it.isNotBlank() }) { "Job result is not available yet" }
+        val type = (job.role ?: job.type).replace(Regex("[^A-Za-z0-9._-]+"), "-").trim('-').ifBlank { "result" }
+        val file = LightVirtualFile(
+            "codeagent-$type-${job.id.take(8)}.md",
+            PlainTextFileType.INSTANCE,
+            buildString {
+                appendLine("# CodeAgent ${(job.role ?: job.type).replace('-', ' ')} result")
+                appendLine()
+                appendLine("## Task")
+                appendLine(job.prompt)
+                job.context?.takeIf { it.isNotBlank() }?.let {
+                    appendLine()
+                    appendLine("## Delegated context")
+                    appendLine(it)
+                }
+                appendLine()
+                appendLine("## Output")
+                appendLine(output)
+            },
+        )
+        ApplicationManager.getApplication().invokeLater {
+            FileEditorManager.getInstance(project).openFile(file, true)
+        }
+    }
+
     private fun RemoteJob.toDto() = ProductJobDto(
         id = id,
         type = type,
@@ -1594,6 +1626,7 @@ class IdeBridge(
         maxOutputTokens = input.maxOutputTokens,
         model = input.model ?: output?.model,
         output = output?.content,
+        outputPartial = output?.partial == true,
         error = error,
         createdAt = createdAt,
         updatedAt = updatedAt,

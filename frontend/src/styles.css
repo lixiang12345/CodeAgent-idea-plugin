@@ -376,6 +376,7 @@ button { color: inherit; }
 .unavailable { min-height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--muted); text-align: center; }
 .unavailable strong { margin-top: 7px; color: #c4c8cd; font-size: 10px; }
 .unavailable > button { height: 25px; margin-top: 10px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 3px; color: var(--text); background: #2d3035; font-size: 8px; cursor: pointer; }
+.job-output-label { display: flex; align-items: center; gap: 5px; margin-top: 8px; color: var(--muted); font-size: 9px; text-transform: uppercase; }
 .account-card { position: relative; padding: 0; overflow: hidden; border-color: #344454; background: #1d2126; }
 .account-session-rail { position: absolute; inset: 0 auto 0 0; width: 3px; display: grid; grid-template-rows: 1fr 1fr 1fr; gap: 1px; background: #14171a; }
 .account-session-rail span:nth-child(1) { background: #4f7fd1; }

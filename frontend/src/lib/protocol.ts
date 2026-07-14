@@ -291,6 +291,7 @@ export interface ProductJob {
   maxOutputTokens?: number;
   model?: string;
   output?: string;
+  outputPartial?: boolean;
   error?: string;
   createdAt?: string;
   updatedAt?: string;
