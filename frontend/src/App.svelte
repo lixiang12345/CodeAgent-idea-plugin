@@ -42,7 +42,7 @@
         { id: "Skills", label: "Skills", icon: "wand-sparkles", badge: "Beta" },
         { id: "Hooks", label: "Hooks", icon: "workflow" },
         { id: "Agents", label: "Agents", icon: "bot", badge: "Beta" },
-        { id: "Plugins", label: "Plugins", icon: "layers", badge: "Beta" },
+        { id: "Plugins", label: "Plugins", icon: "layers" },
       ],
     },
     {
@@ -522,6 +522,15 @@
         ? configuration.value.argumentHint
         : undefined;
       commands.set(command, { command, description, argumentHint });
+    }
+    for (const contribution of snapshot?.pluginRuntime.commands ?? []) {
+      const command = `/${contribution.id}`;
+      if (localSlashActions[command]) continue;
+      commands.set(command, {
+        command,
+        description: contribution.description ?? `${contribution.name} · ${contribution.pluginId}@${contribution.pluginVersion}`,
+        argumentHint: contribution.argumentHint,
+      });
     }
     return [...commands.values()].sort((left, right) => left.command.localeCompare(right.command));
   }
@@ -1420,6 +1429,7 @@
                 configurationSnapshot={snapshot.configurations}
                 mcpRuntime={snapshot.mcpRuntime}
                 hookRuntime={snapshot.hookRuntime}
+                pluginRuntime={snapshot.pluginRuntime}
                 models={snapshot.models.options}
               />
             {:else if settingsSection === "Feature Flags"}

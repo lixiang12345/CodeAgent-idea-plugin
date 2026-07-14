@@ -9,6 +9,8 @@
     type McpRuntimeSnapshot,
     type McpServerRuntime,
     type ModelOption,
+    type PluginRuntimeItem,
+    type PluginRuntimeSnapshot,
     type ProductConfiguration,
   } from "./protocol";
 
@@ -16,6 +18,7 @@
   export let configurationSnapshot: ConfigurationSnapshot;
   export let mcpRuntime: McpRuntimeSnapshot;
   export let hookRuntime: HookRuntimeSnapshot;
+  export let pluginRuntime: PluginRuntimeSnapshot;
   export let models: ModelOption[] = [];
 
   type Draft = {
@@ -44,6 +47,7 @@
     reservedOutputTokens: number;
     source: string;
     version: string;
+    integrity: string;
     capabilities: string;
     transport: string;
     args: string;
@@ -89,7 +93,7 @@
     },
     plugins: {
       title: "Plugins",
-      lead: "Product extension sources and declared capabilities. Installation lifecycle is connected separately.",
+      lead: "Declarative extension manifests with device-local installation, integrity verification, explicit permissions, and no arbitrary code loading.",
       singular: "plugin",
       icon: "layers",
     },
@@ -100,6 +104,17 @@
       icon: "shield",
     },
   };
+
+  const pluginCapabilities = [
+    { id: "commands", label: "Commands", description: "Namespaced slash commands" },
+    { id: "prompts", label: "Prompts", description: "Reserved prompt assets" },
+    { id: "agents", label: "Agents", description: "Reserved Agent profiles" },
+    { id: "hooks", label: "Hooks", description: "Reserved lifecycle definitions" },
+    { id: "mcp", label: "MCP", description: "Reserved MCP definitions" },
+    { id: "rules", label: "Rules", description: "Reserved workspace rules" },
+    { id: "skills", label: "Skills", description: "Reserved repository skills" },
+    { id: "tools", label: "Tools", description: "Reserved tool declarations" },
+  ];
 
   let editorOpen = false;
   let editing = false;
@@ -144,6 +159,7 @@ $: if (section !== previousSection) {
       reservedOutputTokens: 8192,
       source: "",
       version: "",
+      integrity: "",
       capabilities: "",
       transport: "stdio",
       args: "",
@@ -207,6 +223,7 @@ $: if (section !== previousSection) {
       reservedOutputTokens: numberValue(value.reservedOutputTokens, 8192),
       source: text(value.source),
       version: text(value.version),
+      integrity: text(value.integrity),
       capabilities: listValue(value.capabilities),
       transport: text(value.transport) || "stdio",
       args: listValue(value.args),
@@ -276,6 +293,7 @@ $: if (section !== previousSection) {
         ...common,
         source: draft.source.trim(),
         version: draft.version.trim() || null,
+        integrity: draft.integrity.trim() || null,
         capabilities: parseList(draft.capabilities),
       };
     }
@@ -310,7 +328,10 @@ $: if (section !== previousSection) {
         && draft.reservedOutputTokens <= 65536
         && draft.reservedOutputTokens < draft.contextWindowTokens;
     }
-    if (kind === "plugins") return Boolean(draft.source.trim());
+    if (kind === "plugins") {
+      return Boolean(draft.source.trim())
+        && (!draft.integrity.trim() || /^sha256:[a-f0-9]{64}$/.test(draft.integrity.trim()));
+    }
     return draft.transport === "stdio" ? Boolean(draft.command.trim()) : Boolean(draft.url.trim());
   }
 
@@ -335,7 +356,10 @@ $: if (section !== previousSection) {
 
   function remove(item: ProductConfiguration) {
     const name = text(item.value.name) || item.id;
-    if (!window.confirm(`Delete ${name}?`)) return;
+    const question = kind === "plugins"
+      ? `Delete ${name} and uninstall its cached manifest from this device?`
+      : `Delete ${name}?`;
+    if (!window.confirm(question)) return;
     sendCommand("deleteConfiguration", { kind, id: item.id });
     if (editing && draft.id === item.id) editorOpen = false;
   }
@@ -360,6 +384,12 @@ $: if (section !== previousSection) {
       ].join(" · ");
     }
     if (kind === "agents") return `${text(value.agentType) || "general"} · ${numberValue(value.maxTurns, 12)} turns · ${numberValue(value.maxToolCalls, 48)} tools · ${Math.round(numberValue(value.contextWindowTokens, 64000) / 1000)}k context`;
+    if (kind === "plugins") {
+      const runtime = pluginRuntimeFor(item.id);
+      return runtime
+        ? `${runtime.state} · ${runtime.installedVersion ?? "not installed"} · ${runtime.commandCount} commands`
+        : text(value.version) || text(value.source) || "Declarative manifest";
+    }
     return text(value.version) || text(value.source) || "Extension source";
   }
 
@@ -369,6 +399,43 @@ $: if (section !== previousSection) {
 
   function controlMcp(command: "startMcpServer" | "stopMcpServer" | "restartMcpServer" | "testMcpServer", serverId: string) {
     sendCommand(command, { serverId });
+  }
+
+  function pluginRuntimeFor(pluginId: string): PluginRuntimeItem | undefined {
+    return pluginRuntime.items.find((plugin) => plugin.id === pluginId);
+  }
+
+  function controlPlugin(
+    command: "installPlugin" | "updatePlugin" | "testPlugin" | "uninstallPlugin",
+    item: ProductConfiguration,
+  ) {
+    const runtime = pluginRuntimeFor(item.id);
+    const name = text(item.value.name) || item.id;
+    if (command === "uninstallPlugin") {
+      if (!window.confirm(`Uninstall ${name} from this device? The account configuration will remain.`)) return;
+    } else if (command === "installPlugin" || command === "updatePlugin") {
+      const capabilities = Array.isArray(item.value.capabilities)
+        ? item.value.capabilities.filter((value): value is string => typeof value === "string")
+        : [];
+      const action = command === "installPlugin" ? "Install" : "Update";
+      const permissionText = capabilities.length > 0 ? capabilities.join(", ") : "no runtime capabilities";
+      if (!window.confirm(`${action} ${name} from ${text(item.value.source)} with ${permissionText}?`)) return;
+    }
+    if (command === "updatePlugin" && runtime?.state !== "update-available") return;
+    sendCommand(command, { pluginId: item.id });
+  }
+
+  function pluginCapabilityEnabled(capability: string): boolean {
+    return parseList(draft.capabilities).includes(capability);
+  }
+
+  function togglePluginCapability(capability: string, enabled: boolean) {
+    const selected = new Set(parseList(draft.capabilities));
+    if (enabled) selected.add(capability); else selected.delete(capability);
+    draft.capabilities = pluginCapabilities
+      .map((item) => item.id)
+      .filter((item) => selected.has(item))
+      .join("\n");
   }
 
   function testHook(hookId: string) {
@@ -383,6 +450,12 @@ $: if (section !== previousSection) {
   function hookStartedAt(execution: HookExecution): string {
     const parsed = new Date(execution.startedAt);
     return Number.isNaN(parsed.getTime()) ? execution.startedAt : parsed.toLocaleString();
+  }
+
+  function pluginTime(value?: string): string {
+    if (!value) return "Never";
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
   }
 </script>
 
@@ -433,9 +506,21 @@ $: if (section !== previousSection) {
       <label><span>Reserved output tokens</span><input type="number" min="1024" max="65536" step="1024" bind:value={draft.reservedOutputTokens} /><small>Held back from input so the model can finish its response and tool plan.</small></label>
       <label><span>Custom instructions</span><textarea bind:value={draft.systemPrompt} spellcheck="true"></textarea><small>Account-scoped guidance. The current user request, runtime safety, approvals, and tool policy take priority.</small></label>
     {:else if kind === "plugins"}
-      <label><span>Source</span><input bind:value={draft.source} maxlength="2000" placeholder="registry package or HTTPS repository" /></label>
-      <label><span>Version</span><input bind:value={draft.version} maxlength="240" placeholder="Optional version constraint" /></label>
-      <label><span>Capabilities</span><textarea class="list-textarea" bind:value={draft.capabilities} spellcheck="false"></textarea><small>One declared capability per line.</small></label>
+      <label><span>Manifest URL</span><input bind:value={draft.source} maxlength="2000" placeholder="https://plugins.example.com/plugin.json" /><small>HTTPS is required except for loopback development URLs.</small></label>
+      <label><span>Exact version</span><input bind:value={draft.version} maxlength="240" placeholder="Optional, for example 1.2.0" /><small>When set, the downloaded manifest must match exactly.</small></label>
+      <label><span>Integrity</span><input bind:value={draft.integrity} maxlength="71" placeholder="sha256:…" /><small>Optional SHA-256 pin over the exact manifest bytes.</small></label>
+      <fieldset class="plugin-capabilities">
+        <legend>Granted capabilities</legend>
+        <div class="plugin-capability-list">
+          {#each pluginCapabilities as capability}
+            <label>
+              <input type="checkbox" checked={pluginCapabilityEnabled(capability.id)} onchange={(event) => togglePluginCapability(capability.id, event.currentTarget.checked)} />
+              <span><strong>{capability.label}</strong><small>{capability.description}</small></span>
+            </label>
+          {/each}
+        </div>
+      </fieldset>
+      <div class="runtime-note"><Icon name="shield" size={13} /><span>Installation downloads and caches one bounded JSON manifest on this device. CodeAgent verifies identity, version, permissions, and optional SHA-256 integrity; plugin JVM, Node, and shell code is never loaded.</span></div>
     {:else}
       <fieldset>
         <legend>Transport</legend>
@@ -469,7 +554,7 @@ $: if (section !== previousSection) {
 {:else}
   <div class="configuration-title">
     <div>
-      <h1>{page.title}{#if kind === "commands" || kind === "agents" || kind === "plugins"} <em>Beta</em>{/if}</h1>
+      <h1>{page.title}{#if kind === "commands" || kind === "agents"} <em>Beta</em>{/if}</h1>
       <p class="configuration-lead">{page.lead}</p>
     </div>
     <button class="new-configuration" disabled={busy || configurationSnapshot.state === "unavailable"} onclick={beginCreate}><Icon name="plus" size={13} />Add</button>
@@ -497,6 +582,14 @@ $: if (section !== previousSection) {
     </div>
   {/if}
 
+  {#if kind === "plugins"}
+    <div class="configuration-status plugin-runtime-status">
+      <span class="status-dot {pluginRuntime.state}"></span>
+      <span><strong>Plugin runtime · {pluginRuntime.state}</strong><small>{pluginRuntime.label}</small></span>
+      <i>{pluginRuntime.commands.length} commands</i>
+    </div>
+  {/if}
+
   {#if configurationSnapshot.state === "unavailable" || configurationSnapshot.state === "error"}
     <section class="configuration-empty">
       <Icon name="circle-alert" size={19} />
@@ -507,7 +600,8 @@ $: if (section !== previousSection) {
     <section class="configuration-list">
       {#each items as item}
         {@const runtime = kind === "mcp" ? runtimeFor(item.id) : undefined}
-        <article class:mcp-item={kind === "mcp"}>
+        {@const plugin = kind === "plugins" ? pluginRuntimeFor(item.id) : undefined}
+        <article class:mcp-item={kind === "mcp"} class:plugin-item={kind === "plugins"}>
           <span class="configuration-icon"><Icon name={page.icon} size={14} /></span>
           <button class="configuration-copy" onclick={() => beginEdit(item)}>
             <strong>{text(item.value.name) || item.id}</strong>
@@ -546,6 +640,47 @@ $: if (section !== previousSection) {
                   {#each runtime.tools as tool}
                     <div><strong>{tool.title ?? tool.name}</strong><small>{tool.description}</small><i>{tool.risk === "read_only" ? "read only" : "approval required"}</i></div>
                   {/each}
+                </details>
+              {/if}
+            </div>
+          {/if}
+          {#if kind === "plugins"}
+            <div class="plugin-runtime-row">
+              <span class="plugin-runtime-copy">
+                <i class="runtime-state {plugin?.state ?? 'available'}">{plugin?.state ?? "available"}</i>
+                <small>{plugin?.label ?? "Not installed on this device"}</small>
+                {#if plugin?.installedVersion}<small>v{plugin.installedVersion}</small>{/if}
+              </span>
+              <span class="plugin-runtime-actions">
+                {#if !plugin?.installedVersion}
+                  <button class="icon-button compact" title="Install plugin on this device" onclick={() => controlPlugin("installPlugin", item)}><Icon name="download" size={11} /></button>
+                {:else}
+                  {#if plugin.state === "update-available"}
+                    <button class="icon-button compact" title="Install available update" onclick={() => controlPlugin("updatePlugin", item)}><Icon name="refresh-ccw" size={11} /></button>
+                  {/if}
+                  <button class="icon-button compact" title="Uninstall from this device" onclick={() => controlPlugin("uninstallPlugin", item)}><Icon name="trash-2" size={11} /></button>
+                {/if}
+                <button class="icon-button compact" title="Validate manifest and check for updates" onclick={() => controlPlugin("testPlugin", item)}><Icon name="activity" size={11} /></button>
+              </span>
+              {#if plugin}
+                <details class="plugin-runtime-details">
+                  <summary>Manifest and permissions</summary>
+                  <div class="plugin-runtime-metadata">
+                    <span><strong>Source</strong><code>{plugin.source}</code></span>
+                    <span><strong>Installed</strong><code>{plugin.installedVersion ?? "Not installed"}</code></span>
+                    <span><strong>Latest checked</strong><code>{plugin.latestVersion ?? "Unknown"}</code></span>
+                    <span><strong>Installed at</strong><code>{pluginTime(plugin.installedAt)}</code></span>
+                    <span><strong>Last checked</strong><code>{pluginTime(plugin.lastCheckedAt)}</code></span>
+                    <span><strong>Integrity</strong><code>{plugin.integrity ?? "Not pinned"}</code></span>
+                  </div>
+                  <div class="plugin-capability-badges">
+                    {#each plugin.declaredCapabilities as capability}
+                      <i class:granted={plugin.grantedCapabilities.includes(capability)}>{capability}</i>
+                    {:else}
+                      <small>No capabilities declared.</small>
+                    {/each}
+                  </div>
+                  {#if plugin.lastError}<p class="plugin-runtime-error">{plugin.lastError}</p>{/if}
                 </details>
               {/if}
             </div>
@@ -606,10 +741,12 @@ $: if (section !== previousSection) {
   .mcp-gateway-status { margin-top: -2px; }
   .hook-runtime-status { margin-top: -2px; }
   .hook-runtime-status > i { color: #8793a2; font: normal 7px var(--mono); white-space: nowrap; }
+  .plugin-runtime-status { margin-top: -2px; }
+  .plugin-runtime-status > i { color: #8793a2; font: normal 7px var(--mono); white-space: nowrap; }
   .configuration-list { overflow: hidden; border: 1px solid var(--line); border-radius: 5px; background: #202225; }
   .configuration-list article { min-height: 62px; padding: 6px 7px; display: flex; align-items: center; gap: 6px; }
   .configuration-list article + article { border-top: 1px solid var(--line); }
-  .configuration-list article.mcp-item { flex-wrap: wrap; }
+  .configuration-list article.mcp-item, .configuration-list article.plugin-item { flex-wrap: wrap; }
   .configuration-icon { width: 28px; height: 28px; flex: 0 0 28px; display: grid; place-items: center; border: 1px solid #3c424b; border-radius: 5px; color: #aebbd0; background: #282d34; }
   .configuration-copy { min-width: 0; flex: 1; padding: 2px 0; display: flex; flex-direction: column; align-items: flex-start; border: 0; color: #cbd0d6; background: transparent; text-align: left; cursor: pointer; }
   .configuration-copy strong, .configuration-copy small, .configuration-copy i { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -623,6 +760,8 @@ $: if (section !== previousSection) {
   .runtime-state.ready { color: #a7d9b3; background: #294331; }
   .runtime-state.starting, .runtime-state.stopping { color: #e0c28b; background: #4a3c24; }
   .runtime-state.error, .runtime-state.degraded { color: #e4a1a6; background: #4a292e; }
+  .runtime-state.update-available { color: #e0c28b; background: #4a3c24; }
+  .runtime-state.available, .runtime-state.disabled { color: #aab0b7; background: #30343a; }
   .mcp-runtime-actions { display: flex; gap: 4px; }
   .mcp-tool-list { width: 100%; color: var(--muted); font-size: 8px; }
   .mcp-tool-list summary { padding: 5px 0; cursor: pointer; }
@@ -630,6 +769,20 @@ $: if (section !== previousSection) {
   .mcp-tool-list strong { overflow: hidden; text-overflow: ellipsis; color: #c1c6cc; font-size: 8px; white-space: nowrap; }
   .mcp-tool-list small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mcp-tool-list i { grid-column: 2; grid-row: 1 / 3; align-self: center; color: #8393a7; font: normal 7px var(--mono); }
+  .plugin-runtime-row { width: calc(100% - 34px); margin-left: 34px; padding: 6px 0 1px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; border-top: 1px solid #30343a; }
+  .plugin-runtime-copy { min-width: 0; flex: 1; display: flex; align-items: center; gap: 6px; }
+  .plugin-runtime-copy small { overflow: hidden; text-overflow: ellipsis; color: var(--muted); font: 7px var(--mono); white-space: nowrap; }
+  .plugin-runtime-actions { display: flex; gap: 4px; }
+  .plugin-runtime-details { width: 100%; color: var(--muted); font-size: 8px; }
+  .plugin-runtime-details summary { padding: 5px 0; cursor: pointer; }
+  .plugin-runtime-metadata { padding: 6px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; border-top: 1px solid #30343a; }
+  .plugin-runtime-metadata span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .plugin-runtime-metadata strong { color: #969fa9; font-size: 7px; font-weight: 500; }
+  .plugin-runtime-metadata code { overflow: hidden; text-overflow: ellipsis; color: #c0c5cb; font: 7px var(--mono); white-space: nowrap; }
+  .plugin-capability-badges { padding: 4px 0 7px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .plugin-capability-badges i { padding: 2px 5px; border-radius: 3px; color: #858d97; background: #2c3035; font: normal 7px var(--mono); }
+  .plugin-capability-badges i.granted { color: #a9d9b5; background: #294331; }
+  .plugin-runtime-error { margin: 0 0 7px; color: #e0a4aa; font: 7px/1.45 var(--mono); }
   .switch { position: relative; width: 27px; height: 16px; flex: 0 0 27px; }
   .switch input { position: absolute; opacity: 0; }
   .switch span { position: absolute; inset: 0; border: 1px solid #4a4e54; border-radius: 8px; background: #303338; cursor: pointer; }
@@ -655,6 +808,13 @@ $: if (section !== previousSection) {
   .configuration-toggle > span { display: flex; flex-direction: column; }
   .configuration-editor fieldset { margin: 0 0 11px; padding: 0; border: 0; }
   .configuration-editor legend { margin-bottom: 5px; color: #aeb3ba; font-size: 9px; }
+  .plugin-capability-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 4px; background: #181a1d; }
+  .plugin-capability-list label { min-width: 0; min-height: 42px; padding: 6px 7px; display: flex; align-items: center; gap: 6px; }
+  .plugin-capability-list label:nth-child(even) { border-left: 1px solid var(--line); }
+  .plugin-capability-list label:nth-child(n + 3) { border-top: 1px solid var(--line); }
+  .plugin-capability-list label > span { min-width: 0; display: flex; flex-direction: column; }
+  .plugin-capability-list strong { font-size: 8px; }
+  .plugin-capability-list small { overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 7px; white-space: nowrap; }
   .configuration-segments { height: 28px; padding: 2px; display: flex; border: 1px solid var(--line); border-radius: 4px; background: #181a1d; }
   .configuration-segments button { min-width: 0; flex: 1; border: 0; border-radius: 3px; color: var(--muted); background: transparent; font-size: 8px; cursor: pointer; }
   .configuration-segments button.active { color: var(--text); background: #30343a; }

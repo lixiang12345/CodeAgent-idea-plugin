@@ -1260,6 +1260,53 @@ test("validates and persists typed product configurations", async () => {
     assert.equal(invalidHookEnvironment.status, 400);
     assert.match((await invalidHookEnvironment.json()).error, /environment variable names/);
 
+    const pluginResponse = await fetch(`${baseUrl}/v1/configurations/plugins/review-pack`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Review pack",
+        description: "Shared review workflows",
+        source: "https://plugins.example.test/review-pack.json",
+        version: "1.0.0",
+        integrity: `sha256:${"a".repeat(64)}`,
+        capabilities: ["commands", "prompts"],
+      }),
+    });
+    assert.equal(pluginResponse.status, 200);
+    assert.deepEqual((await pluginResponse.json()).value, {
+      name: "Review pack",
+      description: "Shared review workflows",
+      enabled: true,
+      source: "https://plugins.example.test/review-pack.json",
+      version: "1.0.0",
+      integrity: `sha256:${"a".repeat(64)}`,
+      capabilities: ["commands", "prompts"],
+    });
+
+    const insecurePlugin = await fetch(`${baseUrl}/v1/configurations/plugins/insecure`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Insecure plugin",
+        source: "http://plugins.example.test/plugin.json",
+        capabilities: [],
+      }),
+    });
+    assert.equal(insecurePlugin.status, 400);
+    assert.match((await insecurePlugin.json()).error, /must use https/);
+
+    const invalidPluginCapability = await fetch(`${baseUrl}/v1/configurations/plugins/unsafe-capability`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Unsafe plugin",
+        source: "https://plugins.example.test/unsafe.json",
+        capabilities: ["arbitrary-code"],
+      }),
+    });
+    assert.equal(invalidPluginCapability.status, 400);
+    assert.match((await invalidPluginCapability.json()).error, /Unsupported plugin capability/);
+
     const invalidId = await fetch(`${baseUrl}/v1/configurations/commands/not%20safe`, {
       method: "PUT",
       headers: { "content-type": "application/json" },

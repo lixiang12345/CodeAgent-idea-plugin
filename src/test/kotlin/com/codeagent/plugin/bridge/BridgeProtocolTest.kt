@@ -124,4 +124,40 @@ class BridgeProtocolTest {
         assertEquals(true, encoded.contains("\"output\":\"Add an expired-token regression test.\""))
     }
 
+    @Test
+    fun `encodes declarative plugin runtime and command contributions`() {
+        val plugins = PluginRuntimeSnapshotDto(
+            state = "ready",
+            label = "1 configured · 1 installed · 1 active",
+            items = listOf(
+                PluginRuntimeItemDto(
+                    id = "review-pack",
+                    name = "Review pack",
+                    source = "https://plugins.example.test/review.json",
+                    state = "ready",
+                    label = "Installed and active",
+                    installedVersion = "1.0.0",
+                    grantedCapabilities = listOf("commands"),
+                    declaredCapabilities = listOf("commands"),
+                    commandCount = 1,
+                ),
+            ),
+            commands = listOf(
+                PluginCommandDto(
+                    id = "review-pack.review",
+                    pluginId = "review-pack",
+                    pluginVersion = "1.0.0",
+                    name = "Plugin review",
+                    mode = "ask",
+                ),
+            ),
+        )
+
+        val encoded = json.encodeToString(plugins)
+
+        assertEquals(true, encoded.contains("\"installedVersion\":\"1.0.0\""))
+
+        assertEquals(true, encoded.contains("\"id\":\"review-pack.review\""))
+    }
+
 }

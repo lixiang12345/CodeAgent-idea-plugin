@@ -196,6 +196,43 @@ export interface HookRuntimeSnapshot {
   recent: HookExecution[];
 }
 
+export interface PluginCommand {
+  id: string;
+  pluginId: string;
+  pluginVersion: string;
+  name: string;
+  description?: string;
+  argumentHint?: string;
+  mode: "inherit" | "agent" | "chat" | "ask";
+  agentProfileId?: string;
+}
+
+export interface PluginRuntimeItem {
+  id: string;
+  name: string;
+  description?: string;
+  source: string;
+  state: "available" | "disabled" | "ready" | "update-available" | "error";
+  label: string;
+  configuredVersion?: string;
+  installedVersion?: string;
+  latestVersion?: string;
+  integrity?: string;
+  grantedCapabilities: string[];
+  declaredCapabilities: string[];
+  commandCount: number;
+  installedAt?: string;
+  lastCheckedAt?: string;
+  lastError?: string;
+}
+
+export interface PluginRuntimeSnapshot {
+  state: "idle" | "ready" | "degraded";
+  label: string;
+  items: PluginRuntimeItem[];
+  commands: PluginCommand[];
+}
+
 export type McpRuntimeState = "disabled" | "stopped" | "starting" | "ready" | "degraded" | "error" | "stopping";
 
 export interface McpTool {
@@ -312,6 +349,7 @@ export interface AppSnapshot {
   configurations: ConfigurationSnapshot;
   mcpRuntime: McpRuntimeSnapshot;
   hookRuntime: HookRuntimeSnapshot;
+  pluginRuntime: PluginRuntimeSnapshot;
   jobs: ProductJobSnapshot;
   customization: {
     rules: WorkspaceRule[];
@@ -602,6 +640,21 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
             },
           },
         ],
+        plugins: [
+          {
+            id: "review-pack",
+            kind: "plugins",
+            value: {
+              name: "Review pack",
+              description: "Shared declarative review workflows.",
+              enabled: true,
+              source: "https://plugins.example.test/review-pack.json",
+              version: null,
+              integrity: null,
+              capabilities: ["commands"],
+            },
+          },
+        ],
         agents: [
           {
             id: "context-researcher",
@@ -713,6 +766,39 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
           durationMs: 4218,
           summary: "Completed",
           detail: "BUILD SUCCESSFUL in 4s",
+        },
+      ],
+    },
+    pluginRuntime: {
+      state: "ready",
+      label: "1 configured · 1 installed · 1 active",
+      items: [
+        {
+          id: "review-pack",
+          name: "Review pack",
+          description: "Shared declarative review workflows.",
+          source: "https://plugins.example.test/review-pack.json",
+          state: "ready",
+          label: "Installed and active",
+          installedVersion: "1.0.0",
+          latestVersion: "1.0.0",
+          grantedCapabilities: ["commands"],
+          declaredCapabilities: ["commands"],
+          commandCount: 1,
+          installedAt: new Date(Date.now() - 86_400_000).toISOString(),
+          lastCheckedAt: new Date(Date.now() - 60_000).toISOString(),
+        },
+      ],
+      commands: [
+        {
+          id: "review-pack.review",
+          pluginId: "review-pack",
+          pluginVersion: "1.0.0",
+          name: "Plugin review",
+          description: "Review the requested scope",
+          argumentHint: "[scope]",
+          mode: "ask",
+          agentProfileId: "loop",
         },
       ],
     },

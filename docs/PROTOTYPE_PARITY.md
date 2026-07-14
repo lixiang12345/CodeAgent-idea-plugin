@@ -54,11 +54,12 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | Rules editor | Implemented | Repository Markdown, persisted description and trigger metadata, save, and manual per-thread selection work |
 | Image Canvas | Implemented | Project-contained directory selection, bounded raster gallery, settings, refresh, open, mention, and empty/error states |
 | Mermaid | Implemented | Strict rendering, diagram/code, zoom, fit, error states, and opening source in an IDEA editor tab work |
-| Settings | Partial | Backend health, account, subscription usage, ContextEngine, Rules, Skills, chat zoom, Commands, Hooks, Agent profiles, plugin sources, and MCP lifecycle controls are real; feature and Beta pages report live capability state instead of simulated toggles |
+| Settings | Partial | Backend health, account, subscription usage, ContextEngine, Rules, Skills, chat zoom, Commands, Hooks, Agent profiles, declarative plugin lifecycle, and MCP lifecycle controls are real; feature and Beta pages report live capability state instead of simulated toggles |
 | Tools catalog / Icon gallery / Feedback | Implemented | UI overlays for insert-tool seeding, icon name copy, and local feedback notice |
 | Cloud integrations | Conditional | Search/read adapters are advertised only when their backend environment is configured; provider errors and missing credentials remain explicit failures |
 | Subagents | Partial | Synchronous `subagent` and durable asynchronous job persistence are real; cancellation, progress streaming, and complete IDE navigation still need runtime wiring |
 | MCP | Implemented | Enabled stdio, Streamable HTTP, and legacy SSE definitions are reconciled by a local managed gateway with health checks, bounded reconnects, explicit start/stop/restart/test controls, tool-list refresh notifications, environment allowlisting, bearer-token injection, namespaced Agent tools, and approval-aware risk defaults. Provider OAuth remains a separate future adapter |
+| Plugins | Implemented | Account-synchronized plugin definitions drive explicit per-device install, validate, update, and uninstall actions for bounded declarative manifests. Identity, exact version, SHA-256 integrity, capabilities, and command schemas are verified; granted command contributions become namespaced slash commands without loading arbitrary code |
 
 ## Tool catalog
 

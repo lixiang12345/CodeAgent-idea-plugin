@@ -12,6 +12,8 @@ import com.codeagent.plugin.agent.HookRuntimeSnapshot
 import com.codeagent.plugin.agent.ImageCanvasService
 import com.codeagent.plugin.agent.McpRuntimeService
 import com.codeagent.plugin.agent.McpRuntimeSnapshot
+import com.codeagent.plugin.agent.PluginRuntimeService
+import com.codeagent.plugin.agent.PluginRuntimeSnapshot
 import com.codeagent.plugin.agent.RemoteContextUpdated
 import com.codeagent.plugin.agent.RemoteJob
 import com.codeagent.plugin.agent.RemoteJobInput
@@ -48,8 +50,10 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.put
 import java.nio.file.Path
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -77,6 +81,7 @@ class IdeBridge(
     private val agent = project.service<AgentOrchestrator>()
     private val mcpRuntimeService = project.service<McpRuntimeService>()
     private val hookRuntimeService = project.service<HookRuntimeService>()
+    private val pluginRuntimeService = project.service<PluginRuntimeService>()
     private val changeReview = project.service<ChangeReviewService>()
     private val gitWorkspace = project.service<GitWorkspaceService>()
     private val imageCanvas = project.service<ImageCanvasService>()
@@ -110,6 +115,9 @@ class IdeBridge(
     private var hookRuntime = hookRuntimeService.snapshot().toDto()
 
     @Volatile
+    private var pluginRuntime = pluginRuntimeService.snapshot().toDto()
+
+    @Volatile
     private var productJobs = ProductJobSnapshotDto()
 
     private var productJobsGeneration = 0L
@@ -132,6 +140,10 @@ class IdeBridge(
         }
         hookRuntimeService.setChangeListener {
             hookRuntime = hookRuntimeService.snapshot().toDto()
+            emitSnapshot()
+        }
+        pluginRuntimeService.setChangeListener {
+            pluginRuntime = pluginRuntimeService.snapshot().toDto()
             emitSnapshot()
         }
         conversationSummaries.setChangeListener { snapshot ->
@@ -166,6 +178,7 @@ class IdeBridge(
         cloudSync.setChangeListener(null)
         mcpRuntimeService.setChangeListener(null)
         hookRuntimeService.setChangeListener(null)
+        pluginRuntimeService.setChangeListener(null)
         conversationSummaries.setChangeListener(null)
         syncedAccountUserId = null
         cloudSync.reset()
@@ -296,6 +309,22 @@ class IdeBridge(
             "testHook" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<HookPayload>(it) }
                 testHook(request.hookId)
+            }
+            "installPlugin" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<PluginPayload>(it) }
+                controlPlugin("install", request.pluginId)
+            }
+            "updatePlugin" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<PluginPayload>(it) }
+                controlPlugin("update", request.pluginId)
+            }
+            "testPlugin" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<PluginPayload>(it) }
+                controlPlugin("test", request.pluginId)
+            }
+            "uninstallPlugin" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<PluginPayload>(it) }
+                controlPlugin("uninstall", request.pluginId)
             }
             "cancelRun" -> {
                 synchronized(stateLock) {
@@ -807,7 +836,7 @@ class IdeBridge(
             commandLine = text,
             fallbackMode = request.mode,
             projectName = project.name,
-            configurations = configurations.items["commands"].orEmpty(),
+            configurations = configurations.items["commands"].orEmpty() + pluginCommandConfigurations(),
         )
         return SendMessagePayload(
             text = invocation.prompt,
@@ -911,6 +940,7 @@ class IdeBridge(
                 configurations = configurations,
                 mcpRuntime = mcpRuntime,
                 hookRuntime = hookRuntime,
+                pluginRuntime = pluginRuntime,
                 jobs = productJobs,
                 customization = WorkspaceCustomizationDto(
                     rules = customization.rules.map { rule ->
@@ -1194,6 +1224,7 @@ class IdeBridge(
         synchronized(stateLock) { productJobsGeneration += 1 }
         mcpRuntimeService.reconcile(emptyList()).exceptionally { null }
         hookRuntimeService.reconcile(emptyList())
+        pluginRuntimeService.reconcile(emptyList())
         modelRegistry = ModelRegistryDto(state = "error", label = label)
         backendTools = emptyList()
         configurations = ConfigurationSnapshotDto(state = "unavailable", label = label)
@@ -1274,6 +1305,7 @@ class IdeBridge(
                     if (mcpError != null) emit("error", mapOf("message" to "MCP activation failed: ${mcpError.rootMessage()}"))
                 }
                 hookRuntimeService.reconcile(requests.getValue("hooks").join().data)
+                pluginRuntimeService.reconcile(requests.getValue("plugins").join().data)
                 val selected = synchronized(stateLock) { conversations.active().selectedAgentProfileId }
                 if (!isKnownAgentProfile(selected)) {
                     synchronized(stateLock) { conversations.setSelectedAgentProfile("general") }
@@ -1507,6 +1539,62 @@ class IdeBridge(
         },
     )
 
+    private fun PluginRuntimeSnapshot.toDto() = PluginRuntimeSnapshotDto(
+        state = state,
+        label = label,
+        items = items.map { item ->
+            PluginRuntimeItemDto(
+                id = item.id,
+                name = item.name,
+                description = item.description,
+                source = item.source,
+                state = item.state,
+                label = item.label,
+                configuredVersion = item.configuredVersion,
+                installedVersion = item.installedVersion,
+                latestVersion = item.latestVersion,
+                integrity = item.integrity,
+                grantedCapabilities = item.grantedCapabilities,
+                declaredCapabilities = item.declaredCapabilities,
+                commandCount = item.commandCount,
+                installedAt = item.installedAt,
+                lastCheckedAt = item.lastCheckedAt,
+                lastError = item.lastError,
+            )
+        },
+        commands = commands.map { command ->
+            PluginCommandDto(
+                id = command.id,
+                pluginId = command.pluginId,
+                pluginVersion = command.pluginVersion,
+                name = command.name,
+                description = command.description,
+                argumentHint = command.argumentHint,
+                mode = command.mode,
+                agentProfileId = command.agentProfileId,
+            )
+        },
+    )
+
+    private fun pluginCommandConfigurations(): List<ProductConfigurationDto> =
+        pluginRuntimeService.snapshot().commands.map { command ->
+            ProductConfigurationDto(
+                id = command.id,
+                kind = "commands",
+                value = buildJsonObject {
+                    put("name", command.name)
+                    command.description?.let { put("description", it) }
+                    put("enabled", true)
+                    put("prompt", command.prompt)
+                    command.argumentHint?.let { put("argumentHint", it) }
+                    put("mode", command.mode)
+                    command.agentProfileId?.let { put("agentProfileId", it) }
+                    put("pluginId", command.pluginId)
+                    put("pluginVersion", command.pluginVersion)
+                },
+            )
+        }
+
     private fun saveConfiguration(request: SaveConfigurationPayload) {
         configurations = configurations.copy(state = "loading", label = "Saving ${request.id}")
         emitSnapshot()
@@ -1537,8 +1625,18 @@ class IdeBridge(
                     refreshConfigurations()
                 }
                 else -> {
-                    emit("notice", mapOf("message" to "Deleted ${request.id}"))
-                    refreshConfigurations()
+                    if (request.kind == "plugins") {
+                        pluginRuntimeService.uninstall(request.id).whenComplete { _, uninstallError ->
+                            if (uninstallError != null) {
+                                emit("error", mapOf("message" to "Plugin cache cleanup failed: ${uninstallError.rootMessage()}"))
+                            }
+                            emit("notice", mapOf("message" to "Deleted ${request.id}"))
+                            refreshConfigurations()
+                        }
+                    } else {
+                        emit("notice", mapOf("message" to "Deleted ${request.id}"))
+                        refreshConfigurations()
+                    }
                 }
             }
         }
@@ -1551,6 +1649,42 @@ class IdeBridge(
                 emit("error", mapOf("message" to error.rootMessage()))
             } else {
                 emit("notice", mapOf("message" to "${execution.hookName}: ${execution.summary}"))
+                emitSnapshot()
+            }
+        }
+    }
+
+    private fun controlPlugin(action: String, pluginId: String) {
+        require(pluginId.isNotBlank()) { "Plugin ID is required" }
+        val progress = when (action) {
+            "install" -> "Installing plugin"
+            "update" -> "Updating plugin"
+            "test" -> "Checking plugin manifest"
+            "uninstall" -> "Uninstalling plugin"
+            else -> error("Unsupported plugin action: $action")
+        }
+        pluginRuntime = pluginRuntime.copy(state = "degraded", label = "$progress · $pluginId")
+        emitSnapshot()
+        val request = when (action) {
+            "install" -> pluginRuntimeService.install(pluginId)
+            "update" -> pluginRuntimeService.update(pluginId)
+            "test" -> pluginRuntimeService.test(pluginId)
+            "uninstall" -> pluginRuntimeService.uninstall(pluginId)
+            else -> error("Unsupported plugin action: $action")
+        }
+        request.whenComplete { snapshot, error ->
+            if (error != null) {
+                emit("error", mapOf("message" to error.rootMessage()))
+            } else {
+                pluginRuntime = snapshot.toDto()
+                val completed = when (action) {
+                    "install" -> "Installed"
+                    "update" -> "Updated"
+                    "test" -> "Validated"
+                    "uninstall" -> "Uninstalled"
+                    else -> "Updated"
+                }
+                emit("notice", mapOf("message" to "$completed $pluginId"))
                 emitSnapshot()
             }
         }
@@ -1939,6 +2073,9 @@ class IdeBridge(
 
     @Serializable
     private data class HookPayload(val hookId: String)
+
+    @Serializable
+    private data class PluginPayload(val pluginId: String)
 
     @Serializable
     private data class CreateJobPayload(

@@ -264,6 +264,46 @@ data class HookRuntimeSnapshotDto(
 )
 
 @Serializable
+data class PluginCommandDto(
+    val id: String,
+    val pluginId: String,
+    val pluginVersion: String,
+    val name: String,
+    val description: String? = null,
+    val argumentHint: String? = null,
+    val mode: String = "inherit",
+    val agentProfileId: String? = null,
+)
+
+@Serializable
+data class PluginRuntimeItemDto(
+    val id: String,
+    val name: String,
+    val description: String? = null,
+    val source: String,
+    val state: String,
+    val label: String,
+    val configuredVersion: String? = null,
+    val installedVersion: String? = null,
+    val latestVersion: String? = null,
+    val integrity: String? = null,
+    val grantedCapabilities: List<String> = emptyList(),
+    val declaredCapabilities: List<String> = emptyList(),
+    val commandCount: Int = 0,
+    val installedAt: String? = null,
+    val lastCheckedAt: String? = null,
+    val lastError: String? = null,
+)
+
+@Serializable
+data class PluginRuntimeSnapshotDto(
+    val state: String = "idle",
+    val label: String = "No plugins configured",
+    val items: List<PluginRuntimeItemDto> = emptyList(),
+    val commands: List<PluginCommandDto> = emptyList(),
+)
+
+@Serializable
 data class McpToolDto(
     val id: String,
     val serverId: String,
@@ -377,6 +417,7 @@ data class AppSnapshotDto(
     val configurations: ConfigurationSnapshotDto = ConfigurationSnapshotDto(),
     val mcpRuntime: McpRuntimeSnapshotDto = McpRuntimeSnapshotDto(),
     val hookRuntime: HookRuntimeSnapshotDto = HookRuntimeSnapshotDto(),
+    val pluginRuntime: PluginRuntimeSnapshotDto = PluginRuntimeSnapshotDto(),
     val jobs: ProductJobSnapshotDto = ProductJobSnapshotDto(),
     val customization: WorkspaceCustomizationDto = WorkspaceCustomizationDto(),
 )

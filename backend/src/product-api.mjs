@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { inlineCompletionMessages } from "./prompt.mjs";
 
 const CONFIGURATION_KINDS = new Set(["mcp", "hooks", "commands", "agents", "plugins", "tool-permissions"]);
+const PLUGIN_CAPABILITIES = new Set(["commands", "agents", "hooks", "mcp", "rules", "skills", "tools", "prompts"]);
 const AGENT_CONFIGURATION_DEFAULTS = {
   general: { maxTurns: 12, maxToolCalls: 48, maxSubagentCalls: 4, verificationPolicy: "after-mutation" },
   search: { maxTurns: 10, maxToolCalls: 24, maxSubagentCalls: 4, verificationPolicy: "none" },
@@ -349,13 +350,23 @@ function normalizeConfiguration(kind, value) {
         reservedOutputTokens,
       };
     }
-    case "plugins":
+    case "plugins": {
+      const capabilities = stringList(value.capabilities, "capabilities", 8, 240);
+      for (const capability of capabilities) {
+        if (!PLUGIN_CAPABILITIES.has(capability)) throw badRequest(`Unsupported plugin capability: ${capability}`);
+      }
+      const integrity = optionalText(value.integrity, "integrity", 71);
+      if (integrity && !/^sha256:[a-f0-9]{64}$/.test(integrity)) {
+        throw badRequest("integrity must use sha256 followed by 64 lowercase hexadecimal characters");
+      }
       return {
         ...common,
-        source: boundedText(value.source, "source", 2_000),
+        source: normalizedPluginUrl(value.source),
         version: optionalText(value.version, "version", 240),
-        capabilities: stringList(value.capabilities, "capabilities", 128, 240),
+        integrity,
+        capabilities,
       };
+    }
     case "mcp":
       return normalizeMcpConfiguration(value, common);
     default:
@@ -423,6 +434,23 @@ function normalizedRemoteUrl(value) {
     throw badRequest("Remote MCP URLs must use https; loopback http is allowed for local development");
   }
   if (url.username || url.password) throw badRequest("MCP URLs must not contain credentials");
+  return url.toString();
+}
+
+function normalizedPluginUrl(value) {
+  const text = boundedText(value, "source", 2_000);
+  let url;
+  try {
+    url = new URL(text);
+  } catch {
+    throw badRequest("source must be a valid absolute URL");
+  }
+  const loopback = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+    throw badRequest("Plugin sources must use https; loopback http is allowed for local development");
+  }
+  if (url.username || url.password) throw badRequest("Plugin sources must not contain credentials");
+  if (url.hash) throw badRequest("Plugin sources must not contain fragments");
   return url.toString();
 }
 

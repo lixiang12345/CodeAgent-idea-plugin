@@ -2,7 +2,7 @@
 
 CodeAgent is an IDE-native AI coding agent for IntelliJ IDEA and other JetBrains IDEs. It combines a separately deployed Agent backend with the open [ContextEngine](https://github.com/lixiang12345/ContextEngine-plugin) retrieval component running locally beside the IDE.
 
-The IDEA plugin is a capability gateway: it owns project access, ContextEngine, approvals, editor actions, terminal execution, and Diff/revert. The deployable backend in `backend/` owns prompts, model credentials, streamed model calls, and tool-call orchestration. See the [prototype parity contract](docs/PROTOTYPE_PARITY.md), [product definition](docs/PRODUCT.md), [Rules and Skills guide](docs/RULES_AND_SKILLS.md), [prompt architecture](docs/PROMPT_ARCHITECTURE.md), [ContextEngine deployment guide](docs/CONTEXT_ENGINE.md), [provider and data flow](docs/PROVIDER_AND_DATA_FLOW.md), and [architecture analysis](docs/ARCHITECTURE.md).
+The IDEA plugin is a capability gateway: it owns project access, ContextEngine, approvals, editor actions, terminal execution, and Diff/revert. The deployable backend in `backend/` owns prompts, model credentials, streamed model calls, and tool-call orchestration. See the [prototype parity contract](docs/PROTOTYPE_PARITY.md), [product definition](docs/PRODUCT.md), [Rules and Skills guide](docs/RULES_AND_SKILLS.md), [prompt architecture](docs/PROMPT_ARCHITECTURE.md), [declarative plugins guide](docs/PLUGINS.md), [ContextEngine deployment guide](docs/CONTEXT_ENGINE.md), [provider and data flow](docs/PROVIDER_AND_DATA_FLOW.md), and [architecture analysis](docs/ARCHITECTURE.md).
 
 ## Run the backend
 
@@ -54,6 +54,8 @@ cd backend && npm test && cd ..
 The installable ZIP is written to `build/distributions/`.
 
 ContextEngine is pinned as a Git submodule and bundled into the local Node sidecar. Its SQLite index and file watcher run on each developer machine. Lexical, symbol, path, graph, and Git-lineage retrieval need no model. CodeAgent does not install or start a local embedding or reranker model; semantic retrieval is an explicit opt-in to an operator- or organization-hosted OpenAI-compatible endpoint and requires an explicit index rebuild. Its MIT license is included in the plugin distribution; see [third-party notices](THIRD_PARTY_NOTICES.md).
+
+CodeAgent plugins are bounded declarative JSON manifests, not executable IDEA plugins. Account configuration records synchronize the source, exact version, integrity pin, and granted capabilities; each IDE installation explicitly validates and caches the manifest before activation. The current runtime consumes namespaced slash-command contributions. Reserved capabilities do not load JVM, Node.js, or shell code.
 
 ## Verify
 
