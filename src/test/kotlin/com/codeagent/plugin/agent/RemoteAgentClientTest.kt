@@ -27,6 +27,8 @@ class RemoteAgentClientTest {
         var toolResultBody = ""
         var backendToolBody = ""
         var jobBody = ""
+        var jobListQuery: String? = null
+        var jobCancelled = false
         var configurationBody = ""
         var configurationDeleted = false
         server.createContext("/health") { exchange ->
@@ -94,15 +96,26 @@ class RemoteAgentClientTest {
         }
         server.createContext("/v1/jobs/job-1") { exchange ->
             jobsAuthorization = exchange.requestHeaders.getFirst("Authorization")
-            val body = """{"id":"job-1","type":"history-summary","status":"completed","output":{"content":"Conversation summary","model":"gpt-5.6-sol"}}""".toByteArray()
-            exchange.sendResponseHeaders(200, body.size.toLong())
+            val body = when (exchange.requestMethod) {
+                "DELETE" -> {
+                    jobCancelled = true
+                    """{"id":"job-1","type":"history-summary","status":"cancelled","input":{"prompt":"Summarize the conversation"},"error":"Cancelled by user"}"""
+                }
+                else -> """{"id":"job-1","type":"history-summary","status":"completed","input":{"prompt":"Summarize the conversation"},"output":{"content":"Conversation summary","model":"gpt-5.6-sol"},"createdAt":"2026-07-14T00:00:00Z","updatedAt":"2026-07-14T00:00:01Z"}"""
+            }.toByteArray()
+            exchange.sendResponseHeaders(if (exchange.requestMethod == "DELETE") 202 else 200, body.size.toLong())
             exchange.responseBody.use { it.write(body) }
         }
         server.createContext("/v1/jobs") { exchange ->
             jobsAuthorization = exchange.requestHeaders.getFirst("Authorization")
-            jobBody = exchange.requestBody.bufferedReader().readText()
-            val body = """{"id":"job-1","type":"history-summary","status":"queued"}""".toByteArray()
-            exchange.sendResponseHeaders(202, body.size.toLong())
+            val body = if (exchange.requestMethod == "GET") {
+                jobListQuery = exchange.requestURI.query
+                """{"data":[{"id":"job-1","type":"history-summary","status":"completed","input":{"prompt":"Summarize the conversation"},"output":{"content":"Conversation summary","model":"gpt-5.6-sol"}}]}""".toByteArray()
+            } else {
+                jobBody = exchange.requestBody.bufferedReader().readText()
+                """{"id":"job-1","type":"history-summary","status":"queued","input":{"prompt":"Summarize the conversation"}}""".toByteArray()
+            }
+            exchange.sendResponseHeaders(if (exchange.requestMethod == "GET") 200 else 202, body.size.toLong())
             exchange.responseBody.use { it.write(body) }
         }
         server.createContext("/v1/configurations/agents/review-agent") { exchange ->
@@ -170,6 +183,8 @@ class RemoteAgentClientTest {
                 RemoteJobRequest("history-summary", RemoteJobInput("Summarize the conversation")),
             ).join()
             val completedJob = client.job(createdJob.id).join()
+            val jobs = client.jobs(25).join()
+            val cancelledJob = client.cancelJob(createdJob.id).join()
             val configurations = client.configurations("agents").join()
             val savedConfiguration = client.putConfiguration(
                 "agents",
@@ -211,6 +226,10 @@ class RemoteAgentClientTest {
             assertTrue(backendToolBody.contains("\"query\":\"CodeAgent\""))
             assertTrue(jobBody.contains("\"type\":\"history-summary\""))
             assertEquals("Conversation summary", completedJob.output?.content)
+            assertEquals("Summarize the conversation", jobs.data.single().input.prompt)
+            assertEquals("limit=25", jobListQuery)
+            assertTrue(jobCancelled)
+            assertEquals("cancelled", cancelledJob.status)
             assertEquals(listOf("review-agent"), configurations.data.map { it.id })
             assertEquals("loop", savedConfiguration.value["agentType"].toString().trim('"'))
             assertTrue(configurationBody.contains("\"systemPrompt\":\"Review twice\""))

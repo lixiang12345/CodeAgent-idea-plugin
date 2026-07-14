@@ -98,4 +98,30 @@ class BridgeProtocolTest {
         assertEquals(true, encoded.contains("\"systemPrompt\":\"Review twice\""))
     }
 
+    @Test
+    fun `encodes durable product jobs in the application snapshot`() {
+        val jobs = ProductJobSnapshotDto(
+            state = "ready",
+            label = "1 durable job",
+            items = listOf(
+                ProductJobDto(
+                    id = "job-1",
+                    type = "subagent",
+                    status = "completed",
+                    prompt = "Review the authentication change",
+                    role = "review",
+                    expectedOutput = "Prioritized findings",
+                    maxOutputTokens = 4096,
+                    model = "gpt-5.6-sol",
+                    output = "Add an expired-token regression test.",
+                ),
+            ),
+        )
+
+        val encoded = json.encodeToString(jobs)
+        assertEquals(true, encoded.contains("\"status\":\"completed\""))
+        assertEquals(true, encoded.contains("\"role\":\"review\""))
+        assertEquals(true, encoded.contains("\"output\":\"Add an expired-token regression test.\""))
+    }
+
 }

@@ -38,6 +38,12 @@ docker compose -f backend/compose.yaml up -d --build
 
 Use streaming `fetch`; browser `EventSource` cannot issue the authenticated JSON `POST` required by `/v1/runs`.
 
+## Durable jobs
+
+Durable analysis uses `POST /v1/jobs` with `type=subagent` or `type=history-summary`. Jobs are persisted before execution, queued again after a backend restart, listed with `GET /v1/jobs`, inspected with `GET /v1/jobs/{id}`, and cancelled with `DELETE /v1/jobs/{id}`. Subagent inputs may select a bounded specialist role, optional context and output contract, model, and a 1,024-16,000 output-token limit.
+
+The IDEA client polls only while its Durable Jobs page contains queued or running work. Completed output can be returned to the conversation composer; retry creates a new persisted job from the prior normalized input, preserving the original record as audit history.
+
 ## SSE events
 
 Each event is an SSE block with an `event` name and one JSON `data` line. Lines beginning with `:` are heartbeats and must be ignored.

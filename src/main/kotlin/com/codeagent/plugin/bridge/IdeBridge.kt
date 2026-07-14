@@ -9,6 +9,9 @@ import com.codeagent.plugin.agent.FileChange
 import com.codeagent.plugin.agent.GitWorkspaceService
 import com.codeagent.plugin.agent.ImageCanvasService
 import com.codeagent.plugin.agent.RemoteContextUpdated
+import com.codeagent.plugin.agent.RemoteJob
+import com.codeagent.plugin.agent.RemoteJobInput
+import com.codeagent.plugin.agent.RemoteJobRequest
 import com.codeagent.plugin.agent.RemoteToolCatalogUpdated
 import com.codeagent.plugin.agent.RemoteVerificationUpdated
 import com.codeagent.plugin.agent.WorkspaceCustomizationService
@@ -92,6 +95,11 @@ class IdeBridge(
 
     @Volatile
     private var configurations = ConfigurationSnapshotDto()
+
+    @Volatile
+    private var productJobs = ProductJobSnapshotDto()
+
+    private var productJobsGeneration = 0L
 
     @Volatile
     private var account = AccountSnapshotDto()
@@ -219,6 +227,19 @@ class IdeBridge(
             "saveSettings" -> saveSettings(requireNotNull(command.payload) { "saveSettings requires payload" })
             "signIn" -> signIn()
             "signOut" -> signOut()
+            "refreshJobs" -> refreshJobs()
+            "createJob" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<CreateJobPayload>(it) }
+                createProductJob(request)
+            }
+            "cancelJob" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<JobPayload>(it) }
+                cancelProductJob(request.jobId)
+            }
+            "retryJob" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<JobPayload>(it) }
+                retryProductJob(request.jobId)
+            }
             "refreshConfigurations" -> refreshConfigurations()
             "saveConfiguration" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<SaveConfigurationPayload>(it) }
@@ -805,6 +826,7 @@ class IdeBridge(
                 models = modelRegistry.copy(selectedModel = active.selectedModelId ?: modelRegistry.defaultModel),
                 backendTools = backendTools,
                 configurations = configurations,
+                jobs = productJobs,
                 customization = WorkspaceCustomizationDto(
                     rules = customization.rules.map { rule ->
                         WorkspaceRuleDto(
@@ -972,6 +994,7 @@ class IdeBridge(
                 refreshModels()
                 refreshBackendTools()
                 refreshConfigurations()
+                refreshJobs()
                 restoreCloudConversations(response.user.id)
             }
         }
@@ -1026,9 +1049,11 @@ class IdeBridge(
         syncedAccountUserId != null && account.userId == syncedAccountUserId
 
     private fun clearAuthenticatedCapabilities(label: String) {
+        synchronized(stateLock) { productJobsGeneration += 1 }
         modelRegistry = ModelRegistryDto(state = "error", label = label)
         backendTools = emptyList()
         configurations = ConfigurationSnapshotDto(state = "unavailable", label = label)
+        productJobs = ProductJobSnapshotDto(state = "unavailable", label = label)
     }
 
     private fun refreshModels() {
@@ -1110,6 +1135,113 @@ class IdeBridge(
             emitSnapshot()
         }
     }
+
+    private fun refreshJobs() {
+        val generation = synchronized(stateLock) {
+            productJobsGeneration += 1
+            productJobsGeneration
+        }
+        productJobs = productJobs.copy(state = "loading", label = "Loading durable jobs")
+        emitSnapshot()
+        agent.jobs().whenComplete { response, error ->
+            val current = synchronized(stateLock) { generation == productJobsGeneration }
+            if (!current) return@whenComplete
+            productJobs = if (error != null) {
+                ProductJobSnapshotDto(
+                    state = "error",
+                    label = error.rootMessage(),
+                    items = productJobs.items,
+                )
+            } else {
+                val items = response.data.map { it.toDto() }
+                ProductJobSnapshotDto(
+                    state = "ready",
+                    label = if (items.isEmpty()) "No durable jobs" else "${items.size} durable jobs",
+                    items = items,
+                )
+            }
+            emitSnapshot()
+        }
+    }
+
+    private fun createProductJob(request: CreateJobPayload) {
+        require(request.prompt.isNotBlank()) { "Job task is required" }
+        require(request.role in SUBAGENT_ROLES) { "Unsupported subagent role: ${request.role}" }
+        productJobs = productJobs.copy(state = "loading", label = "Creating ${request.role} job")
+        emitSnapshot()
+        agent.createJob(
+            RemoteJobRequest(
+                type = "subagent",
+                input = RemoteJobInput(
+                    prompt = request.prompt.trim(),
+                    model = request.model?.trim()?.takeIf(String::isNotEmpty),
+                    role = request.role,
+                    context = request.context?.trim()?.takeIf(String::isNotEmpty),
+                    expectedOutput = request.expectedOutput?.trim()?.takeIf(String::isNotEmpty),
+                    maxOutputTokens = request.maxOutputTokens,
+                ),
+            ),
+        ).whenComplete { job, error ->
+            if (error != null) {
+                productJobs = ProductJobSnapshotDto(
+                    state = "error",
+                    label = error.rootMessage(),
+                    items = productJobs.items,
+                )
+                emitSnapshot()
+                emit("error", mapOf("message" to error.rootMessage()))
+            } else {
+                emit("notice", mapOf("message" to "Started ${job.roleLabel()} job"))
+                refreshJobs()
+            }
+        }
+    }
+
+    private fun cancelProductJob(jobId: String) {
+        require(jobId.isNotBlank()) { "Job ID is required" }
+        agent.cancelJob(jobId).whenComplete { _, error ->
+            if (error != null) {
+                emit("error", mapOf("message" to error.rootMessage()))
+            } else {
+                emit("notice", mapOf("message" to "Cancelled durable job"))
+                refreshJobs()
+            }
+        }
+    }
+
+    private fun retryProductJob(jobId: String) {
+        val job = productJobs.items.firstOrNull { it.id == jobId }
+            ?: error("Job no longer exists in the current snapshot")
+        createProductJob(
+            CreateJobPayload(
+                prompt = job.prompt,
+                role = job.role ?: "research",
+                context = job.context,
+                expectedOutput = job.expectedOutput,
+                maxOutputTokens = job.maxOutputTokens,
+                model = job.model,
+            ),
+        )
+    }
+
+    private fun RemoteJob.toDto() = ProductJobDto(
+        id = id,
+        type = type,
+        status = status,
+        prompt = input.prompt,
+        role = input.role ?: output?.role,
+        context = input.context,
+        expectedOutput = input.expectedOutput,
+        maxOutputTokens = input.maxOutputTokens,
+        model = input.model ?: output?.model,
+        output = output?.content,
+        error = error,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+    )
+
+    private fun RemoteJob.roleLabel(): String =
+        (input.role ?: output?.role ?: type).replace('-', ' ')
 
     private fun saveConfiguration(request: SaveConfigurationPayload) {
         configurations = configurations.copy(state = "loading", label = "Saving ${request.id}")
@@ -1521,11 +1653,25 @@ class IdeBridge(
         val id: String,
     )
 
+    @Serializable
+    private data class CreateJobPayload(
+        val prompt: String,
+        val role: String = "research",
+        val context: String? = null,
+        val expectedOutput: String? = null,
+        val maxOutputTokens: Int? = null,
+        val model: String? = null,
+    )
+
+    @Serializable
+    private data class JobPayload(val jobId: String)
+
     companion object {
         private val LOG = logger<IdeBridge>()
         private const val MAX_THREAD_IMPORT_BYTES = 2_000_000L
         private const val MAX_QUEUED_MESSAGES = 10
         private val BUILT_IN_AGENT_PROFILES = setOf("general", "search", "context", "prompt", "loop")
         private val CONFIGURATION_KINDS = listOf("mcp", "hooks", "commands", "agents", "plugins", "tool-permissions")
+        private val SUBAGENT_ROLES = setOf("research", "review", "test", "security", "planner")
     }
 }

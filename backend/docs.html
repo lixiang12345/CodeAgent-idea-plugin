@@ -73,6 +73,9 @@
       <div class="endpoint"><b class="method">GET</b><code>/v1/models</code><span>后端允许使用的模型清单</span></div>
       <div class="endpoint"><b class="method">GET</b><code>/v1/tools</code><span>后端集成工具和配置状态</span></div>
       <div class="endpoint"><b class="method post">POST</b><code>/v1/tools/{toolName}</code><span>执行已配置的后端集成工具</span></div>
+      <div class="endpoint"><b class="method">GET</b><code>/v1/jobs</code><span>读取可恢复的 Subagent 与历史摘要任务</span></div>
+      <div class="endpoint"><b class="method post">POST</b><code>/v1/jobs</code><span>创建持久化异步任务</span></div>
+      <div class="endpoint"><b class="method delete">DELETE</b><code>/v1/jobs/{id}</code><span>取消排队中或运行中的任务</span></div>
       <div class="endpoint"><b class="method">GET</b><code>/v1/configurations/{kind}</code><span>读取 MCP、命令、Hook、Agent、插件和工具权限配置</span></div>
       <div class="endpoint"><b class="method post">PUT</b><code>/v1/configurations/{kind}/{id}</code><span>校验并保存账号级产品配置</span></div>
       <div class="endpoint"><b class="method delete">DELETE</b><code>/v1/configurations/{kind}/{id}</code><span>删除产品配置</span></div>

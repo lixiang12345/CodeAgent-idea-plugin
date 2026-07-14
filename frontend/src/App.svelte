@@ -15,6 +15,7 @@
     type ImageCanvasSnapshot,
     type MessageDelta,
     type Mode,
+    type ProductJob,
     type ToolRun,
     type WorkspaceRule,
     type WorkspaceSkill,
@@ -96,7 +97,7 @@
 
   let snapshot: AppSnapshot | null = null;
   let prompt = "";
-  type WorkspaceView = "chat" | "settings" | "mermaid" | "git" | "tasks" | "images" | "tools" | "icons" | "edits" | "feedback";
+  type WorkspaceView = "chat" | "settings" | "mermaid" | "git" | "tasks" | "jobs" | "images" | "tools" | "icons" | "edits" | "feedback";
   let currentView: WorkspaceView = "chat";
   let settingsSection = "Home";
   let settingsNavigationOpen = true;
@@ -135,6 +136,14 @@
   let threadOptOpen = false;
   let taskFilter: "all" | "pending" | "running" | "done" = "all";
   let newTaskName = "";
+  let jobFilter: "all" | "active" | "completed" | "failed" = "all";
+  let jobPrompt = "";
+  let jobRole: NonNullable<ProductJob["role"]> = "research";
+  let jobContext = "";
+  let jobExpectedOutput = "";
+  let jobMaxOutputTokens = 4096;
+  let jobModel = "";
+  let creatingJob = false;
   let commitMessage = "";
   let gitLoading = false;
   let gitSnapshot: GitSnapshot = { available: false, branch: "", repository: "", unstaged: [], staged: [] };
@@ -156,7 +165,14 @@
   onMount(() => {
     const unsubscribe = onHostEvent(handleEvent);
     sendCommand("bootstrap");
-    return unsubscribe;
+    const jobPoller = window.setInterval(() => {
+      const hasActiveJobs = snapshot?.jobs.items.some((job) => job.status === "queued" || job.status === "running");
+      if (currentView === "jobs" && hasActiveJobs) sendCommand("refreshJobs");
+    }, 2000);
+    return () => {
+      window.clearInterval(jobPoller);
+      unsubscribe();
+    };
   });
 
   function handleEvent(event: EventEnvelope) {
@@ -171,6 +187,7 @@
       contextNeuralRerank = snapshot.settings.contextNeuralRerank;
       contextRerankBaseUrl = snapshot.settings.contextRerankBaseUrl;
       contextRerankModel = snapshot.settings.contextRerankModel;
+      if (snapshot.jobs.state !== "loading") creatingJob = false;
       return;
     }
     if (event.type === "error") {
@@ -445,6 +462,7 @@
     }
     if (view === "images") sendCommand("refreshImageCanvas");
     if (view === "edits") sendCommand("listCheckpoints");
+    if (view === "jobs") sendCommand("refreshJobs");
   }
 
   function beginRename() {
@@ -526,6 +544,43 @@
     if (taskFilter === "pending") return snapshot.tasks.filter((task) => task.state === "not_started");
     if (taskFilter === "running") return snapshot.tasks.filter((task) => task.state === "in_progress");
     return snapshot.tasks.filter((task) => task.state === "completed" || task.state === "cancelled");
+  }
+
+  function filteredJobs() {
+    if (!snapshot || jobFilter === "all") return snapshot?.jobs.items ?? [];
+    if (jobFilter === "active") return snapshot.jobs.items.filter((job) => job.status === "queued" || job.status === "running");
+    if (jobFilter === "completed") return snapshot.jobs.items.filter((job) => job.status === "completed");
+    return snapshot.jobs.items.filter((job) => job.status === "failed" || job.status === "cancelled");
+  }
+
+  function createJob() {
+    const task = jobPrompt.trim();
+    if (!task || creatingJob) return;
+    creatingJob = true;
+    sendCommand("createJob", {
+      prompt: task,
+      role: jobRole,
+      context: jobContext.trim() || null,
+      expectedOutput: jobExpectedOutput.trim() || null,
+      maxOutputTokens: jobMaxOutputTokens,
+      model: jobModel || null,
+    });
+    jobPrompt = "";
+    jobContext = "";
+    jobExpectedOutput = "";
+  }
+
+  function formatJobTime(value?: string) {
+    if (!value) return "time unavailable";
+    const timestamp = Date.parse(value);
+    return Number.isFinite(timestamp) ? new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" }).format(timestamp) : value;
+  }
+
+  function useJobOutput(job: ProductJob) {
+    if (!job.output) return;
+    prompt = job.output;
+    currentView = "chat";
+    notice = "Job result added to the composer";
   }
 
   function addTask() {
@@ -715,7 +770,7 @@
   <main
     class="shell"
     class:settings-active={currentView === "settings"}
-    class:canvas-active={currentView === "mermaid" || currentView === "images" || currentView === "tools" || currentView === "icons" || currentView === "edits" || currentView === "feedback"}
+    class:canvas-active={currentView === "mermaid" || currentView === "jobs" || currentView === "images" || currentView === "tools" || currentView === "icons" || currentView === "edits" || currentView === "feedback"}
     style={`--chat-zoom:${chatZoom / 100}`}
   >
     <header class="app-header tw-head">
@@ -739,6 +794,7 @@
                 <button class="danger" onclick={() => { const id = activeThread()?.id; if (id) sendCommand("deleteThread", { threadId: id }); closeMenus(); }}><Icon name="trash" size={14} /><span>Delete</span></button>
                 <div class="menu-sep"></div>
                 <button onclick={() => openWorkspaceView("tasks")}><Icon name="list-checks" size={14} /><span>Agent Tasklist</span></button>
+                <button onclick={() => openWorkspaceView("jobs")}><Icon name="bot" size={14} /><span>Durable Jobs</span></button>
                 <button onclick={() => openWorkspaceView("edits")}><Icon name="file-diff" size={14} /><span>Agent Edits</span></button>
                 <button onclick={() => openWorkspaceView("git")}><Icon name="git-branch" size={14} /><span>Git Changes</span></button>
                 <button onclick={() => openWorkspaceView("images")}><Icon name="layers-2" size={14} /><span>Context Canvas</span></button>
@@ -1483,6 +1539,79 @@
               <div class="workspace-empty"><Icon name="list-checks" size={20} /><strong>Get Started with Tasks</strong><p>Break Agent work into runnable steps.</p></div>
             {/each}
           </div>
+        </div>
+      </section>
+    {:else if currentView === "jobs"}
+      <section class="workspace-view">
+        <header class="canvas-header ov-h">
+          <button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><Icon name="chevron-left" size={15} /></button>
+          <Icon name="bot" size={14} />
+          <strong>Durable Jobs</strong>
+          <span class="workspace-count">{snapshot.jobs.items.filter((job) => job.status === "queued" || job.status === "running").length} active</span>
+          <button class="icon-button compact" title="Refresh durable jobs" onclick={() => sendCommand("refreshJobs")}><Icon name="refresh-ccw" size={13} /></button>
+        </header>
+        <div class="workspace-body jobs-workspace">
+          <section class="workspace-section job-compose">
+            <header><div><strong>Delegate bounded work</strong><small>Runs independently and survives IDE or backend restarts.</small></div></header>
+            <form onsubmit={(event) => { event.preventDefault(); createJob(); }}>
+              <div class="job-form-grid">
+                <label><span>Specialist role</span><select bind:value={jobRole}><option value="research">Research</option><option value="review">Review</option><option value="test">Test</option><option value="security">Security</option><option value="planner">Planner</option></select></label>
+                <label><span>Model</span><select bind:value={jobModel}><option value="">Backend default</option>{#each snapshot.models.options as model}<option value={model.id}>{model.id}</option>{/each}</select></label>
+                <label class="wide"><span>Task</span><textarea bind:value={jobPrompt} maxlength="100000" placeholder="Describe one self-contained delegated task" spellcheck="true"></textarea></label>
+                <label class="wide"><span>Context</span><textarea bind:value={jobContext} maxlength="30000" placeholder="Optional evidence or constraints the specialist needs" spellcheck="true"></textarea></label>
+                <label class="wide"><span>Expected output</span><input bind:value={jobExpectedOutput} maxlength="4000" placeholder="For example: prioritized findings with file evidence" /></label>
+                <label><span>Output token limit</span><input type="number" min="1024" max="16000" step="512" bind:value={jobMaxOutputTokens} /></label>
+              </div>
+              <footer><button class="primary" disabled={creatingJob || !jobPrompt.trim() || jobMaxOutputTokens < 1024 || jobMaxOutputTokens > 16000}><Icon name="play" size={12} />{creatingJob ? "Starting" : "Start job"}</button></footer>
+            </form>
+          </section>
+          <div class="workspace-actions jobs-actions">
+            <div class="segmented-control">
+              <button class:active={jobFilter === "all"} onclick={() => jobFilter = "all"}>All</button>
+              <button class:active={jobFilter === "active"} onclick={() => jobFilter = "active"}>Active</button>
+              <button class:active={jobFilter === "completed"} onclick={() => jobFilter = "completed"}>Completed</button>
+              <button class:active={jobFilter === "failed"} onclick={() => jobFilter = "failed"}>Failed</button>
+            </div>
+            <span class:error={snapshot.jobs.state === "error"}>{snapshot.jobs.label}</span>
+          </div>
+          {#if (snapshot.jobs.state === "unavailable" || snapshot.jobs.state === "error") && snapshot.jobs.items.length === 0}
+            <div class="workspace-empty"><Icon name="circle-alert" size={20} /><strong>Durable jobs unavailable</strong><p>{snapshot.jobs.label}</p></div>
+          {:else}
+            <div class="job-list">
+              {#each filteredJobs() as job (job.id)}
+                <article class="job-row {job.status}">
+                  <header>
+                    <span class="job-status-icon"><Icon name={job.status === "completed" ? "circle-check" : job.status === "failed" || job.status === "cancelled" ? "circle-alert" : "circle-dashed"} size={14} /></span>
+                    <strong>{job.type === "history-summary" ? "History summary" : `${job.role ?? "research"} subagent`}</strong>
+                    <i>{job.status}</i>
+                    <time>{formatJobTime(job.updatedAt ?? job.createdAt)}</time>
+                  </header>
+                  <p>{job.prompt}</p>
+                  <div class="job-meta">
+                    {#if job.model}<span><Icon name="cpu" size={11} />{job.model}</span>{/if}
+                    {#if job.maxOutputTokens}<span>{job.maxOutputTokens} max tokens</span>{/if}
+                    <span>{job.id.slice(0, 8)}</span>
+                  </div>
+                  {#if job.context || job.expectedOutput}
+                    <details>
+                      <summary>Delegation details</summary>
+                      {#if job.context}<div><strong>Context</strong><p>{job.context}</p></div>{/if}
+                      {#if job.expectedOutput}<div><strong>Expected output</strong><p>{job.expectedOutput}</p></div>{/if}
+                    </details>
+                  {/if}
+                  {#if job.output}<pre>{job.output}</pre>{/if}
+                  {#if job.error}<div class="job-error"><Icon name="circle-alert" size={12} /><span>{job.error}</span></div>{/if}
+                  <footer>
+                    {#if job.status === "queued" || job.status === "running"}<button class="danger" onclick={() => sendCommand("cancelJob", { jobId: job.id })}><Icon name="square" size={11} />Cancel</button>{/if}
+                    {#if job.status === "completed" || job.status === "failed" || job.status === "cancelled"}<button onclick={() => sendCommand("retryJob", { jobId: job.id })}><Icon name="refresh-ccw" size={11} />Retry</button>{/if}
+                    {#if job.output}<button class="primary" onclick={() => useJobOutput(job)}><Icon name="copy" size={11} />Use result</button>{/if}
+                  </footer>
+                </article>
+              {:else}
+                <div class="workspace-empty"><Icon name="bot" size={20} /><strong>No matching durable jobs</strong><p>Create a bounded specialist task or change the status filter.</p></div>
+              {/each}
+            </div>
+          {/if}
         </div>
       </section>
     {:else if currentView === "images"}

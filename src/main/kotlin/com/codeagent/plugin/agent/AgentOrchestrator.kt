@@ -127,6 +127,15 @@ class AgentOrchestrator(private val project: Project) : Disposable {
 
     internal fun tools(): CompletableFuture<RemoteToolsResponse> = withClient(RemoteAgentClient::tools)
 
+    internal fun jobs(limit: Int = 50): CompletableFuture<RemoteJobList> =
+        withClient { it.jobs(limit) }
+
+    internal fun createJob(request: RemoteJobRequest): CompletableFuture<RemoteJob> =
+        withClient { it.createJob(request) }
+
+    internal fun cancelJob(id: String): CompletableFuture<RemoteJob> =
+        withClient { it.cancelJob(id) }
+
     internal fun configurations(kind: String): CompletableFuture<RemoteConfigurationList> =
         withClient { it.configurations(kind) }
 

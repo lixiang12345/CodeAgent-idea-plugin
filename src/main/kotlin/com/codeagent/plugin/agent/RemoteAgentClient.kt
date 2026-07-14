@@ -110,12 +110,34 @@ internal class RemoteAgentClient(
         }
     }
 
+    fun jobs(limit: Int = 50): CompletableFuture<RemoteJobList> {
+        require(limit in 1..100) { "Job limit must be between 1 and 100" }
+        val uri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/jobs?limit=$limit")
+        return httpClient.sendAsync(
+            requestBuilder(uri).timeout(Duration.ofSeconds(30)).GET().build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            if (response.statusCode() != 200) throw remoteHttpError("Job discovery", response)
+            json.decodeFromString<RemoteJobList>(response.body())
+        }
+    }
+
     fun job(id: String): CompletableFuture<RemoteJob> {
         return httpClient.sendAsync(
             requestBuilder(jobUri(id)).timeout(Duration.ofSeconds(30)).GET().build(),
             HttpResponse.BodyHandlers.ofString(),
         ).thenApply { response ->
             if (response.statusCode() != 200) throw remoteHttpError("Job read", response)
+            json.decodeFromString<RemoteJob>(response.body())
+        }
+    }
+
+    fun cancelJob(id: String): CompletableFuture<RemoteJob> {
+        return httpClient.sendAsync(
+            requestBuilder(jobUri(id)).timeout(Duration.ofSeconds(30)).DELETE().build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            if (response.statusCode() != 202) throw remoteHttpError("Job cancellation", response)
             json.decodeFromString<RemoteJob>(response.body())
         }
     }
@@ -585,8 +607,11 @@ internal data class RemoteJob(
     val id: String,
     val type: String,
     val status: String,
+    val input: RemoteJobInput = RemoteJobInput(prompt = ""),
     val output: RemoteJobOutput? = null,
     val error: String? = null,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
 )
 
 @Serializable
@@ -594,6 +619,11 @@ internal data class RemoteJobOutput(
     val content: String,
     val model: String? = null,
     val role: String? = null,
+)
+
+@Serializable
+internal data class RemoteJobList(
+    val data: List<RemoteJob> = emptyList(),
 )
 
 @Serializable

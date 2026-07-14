@@ -238,6 +238,30 @@ data class ConfigurationSnapshotDto(
 )
 
 @Serializable
+data class ProductJobDto(
+    val id: String,
+    val type: String,
+    val status: String,
+    val prompt: String,
+    val role: String? = null,
+    val context: String? = null,
+    val expectedOutput: String? = null,
+    val maxOutputTokens: Int? = null,
+    val model: String? = null,
+    val output: String? = null,
+    val error: String? = null,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+)
+
+@Serializable
+data class ProductJobSnapshotDto(
+    val state: String = "unavailable",
+    val label: String = "Durable jobs unavailable",
+    val items: List<ProductJobDto> = emptyList(),
+)
+
+@Serializable
 data class WorkspaceRuleDto(
     val id: String,
     val name: String,
@@ -285,5 +309,6 @@ data class AppSnapshotDto(
     val models: ModelRegistryDto = ModelRegistryDto(),
     val backendTools: List<BackendToolDto> = emptyList(),
     val configurations: ConfigurationSnapshotDto = ConfigurationSnapshotDto(),
+    val jobs: ProductJobSnapshotDto = ProductJobSnapshotDto(),
     val customization: WorkspaceCustomizationDto = WorkspaceCustomizationDto(),
 )

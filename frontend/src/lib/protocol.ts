@@ -172,6 +172,30 @@ export interface ConfigurationSnapshot {
   items: Partial<Record<ConfigurationKind, ProductConfiguration[]>>;
 }
 
+export type ProductJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+
+export interface ProductJob {
+  id: string;
+  type: "subagent" | "history-summary";
+  status: ProductJobStatus;
+  prompt: string;
+  role?: "research" | "review" | "test" | "security" | "planner";
+  context?: string;
+  expectedOutput?: string;
+  maxOutputTokens?: number;
+  model?: string;
+  output?: string;
+  error?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ProductJobSnapshot {
+  state: "unavailable" | "loading" | "ready" | "error";
+  label: string;
+  items: ProductJob[];
+}
+
 export interface WorkspaceRule {
   id: string;
   name: string;
@@ -223,6 +247,7 @@ export interface AppSnapshot {
   models: ModelRegistry;
   backendTools: BackendToolCapability[];
   configurations: ConfigurationSnapshot;
+  jobs: ProductJobSnapshot;
   customization: {
     rules: WorkspaceRule[];
     skills: WorkspaceSkill[];
@@ -527,6 +552,36 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
           },
         ],
       },
+    },
+    jobs: {
+      state: "ready",
+      label: "2 durable jobs",
+      items: [
+        {
+          id: "job-review",
+          type: "subagent",
+          status: "completed",
+          prompt: "Review the authentication change for regressions and missing tests.",
+          role: "review",
+          expectedOutput: "Prioritized findings with file evidence.",
+          maxOutputTokens: 4096,
+          model: "gpt-5.6-sol",
+          output: "No blocking regressions found. Add one expired-token integration test.",
+          createdAt: new Date(Date.now() - 120_000).toISOString(),
+          updatedAt: new Date(Date.now() - 90_000).toISOString(),
+        },
+        {
+          id: "job-security",
+          type: "subagent",
+          status: "running",
+          prompt: "Inspect JWT trust boundaries and secret handling.",
+          role: "security",
+          maxOutputTokens: 4096,
+          model: "claude-fable-5",
+          createdAt: new Date(Date.now() - 20_000).toISOString(),
+          updatedAt: new Date(Date.now() - 5_000).toISOString(),
+        },
+      ],
     },
     customization: {
       rules: [

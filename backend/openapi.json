@@ -181,6 +181,94 @@
       }
     },
 
+    "/v1/jobs": {
+      "get": {
+        "summary": "List durable product jobs",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Most recent durable jobs",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ProductJobList" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      },
+      "post": {
+        "summary": "Create a durable subagent or history-summary job",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ProductJobRequest" }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Job accepted and queued",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ProductJob" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/v1/jobs/{id}": {
+      "get": {
+        "summary": "Read a durable job",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "maxLength": 200 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Durable job state and output",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ProductJob" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "summary": "Cancel a queued or running durable job",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "maxLength": 200 } }
+        ],
+        "responses": {
+          "202": {
+            "description": "Cancellation accepted or terminal job returned unchanged",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ProductJob" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/v1/configurations/{kind}": {
       "get": {
         "summary": "List typed product configuration records",
@@ -886,6 +974,69 @@
           "detail": {
             "type": "string"
           }
+        },
+        "additionalProperties": false
+      },
+      "ProductJobRequest": {
+        "type": "object",
+        "required": ["type", "input"],
+        "properties": {
+          "type": { "type": "string", "enum": ["subagent", "history-summary"] },
+          "input": { "$ref": "#/components/schemas/ProductJobInput" }
+        },
+        "additionalProperties": false
+      },
+      "ProductJobList": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ProductJob" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProductJob": {
+        "type": "object",
+        "required": ["id", "type", "status", "input", "output", "error", "createdAt", "updatedAt"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "type": "string", "enum": ["subagent", "history-summary"] },
+          "status": { "type": "string", "enum": ["queued", "running", "completed", "failed", "cancelled"] },
+          "input": { "$ref": "#/components/schemas/ProductJobInput" },
+          "output": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/ProductJobOutput" },
+              { "type": "null" }
+            ]
+          },
+          "error": { "type": ["string", "null"] },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      },
+      "ProductJobInput": {
+        "type": "object",
+        "required": ["prompt"],
+        "properties": {
+          "prompt": { "type": "string", "minLength": 1, "maxLength": 100000 },
+          "system": { "type": ["string", "null"], "maxLength": 100000 },
+          "model": { "type": ["string", "null"], "maxLength": 240 },
+          "role": { "type": ["string", "null"], "enum": ["research", "review", "test", "security", "planner", null] },
+          "context": { "type": ["string", "null"], "maxLength": 30000 },
+          "expectedOutput": { "type": ["string", "null"], "maxLength": 4000 },
+          "maxOutputTokens": { "type": ["integer", "null"], "minimum": 1024, "maximum": 16000 }
+        }
+      },
+      "ProductJobOutput": {
+        "type": "object",
+        "required": ["content"],
+        "properties": {
+          "content": { "type": "string" },
+          "model": { "type": ["string", "null"] },
+          "role": { "type": ["string", "null"], "enum": ["research", "review", "test", "security", "planner", null] }
         },
         "additionalProperties": false
       },
