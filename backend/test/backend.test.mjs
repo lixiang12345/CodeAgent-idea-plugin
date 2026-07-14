@@ -1,16 +1,19 @@
 import assert from "node:assert/strict";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { once } from "node:events";
+import { createServer } from "node:http";
 import test from "node:test";
+import { SignJWT, exportJWK } from "jose";
 import { createCodeAgentServer } from "../src/server.mjs";
+import { createAuthenticatorFromEnv } from "../src/auth.mjs";
 import { AgentRunner, validateRunRequest } from "../src/agent-runner.mjs";
 import {
   AnthropicMessagesGateway,
-  GeminiGateway,
-  OpenAIChatGateway,
   OpenAIResponsesGateway,
   createModelGatewayFromEnv,
 } from "../src/model-gateway.mjs";
 import { composeSystemPrompt } from "../src/prompt.mjs";
+import { MemoryProductStore } from "../src/product-store.mjs";
 
 test("composes server-owned policy before repository customization", () => {
   const prompt = composeSystemPrompt({
@@ -187,6 +190,12 @@ test("serves the public OpenAPI contract", async () => {
     assert.ok(contract.paths["/v1/tools/{toolName}"].post);
     assert.ok(contract.paths["/v1/runs/{runId}/tool-results"]);
     assert.ok(contract.paths["/v1/runs/{runId}"].delete);
+    assert.ok(contract.paths["/v1/auth/config"].get);
+    assert.ok(contract.paths["/v1/auth/authorize"].get);
+    assert.ok(contract.paths["/v1/auth/token"].post);
+    assert.ok(contract.paths["/v1/auth/logout"].post);
+    assert.ok(contract.paths["/v1/me"].get);
+    assert.equal(contract.paths["/v1/me"].get.responses["200"].content["application/json"].schema.$ref, "#/components/schemas/AccountResponse");
     assert.equal(contract.components.schemas.MessageDeltaEvent.required.includes("turnIndex"), true);
     assert.equal(contract.components.schemas.ToolRequestEvent.required.includes("turnIndex"), true);
     assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["run.error"].$ref, "#/components/schemas/RunErrorEvent");
@@ -241,56 +250,6 @@ test("allows configured browser origins and rejects other preflights", async () 
   }
 });
 
-test("parses CRLF model SSE across chunk boundaries", async () => {
-  const encoder = new TextEncoder();
-  const chunks = [
-    "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\r",
-    "\n\r\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{}\"}}]}}]}\r\n\r\n",
-    "data: [DONE]\r\n\r\n",
-  ];
-  const gateway = new OpenAIChatGateway({
-    endpoint: "https://model.test/v1",
-    apiKey: "test",
-    model: "test-model",
-    fetchImpl: async () => new Response(new ReadableStream({
-      start(controller) {
-        chunks.forEach((chunk) => controller.enqueue(encoder.encode(chunk)));
-        controller.close();
-      },
-    }), { headers: { "content-type": "text/event-stream" } }),
-  });
-  const deltas = [];
-  const result = await gateway.stream({
-    messages: [{ role: "user", content: "Test" }],
-    tools: [],
-    signal: new AbortController().signal,
-    onTextDelta: (delta) => deltas.push(delta),
-  });
-
-  assert.deepEqual(deltas, ["Hello"]);
-  assert.equal(result.content, "Hello");
-  assert.deepEqual(result.toolCalls, [{ id: "call-1", name: "read_file", arguments: "{}" }]);
-});
-
-test("discovers OpenAI-compatible models and keeps protocol selection separate from model names", async () => {
-  const requests = [];
-  const gateway = createModelGatewayFromEnv({
-    MODEL_PROVIDER: "openai-compatible",
-    MODEL_ENDPOINT: "https://gateway.test/v1",
-    MODEL_API_KEY: "secret",
-    MODEL: "claude-via-openai",
-  }, async (url, options = {}) => {
-    requests.push({ url, options });
-    return Response.json({ object: "list", data: [{ id: "claude-via-openai" }, { id: "grok-via-openai" }] });
-  });
-
-  const models = await gateway.listModels();
-
-  assert.equal(gateway.provider, "openai-compatible");
-  assert.deepEqual(models.map((model) => model.id), ["claude-via-openai", "grok-via-openai"]);
-  assert.equal(requests[0].url, "https://gateway.test/v1/models");
-  assert.equal(requests[0].options.headers.authorization, "Bearer secret");
-});
 
 test("normalizes OpenAI Responses streaming and function call events", async () => {
   let captured;
@@ -332,26 +291,93 @@ test("normalizes OpenAI Responses streaming and function call events", async () 
   assert.deepEqual(result.toolCalls, [{ id: "call-2", name: "diagnostics", arguments: "{\"path\":\"README.md\"}" }]);
 });
 
-test("builds the fixed multi-provider model registry from environment routes", async () => {
+
+test("routes a unified native gateway from only Base URL and API key", async () => {
+  const requests = [];
   const gateway = createModelGatewayFromEnv({
-    MODEL: "gpt-5.6-sol",
-    MODEL_ENDPOINT: "https://gateway.test",
-    OPENAI_API_KEY: "gpt-secret",
-    OPENAI_MODELS: "gpt-5.6-sol",
-    ANTHROPIC_API_KEY: "claude-secret",
-    ANTHROPIC_MODELS: "claude-fable-5,claude-opus-4-8,claude-sonnet-5",
-    GROK_API_KEY: "grok-secret",
-    GROK_MODELS: "grok-4.5",
+    MODEL_BASE_URL: "https://gateway.test",
+    MODEL_API_KEY: "unified-secret",
+  }, async (url, options = {}) => {
+    requests.push({ url, options });
+    if (url.endsWith("/v1/models")) {
+      return Response.json({
+        data: [
+          { id: "gpt-test", provider: "openai", protocol: "openai-responses" },
+          { id: "claude-test", provider: "anthropic", protocol: "anthropic-messages" },
+          { id: "grok-test", provider: "xai", protocol: "xai-responses" },
+        ],
+      });
+    }
+    if (url.endsWith("/v1/responses")) {
+      return Response.json({ output: [{ type: "message", content: [{ type: "output_text", text: "xAI response" }] }] });
+    }
+    return Response.json({ content: [{ type: "text", text: "Native response" }] });
   });
 
-  assert.equal(gateway.provider, "multi-provider");
-  assert.deepEqual((await gateway.listModels()).map((model) => model.id), [
-    "gpt-5.6-sol",
-    "claude-fable-5",
-    "claude-opus-4-8",
-    "claude-sonnet-5",
-    "grok-4.5",
+  const models = await gateway.listModels();
+  const result = await gateway.stream({
+    messages: [{ role: "user", content: "Test" }],
+    tools: [],
+    model: "claude-test",
+    signal: new AbortController().signal,
+    onTextDelta: () => {},
+  });
+  const xaiResult = await gateway.stream({
+    messages: [{ role: "user", content: "Test xAI" }],
+    tools: [],
+    model: "grok-test",
+    signal: new AbortController().signal,
+    onTextDelta: () => {},
+  });
+
+  assert.equal(gateway.provider, "unified-native");
+  assert.deepEqual(models.map(({ id, ownedBy, protocol }) => ({ id, ownedBy, protocol })), [
+    { id: "claude-test", ownedBy: "anthropic", protocol: "anthropic-messages" },
+    { id: "gpt-test", ownedBy: "openai", protocol: "openai-responses" },
+    { id: "grok-test", ownedBy: "xai", protocol: "xai-responses" },
   ]);
+  assert.equal(requests[0].options.headers.authorization, "Bearer unified-secret");
+  assert.equal(requests[1].url, "https://gateway.test/v1/messages");
+  assert.equal(requests[1].options.headers["x-api-key"], "unified-secret");
+  assert.equal(requests[2].url, "https://gateway.test/v1/responses");
+  assert.equal(requests[2].options.headers.authorization, "Bearer unified-secret");
+  assert.equal(xaiResult.content, "xAI response");
+  assert.equal(result.content, "Native response");
+});
+
+test("rejects unified gateway models without native protocol metadata", async () => {
+  const gateway = createModelGatewayFromEnv({
+    MODEL_BASE_URL: "https://gateway.test",
+    MODEL_API_KEY: "unified-secret",
+  }, async () => Response.json({ data: [{ id: "unknown-model" }] }));
+
+  await assert.rejects(() => gateway.listModels(), /missing supported provider\/protocol metadata/);
+});
+
+test("requires an API key for the unified model gateway", () => {
+  assert.throws(
+    () => createModelGatewayFromEnv({ MODEL_BASE_URL: "https://gateway.test" }),
+    /MODEL_API_KEY is required/,
+  );
+});
+
+test("requires HTTPS for a remote unified model gateway", () => {
+  assert.throws(
+    () => createModelGatewayFromEnv({ MODEL_BASE_URL: "http://gateway.test", MODEL_API_KEY: "secret" }),
+    /MODEL_BASE_URL must use HTTPS/,
+  );
+});
+
+
+test("does not accept legacy provider configuration", () => {
+  assert.throws(
+    () => createModelGatewayFromEnv({
+      MODEL_ENDPOINT: "https://legacy-gateway.test",
+      MODEL_API_KEY: "legacy-secret",
+      OPENAI_MODELS: "gpt-legacy",
+    }),
+    /MODEL_BASE_URL is required/,
+  );
 });
 
 test("normalizes Anthropic Messages streaming text and tool calls", async () => {
@@ -389,42 +415,6 @@ test("normalizes Anthropic Messages streaming text and tool calls", async () => 
   assert.deepEqual(result.toolCalls, [{ id: "toolu-1", name: "read_file", arguments: "{\"path\":\"README.md\"}" }]);
 });
 
-test("normalizes Gemini streaming and sends native function responses", async () => {
-  let captured;
-  const gateway = new GeminiGateway({
-    endpoint: "https://generativelanguage.test",
-    apiKey: "gemini-secret",
-    model: "models/gemini-test",
-    fetchImpl: async (url, options) => {
-      captured = { url, options, body: JSON.parse(options.body) };
-      return sseResponse([
-        ["message", { candidates: [{ content: { parts: [{ text: "Done. " }] } }] }],
-        ["message", { candidates: [{ content: { parts: [{ functionCall: { id: "call-2", name: "diagnostics", args: { path: "README.md" } } }] } }] }],
-      ]);
-    },
-  });
-  const deltas = [];
-
-  const result = await gateway.stream({
-    messages: [
-      { role: "system", content: "System policy" },
-      { role: "user", content: "Read it" },
-      { role: "assistant", content: null, toolCalls: [{ id: "call-1", name: "read_file", arguments: "{\"path\":\"README.md\"}" }] },
-      { role: "tool", toolCallId: "call-1", content: "README contents" },
-    ],
-    tools: [{ name: "diagnostics", description: "Check", parameters: { type: "object" } }],
-    signal: new AbortController().signal,
-    onTextDelta: (delta) => deltas.push(delta),
-  });
-
-  assert.match(captured.url, /\/v1beta\/models\/gemini-test:streamGenerateContent\?alt=sse$/);
-  assert.equal(captured.options.headers["x-goog-api-key"], "gemini-secret");
-  assert.equal(captured.body.systemInstruction.parts[0].text, "System policy");
-  assert.equal(captured.body.contents.at(-1).parts[0].functionResponse.name, "read_file");
-  assert.equal(captured.body.tools[0].functionDeclarations[0].name, "diagnostics");
-  assert.deepEqual(deltas, ["Done. "]);
-  assert.deepEqual(result.toolCalls, [{ id: "call-2", name: "diagnostics", arguments: "{\"path\":\"README.md\"}" }]);
-});
 
 test("serves the normalized backend model registry", async () => {
   const modelGateway = {
@@ -488,6 +478,354 @@ test("enhances a prompt through the model gateway", async () => {
     await once(server, "close");
   }
 });
+
+test("completes OIDC PKCE login, refresh, authenticated Agent run, and logout", async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2_048 });
+  const publicJwk = { ...await exportJWK(publicKey), kid: "test-key", use: "sig", alg: "RS256" };
+  let identityBaseUrl = "";
+  let providerNonce = "";
+  let providerTokenRequest = null;
+  const identityServer = createServer(async (request, response) => {
+    try {
+      if (request.url === "/.well-known/openid-configuration") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({
+          issuer: identityBaseUrl,
+          jwks_uri: `${identityBaseUrl}/jwks`,
+          authorization_endpoint: `${identityBaseUrl}/authorize`,
+          token_endpoint: `${identityBaseUrl}/token`,
+          token_endpoint_auth_methods_supported: ["client_secret_basic"],
+        }));
+        return;
+      }
+      if (request.url === "/jwks") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ keys: [publicJwk] }));
+        return;
+      }
+      if (request.url === "/token" && request.method === "POST") {
+        const chunks = [];
+        for await (const chunk of request) chunks.push(chunk);
+        providerTokenRequest = {
+          authorization: request.headers.authorization,
+          form: new URLSearchParams(Buffer.concat(chunks).toString("utf8")),
+        };
+        const idToken = await new SignJWT({
+          nonce: providerNonce,
+          email: "developer@example.com",
+          name: "CodeAgent Developer",
+        })
+          .setProtectedHeader({ alg: "RS256", kid: "test-key" })
+          .setIssuer(identityBaseUrl)
+          .setAudience("codeagent-backend")
+          .setSubject("user-123")
+          .setIssuedAt()
+          .setExpirationTime("5m")
+          .sign(privateKey);
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ id_token: idToken, access_token: "provider-access", token_type: "Bearer" }));
+        return;
+      }
+      response.writeHead(404);
+      response.end();
+    } catch (error) {
+      response.writeHead(500, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: error.message }));
+    }
+  });
+  identityServer.listen(0, "127.0.0.1");
+  await once(identityServer, "listening");
+  identityBaseUrl = `http://127.0.0.1:${identityServer.address().port}`;
+
+  const publicBaseUrl = "http://127.0.0.1:8788";
+  const store = new MemoryProductStore();
+  const authenticator = createAuthenticatorFromEnv({
+    OIDC_ISSUER: identityBaseUrl,
+    OIDC_CLIENT_ID: "codeagent-backend",
+    OIDC_CLIENT_SECRET: "oidc-secret",
+    OIDC_AUDIENCE: "codeagent-api",
+    PUBLIC_BASE_URL: publicBaseUrl,
+    SESSION_SIGNING_KEY: "session-signing-key-with-at-least-32-bytes",
+  }, fetch, store);
+  const backend = createCodeAgentServer({
+    authenticator,
+    productStore: store,
+    modelGateway: {
+      provider: "test",
+      defaultModel: "model-a",
+      async listModels() { return [{ id: "model-a" }]; },
+      async stream({ onTextDelta }) {
+        onTextDelta("Authenticated agent reply");
+        return { content: "Authenticated agent reply", toolCalls: [] };
+      },
+    },
+    logger: { error() {} },
+  });
+  backend.listen(0, "127.0.0.1");
+  await once(backend, "listening");
+  const backendBaseUrl = `http://127.0.0.1:${backend.address().port}`;
+
+  try {
+    const configResponse = await fetch(`${backendBaseUrl}/v1/auth/config`);
+    assert.equal(configResponse.status, 200);
+    assert.deepEqual(await configResponse.json(), {
+      mode: "oidc",
+      issuer: identityBaseUrl,
+      clientId: "codeagent-plugin",
+      audience: "codeagent-api",
+      authorizationEndpoint: `${publicBaseUrl}/v1/auth/authorize`,
+      tokenEndpoint: `${publicBaseUrl}/v1/auth/token`,
+      endSessionEndpoint: `${publicBaseUrl}/v1/auth/logout`,
+      scopes: ["openid", "profile", "email", "offline_access"],
+    });
+
+    const verifier = "plugin-verifier-abcdefghijklmnopqrstuvwxyz-0123456789-ABCDE";
+    const challenge = createHash("sha256").update(verifier).digest("base64url");
+    const pluginRedirect = "http://127.0.0.1:54321/callback";
+    const authorize = new URL(`${backendBaseUrl}/v1/auth/authorize`);
+    authorize.search = new URLSearchParams({
+      response_type: "code",
+      client_id: "codeagent-plugin",
+      redirect_uri: pluginRedirect,
+      scope: "openid profile email offline_access",
+      state: "plugin-state",
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+    }).toString();
+    const authorizeResponse = await fetch(authorize, { redirect: "manual" });
+    assert.equal(authorizeResponse.status, 302);
+    const providerAuthorization = new URL(authorizeResponse.headers.get("location"));
+    assert.equal(providerAuthorization.origin, identityBaseUrl);
+    assert.equal(providerAuthorization.searchParams.get("client_id"), "codeagent-backend");
+    assert.equal(providerAuthorization.searchParams.get("redirect_uri"), `${publicBaseUrl}/v1/auth/callback`);
+    providerNonce = providerAuthorization.searchParams.get("nonce");
+
+    const callback = new URL(`${backendBaseUrl}/v1/auth/callback`);
+    callback.search = new URLSearchParams({
+      code: "provider-code",
+      state: providerAuthorization.searchParams.get("state"),
+    }).toString();
+    const callbackResponse = await fetch(callback, { redirect: "manual" });
+    assert.equal(callbackResponse.status, 302);
+    const pluginCallback = new URL(callbackResponse.headers.get("location"));
+    assert.equal(pluginCallback.origin + pluginCallback.pathname, pluginRedirect);
+    assert.equal(pluginCallback.searchParams.get("state"), "plugin-state");
+    const authorizationCode = pluginCallback.searchParams.get("code");
+    assert.ok(authorizationCode);
+    assert.match(providerTokenRequest.authorization, /^Basic /);
+    assert.equal(providerTokenRequest.form.get("code_verifier")?.length > 43, true);
+
+    const tokenResponse = await fetch(`${backendBaseUrl}/v1/auth/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        client_id: "codeagent-plugin",
+        code: authorizationCode,
+        redirect_uri: pluginRedirect,
+        code_verifier: verifier,
+      }),
+    });
+    assert.equal(tokenResponse.status, 200);
+    const tokens = await tokenResponse.json();
+    assert.equal(tokens.token_type, "Bearer");
+    assert.ok(tokens.access_token);
+    assert.ok(tokens.refresh_token);
+
+    const meResponse = await fetch(`${backendBaseUrl}/v1/me`, {
+      headers: { authorization: `Bearer ${tokens.access_token}` },
+    });
+    assert.equal(meResponse.status, 200);
+    const me = await meResponse.json();
+    assert.deepEqual(me.user, {
+      id: "user-123",
+      email: "developer@example.com",
+      displayName: "CodeAgent Developer",
+      createdAt: me.user.createdAt,
+      updatedAt: me.user.updatedAt,
+    });
+    assert.equal(me.session.mode, "oidc");
+
+    const runResponse = await fetch(`${backendBaseUrl}/v1/runs`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${tokens.access_token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        mode: "chat",
+        messages: [{ role: "user", content: "Continue the conversation" }],
+        tools: [],
+        workspace: {},
+      }),
+    });
+    assert.equal(runResponse.status, 200);
+    const runEvents = await runResponse.text();
+    assert.match(runEvents, /event: run\.started/);
+    assert.match(runEvents, /Authenticated agent reply/);
+    assert.match(runEvents, /event: run\.completed/);
+
+    const refreshResponse = await fetch(`${backendBaseUrl}/v1/auth/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: "codeagent-plugin",
+        refresh_token: tokens.refresh_token,
+      }),
+    });
+    assert.equal(refreshResponse.status, 200);
+    const refreshed = await refreshResponse.json();
+    assert.notEqual(refreshed.refresh_token, tokens.refresh_token);
+
+    const replayResponse = await fetch(`${backendBaseUrl}/v1/auth/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: "codeagent-plugin",
+        refresh_token: tokens.refresh_token,
+      }),
+    });
+    assert.equal(replayResponse.status, 400);
+
+    const logoutResponse = await fetch(`${backendBaseUrl}/v1/auth/logout`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${refreshed.access_token}` },
+    });
+    assert.equal(logoutResponse.status, 204);
+    const revokedResponse = await fetch(`${backendBaseUrl}/v1/me`, {
+      headers: { authorization: `Bearer ${refreshed.access_token}` },
+    });
+    assert.equal(revokedResponse.status, 401);
+  } finally {
+    backend.close();
+    identityServer.close();
+    await Promise.all([once(backend, "close"), once(identityServer, "close")]);
+  }
+});
+
+test("persists product conversations and exposes the local account", async () => {
+  const server = createCodeAgentServer({
+    modelGateway: {
+      provider: "test",
+      defaultModel: "model-a",
+      async listModels() { return [{ id: "model-a" }]; },
+      async stream({ onTextDelta }) { onTextDelta("Generated"); return { content: "Generated", toolCalls: [] }; },
+    },
+    logger: { error() {} },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const authConfig = await fetch(`${baseUrl}/v1/auth/config`);
+    assert.deepEqual(await authConfig.json(), { mode: "local" });
+
+    const createdResponse = await fetch(`${baseUrl}/v1/conversations`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "thread-1", title: "Thread", mode: "agent", updatedAt: 1_000, selectedModelId: "model-a", selectedSkillIds: ["review"], selectedRuleIds: ["tests"], pinned: true, messages: [{ id: "message-1", role: "user", content: "Hi", createdAt: 900 }], tasks: [{ id: "task-1", name: "Review change", state: "in_progress" }] }),
+    });
+    assert.equal(createdResponse.status, 201);
+    const created = await createdResponse.json();
+    assert.equal(created.version, 1);
+    assert.equal(created.messages[0].id, "message-1");
+    assert.equal(created.tasks[0].state, "in_progress");
+    assert.equal(created.selectedModelId, "model-a");
+
+    const updatedResponse = await fetch(`${baseUrl}/v1/conversations/thread-1`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", "if-match": "1" },
+      body: JSON.stringify({ title: "Updated", mode: "chat", updatedAt: 2_000, selectedModelId: "model-a", selectedSkillIds: [], selectedRuleIds: [], pinned: false, messages: [{ id: "message-1", role: "user", content: "Hi", createdAt: 900 }, { id: "message-2", role: "assistant", content: "Hello", createdAt: 1_100 }], tasks: [{ id: "task-1", name: "Review change", state: "completed" }] }),
+    });
+    assert.equal(updatedResponse.status, 200);
+    assert.equal((await updatedResponse.json()).version, 2);
+
+    const conflictResponse = await fetch(`${baseUrl}/v1/conversations/thread-1`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", "if-match": "1" },
+      body: JSON.stringify({ title: "Stale", mode: "chat", updatedAt: 1_500, messages: [], tasks: [] }),
+    });
+    assert.equal(conflictResponse.status, 409);
+
+    const list = await fetch(`${baseUrl}/v1/conversations`);
+    assert.deepEqual((await list.json()).data.map((item) => item.id), ["thread-1"]);
+    const restoredResponse = await fetch(`${baseUrl}/v1/conversations/thread-1`);
+    assert.equal(restoredResponse.status, 200);
+    const restored = await restoredResponse.json();
+    assert.equal(restored.version, 2);
+    assert.deepEqual(restored.messages.map((message) => message.id), ["message-1", "message-2"]);
+    assert.deepEqual(restored.tasks, [{ id: "task-1", name: "Review change", state: "completed" }]);
+    const me = await fetch(`${baseUrl}/v1/me`);
+    assert.equal((await me.json()).user.id, "local-user");
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("runs asynchronous subagent jobs and inline completions", async () => {
+  const server = createCodeAgentServer({
+    modelGateway: {
+      provider: "test",
+      defaultModel: "model-a",
+      async listModels() { return [{ id: "model-a" }]; },
+      async stream({ messages, onTextDelta }) {
+        const content = messages[0].content.includes("inline completion") ? "completionText" : "job result";
+        onTextDelta(content);
+        return { content, toolCalls: [] };
+      },
+    },
+    logger: { error() {} },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const createJobResponse = await fetch(`${baseUrl}/v1/jobs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "subagent", input: { prompt: "Review the change" } }),
+    });
+    assert.equal(createJobResponse.status, 202);
+    const created = await createJobResponse.json();
+    const completed = await waitForJob(baseUrl, created.id);
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.output.content, "job result");
+
+    const historySummaryResponse = await fetch(`${baseUrl}/v1/jobs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "history-summary", input: { prompt: "Summarize the conversation" } }),
+    });
+    assert.equal(historySummaryResponse.status, 202);
+    const historySummary = await waitForJob(baseUrl, (await historySummaryResponse.json()).id);
+    assert.equal(historySummary.status, "completed");
+    assert.equal(historySummary.output.content, "job result");
+
+    const completionResponse = await fetch(`${baseUrl}/v1/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: "src/main.ts", language: "typescript", prefix: "const value = ", suffix: ";" }),
+    });
+    assert.equal(completionResponse.status, 200);
+    assert.equal((await completionResponse.json()).completion, "completionText");
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+async function waitForJob(baseUrl, id) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const response = await fetch(`${baseUrl}/v1/jobs/${id}`);
+    const job = await response.json();
+    if (["completed", "failed", "cancelled"].includes(job.status)) return job;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("Job did not finish");
+}
 
 function sseResponse(events) {
   const body = events.map(([type, data]) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`).join("");

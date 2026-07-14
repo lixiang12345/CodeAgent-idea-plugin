@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### IDEA plugin
+
+- Matched the extracted Augment 0.482.3 message anatomy: assistant content renders without an avatar/name row, live generation stays in the transcript, and tool-resolution status follows active tool output.
+- Made fresh local installs target the Docker backend on `127.0.0.1:8788` automatically while preserving Advanced Settings overrides for direct or hosted deployments.
+
 ## 0.6.0 - 2026-07-13
 
 ### Models and backend

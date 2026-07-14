@@ -64,7 +64,7 @@ Tool card statuses: `running` \| `approval` \| `completed` \| `failed` \| `rejec
 
 ## 3. Deployed backend HTTP/SSE
 
-Base URL from settings (default `http://127.0.0.1:8787`).  
+Base URL from settings (fresh-install default `http://127.0.0.1:8788` for the local Docker deployment).
 Auth: `Authorization: Bearer <CODEAGENT_AUTH_TOKEN>` on protected routes.
 
 | Method | Path | Notes |

@@ -10,9 +10,13 @@ import com.codeagent.plugin.agent.GitWorkspaceService
 import com.codeagent.plugin.agent.ImageCanvasService
 import com.codeagent.plugin.agent.WorkspaceCustomizationService
 import com.codeagent.plugin.conversation.ConversationStore
+import com.codeagent.plugin.conversation.ConversationSnapshot
+import com.codeagent.plugin.conversation.ConversationSummaryService
+import com.codeagent.plugin.conversation.CloudConversationSyncService
 import com.codeagent.plugin.context.ContextEngineService
 import com.codeagent.plugin.settings.CodeAgentSettingsService
 import com.codeagent.plugin.settings.CodeAgentSettingsUpdate
+import com.codeagent.plugin.settings.OidcLoginService
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileChooser.FileChooser
@@ -54,6 +58,8 @@ class IdeBridge(
     private val attachments = linkedMapOf<String, ContextItemDto>()
     private val messageQueue = mutableListOf<QueuedMessageDto>()
     private val conversations = project.service<ConversationStore>()
+    private val cloudSync = project.service<CloudConversationSyncService>()
+    private val conversationSummaries = project.service<ConversationSummaryService>()
     private val contextEngine = project.service<ContextEngineService>()
     private val agent = project.service<AgentOrchestrator>()
     private val changeReview = project.service<ChangeReviewService>()
@@ -61,6 +67,7 @@ class IdeBridge(
     private val imageCanvas = project.service<ImageCanvasService>()
     private val customizations = project.service<WorkspaceCustomizationService>()
     private val settingsService = service<CodeAgentSettingsService>()
+    private val oidcLogin = service<OidcLoginService>()
     private val stateLock = Any()
     private val runs = RunGeneration()
     private var runState = "idle"
@@ -77,7 +84,18 @@ class IdeBridge(
     @Volatile
     private var backendTools = emptyList<BackendToolDto>()
 
+    @Volatile
+    private var account = AccountSnapshotDto()
+
+    @Volatile
+    private var syncedAccountUserId: String? = null
+
     init {
+        cloudSync.setChangeListener { emitSnapshot() }
+        conversationSummaries.setChangeListener { snapshot ->
+            syncConversation(snapshot)
+            emitSnapshot()
+        }
         query.addHandler { raw ->
             runCatching { handle(raw) }
                 .onFailure { error ->
@@ -103,6 +121,11 @@ class IdeBridge(
     fun dispose() {
         synchronized(stateLock) { runs.invalidate() }
         agent.cancel()
+        cloudSync.setChangeListener(null)
+        conversationSummaries.setChangeListener(null)
+        syncedAccountUserId = null
+        cloudSync.reset()
+        conversationSummaries.reset()
         query.dispose()
     }
 
@@ -128,6 +151,7 @@ class IdeBridge(
                             ?: conversations.active().mode,
                     )
                 }
+                syncActiveConversation()
                 emitSnapshot()
             }
             "selectModel" -> {
@@ -141,6 +165,7 @@ class IdeBridge(
                     }
                     conversations.setSelectedModel(selection.modelId)
                 }
+                syncActiveConversation()
                 emitSnapshot()
             }
             "newThread" -> newThread(command.payload)
@@ -169,12 +194,15 @@ class IdeBridge(
             "checkBackend" -> checkBackendHealth()
             "indexWorkspace" -> indexWorkspace()
             "saveSettings" -> saveSettings(requireNotNull(command.payload) { "saveSettings requires payload" })
+            "signIn" -> signIn()
+            "signOut" -> signOut()
             "cancelRun" -> {
                 synchronized(stateLock) {
                     runs.invalidate()
                     runState = "idle"
                 }
                 agent.cancel()
+                summarizeConversation(conversations.active())
                 emitSnapshot()
             }
             "resolveApproval" -> {
@@ -290,11 +318,12 @@ class IdeBridge(
                     runState = "idle"
                 }
                 agent.cancel()
+                summarizeConversation(conversations.active())
                 emitSnapshot()
             }
             "toggleThreadPinned" -> {
                 val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPayload>(it) }
-                conversations.togglePinned(selection.threadId)
+                syncConversation(conversations.togglePinned(selection.threadId))
                 emitSnapshot()
             }
             "deleteThread" -> {
@@ -320,6 +349,7 @@ class IdeBridge(
                     if (selection.selected) selected += selection.skillId else selected -= selection.skillId
                     conversations.setSelectedSkills(selected)
                 }
+                syncActiveConversation()
                 emitSnapshot()
             }
             "toggleRule" -> {
@@ -333,6 +363,7 @@ class IdeBridge(
                     if (selection.selected) selected += selection.ruleId else selected -= selection.ruleId
                     conversations.setSelectedRules(selected)
                 }
+                syncActiveConversation()
                 emitSnapshot()
             }
             "saveRule" -> {
@@ -343,6 +374,7 @@ class IdeBridge(
                         conversations.setSelectedRules(conversations.active().selectedRuleIds - rule.id)
                     }
                 }
+                syncActiveConversation()
                 emitSnapshot()
             }
             "refreshCustomization" -> {
@@ -353,29 +385,35 @@ class IdeBridge(
                     conversations.setSelectedSkills(conversations.active().selectedSkillIds.filter { it in availableIds })
                     conversations.setSelectedRules(conversations.active().selectedRuleIds.filter { it in manualRuleIds })
                 }
+                syncActiveConversation()
                 emitSnapshot()
             }
             "setTaskState" -> {
                 val update = requireNotNull(command.payload).let { json.decodeFromJsonElement<TaskStatePayload>(it) }
                 conversations.updateTask(update.taskId, update.state, null)
+                syncActiveConversation()
                 emitSnapshot()
             }
             "clearCompletedTasks" -> {
                 conversations.clearCompletedTasks()
+                syncActiveConversation()
                 emitSnapshot()
             }
             "addTask" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<TaskNamePayload>(it) }
                 conversations.addTasks(listOf(request.name))
+                syncActiveConversation()
                 emitSnapshot()
             }
             "deleteTask" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<TaskPayload>(it) }
                 conversations.deleteTask(request.taskId)
+                syncActiveConversation()
                 emitSnapshot()
             }
             "clearTasks" -> {
                 conversations.clearTasks()
+                syncActiveConversation()
                 emitSnapshot()
             }
             "runTask" -> {
@@ -458,7 +496,7 @@ class IdeBridge(
             "exportThread" -> exportThread()
             "renameThread" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<RenameThreadPayload>(it) }
-                conversations.renameThread(request.threadId, request.title)
+                syncConversation(conversations.renameThread(request.threadId, request.title))
                 emitSnapshot()
             }
             "openTerminal" -> ToolWindowManager.getInstance(project).getToolWindow("Terminal")?.activate(null)
@@ -479,6 +517,7 @@ class IdeBridge(
             conversations.newThread(mode)
         }
         agent.cancel()
+        syncActiveConversation()
         emitSnapshot()
     }
 
@@ -494,6 +533,7 @@ class IdeBridge(
             runState = "running"
             runs.next()
         }
+        syncActiveConversation()
         emitSnapshot()
 
         val history = synchronized(stateLock) {
@@ -548,7 +588,10 @@ class IdeBridge(
                     }
                     streamingMessageId = null
                     streamingTurnIndex = null
-                }) emitRunSnapshot()
+                }) {
+                    syncActiveConversation()
+                    emitRunSnapshot()
+                }
             }
 
             override fun onFileChanged(call: AgentToolCall, change: FileChange) {
@@ -582,7 +625,14 @@ class IdeBridge(
                 if (withCurrentRun(runId) {
                     runState = state
                     startQueued = state == "idle" && messageQueue.isNotEmpty()
-                }) emitRunSnapshot()
+                }) {
+                    if (state == "idle") {
+                        val snapshot = conversations.active()
+                        syncConversation(snapshot)
+                        summarizeConversation(snapshot)
+                    }
+                    emitRunSnapshot()
+                }
                 if (startQueued) startNextQueuedMessage()
             }
 
@@ -600,7 +650,7 @@ class IdeBridge(
 
     private fun saveSettings(payload: JsonElement) {
         val request = json.decodeFromJsonElement<SettingsPayload>(payload)
-        val previousNodePath = settingsService.snapshot().nodePath
+        val previous = settingsService.snapshot()
         settingsService.update(
             CodeAgentSettingsUpdate(
                 backendUrl = request.backendUrl,
@@ -609,7 +659,11 @@ class IdeBridge(
                 backendToken = request.backendToken,
             ),
         )
-        if (previousNodePath != settingsService.snapshot().nodePath) {
+        val current = settingsService.snapshot()
+        if (previous.backendUrl != current.backendUrl || request.backendToken?.isNotBlank() == true) {
+            resetCloudSync()
+        }
+        if (previous.nodePath != current.nodePath) {
             contextEngine.restart()
             refreshContextStatus()
         } else {
@@ -645,6 +699,7 @@ class IdeBridge(
                     backendTokenConfigured = !settings.backendToken.isNullOrBlank(),
                     autoApproveReadOnly = settings.autoApproveReadOnly,
                 ),
+                account = account,
                 context = context,
                 backendHealth = backendHealth,
                 models = modelRegistry.copy(selectedModel = active.selectedModelId ?: modelRegistry.defaultModel),
@@ -713,13 +768,150 @@ class IdeBridge(
                     defaultModel = health.defaultModel,
                 )
             }
-            if (backendHealth.state != "online") backendTools = emptyList()
+            if (backendHealth.state != "online") {
+                backendTools = emptyList()
+                modelRegistry = ModelRegistryDto(state = "error", label = backendHealth.label)
+            }
             emitSnapshot()
-            if (backendHealth.state == "online") {
-                refreshModels()
-                refreshBackendTools()
+            if (backendHealth.state == "online") refreshAccount()
+        }
+    }
+
+    private fun signIn() {
+        account = account.copy(state = "signing_in", mode = "oidc", label = "Complete sign-in in your browser")
+        emitSnapshot()
+        oidcLogin.signIn().whenComplete { _, error ->
+            if (error != null) {
+                account = AccountSnapshotDto(state = "error", mode = "oidc", label = error.rootMessage())
+                emitSnapshot()
+            } else {
+                emit("notice", mapOf("message" to "Signed in"))
+                refreshAccount()
             }
         }
+    }
+
+    private fun signOut() {
+        account = account.copy(state = "signing_out", label = "Signing out")
+        resetCloudSync()
+        emitSnapshot()
+        oidcLogin.signOut().whenComplete { _, error ->
+            account = AccountSnapshotDto(state = "signed_out", mode = "oidc", label = "Sign in to sync Agent sessions")
+            clearAuthenticatedCapabilities("Sign in to load models")
+            emitSnapshot()
+            if (error != null) {
+                emit("error", mapOf("message" to error.rootMessage()))
+            } else {
+                emit("notice", mapOf("message" to "Signed out"))
+            }
+        }
+    }
+
+    private fun refreshAccount() {
+        account = account.copy(state = "checking", label = "Checking account")
+        emitSnapshot()
+        oidcLogin.authConfig().whenComplete { config, configError ->
+            if (configError != null || config == null) {
+                account = AccountSnapshotDto(state = "error", label = configError?.rootMessage() ?: "Authentication unavailable")
+                resetCloudSync()
+                clearAuthenticatedCapabilities("Authentication unavailable")
+                emitSnapshot()
+                return@whenComplete
+            }
+
+            val tokenConfigured = !settingsService.snapshot().backendToken.isNullOrBlank()
+            if ((config.mode == "oidc" || config.mode == "shared-token") && !tokenConfigured) {
+                val label = if (config.mode == "oidc") "Sign in to sync Agent sessions" else "Configure the backend token"
+                account = AccountSnapshotDto(state = "signed_out", mode = config.mode, label = label)
+                resetCloudSync()
+                clearAuthenticatedCapabilities(label)
+                emitSnapshot()
+                return@whenComplete
+            }
+
+            agent.account().whenComplete accountRequest@{ response, accountError ->
+                if (accountError != null || response == null) {
+                    val message = accountError?.rootMessage() ?: "Account unavailable"
+                    if (config.mode == "oidc" && message.contains("HTTP 401")) {
+                        settingsService.clearAuthTokens()
+                        account = AccountSnapshotDto(state = "signed_out", mode = config.mode, label = "Session expired; sign in again")
+                    } else {
+                        account = AccountSnapshotDto(state = "error", mode = config.mode, label = message)
+                    }
+                    resetCloudSync()
+                    clearAuthenticatedCapabilities(account.label)
+                    emitSnapshot()
+                    return@accountRequest
+                }
+
+                account = AccountSnapshotDto(
+                    state = "signed_in",
+                    mode = response.session.mode.ifBlank { config.mode },
+                    userId = response.user.id,
+                    displayName = response.user.displayName,
+                    email = response.user.email,
+                    usage = response.usage.map { AccountUsageDto(it.kind, it.units) },
+                    label = "Signed in as ${response.user.displayName}",
+                )
+                emitSnapshot()
+                refreshModels()
+                refreshBackendTools()
+                restoreCloudConversations(response.user.id)
+            }
+        }
+    }
+
+    private fun restoreCloudConversations(userId: String) {
+        val shouldRestore = synchronized(stateLock) {
+            if (syncedAccountUserId == userId) {
+                false
+            } else {
+                syncedAccountUserId = userId
+                true
+            }
+        }
+        if (!shouldRestore) return
+        cloudSync.reset()
+        conversationSummaries.reset()
+        cloudSync.restore().whenComplete { result, error ->
+            val current = synchronized(stateLock) { syncedAccountUserId == userId && account.userId == userId }
+            if (!current) return@whenComplete
+            if (error != null) {
+                synchronized(stateLock) { if (syncedAccountUserId == userId) syncedAccountUserId = null }
+                emit("error", mapOf("message" to "Cloud conversation restore failed: ${error.rootMessage()}"))
+            } else if (result.restored > 0 || result.queuedUploads > 0) {
+                emit(
+                    "notice",
+                    mapOf("message" to "Restored ${result.restored} cloud threads; queued ${result.queuedUploads} local updates"),
+                )
+            }
+            if (error == null) summarizeConversation(conversations.active())
+            emitSnapshot()
+        }
+    }
+
+    private fun resetCloudSync() {
+        synchronized(stateLock) { syncedAccountUserId = null }
+        cloudSync.reset()
+        conversationSummaries.reset()
+    }
+
+    private fun syncActiveConversation() = syncConversation(conversations.active())
+
+    private fun syncConversation(snapshot: ConversationSnapshot) {
+        if (cloudServicesActive()) cloudSync.schedule(snapshot)
+    }
+
+    private fun summarizeConversation(snapshot: ConversationSnapshot) {
+        if (cloudServicesActive()) conversationSummaries.schedule(snapshot)
+    }
+
+    private fun cloudServicesActive(): Boolean =
+        syncedAccountUserId != null && account.userId == syncedAccountUserId
+
+    private fun clearAuthenticatedCapabilities(label: String) {
+        modelRegistry = ModelRegistryDto(state = "error", label = label)
+        backendTools = emptyList()
     }
 
     private fun refreshModels() {
@@ -741,6 +933,7 @@ class IdeBridge(
             val selected = synchronized(stateLock) { conversations.active().selectedModelId }
             if (selected != null && modelRegistry.options.none { it.id == selected }) {
                 synchronized(stateLock) { conversations.setSelectedModel(null) }
+                syncActiveConversation()
             }
             emitSnapshot()
         }
@@ -840,6 +1033,12 @@ class IdeBridge(
                 conversations.deleteThread(threadId)
             }
             if (wasActive) agent.cancel()
+            conversationSummaries.forget(threadId)
+            if (cloudServicesActive()) {
+                cloudSync.delete(threadId).whenComplete { _, error ->
+                    if (error != null) emit("error", mapOf("message" to "Cloud thread deletion failed: ${error.rootMessage()}"))
+                }
+            }
             emitSnapshot()
         }
     }
@@ -894,6 +1093,9 @@ class IdeBridge(
                     runState = "idle"
                 }
                 agent.cancel()
+                val snapshot = conversations.active()
+                syncConversation(snapshot)
+                summarizeConversation(snapshot)
                 emitSnapshot()
             }.onFailure { emit("error", mapOf("message" to it.rootMessage())) }
         }
@@ -975,7 +1177,10 @@ class IdeBridge(
                     name to state
                 }.take(ConversationStore.MAX_IMPORT_TASKS).toList()
                 conversations.importTasks(tasks)
-            }.onSuccess { emitSnapshot() }
+            }.onSuccess {
+                syncActiveConversation()
+                emitSnapshot()
+            }
                 .onFailure { emit("error", mapOf("message" to it.rootMessage())) }
         }
     }

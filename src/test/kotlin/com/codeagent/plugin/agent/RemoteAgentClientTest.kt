@@ -7,6 +7,7 @@ import kotlinx.serialization.json.put
 import java.net.InetSocketAddress
 import java.net.http.HttpClient
 import java.time.Duration
+import java.util.concurrent.CompletionException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -19,11 +20,20 @@ class RemoteAgentClientTest {
         var runAuthorization: String? = null
         var modelsAuthorization: String? = null
         var toolsAuthorization: String? = null
+        var accountAuthorization: String? = null
+        var jobsAuthorization: String? = null
         var runBody = ""
         var toolResultBody = ""
         var backendToolBody = ""
+        var jobBody = ""
         server.createContext("/health") { exchange ->
             val body = """{"ok":true,"service":"codeagent-backend","protocolVersion":1}""".toByteArray()
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        server.createContext("/v1/me") { exchange ->
+            accountAuthorization = exchange.requestHeaders.getFirst("Authorization")
+            val body = """{"user":{"id":"user-1","email":"developer@example.com","displayName":"Developer"},"usage":[{"kind":"agent-run","units":7}],"session":{"mode":"oidc","id":"session-1"}}""".toByteArray()
             exchange.sendResponseHeaders(200, body.size.toLong())
             exchange.responseBody.use { it.write(body) }
         }
@@ -47,7 +57,7 @@ class RemoteAgentClientTest {
         }
         server.createContext("/v1/models") { exchange ->
             modelsAuthorization = exchange.requestHeaders.getFirst("Authorization")
-            val body = """{"provider":"multi-provider","defaultModel":"gpt-5.6-sol","data":[{"id":"gpt-5.6-sol","ownedBy":"openai"},{"id":"claude-fable-5","ownedBy":"anthropic"}]}""".toByteArray()
+            val body = """{"provider":"unified-native","defaultModel":"gpt-5.6-sol","data":[{"id":"gpt-5.6-sol","ownedBy":"openai"},{"id":"claude-fable-5","ownedBy":"anthropic"}]}""".toByteArray()
             exchange.sendResponseHeaders(200, body.size.toLong())
             exchange.responseBody.use { it.write(body) }
         }
@@ -78,6 +88,19 @@ class RemoteAgentClientTest {
             toolResultBody = exchange.requestBody.bufferedReader().readText()
             exchange.sendResponseHeaders(202, -1)
             exchange.close()
+        }
+        server.createContext("/v1/jobs/job-1") { exchange ->
+            jobsAuthorization = exchange.requestHeaders.getFirst("Authorization")
+            val body = """{"id":"job-1","type":"history-summary","status":"completed","output":{"content":"Conversation summary","model":"gpt-5.6-sol"}}""".toByteArray()
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        server.createContext("/v1/jobs") { exchange ->
+            jobsAuthorization = exchange.requestHeaders.getFirst("Authorization")
+            jobBody = exchange.requestBody.bufferedReader().readText()
+            val body = """{"id":"job-1","type":"history-summary","status":"queued"}""".toByteArray()
+            exchange.sendResponseHeaders(202, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
         }
         server.start()
 
@@ -112,13 +135,20 @@ class RemoteAgentClientTest {
             )
             client.submitToolResult("run-1", RemoteToolResult("call-1", "completed", output = "README"))
             val health = client.health().join()
+            val account = client.account().join()
             val models = client.models().join()
             val tools = client.tools().join()
             val backendTool = client.executeTool("web_search", buildJsonObject { put("query", "CodeAgent") }).join()
+            val createdJob = client.createJob(
+                RemoteJobRequest("history-summary", RemoteJobInput("Summarize the conversation")),
+            ).join()
+            val completedJob = client.job(createdJob.id).join()
 
             assertEquals("Bearer backend-secret", runAuthorization)
             assertEquals("Bearer backend-secret", modelsAuthorization)
             assertEquals("Bearer backend-secret", toolsAuthorization)
+            assertEquals("Bearer backend-secret", accountAuthorization)
+            assertEquals("Bearer backend-secret", jobsAuthorization)
             assertEquals(listOf("run.started", "message.delta", "assistant.completed"), eventTypes)
             assertTrue(eventPayloads[1].contains("\"turnIndex\":0"))
             assertTrue(eventPayloads[2].contains("\"turnIndex\":0"))
@@ -127,13 +157,19 @@ class RemoteAgentClientTest {
             assertTrue(runBody.contains("\"read_file\""))
             assertTrue(toolResultBody.contains("\"toolCallId\":\"call-1\""))
             assertTrue(health.ok)
+            assertEquals("user-1", account.user.id)
+            assertEquals("Developer", account.user.displayName)
+            assertEquals("oidc", account.session.mode)
+            assertEquals(7L, account.usage.single().units)
             assertEquals(1, health.protocolVersion)
-            assertEquals("multi-provider", models.provider)
+            assertEquals("unified-native", models.provider)
             assertEquals("gpt-5.6-sol", models.defaultModel)
             assertEquals(listOf("gpt-5.6-sol", "claude-fable-5"), models.data.map { it.id })
             assertEquals(listOf("web_search"), tools.data.map { it.name })
             assertEquals("Search result", backendTool.output)
             assertTrue(backendToolBody.contains("\"query\":\"CodeAgent\""))
+            assertTrue(jobBody.contains("\"type\":\"history-summary\""))
+            assertEquals("Conversation summary", completedJob.output?.content)
         } finally {
             server.stop(0)
         }
@@ -168,6 +204,40 @@ class RemoteAgentClientTest {
             }
 
             assertTrue(error.message.orEmpty().endsWith("Unsupported run mode"))
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun `supports backends without optional tool discovery`() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/v1/tools") { exchange ->
+            val body = """{"code":"RESOURCE_NOT_FOUND","message":"The requested API resource was not found","retryable":false}""".toByteArray()
+            exchange.sendResponseHeaders(404, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        server.createContext("/v1/models") { exchange ->
+            val body = """{"code":"RESOURCE_NOT_FOUND","message":"The requested API resource was not found","retryable":false}""".toByteArray()
+            exchange.sendResponseHeaders(404, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        server.start()
+
+        try {
+            val client = RemoteAgentClient(
+                settings = CodeAgentSettings(
+                    backendUrl = "http://127.0.0.1:${server.address.port}",
+                    nodePath = "node",
+                    autoApproveReadOnly = true,
+                    backendToken = null,
+                ),
+                httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build(),
+            )
+
+            assertTrue(client.tools().join().data.isEmpty())
+            val error = assertFailsWith<CompletionException> { client.models().join() }
+            assertTrue(error.cause?.message.orEmpty().endsWith("The requested API resource was not found"))
         } finally {
             server.stop(0)
         }

@@ -127,4 +127,99 @@ class ConversationStoreTest {
         store.deleteThread(imported.id)
         assertEquals(original.id, store.active().id)
     }
+
+    @Test
+    fun `restores cloud history and removes the pristine local thread`() {
+        val store = ConversationStore()
+        val cloud = cloudConversation(
+            id = "cloud-thread",
+            updatedAt = 2_000,
+            messages = listOf(ConversationMessage("message-1", "user", "Cloud message", 1_900)),
+        )
+
+        val result = store.mergeCloudSnapshot(listOf(cloud))
+
+        assertTrue(result.changed)
+        assertTrue(result.upload.isEmpty())
+        assertEquals(listOf("cloud-thread"), store.threads().map { it.id })
+        assertEquals("cloud-thread", store.active().id)
+        assertEquals("Cloud message", store.active().messages.single().content)
+    }
+
+    @Test
+    fun `keeps newer local history queued for upload`() {
+        val store = ConversationStore()
+        store.addMessage("user", "Local message")
+        val local = store.active()
+        val staleCloud = cloudConversation(
+            id = local.id,
+            updatedAt = local.updatedAt - 1,
+            messages = listOf(ConversationMessage("remote-message", "user", "Stale cloud message", local.updatedAt - 2)),
+        )
+
+        val result = store.mergeCloudSnapshot(listOf(staleCloud))
+
+        assertEquals("Local message", store.active().messages.single().content)
+        assertEquals(listOf(local.id), result.upload.map { it.id })
+    }
+
+    @Test
+    fun `stores generated summaries locally and restores cloud summaries`() {
+        val store = ConversationStore()
+        val localId = store.active().id
+
+        store.setSummary(localId, "Decisions, changed files, and remaining work.")
+
+        assertEquals("Decisions, changed files, and remaining work.", store.active().summary)
+
+        val cloud = cloudConversation(
+            id = "cloud-summary",
+            updatedAt = store.active().updatedAt + 1,
+            messages = listOf(ConversationMessage("message-1", "assistant", "Completed", 1_000)),
+            summary = "Cloud history summary",
+        )
+        store.mergeCloudSnapshot(listOf(cloud))
+
+        assertEquals("Cloud history summary", store.threads().first { it.id == cloud.id }.summary)
+    }
+
+    @Test
+    fun `keeps deleted cloud threads tombstoned until remote deletion succeeds`() {
+        val store = ConversationStore()
+        store.addMessage("user", "Delete this synced thread")
+        val deleted = store.active()
+
+        store.deleteThread(deleted.id)
+        val merge = store.mergeCloudSnapshot(listOf(deleted.copy(active = false)))
+
+        assertTrue(merge.changed.not())
+        assertTrue(store.threads().none { it.id == deleted.id })
+        assertEquals(listOf(deleted.id), store.pendingCloudDeletions())
+
+        store.acknowledgeCloudDeletion(deleted.id)
+        store.mergeCloudSnapshot(listOf(deleted.copy(active = false, updatedAt = deleted.updatedAt + 1)))
+
+        assertTrue(store.threads().any { it.id == deleted.id })
+        assertTrue(store.pendingCloudDeletions().isEmpty())
+    }
+
+    private fun cloudConversation(
+        id: String,
+        updatedAt: Long,
+        messages: List<ConversationMessage>,
+        summary: String? = null,
+    ) = ConversationSnapshot(
+        id = id,
+        title = "Cloud thread",
+        updatedAt = updatedAt,
+        mode = "agent",
+        selectedModelId = "model-a",
+        selectedSkillIds = emptyList(),
+        selectedRuleIds = emptyList(),
+        messages = messages,
+        tasks = emptyList(),
+        active = false,
+        pinned = false,
+        summary = summary,
+    )
 }

@@ -194,7 +194,7 @@ Errors for failed commands: event `error` with `{ message: string }`.
 
 ## 3. Deployed Agent backend HTTP/SSE
 
-Base URL: settings `backendUrl` (default `http://127.0.0.1:8787`).  
+Base URL: settings `backendUrl` (fresh-install default `http://127.0.0.1:8788` for the local Docker deployment).
 Auth header on protected routes: `Authorization: Bearer <CODEAGENT_AUTH_TOKEN>`.
 
 ### 3.1 `GET /health` (no auth required)
@@ -301,7 +301,7 @@ Current adapters: `web_search`, `github_search`, `linear_search`, `notion_search
 {
   "text": "Improved prompt…",
   "model": "gpt-5.6-sol",
-  "provider": "multi-provider"
+  "provider": "unified-native"
 }
 ```
 

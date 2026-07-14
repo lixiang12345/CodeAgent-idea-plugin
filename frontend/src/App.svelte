@@ -263,6 +263,24 @@
     backendToken = "";
   }
 
+  function signIn() {
+    error = "";
+    sendCommand("signIn");
+  }
+
+  function signOut() {
+    error = "";
+    sendCommand("signOut");
+  }
+
+  function accountInitials(name?: string) {
+    return (name ?? "CA").split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "CA";
+  }
+
+  function usageLabel(kind: string) {
+    return kind === "agent-run" ? "Agent runs" : kind === "completion" ? "Completions" : kind.replaceAll("-", " ");
+  }
+
   function copyThread() {
     sendCommand("copyThread");
   }
@@ -518,24 +536,31 @@
     skillsOpen = false;
   }
 
+  type TimelineMessage = AppSnapshot["messages"][number];
+
   type TimelineItem =
-    | { kind: "user"; message: AppSnapshot["messages"][number] }
-    | { kind: "assistant"; message: AppSnapshot["messages"][number]; lead: boolean }
+    | { kind: "user"; message: TimelineMessage }
+    | { kind: "assistant"; message: TimelineMessage }
     | { kind: "tools"; turnIndex: number; tools: ToolRun[] }
+    | { kind: "activity"; label: string }
     | { kind: "tasks" };
 
   function conversationTimeline(): TimelineItem[] {
     if (!snapshot) return [];
     const items: TimelineItem[] = [];
     const messages = snapshot.messages;
-    const lastUserIndex = messages.map((message) => message.role).lastIndexOf("user");
-    let assistantLeadShown = false;
+    const tools = snapshot.tools;
+    let lastUserIndex = -1;
     const insertedToolTurns = new Set<number>();
+
+    for (let index = 0; index < messages.length; index += 1) {
+      if (messages[index].role === "user") lastUserIndex = index;
+    }
 
     function insertToolTurn(turnIndex: number) {
       if (insertedToolTurns.has(turnIndex)) return;
-      const tools = snapshot?.tools.filter((tool) => (tool.turnIndex ?? 0) === turnIndex) ?? [];
-      if (tools.length > 0) items.push({ kind: "tools", turnIndex, tools });
+      const turnTools = tools.filter((tool) => (tool.turnIndex ?? 0) === turnIndex);
+      if (turnTools.length > 0) items.push({ kind: "tools", turnIndex, tools: turnTools });
       insertedToolTurns.add(turnIndex);
     }
 
@@ -550,23 +575,26 @@
       const afterLastUser = lastUserIndex >= 0 && index > lastUserIndex;
       const turnIndex = message.turnIndex;
       if (afterLastUser && turnIndex !== undefined) {
-        snapshot.tools
+        tools
           .map((tool) => tool.turnIndex ?? 0)
           .filter((toolTurn) => toolTurn < turnIndex)
           .sort((left, right) => left - right)
           .forEach(insertToolTurn);
       }
 
-      items.push({ kind: "assistant", message, lead: !assistantLeadShown });
-      assistantLeadShown = true;
-
+      items.push({ kind: "assistant", message });
       if (afterLastUser && turnIndex !== undefined) insertToolTurn(turnIndex);
     }
 
-    snapshot.tools
+    tools
       .map((tool) => tool.turnIndex ?? 0)
       .sort((left, right) => left - right)
       .forEach(insertToolTurn);
+
+    const hasRunningTool = tools.some((tool) => tool.status === "running");
+    if (snapshot.runState === "running" && (tools.length === 0 || hasRunningTool)) {
+      items.push({ kind: "activity", label: hasRunningTool ? "Resolving tools…" : "Generating response…" });
+    }
     if (snapshot.tasks.length > 0) items.push({ kind: "tasks" });
     return items;
   }
@@ -640,7 +668,6 @@
           {:else}
             <strong class="thread-title" title="Double-click to rename" ondblclick={beginRename}>{activeThread()?.title ?? "New thread"}</strong>
           {/if}
-          <span class="ready chip green"><Icon name="circle-check" size={12} />{snapshot.runState === "idle" ? "Ready" : snapshot.runState.replaceAll("_", " ")}</span>
           <div class="ch-actions">
             <button class="context-meter" title={snapshot.context.label} onclick={updateContext}><Icon name="gauge" size={12} /> Context <b>{snapshot.context.state === "ready" ? "42%" : "--"}</b></button>
             <button class="icon-button compact" title="Chat zoom out" onclick={() => adjustChatZoom(-5)}>−</button>
@@ -695,21 +722,16 @@
                     <div>{item.message.content}</div>
                   </article>
                 {:else if item.kind === "assistant"}
-                  {#if item.lead}
-                    <header class="agent-meta agent-meta-standalone">
-                      <span class="agent-avatar"><Icon name="plugin-icon" size={12} /></span>
-                      <strong>CodeAgent</strong>
-                      <span>{formatTime(item.message.createdAt)}</span>
-                      <div class="message-actions">
-                        <button title="Copy response" onclick={() => { void navigator.clipboard.writeText(item.message.content); notice = "Response copied"; }}><Icon name="copy" size={13} /></button>
-                      </div>
-                    </header>
-                  {/if}
                   {#if item.message.content}
-                    <div class="assistant-message" class:post-tool={!item.lead}>{item.message.content}</div>
-                  {:else if isBusy() && item.lead}
-                    <div class="thinking"><Icon name="bot" size={13} />Thinking…</div>
+                    <section class="assistant-turn">
+                      <div class="assistant-message">{item.message.content}</div>
+                      <div class="assistant-actions">
+                        <button title="Copy response" aria-label="Copy response" onclick={() => { void navigator.clipboard.writeText(item.message.content); notice = "Response copied"; }}><Icon name="copy" size={13} /></button>
+                      </div>
+                    </section>
                   {/if}
+                {:else if item.kind === "activity"}
+                  <div class="generation-status" role="status" aria-live="polite"><Icon name="circle-dashed" size={13} /><span>{item.label}</span></div>
                 {:else if item.kind === "tools"}
                   <section class="agent-turn tools-turn">
                     <div class="pass-summary">
@@ -719,7 +741,6 @@
                       <button onclick={() => setAllTools(true)}>Expand all</button>
                       <button onclick={() => setAllTools(false)}>Collapse all</button>
                     </div>
-                    {#if isBusy()}<div class="thinking"><Icon name="bot" size={13} />Running tools — model continues after results</div>{/if}
                     <div class="tool-list">
                       {#each item.tools as tool}
                         <section class="tool-card {tool.status}">
@@ -790,8 +811,12 @@
           {/if}
         </div>
 
-        {#if error}<div class="error-banner"><Icon name="circle-alert" size={14} /><span>{error}</span><button title="Dismiss" onclick={() => error = ""}><Icon name="x" size={13} /></button></div>{/if}
-        {#if notice}<div class="notice-banner"><Icon name="circle-check" size={13} /><span>{notice}</span><button title="Dismiss" onclick={() => notice = ""}><Icon name="x" size={13} /></button></div>{/if}
+        {#if error || notice}
+          <div class="chat-toast-stack">
+            {#if error}<div class="error-banner"><Icon name="circle-alert" size={14} /><span>{error}</span><button title="Dismiss" onclick={() => error = ""}><Icon name="x" size={13} /></button></div>{/if}
+            {#if notice}<div class="notice-banner"><Icon name="circle-check" size={13} /><span>{notice}</span><button title="Dismiss" onclick={() => notice = ""}><Icon name="x" size={13} /></button></div>{/if}
+          </div>
+        {/if}
 
         <footer class="composer-wrap cw">
           {#if changeTools().length > 0}
@@ -911,7 +936,6 @@
               <button title="Slash commands" onclick={seedSlash}><Icon name="square-terminal" size={14} /></button>
               <button title="Attach file/image" onclick={() => sendCommand("pickContext")}><Icon name="file-input" size={14} /></button>
               <button title={enhancing ? "Enhancing…" : "Enhance prompt"} disabled={!prompt.trim() || enhancing || isBusy()} onclick={enhancePrompt}><Icon name="sparkles" size={14} /></button>
-              <span class="toolbar-spacer sp"></span>
               <div class="skill-control">
                 <button class:active={skillsOpen} title="Skills" onclick={() => { skillsOpen = !skillsOpen; modeMenuOpen = false; modelMenuOpen = false; }}>
                   <Icon name="wand-sparkles" size={14} />
@@ -934,8 +958,7 @@
                   </div>
                 {/if}
               </div>
-            </div>
-            <div class="send-row">
+              <span class="toolbar-spacer sp"></span>
               <button class="auto-toggle" class:active={autoApproveReadOnly} title={autoApproveReadOnly ? "Auto ON — read-only tools run without approval" : "Auto OFF — require approval for most commands"} onclick={toggleAutoRun}>Auto {autoApproveReadOnly ? "ON" : "OFF"}</button>
               {#if isBusy()}
                 <button class="send-button queue-send" title="Queue message" disabled={!prompt.trim()} onclick={submit}><Icon name="send-horizontal" size={13} /></button>
@@ -1093,6 +1116,56 @@
                   <p>No repository skills found.</p>
                 {/each}
               </section>
+            {:else if settingsSection === "Account"}
+              <h1>Account</h1>
+              <p class="settings-lead">Your identity anchors cloud conversations, durable tasks, and usage across IDEs.</p>
+              {#if snapshot.account.state === "signed_in" || snapshot.account.state === "signing_out"}
+                <section class="settings-block account-card">
+                  <div class="account-session-rail" aria-hidden="true"><span></span><span></span><span></span></div>
+                  <header class="account-identity">
+                    <span class="account-avatar">{accountInitials(snapshot.account.displayName)}</span>
+                    <span class="account-copy">
+                      <strong>{snapshot.account.displayName ?? "CodeAgent user"}</strong>
+                      <small>{snapshot.account.email ?? snapshot.account.userId ?? snapshot.account.label}</small>
+                    </span>
+                    <i class="account-mode">{snapshot.account.mode}</i>
+                  </header>
+                  <div class="account-session">
+                    <span class="service-status online"></span>
+                    <span><strong>Session active</strong><small>{snapshot.account.label}</small></span>
+                  </div>
+                  <div class="account-usage">
+                    {#each snapshot.account.usage as item}
+                      <article><span>{usageLabel(item.kind)}</span><strong>{item.units.toLocaleString()}</strong></article>
+                    {:else}
+                      <p>Usage appears after your first Agent run.</p>
+                    {/each}
+                  </div>
+                  <footer class="account-actions">
+                    <span>{snapshot.account.mode === "local" ? "Local development session" : "Tokens are stored in JetBrains Password Safe"}</span>
+                    {#if snapshot.account.mode === "oidc"}
+                      <button disabled={snapshot.account.state === "signing_out"} onclick={signOut}>{snapshot.account.state === "signing_out" ? "Signing out…" : "Sign out"}</button>
+                    {/if}
+                  </footer>
+                </section>
+              {:else}
+                <section class="settings-block account-empty-card" class:error={snapshot.account.state === "error"}>
+                  <div class="account-empty-mark"><Icon name={snapshot.account.state === "error" ? "circle-alert" : "user-round"} size={21} /></div>
+                  <strong>{snapshot.account.mode === "oidc" ? "Connect your CodeAgent account" : snapshot.account.mode === "shared-token" ? "Backend token required" : "Account unavailable"}</strong>
+                  <p>{snapshot.account.label}</p>
+                  {#if snapshot.account.mode === "oidc"}
+                    <button class="primary" disabled={snapshot.account.state === "signing_in" || snapshot.account.state === "checking"} onclick={signIn}>
+                      <Icon name="external-link" size={12} />
+                      {snapshot.account.state === "signing_in" ? "Waiting for browser…" : "Sign in with browser"}
+                    </button>
+                  {:else if snapshot.account.mode === "shared-token"}
+                    <button onclick={() => chooseSettingsSection("API Keys")}>Configure backend token</button>
+                  {:else}
+                    <button disabled={snapshot.account.state === "checking"} onclick={() => sendCommand("checkBackend")}><Icon name="refresh-ccw" size={12} />Check account</button>
+                  {/if}
+                </section>
+              {/if}
+
             {:else if settingsSection === "User Experience"}
               <h1>User Experience</h1>
               <p class="settings-lead">Local panel presentation. Sound, desktop notifications, and timestamps stay unavailable until host hooks exist.</p>

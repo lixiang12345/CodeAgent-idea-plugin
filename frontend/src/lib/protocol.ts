@@ -92,6 +92,21 @@ export interface SettingsSnapshot {
   autoApproveReadOnly: boolean;
 }
 
+export interface AccountUsage {
+  kind: string;
+  units: number;
+}
+
+export interface AccountSnapshot {
+  state: "checking" | "signed_out" | "signing_in" | "signed_in" | "signing_out" | "error";
+  mode: "unknown" | "local" | "shared-token" | "oidc";
+  userId?: string;
+  displayName?: string;
+  email?: string;
+  usage: AccountUsage[];
+  label: string;
+}
+
 export interface ModelOption {
   id: string;
   ownedBy?: string;
@@ -143,6 +158,7 @@ export interface AppSnapshot {
   messageQueue: QueuedMessage[];
   attachments: ContextItem[];
   settings: SettingsSnapshot;
+  account: AccountSnapshot;
   context: {
     state: "unavailable" | "not_indexed" | "indexing" | "ready" | "error";
     label: string;
@@ -340,16 +356,29 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     messageQueue: [],
     attachments: [{ id: "attachment-1", label: "UserRepository.java", path: "src/main/java/com/example/UserRepository.java" }],
     settings: {
-      backendUrl: "http://127.0.0.1:8787",
+      backendUrl: "http://127.0.0.1:8788",
       nodePath: "node",
       backendTokenConfigured: false,
       autoApproveReadOnly: true,
     },
+    account: {
+      state: "signed_in",
+      mode: "oidc",
+      userId: "dev-user",
+      displayName: "CodeAgent Developer",
+      email: "developer@example.com",
+      usage: [
+        { kind: "agent-run", units: 42 },
+        { kind: "completion", units: 318 },
+      ],
+      label: "Signed in as CodeAgent Developer",
+    },
+
     context: { state: "not_indexed", label: "Index project" },
     backendHealth: { state: "online", label: "Connected to codeagent-backend", protocolVersion: 1 },
     models: {
       state: "ready",
-      provider: "multi-provider",
+      provider: "unified-native",
       defaultModel: "gpt-5.6-sol",
       selectedModel: "gpt-5.6-sol",
       options: [

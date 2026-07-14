@@ -1,5 +1,7 @@
 package com.codeagent.plugin.bridge
 
+import com.codeagent.plugin.settings.CodeAgentSettingsState
+import com.codeagent.plugin.settings.DEFAULT_BACKEND_URL
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
 import kotlin.test.Test
@@ -34,4 +36,12 @@ class BridgeProtocolTest {
         assertEquals("""{"id":"message-1","delta":"Done","turnIndex":2}""", delta)
         assertEquals(true, tool.contains("\"turnIndex\":2"))
     }
+
+    @Test
+    fun `fresh install targets the local Docker backend`() {
+        assertEquals("http://127.0.0.1:8788", DEFAULT_BACKEND_URL)
+        assertEquals(DEFAULT_BACKEND_URL, CodeAgentSettingsState().backendUrl)
+        assertEquals(DEFAULT_BACKEND_URL, SettingsSnapshotDto().backendUrl)
+    }
+
 }

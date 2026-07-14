@@ -8,15 +8,23 @@ The authoritative machine-readable schema is `openapi.json`, also served publicl
 
 - Local backend default: `http://127.0.0.1:8787`
 - Current local OMP integration instance: `http://127.0.0.1:8788`
-- Authentication: `Authorization: Bearer <CODEAGENT_AUTH_TOKEN>` on every `/v1/*` request when the server token is configured.
-- Browser development origins must be listed in `CORS_ALLOWED_ORIGINS` as a comma-separated exact-origin allowlist.
-- Model and integration credentials never cross this API boundary; discovery returns only required environment variable names.
+- Authentication mode is discovered from public `GET /v1/auth/config`. Hosted deployments use backend-mediated OIDC Authorization Code + PKCE; local development may use local or shared-token mode.
+- OIDC access and rotating refresh tokens are returned by `POST /v1/auth/token`. Every protected `/v1/*` request sends `Authorization: Bearer <access_token>`; `POST /v1/auth/logout` revokes the backing session.
+- Browser development origins must be listed in `CORS_ALLOWED_ORIGINS` as a comma-separated exact-origin allowlist. Model and integration credentials never cross this API boundary.
 
 Start or update the local deployment from the repository root:
 
 ```bash
 docker compose -f backend/compose.yaml up -d --build
 ```
+
+## Authentication flow
+
+1. Read `GET /v1/auth/config`.
+2. For `mode=oidc`, create a loopback callback, state, PKCE verifier, and S256 challenge; open `authorizationEndpoint` in the system browser.
+3. Receive the one-time authorization code at the loopback callback and exchange it at `tokenEndpoint`. Store access and refresh tokens only in JetBrains Password Safe.
+4. Refresh before expiry through the same token endpoint. Refresh tokens rotate and cannot be replayed.
+5. Read the current user, usage, and session from `GET /v1/me`; revoke the session with `POST /v1/auth/logout`.
 
 ## Required flow
 

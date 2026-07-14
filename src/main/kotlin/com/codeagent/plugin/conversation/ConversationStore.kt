@@ -57,6 +57,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     fun togglePinned(threadId: String): ConversationSnapshot {
         val thread = requireNotNull(data.threads.firstOrNull { it.id == threadId }) { "Unknown conversation: $threadId" }
         thread.pinned = !thread.pinned
+        thread.updatedAt = System.currentTimeMillis()
         return thread.toSnapshot()
     }
 
@@ -71,11 +72,37 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     }
 
     @Synchronized
+    fun setSummary(threadId: String, summary: String): ConversationSnapshot {
+        val thread = requireNotNull(data.threads.firstOrNull { it.id == threadId }) { "Unknown conversation: $threadId" }
+        val next = summary.trim().take(MAX_SUMMARY_CHARS)
+        require(next.isNotEmpty()) { "Conversation summary must not be blank" }
+        if (thread.summary != next) {
+            thread.summary = next
+            thread.updatedAt = System.currentTimeMillis()
+        }
+        return thread.toSnapshot()
+    }
+
+    @Synchronized
     fun deleteThread(threadId: String): ConversationSnapshot {
         require(data.threads.removeIf { it.id == threadId }) { "Unknown conversation: $threadId" }
+        if (threadId !in data.deletedCloudThreadIds) {
+            data.deletedCloudThreadIds.add(threadId)
+            if (data.deletedCloudThreadIds.size > MAX_CLOUD_TOMBSTONES) {
+                data.deletedCloudThreadIds = data.deletedCloudThreadIds.takeLast(MAX_CLOUD_TOMBSTONES).toMutableList()
+            }
+        }
         if (data.activeThreadId == threadId) data.activeThreadId = ""
         ensureActive()
         return active()
+    }
+
+    @Synchronized
+    fun pendingCloudDeletions(): List<String> = data.deletedCloudThreadIds.toList()
+
+    @Synchronized
+    fun acknowledgeCloudDeletion(threadId: String) {
+        data.deletedCloudThreadIds.remove(threadId)
     }
 
     @Synchronized
@@ -109,28 +136,44 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     @Synchronized
     fun setMode(mode: String) {
         require(mode == "agent" || mode == "chat" || mode == "ask") { "Unsupported mode: $mode" }
-        mutableActive().mode = mode
+        val thread = mutableActive()
+        if (thread.mode != mode) {
+            thread.mode = mode
+            thread.updatedAt = System.currentTimeMillis()
+        }
     }
 
     @Synchronized
     fun setSelectedModel(modelId: String?) {
-        val normalized = modelId?.trim()?.takeIf { it.isNotEmpty() }
-        require(normalized == null || normalized.length <= MAX_MODEL_ID_CHARS) { "Model ID is too long" }
-        mutableActive().selectedModelId = normalized ?: ""
+        val normalized = modelId?.trim()?.takeIf { it.isNotEmpty() }.orEmpty()
+        require(normalized.length <= MAX_MODEL_ID_CHARS) { "Model ID is too long" }
+        val thread = mutableActive()
+        if (thread.selectedModelId != normalized) {
+            thread.selectedModelId = normalized
+            thread.updatedAt = System.currentTimeMillis()
+        }
     }
 
     @Synchronized
     fun setSelectedSkills(skillIds: Collection<String>) {
         val selected = skillIds.distinct()
         require(selected.size <= MAX_SELECTED_SKILLS) { "Select at most $MAX_SELECTED_SKILLS skills" }
-        mutableActive().selectedSkillIds = selected.toMutableList()
+        val thread = mutableActive()
+        if (thread.selectedSkillIds != selected) {
+            thread.selectedSkillIds = selected.toMutableList()
+            thread.updatedAt = System.currentTimeMillis()
+        }
     }
 
     @Synchronized
     fun setSelectedRules(ruleIds: Collection<String>) {
         val selected = ruleIds.distinct()
         require(selected.size <= MAX_SELECTED_RULES) { "Select at most $MAX_SELECTED_RULES manual rules" }
-        mutableActive().selectedRuleIds = selected.toMutableList()
+        val thread = mutableActive()
+        if (thread.selectedRuleIds != selected) {
+            thread.selectedRuleIds = selected.toMutableList()
+            thread.updatedAt = System.currentTimeMillis()
+        }
     }
 
     @Synchronized
@@ -263,6 +306,114 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         return imported.map { it.toDomain() }
     }
 
+    @Synchronized
+    fun mergeCloudSnapshot(remote: List<ConversationSnapshot>): CloudMergeResult =
+        mergeCloud(remote, completeSnapshot = true)
+
+    @Synchronized
+    fun mergeCloudConversation(remote: ConversationSnapshot): CloudMergeResult =
+        mergeCloud(listOf(remote), completeSnapshot = false)
+
+    private fun mergeCloud(remote: List<ConversationSnapshot>, completeSnapshot: Boolean): CloudMergeResult {
+        require(remote.map { it.id }.distinct().size == remote.size) { "Cloud conversation IDs must be unique" }
+        val acceptedRemote = remote.filter { it.id !in data.deletedCloudThreadIds }
+        acceptedRemote.forEach(::validateCloudConversation)
+        val remoteById = acceptedRemote.associateBy { it.id }
+        var changed = false
+
+        if (completeSnapshot && acceptedRemote.isNotEmpty()) {
+            val activeState = data.threads.firstOrNull { it.id == data.activeThreadId }
+            if (activeState?.isPristine() == true && activeState.id !in remoteById) {
+                data.threads.remove(activeState)
+                changed = true
+            }
+        }
+
+        val uploadIds = linkedSetOf<String>()
+        acceptedRemote.forEach { incoming ->
+            val index = data.threads.indexOfFirst { it.id == incoming.id }
+            if (index < 0) {
+                data.threads.add(incoming.toState())
+                changed = true
+            } else {
+                val local = data.threads[index]
+                when {
+                    incoming.updatedAt > local.updatedAt -> {
+                        data.threads[index] = incoming.toState()
+                        changed = true
+                    }
+                    incoming.updatedAt < local.updatedAt -> uploadIds += local.id
+                    local.toSnapshot().copy(active = incoming.active) != incoming -> {
+                        data.threads[index] = incoming.toState()
+                        changed = true
+                    }
+                }
+            }
+        }
+
+        if (completeSnapshot) {
+            for (thread in data.threads) {
+                if (thread.id !in remoteById && !thread.isPristine()) uploadIds += thread.id
+            }
+        }
+        if (data.threads.none { it.id == data.activeThreadId }) {
+            data.activeThreadId = data.threads.maxByOrNull { it.updatedAt }?.id.orEmpty()
+            changed = true
+        }
+        ensureActive()
+        trimHistory()
+        return CloudMergeResult(
+            changed = changed,
+            upload = data.threads.filter { it.id in uploadIds }.map { it.toSnapshot() },
+        )
+    }
+
+    private fun validateCloudConversation(conversation: ConversationSnapshot) {
+        require(conversation.id.isNotBlank() && conversation.id.length <= 200) { "Cloud conversation ID is invalid" }
+        require(conversation.title.isNotBlank() && conversation.title.length <= 200) { "Cloud conversation title is invalid" }
+        require(conversation.mode in setOf("agent", "chat", "ask")) { "Cloud conversation mode is invalid" }
+        require(conversation.updatedAt >= 0) { "Cloud conversation timestamp is invalid" }
+        require(conversation.selectedSkillIds.size <= MAX_SELECTED_SKILLS) { "Cloud conversation has too many skills" }
+        require(conversation.selectedRuleIds.size <= MAX_SELECTED_RULES) { "Cloud conversation has too many rules" }
+        require(conversation.messages.size <= MAX_MESSAGES_PER_THREAD) { "Cloud conversation has too many messages" }
+        require(conversation.tasks.size <= MAX_TASKS_PER_THREAD) { "Cloud conversation has too many tasks" }
+        require(conversation.messages.all { it.role == "user" || it.role == "assistant" }) { "Cloud message role is invalid" }
+        require(conversation.tasks.all { it.state in TASK_STATES }) { "Cloud task state is invalid" }
+        require(conversation.messages.map { it.id }.distinct().size == conversation.messages.size) { "Cloud message IDs must be unique" }
+        require(conversation.tasks.map { it.id }.distinct().size == conversation.tasks.size) { "Cloud task IDs must be unique" }
+        require(conversation.summary.orEmpty().length <= MAX_SUMMARY_CHARS) { "Cloud summary is too long" }
+    }
+
+    private fun ConversationSnapshot.toState() = ConversationThreadState().also { state ->
+        state.id = id
+        state.title = title
+        state.updatedAt = updatedAt
+        state.mode = mode
+        state.selectedModelId = selectedModelId.orEmpty()
+        state.selectedSkillIds = selectedSkillIds.toMutableList()
+        state.selectedRuleIds = selectedRuleIds.toMutableList()
+        state.messages = messages.mapTo(mutableListOf()) { message ->
+            ConversationMessageState().also {
+                it.id = message.id
+                it.role = message.role
+                it.content = message.content
+                it.createdAt = message.createdAt
+            }
+        }
+        state.tasks = tasks.mapTo(mutableListOf()) { task ->
+            ConversationTaskState().also {
+                it.id = task.id
+                it.name = task.name
+                it.state = task.state
+            }
+        }
+        state.pinned = pinned
+        state.summary = summary.orEmpty()
+    }
+
+    private fun ConversationThreadState.isPristine(): Boolean =
+        title == "New task" && messages.isEmpty() && tasks.isEmpty() && !pinned && summary.isBlank()
+
     private fun mutableActive(): ConversationThreadState {
         ensureActive()
         return requireNotNull(data.threads.firstOrNull { it.id == data.activeThreadId })
@@ -298,6 +449,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         tasks = tasks.map { it.toDomain() },
         active = id == data.activeThreadId,
         pinned = pinned,
+        summary = summary.takeIf { it.isNotBlank() },
     )
 
     private fun ConversationMessageState.toDomain() = ConversationMessage(id, role, content, createdAt)
@@ -312,6 +464,8 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         private const val MAX_TASK_NAME_CHARS = 240
         private const val MAX_IMPORTED_MESSAGE_CHARS = 40_000
         private const val MAX_MODEL_ID_CHARS = 240
+        private const val MAX_SUMMARY_CHARS = 20_000
+        private const val MAX_CLOUD_TOMBSTONES = 200
         private val TASK_STATES = setOf("not_started", "in_progress", "completed", "cancelled")
         const val MAX_SELECTED_SKILLS = 8
         const val MAX_SELECTED_RULES = 32
@@ -331,6 +485,12 @@ data class ConversationSnapshot(
     val tasks: List<ConversationTask>,
     val active: Boolean,
     val pinned: Boolean,
+    val summary: String? = null,
+)
+
+data class CloudMergeResult(
+    val changed: Boolean,
+    val upload: List<ConversationSnapshot>,
 )
 
 data class ConversationMessage(
@@ -349,6 +509,7 @@ data class ConversationTask(
 class ConversationStoreState {
     var activeThreadId: String = ""
     var threads: MutableList<ConversationThreadState> = mutableListOf()
+    var deletedCloudThreadIds: MutableList<String> = mutableListOf()
 }
 
 class ConversationThreadState {
@@ -361,6 +522,8 @@ class ConversationThreadState {
     var selectedRuleIds: MutableList<String> = mutableListOf()
     var messages: MutableList<ConversationMessageState> = mutableListOf()
     var tasks: MutableList<ConversationTaskState> = mutableListOf()
+    var summary: String = ""
+
     var pinned: Boolean = false
 }
 

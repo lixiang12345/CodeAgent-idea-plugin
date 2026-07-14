@@ -1,6 +1,7 @@
 package com.codeagent.plugin.agent
 
 import com.codeagent.plugin.settings.CodeAgentSettingsService
+import com.codeagent.plugin.settings.OidcLoginService
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -19,6 +20,7 @@ import java.util.concurrent.atomic.AtomicReference
 @Service(Service.Level.PROJECT)
 class AgentOrchestrator(private val project: Project) : Disposable {
     private val settingsService = service<CodeAgentSettingsService>()
+    private val oidcLogin = service<OidcLoginService>()
     private val executor = AppExecutorUtil.getAppExecutorService()
     private val activeRun = AtomicReference<RunContext?>()
     private val customizations = project.service<WorkspaceCustomizationService>()
@@ -34,7 +36,6 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         listener: AgentRunListener,
     ) {
         cancel()
-        val settings = settingsService.snapshot()
         val context = RunContext()
         activeRun.set(context)
 
@@ -43,6 +44,8 @@ class AgentOrchestrator(private val project: Project) : Disposable {
             try {
                 require(mode in setOf("agent", "chat", "ask")) { "Unsupported mode: $mode" }
                 require(history.none { it.role == "system" }) { "Conversation history cannot contain system messages" }
+                oidcLogin.ensureFreshToken().join()
+                val settings = settingsService.snapshot()
                 val customization = customizations.refresh()
                 val client = RemoteAgentClient(settings)
                 context.client.set(client)
@@ -103,12 +106,17 @@ class AgentOrchestrator(private val project: Project) : Disposable {
 
     internal fun health(): CompletableFuture<RemoteBackendHealth> = RemoteAgentClient(settingsService.snapshot()).health()
 
-    internal fun models(): CompletableFuture<RemoteModelsResponse> = RemoteAgentClient(settingsService.snapshot()).models()
+    internal fun account(): CompletableFuture<RemoteAccountResponse> = withClient(RemoteAgentClient::account)
 
-    internal fun tools(): CompletableFuture<RemoteToolsResponse> = RemoteAgentClient(settingsService.snapshot()).tools()
+    internal fun models(): CompletableFuture<RemoteModelsResponse> = withClient(RemoteAgentClient::models)
+
+    internal fun tools(): CompletableFuture<RemoteToolsResponse> = withClient(RemoteAgentClient::tools)
 
     internal fun enhance(text: String, mode: String, model: String?): CompletableFuture<RemoteEnhanceResponse> =
-        RemoteAgentClient(settingsService.snapshot()).enhance(text, mode, model)
+        withClient { it.enhance(text, mode, model) }
+
+    private fun <T> withClient(request: (RemoteAgentClient) -> CompletableFuture<T>): CompletableFuture<T> =
+        oidcLogin.ensureFreshToken().thenCompose { request(RemoteAgentClient(settingsService.snapshot())) }
 
     fun resolveApproval(toolId: String, approved: Boolean): Boolean =
         activeRun.get()?.approvals?.remove(toolId)?.complete(approved) ?: false

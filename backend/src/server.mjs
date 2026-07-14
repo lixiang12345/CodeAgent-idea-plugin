@@ -5,6 +5,10 @@ import { readFileSync } from "node:fs";
 import { AgentRunner, validateRunRequest } from "./agent-runner.mjs";
 import { createIntegrationToolRegistryFromEnv } from "./integration-tools.mjs";
 import { createModelGatewayFromEnv } from "./model-gateway.mjs";
+import { createAuthenticatorFromEnv, SharedTokenAuthenticator } from "./auth.mjs";
+import { ProductJobRunner } from "./job-runner.mjs";
+import { createProductStoreFromEnv } from "./product-store.mjs";
+import { createRuntimeManifestFromEnv, handleProductRequest, handlePublicProductRequest } from "./product-api.mjs";
 
 const OPENAPI_DOCUMENT = JSON.parse(readFileSync(new URL("../openapi.json", import.meta.url), "utf8"));
 const DOCS_HTML = readFileSync(new URL("../docs.html", import.meta.url), "utf8");
@@ -12,6 +16,10 @@ const DOCS_HTML = readFileSync(new URL("../docs.html", import.meta.url), "utf8")
 export function createCodeAgentServer({
   modelGateway,
   integrationTools,
+  authenticator,
+  productStore,
+  productJobRunner,
+  runtimeManifest,
   authToken = "",
   corsOrigins = [],
   logger = console,
@@ -19,10 +27,15 @@ export function createCodeAgentServer({
   const gateway = modelGateway || createModelGatewayFromEnv();
   const runner = new AgentRunner({ modelGateway: gateway });
   const backendTools = integrationTools || createIntegrationToolRegistryFromEnv(process.env, fetch, gateway);
+  const store = productStore || createProductStoreFromEnv();
+  const auth = authenticator || (authToken ? new SharedTokenAuthenticator(authToken) : createAuthenticatorFromEnv(process.env, fetch, store));
+  const manifest = runtimeManifest || createRuntimeManifestFromEnv();
+  const jobs = productJobRunner || new ProductJobRunner({ store, modelGateway: gateway, logger });
+  const ready = Promise.resolve(store.initialize()).then(() => jobs.start());
   const runs = new Map();
   const allowedCorsOrigins = new Set(normalizeCorsOrigins(corsOrigins));
 
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     try {
       const corsAllowed = applyCors(request, response, allowedCorsOrigins);
       if (request.method === "OPTIONS") {
@@ -46,8 +59,18 @@ export function createCodeAgentServer({
       if ((request.url === "/docs" || request.url === "/docs/") && request.method === "GET") {
         return html(response, 200, DOCS_HTML);
       }
-      authorize(request, authToken);
-
+      await ready;
+      if (await handlePublicProductRequest(request, response, { authenticator: auth, runtimeManifest: manifest })) return;
+      const principal = await auth.authenticate(request);
+      await store.upsertUser(principal);
+      if (await handleProductRequest(request, response, {
+        principal,
+        authenticator: auth,
+        store,
+        jobRunner: jobs,
+        modelGateway: gateway,
+        readJson,
+      })) return;
       if (request.url === "/v1/models" && request.method === "GET") {
         const data = typeof gateway.listModels === "function" ? await gateway.listModels() : [];
         return json(response, 200, {
@@ -126,7 +149,7 @@ export function createCodeAgentServer({
       if (request.url === "/v1/runs" && request.method === "POST") {
         const body = await readJson(request);
         validateRunRequest(body);
-        const run = new RunSession({ id: randomUUID(), response, onClose: () => runs.delete(run.id) });
+        const run = new RunSession({ id: randomUUID(), userId: principal.id, response, onClose: () => runs.delete(run.id) });
         runs.set(run.id, run);
         run.emit("run.started", {
           runId: run.id,
@@ -141,13 +164,16 @@ export function createCodeAgentServer({
           signal: run.signal,
         }).catch((error) => {
           if (!run.signal.aborted) run.emit("run.error", { message: rootMessage(error) });
-        }).finally(() => run.close());
+        }).finally(async () => {
+          await store.recordUsage(principal.id, { kind: "agent-run", units: 1, metadata: { runId: run.id, model: body.model || gateway.defaultModel || "" } });
+          run.close();
+        });
         return;
       }
 
       const toolResultMatch = request.url?.match(/^\/v1\/runs\/([^/]+)\/tool-results$/);
       if (toolResultMatch && request.method === "POST") {
-        const run = requireRun(runs, toolResultMatch[1]);
+        const run = requireRun(runs, toolResultMatch[1], principal.id);
         const result = await readJson(request);
         validateToolResult(result);
         run.resolveToolResult(result);
@@ -156,7 +182,7 @@ export function createCodeAgentServer({
 
       const runMatch = request.url?.match(/^\/v1\/runs\/([^/]+)$/);
       if (runMatch && request.method === "DELETE") {
-        const run = requireRun(runs, runMatch[1]);
+        const run = requireRun(runs, runMatch[1], principal.id);
         run.cancel();
         return json(response, 202, { cancelled: true });
       }
@@ -168,11 +194,14 @@ export function createCodeAgentServer({
       else response.end();
     }
   });
+  server.on("close", () => { void store.close(); });
+  return server;
 }
 
 class RunSession {
-  constructor({ id, response, onClose }) {
+  constructor({ id, userId, response, onClose }) {
     this.id = id;
+    this.userId = userId;
     this.response = response;
     this.onClose = onClose;
     this.abortController = new AbortController();
@@ -257,18 +286,10 @@ function validateToolResult(result) {
   }
 }
 
-function authorize(request, token) {
-  if (!token) return;
-  if (request.headers.authorization !== `Bearer ${token}`) {
-    const error = new Error("Unauthorized");
-    error.statusCode = 401;
-    throw error;
-  }
-}
 
-function requireRun(runs, id) {
+function requireRun(runs, id, userId) {
   const run = runs.get(id);
-  if (!run) {
+  if (!run || run.userId !== userId) {
     const error = new Error("Run not found");
     error.statusCode = 404;
     throw error;
@@ -325,7 +346,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number.parseInt(process.env.PORT || "8787", 10);
   const host = process.env.HOST || "127.0.0.1";
   const server = createCodeAgentServer({
-    authToken: process.env.CODEAGENT_AUTH_TOKEN || "",
     corsOrigins: process.env.CORS_ALLOWED_ORIGINS || "",
   });
   server.listen(port, host, () => console.log(`CodeAgent backend listening on http://${host}:${port}`));

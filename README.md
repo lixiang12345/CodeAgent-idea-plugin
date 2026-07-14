@@ -6,26 +6,28 @@ The IDEA plugin is a capability gateway: it owns project access, ContextEngine, 
 
 ## Run the backend
 
+The backend operator configures `backend/.env`, then starts the local Docker deployment from the repository root:
+
 ```bash
-cd backend
-cp .env.example .env
-npm start
+docker compose -f backend/compose.yaml up -d --build
 ```
 
-For deployment, build `backend/Dockerfile` and provide `CODEAGENT_AUTH_TOKEN`, `MODEL`, each enabled provider's base URL, API key, and model allowlist. Optional web/SaaS integration variables are listed in `backend/.env.example`. The service exposes `GET /health`, authenticated model/tool discovery, backend tool execution, and defaults to `127.0.0.1:8787` for local development.
+Docker publishes the service at `http://127.0.0.1:8788`; fresh plugin installs use that address automatically. Direct development without Docker remains available through `cd backend && npm start` on port `8787`, which requires overriding the Backend URL in Advanced Settings.
+
+For a hosted deployment, build `backend/Dockerfile` and provide the unified model gateway contract (`MODEL_BASE_URL`, `MODEL_API_KEY`) plus `DATABASE_URL`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `PUBLIC_BASE_URL`, and `SESSION_SIGNING_KEY`. Optional web/SaaS integration variables are listed in `backend/.env.example`. The service exposes public OIDC bootstrap endpoints and authenticated account, model, tool, conversation, job, completion, and Agent APIs.
 
 ## Install and use
 
 1. Install the ZIP from `build/distributions/` through **Settings > Plugins > Install Plugin from Disk**.
 2. Open **Tools > Show CodeAgent** (`Ctrl+Alt+I`, or `Control+Command+I` on macOS).
-3. Open Settings in the CodeAgent panel and configure the backend URL, matching backend token, and a Node.js 22.5+ executable.
+3. With the local Docker backend running, no backend URL or token entry is required. For a hosted deployment, set its URL under **Settings > Services**, then sign in from **Settings > Account**. CodeAgent discovers `node` and common Node.js installation paths automatically; Advanced Settings can override the Node.js 22.5+ executable.
 4. Select **Index project**, then use **Agent** for approved code changes, **Chat** for code-aware collaboration, or **Ask** for read-only analysis.
 
 The panel's workspace menu opens the prototype-aligned **Tasks**, **Git**, and **Image Canvas** pages. Tasks persist per thread and can be imported/exported as Markdown. Git reads the real index and working tree, opens JetBrains Diff, and requires explicit confirmation before committing. Image Canvas previews bounded raster assets from a user-selected directory inside the project and can attach them to the active conversation. Threads support pin, confirmed delete, and Markdown import/export. Messages entered during an active run are queued by the IDEA capability layer and dispatched in order.
 
 Settings reports the result of real backend health, model, and tool-discovery requests, including protocol compatibility and missing integration configuration. A configured URL is not treated as an online backend.
 
-The backend token is stored in JetBrains Password Safe. Model and integration credentials stay on the deployed backend. ContextEngine's index stays local; selected repository context, rules, skills, messages, and tool results are sent to the configured backend for the active Agent run.
+OIDC access and refresh tokens (or the local shared backend token) are stored in JetBrains Password Safe; only expiry metadata is kept in plugin settings. Model and integration credentials stay on the deployed backend. ContextEngine's index stays local; selected repository context, rules, skills, messages, and tool results are sent to the configured backend for the active Agent run.
 
 ## Development prerequisites
 

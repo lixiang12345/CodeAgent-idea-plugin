@@ -1,18 +1,18 @@
 # Provider and conversation data flow
 
-## Enabled model routes
+## Unified native model gateway
 
-The backend exposes a fixed allowlist through `GET /v1/models`; it does not expose every model returned by the upstream gateway. Credentials are backend environment variables and are never returned to the plugin.
+The backend accepts exactly two model-gateway settings: `MODEL_BASE_URL` and `MODEL_API_KEY`. It discovers the model registry from `GET MODEL_BASE_URL/v1/models`; every returned model must include an explicit native protocol (`openai-responses`, `anthropic-messages`, or `xai-responses`). The same origin and bearer key cover discovery and all three protocols.
 
-| Models | Backend adapter | Upstream endpoint |
+| Protocol metadata | Backend adapter | Upstream endpoint |
 | --- | --- | --- |
-| `gpt-5.6-sol` | OpenAI Responses | `POST /v1/responses` |
-| `claude-fable-5`, `claude-opus-4-8`, `claude-sonnet-5` | Anthropic Messages | `POST /v1/messages` |
-| `grok-4.5` | xAI Responses | `POST /v1/responses` |
+| `openai-responses` | OpenAI Responses | `POST /v1/responses` |
+| `anthropic-messages` | Anthropic Messages | `POST /v1/messages` |
+| `xai-responses` | xAI Responses | `POST /v1/responses` |
 
-The adapters translate the shared agent turn into each provider's request schema and normalize text deltas, tool calls, argument deltas, and tool results back into one internal representation. Protocol selection is configured by the route and never guessed from a model name. A native Gemini `streamGenerateContent` adapter remains covered by tests, but no Gemini model is enabled in the current allowlist.
+The adapters translate the shared agent turn into each provider's native request schema and normalize text deltas, tool calls, argument deltas, and tool results back into one internal representation. Routing is determined only by discovery metadata and is never guessed from a model name. Remote gateways must use HTTPS.
 
-Official protocol references: [OpenAI Responses](https://developers.openai.com/api/reference/resources/responses/methods/create), [Anthropic streaming Messages](https://docs.anthropic.com/en/api/messages-streaming), [xAI inference APIs](https://docs.x.ai/developers/rest-api-reference/inference/chat), and [Gemini function calling](https://ai.google.dev/gemini-api/docs/function-calling).
+Official protocol references: [OpenAI Responses](https://developers.openai.com/api/reference/resources/responses/methods/create), [Anthropic streaming Messages](https://docs.anthropic.com/en/api/messages-streaming), and [xAI inference APIs](https://docs.x.ai/developers/rest-api-reference/inference/chat).
 
 ## CodeAgent request path
 
@@ -46,4 +46,4 @@ This keeps the repository index and filesystem authority on the developer machin
 
 ## Deployment and trust
 
-Set provider credentials only in the deployed backend environment. Protect `/v1/models`, `/v1/runs`, and tool-result endpoints with `CODEAGENT_AUTH_TOKEN`, use TLS in non-local deployments, and treat any third-party model gateway as an external processor that can observe prompts, selected repository content, and tool results.
+Set only the unified gateway Base URL and Key in the deployed backend environment. Protect hosted product APIs with OIDC sessions, use TLS outside loopback development, and treat the model gateway as an external processor that can observe prompts, selected repository content, and tool results.

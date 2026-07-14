@@ -60,6 +60,127 @@
         }
       }
     },
+    "/v1/auth/config": {
+      "get": {
+        "summary": "Discover the backend authentication mode and PKCE endpoints",
+        "responses": {
+          "200": {
+            "description": "Authentication bootstrap configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthConfig"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/authorize": {
+      "get": {
+        "summary": "Start backend-mediated OIDC Authorization Code + PKCE",
+        "parameters": [
+          { "name": "response_type", "in": "query", "required": true, "schema": { "type": "string", "const": "code" } },
+          { "name": "client_id", "in": "query", "required": true, "schema": { "type": "string", "const": "codeagent-plugin" } },
+          { "name": "redirect_uri", "in": "query", "required": true, "schema": { "type": "string", "format": "uri" } },
+          { "name": "state", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "code_challenge", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "code_challenge_method", "in": "query", "required": true, "schema": { "type": "string", "const": "S256" } }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to the configured OIDC provider",
+            "headers": {
+              "Location": { "schema": { "type": "string", "format": "uri" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" }
+        }
+      }
+    },
+    "/v1/auth/callback": {
+      "get": {
+        "summary": "Complete the provider callback and redirect to the plugin loopback URI",
+        "parameters": [
+          { "name": "code", "in": "query", "schema": { "type": "string" } },
+          { "name": "state", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "error", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to the verified plugin loopback callback",
+            "headers": {
+              "Location": { "schema": { "type": "string", "format": "uri" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" }
+        }
+      }
+    },
+    "/v1/auth/token": {
+      "post": {
+        "summary": "Exchange a one-time code or rotate a refresh token",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "required": ["grant_type", "client_id"],
+                "properties": {
+                  "grant_type": { "type": "string", "enum": ["authorization_code", "refresh_token"] },
+                  "client_id": { "type": "string", "const": "codeagent-plugin" },
+                  "code": { "type": "string" },
+                  "redirect_uri": { "type": "string", "format": "uri" },
+                  "code_verifier": { "type": "string" },
+                  "refresh_token": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Backend access token and rotating refresh token",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthToken" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" }
+        }
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "summary": "Revoke the current backend session",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "204": { "description": "Session revoked" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "summary": "Read the current user, usage, and session",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Current account and session",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AccountResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+
     "/v1/models": {
       "get": {
         "summary": "List the configured model allowlist",
@@ -313,7 +434,7 @@
                   "contentMediaType": "text/event-stream",
                   "description": "Named SSE blocks whose JSON data payload matches SseEventPayload."
                 },
-                "example": "event: run.started\ndata: {\"runId\":\"00000000-0000-0000-0000-000000000000\",\"protocolVersion\":1,\"provider\":\"multi-provider\",\"model\":\"gpt-5.6-sol\"}\n\n"
+                "example": "event: run.started\ndata: {\"runId\":\"00000000-0000-0000-0000-000000000000\",\"protocolVersion\":1,\"provider\":\"unified-native\",\"model\":\"gpt-5.6-sol\"}\n\n"
               }
             }
           },
@@ -994,6 +1115,69 @@
           "cancelled": {
             "type": "boolean",
             "const": true
+          }
+        }
+      },
+      "AuthConfig": {
+        "type": "object",
+        "required": ["mode"],
+        "properties": {
+          "mode": { "type": "string", "enum": ["local", "shared-token", "oidc"] },
+          "issuer": { "type": ["string", "null"], "format": "uri" },
+          "clientId": { "type": ["string", "null"] },
+          "audience": { "type": ["string", "null"] },
+          "authorizationEndpoint": { "type": ["string", "null"], "format": "uri" },
+          "tokenEndpoint": { "type": ["string", "null"], "format": "uri" },
+          "endSessionEndpoint": { "type": ["string", "null"], "format": "uri" },
+          "scopes": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "AuthToken": {
+        "type": "object",
+        "required": ["token_type", "access_token", "refresh_token", "expires_in"],
+        "properties": {
+          "token_type": { "type": "string", "const": "Bearer" },
+          "access_token": { "type": "string" },
+          "refresh_token": { "type": "string" },
+          "expires_in": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "AccountResponse": {
+        "type": "object",
+        "required": ["user", "usage", "session"],
+        "properties": {
+          "user": {
+            "type": "object",
+            "required": ["id", "displayName"],
+            "properties": {
+              "id": { "type": "string" },
+              "email": { "type": ["string", "null"], "format": "email" },
+              "displayName": { "type": "string" },
+              "createdAt": { "type": "string", "format": "date-time" },
+              "updatedAt": { "type": "string", "format": "date-time" }
+            }
+          },
+          "usage": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["kind", "units"],
+              "properties": {
+                "kind": { "type": "string" },
+                "units": { "type": "integer", "minimum": 0 }
+              }
+            }
+          },
+          "session": {
+            "type": "object",
+            "required": ["mode"],
+            "properties": {
+              "mode": { "type": "string", "enum": ["local", "shared-token", "oidc"] },
+              "id": { "type": "string", "format": "uuid" },
+              "refreshExpiresAt": { "type": "string", "format": "date-time" },
+              "createdAt": { "type": "string", "format": "date-time" },
+              "updatedAt": { "type": "string", "format": "date-time" }
+            }
           }
         }
       },

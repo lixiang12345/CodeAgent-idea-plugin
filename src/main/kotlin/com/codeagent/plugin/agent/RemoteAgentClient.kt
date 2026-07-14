@@ -36,6 +36,90 @@ internal class RemoteAgentClient(
         }
     }
 
+    fun account(): CompletableFuture<RemoteAccountResponse> {
+        val uri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/me")
+        return httpClient.sendAsync(
+            requestBuilder(uri).timeout(Duration.ofSeconds(15)).GET().build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            check(response.statusCode() == 200) {
+                "Backend account request returned HTTP " + response.statusCode() + ": " + errorMessage(response.body())
+            }
+            json.decodeFromString<RemoteAccountResponse>(response.body())
+        }
+    }
+
+    fun conversations(): CompletableFuture<RemoteConversationList> {
+        val uri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/conversations")
+        return httpClient.sendAsync(
+            requestBuilder(uri).timeout(Duration.ofSeconds(30)).GET().build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            if (response.statusCode() != 200) throw remoteHttpError("Conversation discovery", response)
+            json.decodeFromString<RemoteConversationList>(response.body())
+        }
+    }
+
+    fun conversation(id: String): CompletableFuture<RemoteConversation> {
+        val uri = conversationUri(id)
+        return httpClient.sendAsync(
+            requestBuilder(uri).timeout(Duration.ofSeconds(30)).GET().build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            if (response.statusCode() != 200) throw remoteHttpError("Conversation read", response)
+            json.decodeFromString<RemoteConversation>(response.body())
+        }
+    }
+
+    fun putConversation(conversation: RemoteConversation, expectedVersion: Int?): CompletableFuture<RemoteConversation> {
+        val request = requestBuilder(conversationUri(conversation.id))
+            .timeout(Duration.ofSeconds(30))
+            .apply { expectedVersion?.let { header("If-Match", it.toString()) } }
+            .PUT(HttpRequest.BodyPublishers.ofString(json.encodeToString(conversation)))
+            .build()
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString()).thenApply { response ->
+            if (response.statusCode() != 200) throw remoteHttpError("Conversation write", response)
+            json.decodeFromString<RemoteConversation>(response.body())
+        }
+    }
+
+    fun deleteConversation(id: String): CompletableFuture<Boolean> {
+        return httpClient.sendAsync(
+            requestBuilder(conversationUri(id)).timeout(Duration.ofSeconds(30)).DELETE().build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            when (response.statusCode()) {
+                204 -> true
+                404 -> false
+                else -> throw remoteHttpError("Conversation delete", response)
+            }
+        }
+    }
+
+    fun createJob(request: RemoteJobRequest): CompletableFuture<RemoteJob> {
+        val uri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/jobs")
+        return httpClient.sendAsync(
+            requestBuilder(uri)
+                .timeout(Duration.ofSeconds(30))
+                .POST(HttpRequest.BodyPublishers.ofString(json.encodeToString(request)))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            if (response.statusCode() != 202) throw remoteHttpError("Job creation", response)
+            json.decodeFromString<RemoteJob>(response.body())
+        }
+    }
+
+    fun job(id: String): CompletableFuture<RemoteJob> {
+        return httpClient.sendAsync(
+            requestBuilder(jobUri(id)).timeout(Duration.ofSeconds(30)).GET().build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            if (response.statusCode() != 200) throw remoteHttpError("Job read", response)
+            json.decodeFromString<RemoteJob>(response.body())
+        }
+    }
+
     fun models(): CompletableFuture<RemoteModelsResponse> {
         val uri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/models")
         return httpClient.sendAsync(
@@ -55,6 +139,9 @@ internal class RemoteAgentClient(
             requestBuilder(uri).timeout(Duration.ofSeconds(30)).GET().build(),
             HttpResponse.BodyHandlers.ofString(),
         ).thenApply { response ->
+            if (response.statusCode() == 404) {
+                return@thenApply RemoteToolsResponse()
+            }
             check(response.statusCode() == 200) {
                 "Backend tool discovery returned HTTP " + response.statusCode() + ": " + errorMessage(response.body())
             }
@@ -159,6 +246,19 @@ internal class RemoteAgentClient(
         }
     }
 
+    private fun conversationUri(id: String): URI {
+        require(id.matches(Regex("[A-Za-z0-9._-]{1,200}"))) { "Invalid conversation ID" }
+        return URI.create("${settings.backendUrl.trimEnd('/')}/v1/conversations/$id")
+    }
+
+    private fun jobUri(id: String): URI {
+        require(id.matches(Regex("[A-Za-z0-9._-]{1,200}"))) { "Invalid job ID" }
+        return URI.create("${settings.backendUrl.trimEnd('/')}/v1/jobs/$id")
+    }
+
+    private fun remoteHttpError(operation: String, response: HttpResponse<String>): RemoteHttpException =
+        RemoteHttpException(response.statusCode(), "$operation returned HTTP ${response.statusCode()}: ${errorMessage(response.body())}")
+
     private fun requestBuilder(uri: URI): HttpRequest.Builder = HttpRequest.newBuilder(uri)
         .header("Content-Type", "application/json")
         .apply {
@@ -166,7 +266,7 @@ internal class RemoteAgentClient(
         }
 
     private fun errorMessage(body: String): String = runCatching {
-        json.decodeFromString<RemoteHttpError>(body).error
+        json.decodeFromString<RemoteHttpError>(body).let { it.error ?: it.message }
     }.getOrNull()?.takeIf(String::isNotBlank) ?: body.take(1_000).ifBlank { "Empty response body" }
 
     private fun readEvents(
@@ -281,7 +381,16 @@ internal data class RemoteToolCall(
 internal data class RemoteRunError(val message: String)
 
 @Serializable
-internal data class RemoteHttpError(val error: String)
+internal data class RemoteHttpError(
+    val error: String? = null,
+    val message: String? = null,
+)
+
+internal class RemoteHttpException(
+    val statusCode: Int,
+    message: String,
+) : IllegalStateException(message)
+
 
 @Serializable
 internal data class RemoteBackendHealth(
@@ -290,6 +399,110 @@ internal data class RemoteBackendHealth(
     val protocolVersion: Int,
     val provider: String? = null,
     val defaultModel: String? = null,
+)
+
+@Serializable
+internal data class RemoteAccountResponse(
+    val user: RemoteAccountUser,
+    val usage: List<RemoteUsageSummary> = emptyList(),
+    val session: RemoteSession,
+)
+
+@Serializable
+internal data class RemoteAccountUser(
+    val id: String,
+    val email: String? = null,
+    val displayName: String,
+)
+
+@Serializable
+internal data class RemoteUsageSummary(
+    val kind: String,
+    val units: Long,
+)
+
+@Serializable
+internal data class RemoteSession(
+    val mode: String = "unknown",
+    val id: String? = null,
+    val refreshExpiresAt: String? = null,
+)
+
+@Serializable
+internal data class RemoteConversationList(
+    val data: List<RemoteConversationSummary> = emptyList(),
+)
+
+@Serializable
+internal data class RemoteConversationSummary(
+    val id: String,
+    val title: String,
+    val mode: String,
+    val version: Int,
+    val updatedAt: Long,
+    val messageCount: Int = 0,
+    val taskCount: Int = 0,
+    val pinned: Boolean = false,
+    val summary: String? = null,
+)
+
+@Serializable
+internal data class RemoteConversation(
+    val id: String,
+    val title: String,
+    val mode: String,
+    val updatedAt: Long,
+    val selectedModelId: String? = null,
+    val selectedSkillIds: List<String> = emptyList(),
+    val selectedRuleIds: List<String> = emptyList(),
+    val pinned: Boolean = false,
+    val summary: String? = null,
+    val messages: List<RemoteConversationMessage> = emptyList(),
+    val tasks: List<RemoteConversationTask> = emptyList(),
+    val version: Int = 0,
+)
+
+@Serializable
+internal data class RemoteConversationMessage(
+    val id: String,
+    val role: String,
+    val content: String,
+    val createdAt: Long,
+)
+
+@Serializable
+internal data class RemoteConversationTask(
+    val id: String,
+    val name: String,
+    val state: String,
+)
+
+@Serializable
+internal data class RemoteJobRequest(
+    val type: String,
+    val input: RemoteJobInput,
+)
+
+@Serializable
+internal data class RemoteJobInput(
+    val prompt: String,
+    val system: String? = null,
+    val model: String? = null,
+)
+
+@Serializable
+internal data class RemoteJob(
+    val id: String,
+    val type: String,
+    val status: String,
+    val output: RemoteJobOutput? = null,
+    val error: String? = null,
+)
+
+@Serializable
+internal data class RemoteJobOutput(
+    val content: String,
+    val model: String? = null,
 )
 
 @Serializable

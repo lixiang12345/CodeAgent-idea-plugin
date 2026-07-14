@@ -1,4 +1,20 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: codeagent-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-codeagent}
+      POSTGRES_USER: ${POSTGRES_USER:-codeagent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codeagent-local}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-codeagent} -d ${POSTGRES_DB:-codeagent}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - codeagent-postgres:/var/lib/postgresql/data
+
   backend:
     build: .
     image: codeagent-backend:0.6.0
@@ -9,5 +25,12 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 8787
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codeagent}:${POSTGRES_PASSWORD:-codeagent-local}@postgres:5432/${POSTGRES_DB:-codeagent}
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "127.0.0.1:${CODEAGENT_HOST_PORT:-8788}:8787"
+
+volumes:
+  codeagent-postgres:

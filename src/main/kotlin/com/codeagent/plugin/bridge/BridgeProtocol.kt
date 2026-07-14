@@ -1,5 +1,6 @@
 package com.codeagent.plugin.bridge
 
+import com.codeagent.plugin.settings.DEFAULT_BACKEND_URL
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 
@@ -123,10 +124,27 @@ data class CheckpointSummaryDto(
 
 @Serializable
 data class SettingsSnapshotDto(
-    val backendUrl: String = "http://127.0.0.1:8787",
+    val backendUrl: String = DEFAULT_BACKEND_URL,
     val nodePath: String = "node",
     val backendTokenConfigured: Boolean = false,
     val autoApproveReadOnly: Boolean = true,
+)
+
+@Serializable
+data class AccountUsageDto(
+    val kind: String,
+    val units: Long,
+)
+
+@Serializable
+data class AccountSnapshotDto(
+    val state: String = "checking",
+    val mode: String = "unknown",
+    val userId: String? = null,
+    val displayName: String? = null,
+    val email: String? = null,
+    val usage: List<AccountUsageDto> = emptyList(),
+    val label: String = "Checking account",
 )
 
 @Serializable
@@ -210,6 +228,8 @@ data class AppSnapshotDto(
     val messageQueue: List<QueuedMessageDto> = emptyList(),
     val attachments: List<ContextItemDto> = emptyList(),
     val settings: SettingsSnapshotDto = SettingsSnapshotDto(),
+    val account: AccountSnapshotDto = AccountSnapshotDto(),
+
     val context: ContextSnapshotDto = ContextSnapshotDto(),
     val backendHealth: BackendHealthDto = BackendHealthDto(),
     val models: ModelRegistryDto = ModelRegistryDto(),
