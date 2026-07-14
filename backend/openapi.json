@@ -494,6 +494,9 @@
           "context.updated": {
             "$ref": "#/components/schemas/ContextUpdatedEvent"
           },
+          "tool.catalog.updated": {
+            "$ref": "#/components/schemas/ToolCatalogUpdatedEvent"
+          },
           "message.delta": {
             "$ref": "#/components/schemas/MessageDeltaEvent"
           },
@@ -530,7 +533,7 @@
         },
         "responses": {
           "200": {
-            "description": "SSE stream. Events: run.started, turn.started, message.delta, assistant.completed, tool.request, tool.completed, run.completed, run.error.",
+            "description": "SSE stream. Events: run.started, turn.started, context.updated, tool.catalog.updated, message.delta, assistant.completed, tool.request, tool.completed, run.completed, run.error.",
             "headers": {
               "X-CodeAgent-Run-Id": {
                 "schema": {
@@ -1368,6 +1371,48 @@
         },
         "additionalProperties": false
       },
+      "ToolCatalogUpdatedEvent": {
+        "type": "object",
+        "required": [
+          "turnIndex",
+          "activeToolNames",
+          "activeToolCount",
+          "catalogToolCount",
+          "discoverableToolCount",
+          "activated"
+        ],
+        "properties": {
+          "turnIndex": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "activeToolNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "activeToolCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "catalogToolCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "discoverableToolCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "activated": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "TurnStartedEvent": {
         "type": "object",
         "required": [
@@ -1511,6 +1556,12 @@
           },
           {
             "$ref": "#/components/schemas/TurnStartedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ContextUpdatedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ToolCatalogUpdatedEvent"
           },
           {
             "$ref": "#/components/schemas/MessageDeltaEvent"

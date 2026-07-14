@@ -8,6 +8,8 @@ import com.codeagent.plugin.agent.ChangeReviewService
 import com.codeagent.plugin.agent.FileChange
 import com.codeagent.plugin.agent.GitWorkspaceService
 import com.codeagent.plugin.agent.ImageCanvasService
+import com.codeagent.plugin.agent.RemoteContextUpdated
+import com.codeagent.plugin.agent.RemoteToolCatalogUpdated
 import com.codeagent.plugin.agent.WorkspaceCustomizationService
 import com.codeagent.plugin.conversation.ConversationStore
 import com.codeagent.plugin.conversation.ConversationSnapshot
@@ -73,6 +75,7 @@ class IdeBridge(
     private val stateLock = Any()
     private val runs = RunGeneration()
     private var runState = "idle"
+    private var agentRun = AgentRunTelemetryDto()
 
     @Volatile
     private var context = ContextSnapshotDto(state = "not_indexed", label = "Checking context")
@@ -341,6 +344,7 @@ class IdeBridge(
                     conversations.select(selection.threadId)
                     tools.clear()
                     messageTurns.clear()
+                    agentRun = AgentRunTelemetryDto()
                     attachments.clear()
                     messageQueue.clear()
                     runState = "idle"
@@ -537,6 +541,7 @@ class IdeBridge(
             runs.invalidate()
             tools.clear()
             messageTurns.clear()
+            agentRun = AgentRunTelemetryDto()
             attachments.clear()
             messageQueue.clear()
             runState = "idle"
@@ -558,6 +563,7 @@ class IdeBridge(
             conversations.addMessage("user", request.text.trim())
             tools.clear()
             messageTurns.clear()
+            agentRun = AgentRunTelemetryDto()
             runState = "running"
             runs.next()
         }
@@ -588,6 +594,35 @@ class IdeBridge(
             private var streamingMessageId: String? = null
             private var streamingTurnIndex: Int? = null
             private fun emitRunSnapshot() = this@IdeBridge.emitSnapshot()
+
+            override fun onContextUpdated(update: RemoteContextUpdated) {
+                if (withCurrentRun(runId) {
+                    agentRun = agentRun.copy(
+                        turnIndex = update.turnIndex,
+                        estimatedInputTokens = update.estimatedInputTokens,
+                        targetInputTokens = update.targetInputTokens,
+                        contextWindowTokens = update.contextWindowTokens,
+                        reservedOutputTokens = update.reservedOutputTokens,
+                        toolDefinitionTokens = update.toolDefinitionTokens,
+                        compactedToolResults = update.compactedToolResults,
+                        truncatedMessages = update.truncatedMessages,
+                        overBudget = update.overBudget,
+                    )
+                }) emitRunSnapshot()
+            }
+
+            override fun onToolCatalogUpdated(update: RemoteToolCatalogUpdated) {
+                if (withCurrentRun(runId) {
+                    agentRun = agentRun.copy(
+                        turnIndex = update.turnIndex,
+                        activeToolNames = update.activeToolNames,
+                        activeToolCount = update.activeToolCount,
+                        catalogToolCount = update.catalogToolCount,
+                        discoverableToolCount = update.discoverableToolCount,
+                        activatedToolNames = update.activated,
+                    )
+                }) emitRunSnapshot()
+            }
 
             override fun onAssistantDelta(delta: String, turnIndex: Int) {
                 var messageId = ""
@@ -728,6 +763,7 @@ class IdeBridge(
                 mode = active.mode,
                 selectedAgentProfileId = active.selectedAgentProfileId,
                 runState = runState,
+                agentRun = agentRun,
                 messages = active.messages.map { message ->
                     ChatMessageDto(message.id, message.role, message.content, message.createdAt, messageTurns[message.id])
                 },
@@ -1168,6 +1204,7 @@ class IdeBridge(
                     runs.invalidate()
                     tools.clear()
                     messageTurns.clear()
+                    agentRun = AgentRunTelemetryDto()
                     attachments.clear()
                     messageQueue.clear()
                     runState = "idle"
@@ -1230,6 +1267,7 @@ class IdeBridge(
                     runs.invalidate()
                     tools.clear()
                     messageTurns.clear()
+                    agentRun = AgentRunTelemetryDto()
                     attachments.clear()
                     messageQueue.clear()
                     runState = "idle"

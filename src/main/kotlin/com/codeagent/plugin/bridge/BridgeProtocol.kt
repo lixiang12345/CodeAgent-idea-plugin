@@ -39,6 +39,24 @@ data class MessageDeltaDto(
 )
 
 @Serializable
+data class AgentRunTelemetryDto(
+    val turnIndex: Int = 0,
+    val estimatedInputTokens: Int = 0,
+    val targetInputTokens: Int = 0,
+    val contextWindowTokens: Int = 0,
+    val reservedOutputTokens: Int = 0,
+    val toolDefinitionTokens: Int = 0,
+    val compactedToolResults: Int = 0,
+    val truncatedMessages: Int = 0,
+    val overBudget: Boolean = false,
+    val activeToolNames: List<String> = emptyList(),
+    val activeToolCount: Int = 0,
+    val catalogToolCount: Int = 0,
+    val discoverableToolCount: Int = 0,
+    val activatedToolNames: List<String> = emptyList(),
+)
+
+@Serializable
 data class ToolRunDto(
     val id: String,
     val name: String,
@@ -249,6 +267,7 @@ data class AppSnapshotDto(
     val mode: String = "agent",
     val selectedAgentProfileId: String = "general",
     val runState: String = "idle",
+    val agentRun: AgentRunTelemetryDto = AgentRunTelemetryDto(),
     val messages: List<ChatMessageDto> = emptyList(),
     val tools: List<ToolRunDto> = emptyList(),
     val threads: List<ThreadSummaryDto>,

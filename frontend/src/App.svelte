@@ -385,6 +385,24 @@
     return snapshot?.runState === "running" || snapshot?.runState === "awaiting_approval";
   }
 
+  function compactTokenCount(value: number) {
+    if (value < 1000) return String(value);
+    return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}k`;
+  }
+
+  function runActivityLabel(hasRunningTool: boolean) {
+    if (!snapshot) return "Generating response…";
+    const phase = snapshot.agentRun.overBudget ? "Compacting context" : hasRunningTool ? "Resolving tools" : "Generating response";
+    const details: string[] = [];
+    if (snapshot.agentRun.catalogToolCount > 0) {
+      details.push(`${snapshot.agentRun.activeToolCount}/${snapshot.agentRun.catalogToolCount} tools`);
+    }
+    if (snapshot.agentRun.targetInputTokens > 0) {
+      details.push(`${compactTokenCount(snapshot.agentRun.estimatedInputTokens)}/${compactTokenCount(snapshot.agentRun.targetInputTokens)} context`);
+    }
+    return details.length > 0 ? `${phase} · ${details.join(" · ")}` : phase;
+  }
+
   function visibleThreads() {
     const query = threadSearch.trim().toLowerCase();
     return query ? snapshot?.threads.filter((thread) => thread.title.toLowerCase().includes(query)) ?? [] : snapshot?.threads ?? [];
@@ -670,7 +688,7 @@
 
     const hasRunningTool = tools.some((tool) => tool.status === "running");
     if (snapshot.runState === "running" && (tools.length === 0 || hasRunningTool)) {
-      items.push({ kind: "activity", label: hasRunningTool ? "Resolving tools…" : "Generating response…" });
+      items.push({ kind: "activity", label: runActivityLabel(hasRunningTool) });
     }
     if (snapshot.tasks.length > 0) items.push({ kind: "tasks" });
     return items;
@@ -808,7 +826,7 @@
                     </section>
                   {/if}
                 {:else if item.kind === "activity"}
-                  <div class="generation-status" role="status" aria-live="polite"><Icon name="circle-dashed" size={13} /><span>{item.label}</span></div>
+                  <div class="generation-status" role="status" aria-live="polite" title={snapshot.agentRun.activeToolNames.join(", ")}><Icon name="circle-dashed" size={13} /><span>{item.label}</span></div>
                 {:else if item.kind === "tools"}
                   <section class="agent-turn tools-turn">
                     <div class="pass-summary">

@@ -12,6 +12,7 @@ import { createRuntimeManifestFromEnv, handleProductRequest, handlePublicProduct
 import { applyAgentProfile, resolveAgentProfile } from "./agent-profile.mjs";
 import { PROMPT_VERSION, promptEnhancementMessages } from "./prompt.mjs";
 import { contextBudgetFor } from "./context-policy.mjs";
+import { createToolCatalog } from "./tool-catalog.mjs";
 
 const OPENAPI_DOCUMENT = JSON.parse(readFileSync(new URL("../openapi.json", import.meta.url), "utf8"));
 const DOCS_HTML = readFileSync(new URL("../docs.html", import.meta.url), "utf8");
@@ -151,7 +152,8 @@ export function createCodeAgentServer({
         const effectiveRequest = applyAgentProfile(body, agentProfile);
         const selectedModel = effectiveRequest.model || gateway.defaultModel || "";
         if (selectedModel) effectiveRequest.model = selectedModel;
-        const contextBudget = contextBudgetFor(agentProfile, effectiveRequest.tools);
+        const initialToolCatalog = createToolCatalog(agentProfile, effectiveRequest.tools);
+        const contextBudget = contextBudgetFor(agentProfile, initialToolCatalog.activeDefinitions());
         const run = new RunSession({ id: randomUUID(), userId: principal.id, response, onClose: () => runs.delete(run.id) });
         runs.set(run.id, run);
         run.emit("run.started", {

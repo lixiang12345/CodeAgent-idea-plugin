@@ -416,6 +416,29 @@ internal data class RemoteToolResult(
 internal data class RemoteRunStarted(val runId: String)
 
 @Serializable
+data class RemoteContextUpdated(
+    val turnIndex: Int,
+    val estimatedInputTokens: Int,
+    val targetInputTokens: Int,
+    val contextWindowTokens: Int,
+    val reservedOutputTokens: Int,
+    val toolDefinitionTokens: Int,
+    val compactedToolResults: Int,
+    val truncatedMessages: Int,
+    val overBudget: Boolean,
+)
+
+@Serializable
+data class RemoteToolCatalogUpdated(
+    val turnIndex: Int,
+    val activeToolNames: List<String>,
+    val activeToolCount: Int,
+    val catalogToolCount: Int,
+    val discoverableToolCount: Int,
+    val activated: List<String> = emptyList(),
+)
+
+@Serializable
 internal data class RemoteMessageDelta(val delta: String, val turnIndex: Int)
 
 @Serializable

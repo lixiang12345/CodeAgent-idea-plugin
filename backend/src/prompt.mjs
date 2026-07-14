@@ -1,7 +1,7 @@
 import { builtInAgentProfile } from "./agent-profile.mjs";
 import { contextBudgetFor, estimateTokens, truncateToTokens } from "./context-policy.mjs";
 
-export const PROMPT_VERSION = "2026-07-14.3";
+export const PROMPT_VERSION = "2026-07-14.4";
 
 const MAX_CUSTOM_INSTRUCTION_TOKENS = 8_000;
 const MAX_GUIDANCE_TOKENS = 4_000;
@@ -71,7 +71,9 @@ export function composeSystemPrompt({
     `## Active Agent profile\n\nProfile: ${cleanLabel(agentProfile.name, agentProfile.id)} (${agentProfile.agentType}).\n\n${PROFILE_INSTRUCTIONS[agentProfile.agentType] || PROFILE_INSTRUCTIONS.general}`,
   ];
   if (tools.length > 0) {
-    sections.push(`## Available capabilities\n\nOnly these tool names are available for this run: ${tools.map((tool) => cleanLabel(tool.name, "tool")).join(", ")}.`);
+    const names = tools.map((tool) => cleanLabel(tool.name, "tool"));
+    const supportsDiscovery = names.includes("discover_tools");
+    sections.push(`## Available capabilities\n\n${supportsDiscovery ? "Currently active" : "Only these"} tool names are available for this model turn: ${names.join(", ")}.${supportsDiscovery ? " Use discover_tools only when the task needs a capability that is not active; activate the smallest relevant set, then use it on the next turn. Discovery never bypasses IDE approval or Agent profile policy." : ""}`);
   }
   const remaining = {
     tokens: Math.max(0, promptBudget.systemPromptTokens - estimateTokens(sections.join("\n\n")) - 32),

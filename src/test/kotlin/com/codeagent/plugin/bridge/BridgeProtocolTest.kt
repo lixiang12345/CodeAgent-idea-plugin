@@ -40,6 +40,23 @@ class BridgeProtocolTest {
     }
 
     @Test
+    fun `encodes context and lazy tool telemetry`() {
+        val telemetry = AgentRunTelemetryDto(
+            turnIndex = 3,
+            estimatedInputTokens = 12_000,
+            targetInputTokens = 48_000,
+            activeToolNames = listOf("read_file", "git_history"),
+            activeToolCount = 2,
+            catalogToolCount = 14,
+            activatedToolNames = listOf("git_history"),
+        )
+
+        val encoded = json.encodeToString(telemetry)
+        assertEquals(true, encoded.contains("\"estimatedInputTokens\":12000"))
+        assertEquals(true, encoded.contains("\"activatedToolNames\":[\"git_history\"]"))
+    }
+
+    @Test
     fun `fresh install targets the local Docker backend`() {
         assertEquals("http://127.0.0.1:8788", DEFAULT_BACKEND_URL)
         assertEquals(DEFAULT_BACKEND_URL, CodeAgentSettingsState().backendUrl)

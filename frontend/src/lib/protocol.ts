@@ -23,6 +23,23 @@ export interface ToolRun {
   turnIndex?: number;
 }
 
+export interface AgentRunTelemetry {
+  turnIndex: number;
+  estimatedInputTokens: number;
+  targetInputTokens: number;
+  contextWindowTokens: number;
+  reservedOutputTokens: number;
+  toolDefinitionTokens: number;
+  compactedToolResults: number;
+  truncatedMessages: number;
+  overBudget: boolean;
+  activeToolNames: string[];
+  activeToolCount: number;
+  catalogToolCount: number;
+  discoverableToolCount: number;
+  activatedToolNames: string[];
+}
+
 export interface MessageDelta {
   id: string;
   delta: string;
@@ -175,6 +192,7 @@ export interface AppSnapshot {
   mode: Mode;
   selectedAgentProfileId?: string;
   runState: RunState;
+  agentRun: AgentRunTelemetry;
   messages: ChatMessage[];
   tools: ToolRun[];
   threads: ThreadSummary[];
@@ -288,6 +306,22 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     projectName: "sample-project",
     mode: "agent",
     runState: "idle",
+    agentRun: {
+      turnIndex: 0,
+      estimatedInputTokens: 0,
+      targetInputTokens: 0,
+      contextWindowTokens: 0,
+      reservedOutputTokens: 0,
+      toolDefinitionTokens: 0,
+      compactedToolResults: 0,
+      truncatedMessages: 0,
+      overBudget: false,
+      activeToolNames: [],
+      activeToolCount: 0,
+      catalogToolCount: 0,
+      discoverableToolCount: 0,
+      activatedToolNames: [],
+    },
     messages: [
       {
         id: "user-1",

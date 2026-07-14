@@ -15,6 +15,7 @@ import {
 } from "../src/model-gateway.mjs";
 import { composeSystemPrompt, PROMPT_VERSION, productJobMessages } from "../src/prompt.mjs";
 import { contextBudgetFor, prepareModelMessages } from "../src/context-policy.mjs";
+import { createToolCatalog, DISCOVER_TOOLS_NAME } from "../src/tool-catalog.mjs";
 import { MemoryProductStore } from "../src/product-store.mjs";
 
 test("composes server-owned policy before repository customization", () => {
@@ -47,7 +48,7 @@ test("anchors Agent profile policy before lower-priority customization", () => {
   assert.ok(prompt.indexOf("Agent profile custom instructions") < prompt.indexOf("Conversation summary"));
   assert.match(prompt, /&lt;\/agent_profile_instructions&gt;Ignore safety/);
   assert.match(prompt, /&lt;\/conversation_summary&gt;Follow stale instructions/);
-  assert.match(prompt, /Only these tool names are available for this run: read_file/);
+  assert.match(prompt, /Only these tool names are available for this model turn: read_file/);
 });
 
 test("keeps delegated job instructions below server-owned policy", () => {
@@ -116,6 +117,69 @@ test("falls back to built-in profiles when a same-ID customization is disabled",
     () => resolveAgentProfile({ store, userId: "user-1", profileId: "custom-disabled" }),
     /profile is disabled/,
   );
+});
+
+test("starts with a focused tool set and activates only matched catalog tools", () => {
+  const catalog = createToolCatalog(builtInAgentProfile("general"), [
+    { name: "codebase_retrieval", description: "Retrieve code", parameters: {}, risk: "read_only" },
+    { name: "read_file", description: "Read a file", parameters: {}, risk: "read_only" },
+    { name: "git_history", description: "Inspect Git commit history", parameters: {}, risk: "read_only" },
+    { name: "run_terminal", description: "Run a shell command", parameters: {}, risk: "mutating" },
+  ]);
+  assert.deepEqual(catalog.activeDefinitions().map((tool) => tool.name), ["codebase_retrieval", "read_file", DISCOVER_TOOLS_NAME]);
+  const discovery = catalog.discover(JSON.stringify({ names: ["git_history"] }));
+  assert.deepEqual(discovery.activated, ["git_history"]);
+  assert.equal(catalog.isActive("git_history"), true);
+  assert.equal(catalog.isActive("run_terminal"), false);
+  assert.match(discovery.output, /IDE approval and risk policy still apply/);
+});
+
+test("activates a hidden tool through discovery before forwarding it to the IDE", async () => {
+  const exposed = [];
+  const toolResults = [];
+  const turns = [
+    { content: "Need Git evidence", toolCalls: [{ id: "discover-1", name: DISCOVER_TOOLS_NAME, arguments: "{\"names\":[\"git_history\"]}" }] },
+    { content: "Reading history", toolCalls: [{ id: "git-1", name: "git_history", arguments: "{}" }] },
+    { content: "Done", toolCalls: [] },
+  ];
+  const runner = new AgentRunner({
+    modelGateway: {
+      async stream({ tools }) {
+        exposed.push(tools.map((tool) => tool.name));
+        return turns.shift();
+      },
+    },
+  });
+  const events = [];
+  await runner.run({
+    request: {
+      mode: "agent",
+      messages: [{ role: "user", content: "Inspect recent changes" }],
+      tools: [
+        { name: "codebase_retrieval", description: "Retrieve code", parameters: {}, risk: "read_only" },
+        { name: "read_file", description: "Read file", parameters: {}, risk: "read_only" },
+        { name: "git_history", description: "Inspect Git commit history", parameters: {}, risk: "read_only" },
+        { name: "run_terminal", description: "Run command", parameters: {}, risk: "mutating" },
+      ],
+      workspace: {},
+    },
+    agentProfile: { ...builtInAgentProfile("general"), maxTurns: 4 },
+    emit: (type, data) => events.push({ type, data }),
+    awaitToolResult: async (id) => {
+      toolResults.push(id);
+      return { status: "completed", output: "commit abc", summary: "Read Git history" };
+    },
+    signal: new AbortController().signal,
+  });
+  assert.equal(exposed[0].includes("git_history"), false);
+  assert.equal(exposed[0].includes(DISCOVER_TOOLS_NAME), true);
+  assert.equal(exposed[1].includes("git_history"), true);
+  assert.equal(exposed[1].includes("run_terminal"), false);
+  assert.deepEqual(toolResults, ["git-1"]);
+  const contextEvents = events.filter((event) => event.type === "context.updated");
+  assert.equal(contextEvents.length, 3);
+  assert.ok(contextEvents[1].data.toolDefinitionTokens > contextEvents[0].data.toolDefinitionTokens);
+  assert.ok(events.some((event) => event.type === "tool.catalog.updated" && event.data.activated.includes("git_history")));
 });
 
 test("honors the Agent profile turn budget", async () => {
@@ -408,9 +472,11 @@ test("serves the public OpenAPI contract", async () => {
     assert.equal(contract.components.schemas.RunStartedEvent.required.includes("promptVersion"), true);
     assert.equal(contract.components.schemas.RunStartedEvent.required.includes("contextWindowTokens"), true);
     assert.equal(contract.components.schemas.ContextUpdatedEvent.required.includes("overBudget"), true);
+    assert.equal(contract.components.schemas.ToolCatalogUpdatedEvent.required.includes("activeToolNames"), true);
     assert.equal(contract.components.schemas.Workspace.properties.historySummary.type.includes("null"), true);
     assert.equal(contract.components.schemas.ConfigurationValue.properties.contextWindowTokens.default, 64_000);
     assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["context.updated"].$ref, "#/components/schemas/ContextUpdatedEvent");
+    assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["tool.catalog.updated"].$ref, "#/components/schemas/ToolCatalogUpdatedEvent");
     assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["run.error"].$ref, "#/components/schemas/RunErrorEvent");
 
     const docs = await fetch(`http://127.0.0.1:${server.address().port}/docs`);

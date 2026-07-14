@@ -1,6 +1,7 @@
 import { composeSystemPrompt } from "./prompt.mjs";
 import { builtInAgentProfile } from "./agent-profile.mjs";
 import { contextBudgetFor, prepareModelMessages } from "./context-policy.mjs";
+import { createToolCatalog, DISCOVER_TOOLS_NAME } from "./tool-catalog.mjs";
 
 export class AgentRunner {
   constructor({ modelGateway, maxTurns = 64, maxToolCalls = 128 }) {
@@ -12,23 +13,25 @@ export class AgentRunner {
   async run({ request, agentProfile = builtInAgentProfile("general"), emit, awaitToolResult, signal }) {
     validateRunRequest(request);
     const maxTurns = Math.min(this.maxTurns, agentProfile.maxTurns);
-    const allowedTools = new Set(request.tools.map((tool) => tool.name));
+    const toolCatalog = createToolCatalog(agentProfile, request.tools);
     const seenToolCallIds = new Set();
     let toolCallCount = 0;
-    const contextBudget = contextBudgetFor(agentProfile, request.tools);
     const messages = [
-      { role: "system", content: composeSystemPrompt({ ...request, agentProfile }) },
+      { role: "system", content: composeSystemPrompt({ ...request, tools: toolCatalog.activeDefinitions(), agentProfile }) },
       ...request.messages.map(normalizeMessage),
     ];
+    emit("tool.catalog.updated", { turnIndex: 0, ...toolCatalog.snapshot() });
 
     for (let turnIndex = 0; turnIndex < maxTurns; turnIndex += 1) {
       throwIfAborted(signal);
       emit("turn.started", { turnIndex });
+      const activeTools = toolCatalog.activeDefinitions();
+      const contextBudget = contextBudgetFor(agentProfile, activeTools);
       const prepared = prepareModelMessages(messages, contextBudget);
       emit("context.updated", { turnIndex, ...prepared.stats });
       const turn = await this.modelGateway.stream({
         messages: prepared.messages,
-        tools: request.tools,
+        tools: activeTools,
         model: request.model,
         maxOutputTokens: contextBudget.reservedOutputTokens,
         signal,
@@ -54,8 +57,22 @@ export class AgentRunner {
         seenToolCallIds.add(call.id);
         toolCallCount += 1;
         if (toolCallCount > this.maxToolCalls) throw new Error(`Agent exceeded ${this.maxToolCalls} tool calls`);
-        if (!allowedTools.has(call.name)) {
+        if (call.name === DISCOVER_TOOLS_NAME && toolCatalog.discoveryAvailable()) {
+          const discovery = toolCatalog.discover(call.arguments);
+          emit("tool.catalog.updated", { turnIndex, ...toolCatalog.snapshot(discovery.activated) });
+          emit("tool.completed", { toolCallId: call.id, status: "completed", summary: discovery.summary });
+          messages.push(toolMessage(call.id, discovery.output, discovery.summary));
+          continue;
+        }
+        if (!toolCatalog.has(call.name)) {
           messages.push(toolMessage(call.id, `Tool '${call.name}' is not available`, "Unavailable tool request"));
+          emit("tool.completed", { toolCallId: call.id, status: "failed", summary: "Unavailable tool request" });
+          continue;
+        }
+        if (!toolCatalog.isActive(call.name)) {
+          const summary = "Tool is not active";
+          messages.push(toolMessage(call.id, `Tool '${call.name}' is policy-approved but not active. Call ${DISCOVER_TOOLS_NAME} with names: ["${call.name}"] on a separate turn.`, summary));
+          emit("tool.completed", { toolCallId: call.id, status: "failed", summary });
           continue;
         }
         const resultPromise = awaitToolResult(call.id, signal);
