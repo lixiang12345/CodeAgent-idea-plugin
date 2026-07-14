@@ -463,6 +463,8 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
               model: "gpt-5.6-sol",
               allowedTools: ["codebase_retrieval", "read_file", "search_text"],
               maxTurns: 10,
+              contextWindowTokens: 64000,
+              reservedOutputTokens: 8192,
             },
           },
         ],

@@ -27,6 +27,8 @@
     model: string;
     allowedTools: string;
     maxTurns: number;
+    contextWindowTokens: number;
+    reservedOutputTokens: number;
     source: string;
     version: string;
     capabilities: string;
@@ -118,6 +120,8 @@ $: if (section !== previousSection) {
       model: "",
       allowedTools: "",
       maxTurns: 12,
+      contextWindowTokens: 64000,
+      reservedOutputTokens: 8192,
       source: "",
       version: "",
       capabilities: "",
@@ -172,6 +176,8 @@ $: if (section !== previousSection) {
       model: text(value.model),
       allowedTools: listValue(value.allowedTools),
       maxTurns: numberValue(value.maxTurns, 12),
+      contextWindowTokens: numberValue(value.contextWindowTokens, 64000),
+      reservedOutputTokens: numberValue(value.reservedOutputTokens, 8192),
       source: text(value.source),
       version: text(value.version),
       capabilities: listValue(value.capabilities),
@@ -217,6 +223,8 @@ $: if (section !== previousSection) {
         model: draft.model.trim() || null,
         allowedTools: parseList(draft.allowedTools),
         maxTurns: draft.maxTurns,
+        contextWindowTokens: draft.contextWindowTokens,
+        reservedOutputTokens: draft.reservedOutputTokens,
       };
     }
     if (kind === "plugins") {
@@ -245,7 +253,13 @@ $: if (section !== previousSection) {
     if (!configurationId() || !/^[A-Za-z0-9._-]{1,120}$/.test(configurationId()) || !draft.name.trim()) return false;
     if (kind === "commands") return Boolean(draft.prompt.trim());
     if (kind === "hooks") return Boolean(draft.command.trim());
-    if (kind === "agents") return Boolean(draft.systemPrompt.trim());
+    if (kind === "agents") {
+      return draft.contextWindowTokens >= 32768
+        && draft.contextWindowTokens <= 2000000
+        && draft.reservedOutputTokens >= 1024
+        && draft.reservedOutputTokens <= 65536
+        && draft.reservedOutputTokens < draft.contextWindowTokens;
+    }
     if (kind === "plugins") return Boolean(draft.source.trim());
     return draft.transport === "stdio" ? Boolean(draft.command.trim()) : Boolean(draft.url.trim());
   }
@@ -276,7 +290,7 @@ $: if (section !== previousSection) {
     if (kind === "mcp") return `${text(value.transport) || "stdio"} · ${text(value.command) || text(value.url) || "No endpoint"}`;
     if (kind === "commands") return text(value.argumentHint) || "Prompt command";
     if (kind === "hooks") return `${text(value.event) || "before-run"} · ${numberValue(value.timeoutSeconds, 60)}s`;
-    if (kind === "agents") return `${text(value.agentType) || "general"} · ${numberValue(value.maxTurns, 12)} turns`;
+    if (kind === "agents") return `${text(value.agentType) || "general"} · ${numberValue(value.maxTurns, 12)} turns · ${Math.round(numberValue(value.contextWindowTokens, 64000) / 1000)}k context`;
     return text(value.version) || text(value.source) || "Extension source";
   }
 </script>
@@ -314,7 +328,9 @@ $: if (section !== previousSection) {
       <label><span>Model</span><select bind:value={draft.model}><option value="">Backend default</option>{#each models as model}<option value={model.id}>{model.id}</option>{/each}</select></label>
       <label><span>Allowed tools</span><textarea class="list-textarea" bind:value={draft.allowedTools} spellcheck="false" placeholder="read_file&#10;search_text"></textarea><small>One tool name per line.</small></label>
       <label><span>Maximum turns</span><input type="number" min="1" max="64" bind:value={draft.maxTurns} /></label>
-      <label><span>System prompt</span><textarea bind:value={draft.systemPrompt} spellcheck="true"></textarea></label>
+      <label><span>Context window tokens</span><input type="number" min="32768" max="2000000" step="1024" bind:value={draft.contextWindowTokens} /><small>Total model context available to this Agent profile.</small></label>
+      <label><span>Reserved output tokens</span><input type="number" min="1024" max="65536" step="1024" bind:value={draft.reservedOutputTokens} /><small>Held back from input so the model can finish its response and tool plan.</small></label>
+      <label><span>Custom instructions</span><textarea bind:value={draft.systemPrompt} spellcheck="true"></textarea><small>Account-scoped guidance. The current user request, runtime safety, approvals, and tool policy take priority.</small></label>
     {:else if kind === "plugins"}
       <label><span>Source</span><input bind:value={draft.source} maxlength="2000" placeholder="registry package or HTTPS repository" /></label>
       <label><span>Version</span><input bind:value={draft.version} maxlength="240" placeholder="Optional version constraint" /></label>

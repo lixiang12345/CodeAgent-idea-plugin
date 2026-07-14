@@ -1,3 +1,12 @@
+import {
+  DEFAULT_CONTEXT_WINDOW_TOKENS,
+  DEFAULT_RESERVED_OUTPUT_TOKENS,
+  MAX_CONTEXT_WINDOW_TOKENS,
+  MAX_RESERVED_OUTPUT_TOKENS,
+  MIN_CONTEXT_WINDOW_TOKENS,
+  MIN_RESERVED_OUTPUT_TOKENS,
+} from "./context-policy.mjs";
+
 export const AGENT_PROFILE_TYPES = Object.freeze(["general", "search", "context", "prompt", "loop"]);
 
 const PROFILE_ID_PATTERN = /^[A-Za-z0-9._-]{1,120}$/;
@@ -111,6 +120,8 @@ function configuredProfile(record) {
     model: value.model,
     allowedTools: value.allowedTools,
     maxTurns: value.maxTurns,
+    contextWindowTokens: value.contextWindowTokens,
+    reservedOutputTokens: value.reservedOutputTokens,
     builtin: false,
   });
 }
@@ -124,10 +135,29 @@ function profile({
   model = null,
   allowedTools = [],
   maxTurns = 12,
+  contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS,
+  reservedOutputTokens = DEFAULT_RESERVED_OUTPUT_TOKENS,
   builtin = true,
 }) {
   if (!PROFILE_ID_PATTERN.test(id)) throw validationError("Agent profile ID is invalid");
   if (!AGENT_PROFILE_TYPES.includes(agentType)) throw validationError(`Unsupported Agent profile type: ${agentType}`);
+  const normalizedContextWindowTokens = integerSetting(
+    contextWindowTokens,
+    "contextWindowTokens",
+    MIN_CONTEXT_WINDOW_TOKENS,
+    MAX_CONTEXT_WINDOW_TOKENS,
+    DEFAULT_CONTEXT_WINDOW_TOKENS,
+  );
+  const normalizedReservedOutputTokens = integerSetting(
+    reservedOutputTokens,
+    "reservedOutputTokens",
+    MIN_RESERVED_OUTPUT_TOKENS,
+    MAX_RESERVED_OUTPUT_TOKENS,
+    DEFAULT_RESERVED_OUTPUT_TOKENS,
+  );
+  if (normalizedReservedOutputTokens >= normalizedContextWindowTokens) {
+    throw validationError("reservedOutputTokens must be smaller than contextWindowTokens");
+  }
   return {
     id,
     name: typeof name === "string" && name.trim() ? name.trim().slice(0, 160) : id,
@@ -137,6 +167,8 @@ function profile({
     model: typeof model === "string" && model.trim() ? model.trim().slice(0, 240) : null,
     allowedTools: Array.isArray(allowedTools) ? [...new Set(allowedTools.filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim()))].slice(0, 128) : [],
     maxTurns: Number.isInteger(maxTurns) ? Math.min(64, Math.max(1, maxTurns)) : 12,
+    contextWindowTokens: normalizedContextWindowTokens,
+    reservedOutputTokens: normalizedReservedOutputTokens,
     builtin,
   };
 }
@@ -149,6 +181,14 @@ function normalizeProfileId(value) {
 
 function cloneProfile(value) {
   return { ...value, allowedTools: [...value.allowedTools] };
+}
+
+function integerSetting(value, name, min, max, fallback) {
+  if (value === undefined || value === null) return fallback;
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw validationError(`${name} must be an integer between ${min} and ${max}`);
+  }
+  return value;
 }
 
 function validationError(message) {

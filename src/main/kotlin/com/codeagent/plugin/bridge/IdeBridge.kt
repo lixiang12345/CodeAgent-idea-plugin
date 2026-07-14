@@ -583,7 +583,8 @@ class IdeBridge(
         val enabledRuleIds = synchronized(stateLock) { conversations.active().selectedRuleIds.toSet() }
         val selectedAgentProfileId = synchronized(stateLock) { conversations.active().selectedAgentProfileId }
         val selectedModel = synchronized(stateLock) { conversations.active().selectedModelId }
-        agent.start(history, request.mode, selectedAgentProfileId, selectedModel, enabledSkillIds, enabledRuleIds, object : AgentRunListener {
+        val historySummary = synchronized(stateLock) { conversations.active().summary }
+        agent.start(history, historySummary, request.mode, selectedAgentProfileId, selectedModel, enabledSkillIds, enabledRuleIds, object : AgentRunListener {
             private var streamingMessageId: String? = null
             private var streamingTurnIndex: Int? = null
             private fun emitRunSnapshot() = this@IdeBridge.emitSnapshot()

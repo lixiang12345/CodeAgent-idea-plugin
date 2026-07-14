@@ -391,6 +391,7 @@ internal data class RemoteToolDefinition(
 @Serializable
 internal data class RemoteWorkspace(
     val guidance: String? = null,
+    val historySummary: String? = null,
     val rules: List<RemoteWorkspaceEntry> = emptyList(),
     val skills: List<RemoteWorkspaceEntry> = emptyList(),
 )

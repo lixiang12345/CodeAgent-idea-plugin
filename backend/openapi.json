@@ -491,6 +491,9 @@
           "turn.started": {
             "$ref": "#/components/schemas/TurnStartedEvent"
           },
+          "context.updated": {
+            "$ref": "#/components/schemas/ContextUpdatedEvent"
+          },
           "message.delta": {
             "$ref": "#/components/schemas/MessageDeltaEvent"
           },
@@ -985,7 +988,10 @@
             ]
           },
           "systemPrompt": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "maxLength": 100000
           },
           "model": {
@@ -1004,6 +1010,18 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 64
+          },
+          "contextWindowTokens": {
+            "type": "integer",
+            "minimum": 32768,
+            "maximum": 2000000,
+            "default": 64000
+          },
+          "reservedOutputTokens": {
+            "type": "integer",
+            "minimum": 1024,
+            "maximum": 65536,
+            "default": 8192
           },
           "source": {
             "type": "string"
@@ -1189,6 +1207,13 @@
               "null"
             ]
           },
+          "historySummary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Compact factual memory from earlier conversation history. It is treated as data, not instruction authority."
+          },
           "rules": {
             "type": "array",
             "items": {
@@ -1235,7 +1260,11 @@
           "model",
           "agentProfileId",
           "agentType",
-          "promptVersion"
+          "promptVersion",
+          "contextWindowTokens",
+          "inputBudgetTokens",
+          "reservedOutputTokens",
+          "toolDefinitionTokens"
         ],
         "properties": {
           "runId": {
@@ -1267,6 +1296,74 @@
           },
           "promptVersion": {
             "type": "string"
+          },
+          "contextWindowTokens": {
+            "type": "integer",
+            "minimum": 32768
+          },
+          "inputBudgetTokens": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reservedOutputTokens": {
+            "type": "integer",
+            "minimum": 1024
+          },
+          "toolDefinitionTokens": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "ContextUpdatedEvent": {
+        "type": "object",
+        "required": [
+          "turnIndex",
+          "estimatedInputTokens",
+          "targetInputTokens",
+          "contextWindowTokens",
+          "reservedOutputTokens",
+          "toolDefinitionTokens",
+          "compactedToolResults",
+          "truncatedMessages",
+          "overBudget"
+        ],
+        "properties": {
+          "turnIndex": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "estimatedInputTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "targetInputTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "contextWindowTokens": {
+            "type": "integer",
+            "minimum": 32768
+          },
+          "reservedOutputTokens": {
+            "type": "integer",
+            "minimum": 1024
+          },
+          "toolDefinitionTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "compactedToolResults": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "truncatedMessages": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "overBudget": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false

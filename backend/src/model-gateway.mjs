@@ -74,11 +74,12 @@ export class UnifiedNativeGateway {
 }
 
 export class OpenAIResponsesGateway {
-  constructor({ endpoint, apiKey, model, provider = "openai", fetchImpl = fetch }) {
+  constructor({ endpoint, apiKey, model, provider = "openai", maxTokens = 8_192, fetchImpl = fetch }) {
     this.endpoint = endpoint.replace(/\/$/, "");
     this.apiKey = apiKey;
     this.defaultModel = model;
     this.provider = provider;
+    this.maxTokens = maxTokens;
     this.fetchImpl = fetchImpl;
   }
 
@@ -91,7 +92,7 @@ export class OpenAIResponsesGateway {
     return normalizeModels(body?.data);
   }
 
-  async stream({ messages, tools, model, signal, onTextDelta }) {
+  async stream({ messages, tools, model, maxOutputTokens, signal, onTextDelta }) {
     const response = await this.fetchImpl(openAIResponsesUrl(this.endpoint), {
       method: "POST",
       signal,
@@ -100,6 +101,7 @@ export class OpenAIResponsesGateway {
         model: model || this.defaultModel,
         input: toOpenAIResponseInput(messages),
         tools: tools.length ? tools.map(toOpenAIResponseTool) : undefined,
+        max_output_tokens: outputTokenLimit(maxOutputTokens, this.maxTokens),
         stream: true,
       }),
     });
@@ -141,7 +143,7 @@ export class AnthropicMessagesGateway {
     return normalizeModels(body?.data);
   }
 
-  async stream({ messages, tools, model, signal, onTextDelta }) {
+  async stream({ messages, tools, model, maxOutputTokens, signal, onTextDelta }) {
     const { system, providerMessages } = toAnthropicMessages(messages);
     const response = await this.fetchImpl(anthropicMessagesUrl(this.endpoint), {
       method: "POST",
@@ -149,7 +151,7 @@ export class AnthropicMessagesGateway {
       headers: this.#headers("text/event-stream, application/json"),
       body: JSON.stringify({
         model: model || this.defaultModel,
-        max_tokens: this.maxTokens,
+        max_tokens: outputTokenLimit(maxOutputTokens, this.maxTokens),
         system: system || undefined,
         messages: providerMessages,
         tools: tools.length ? tools.map(toAnthropicTool) : undefined,
@@ -480,10 +482,15 @@ function protocolProvider(protocol) {
 }
 
 function createUnifiedRoute(model, { endpoint, apiKey, maxTokens, fetchImpl }) {
-  const options = { endpoint, apiKey, model: model.id, fetchImpl };
-  if (model.protocol === "anthropic-messages") return new AnthropicMessagesGateway({ ...options, maxTokens });
+  const options = { endpoint, apiKey, model: model.id, maxTokens, fetchImpl };
+  if (model.protocol === "anthropic-messages") return new AnthropicMessagesGateway(options);
   if (model.protocol === "xai-responses") return new OpenAIResponsesGateway({ ...options, provider: "grok" });
   return new OpenAIResponsesGateway(options);
+}
+
+function outputTokenLimit(requested, fallback) {
+  const configured = Number.isInteger(fallback) && fallback > 0 ? fallback : 8_192;
+  return Number.isInteger(requested) && requested > 0 ? Math.min(requested, configured) : configured;
 }
 
 

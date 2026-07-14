@@ -150,6 +150,7 @@ class RemoteAgentClientTest {
                     tools = listOf(RemoteToolDefinition("read_file", "Read", buildJsonObject { put("type", "object") }, "read_only")),
                     workspace = RemoteWorkspace(
                         guidance = "Use repository conventions.",
+                        historySummary = "Earlier work completed indexing.",
                         rules = listOf(RemoteWorkspaceEntry("Tests", ".codeagent/rules/tests.md", "Add tests.")),
                     ),
                 ),
@@ -192,6 +193,7 @@ class RemoteAgentClientTest {
             assertTrue(runBody.contains("\"model\":\"claude-fable-5\""))
             assertTrue(runBody.contains("\"agentProfileId\":\"context-review\""))
             assertTrue(runBody.contains("Use repository conventions."))
+            assertTrue(runBody.contains("\"historySummary\":\"Earlier work completed indexing.\""))
             assertTrue(runBody.contains("\"read_file\""))
             assertTrue(runBody.contains("\"risk\":\"read_only\""))
             assertTrue(toolResultBody.contains("\"toolCallId\":\"call-1\""))

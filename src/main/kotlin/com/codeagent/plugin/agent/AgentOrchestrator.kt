@@ -29,6 +29,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
 
     fun start(
         history: List<AgentMessage>,
+        historySummary: String?,
         mode: String,
         agentProfileId: String,
         model: String?,
@@ -72,6 +73,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
                     },
                     workspace = RemoteWorkspace(
                         guidance = guidanceLoader.load(),
+                        historySummary = historySummary,
                         rules = customization.rules
                             .filter { rule ->
                                 rule.trigger == "always" ||

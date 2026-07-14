@@ -1,5 +1,6 @@
 import { composeSystemPrompt } from "./prompt.mjs";
 import { builtInAgentProfile } from "./agent-profile.mjs";
+import { contextBudgetFor, prepareModelMessages } from "./context-policy.mjs";
 
 export class AgentRunner {
   constructor({ modelGateway, maxTurns = 64, maxToolCalls = 128 }) {
@@ -14,6 +15,7 @@ export class AgentRunner {
     const allowedTools = new Set(request.tools.map((tool) => tool.name));
     const seenToolCallIds = new Set();
     let toolCallCount = 0;
+    const contextBudget = contextBudgetFor(agentProfile, request.tools);
     const messages = [
       { role: "system", content: composeSystemPrompt({ ...request, agentProfile }) },
       ...request.messages.map(normalizeMessage),
@@ -22,10 +24,13 @@ export class AgentRunner {
     for (let turnIndex = 0; turnIndex < maxTurns; turnIndex += 1) {
       throwIfAborted(signal);
       emit("turn.started", { turnIndex });
+      const prepared = prepareModelMessages(messages, contextBudget);
+      emit("context.updated", { turnIndex, ...prepared.stats });
       const turn = await this.modelGateway.stream({
-        messages,
+        messages: prepared.messages,
         tools: request.tools,
         model: request.model,
+        maxOutputTokens: contextBudget.reservedOutputTokens,
         signal,
         onTextDelta: (delta) => emit("message.delta", { delta, turnIndex }),
       });
@@ -50,14 +55,14 @@ export class AgentRunner {
         toolCallCount += 1;
         if (toolCallCount > this.maxToolCalls) throw new Error(`Agent exceeded ${this.maxToolCalls} tool calls`);
         if (!allowedTools.has(call.name)) {
-          messages.push(toolMessage(call.id, `Tool '${call.name}' is not available`));
+          messages.push(toolMessage(call.id, `Tool '${call.name}' is not available`, "Unavailable tool request"));
           continue;
         }
         const resultPromise = awaitToolResult(call.id, signal);
         emit("tool.request", { call, turnIndex });
         const result = await resultPromise;
         emit("tool.completed", { toolCallId: call.id, status: result.status, summary: result.summary });
-        messages.push(toolMessage(call.id, result.output || result.error || result.status));
+        messages.push(toolMessage(call.id, result.output || result.error || result.status, result.summary));
       }
     }
     throw new Error(`Agent exceeded ${maxTurns} model turns`);
@@ -72,6 +77,10 @@ export function validateRunRequest(request) {
   if (!request.workspace || typeof request.workspace !== "object" || Array.isArray(request.workspace)) {
     throw new Error("workspace must be an object");
   }
+  validateOptionalString(request.workspace.guidance, "workspace.guidance", 200_000);
+  validateOptionalString(request.workspace.historySummary, "workspace.historySummary", 200_000);
+  validateWorkspaceEntries(request.workspace.rules, "workspace.rules");
+  validateWorkspaceEntries(request.workspace.skills, "workspace.skills");
   if (request.model !== undefined && (typeof request.model !== "string" || !request.model.trim())) {
     throw new Error("model must be a non-empty string when provided");
   }
@@ -112,8 +121,34 @@ function normalizeMessage(message) {
   return message;
 }
 
-function toolMessage(toolCallId, content) {
-  return { role: "tool", toolCallId, content: String(content) };
+function toolMessage(toolCallId, content, summary) {
+  return {
+    role: "tool",
+    toolCallId,
+    content: String(content),
+    summary: typeof summary === "string" && summary.trim() ? summary.trim().slice(0, 4_000) : undefined,
+  };
+}
+
+function validateOptionalString(value, field, maxLength) {
+  if (value === undefined || value === null) return;
+  if (typeof value !== "string") throw new Error(`${field} must be a string when provided`);
+  if (value.length > maxLength) throw new Error(`${field} exceeds ${maxLength} characters`);
+}
+
+function validateWorkspaceEntries(value, field) {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
+  if (value.length > 256) throw new Error(`${field} may contain at most 256 entries`);
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`${field} entries must be objects`);
+    }
+    validateOptionalString(entry.name, `${field}.name`, 1_000);
+    validateOptionalString(entry.path, `${field}.path`, 4_000);
+    validateOptionalString(entry.content, `${field}.content`, 200_000);
+    if (typeof entry.content !== "string") throw new Error(`${field}.content is required`);
+  }
 }
 
 function throwIfAborted(signal) {

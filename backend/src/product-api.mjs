@@ -268,15 +268,23 @@ function normalizeConfiguration(kind, value) {
         command: boundedText(value.command, "command", 8_000),
         timeoutSeconds: boundedInteger(value.timeoutSeconds, 1, 600, 60),
       };
-    case "agents":
+    case "agents": {
+      const contextWindowTokens = boundedInteger(value.contextWindowTokens, 32_768, 2_000_000, 64_000);
+      const reservedOutputTokens = boundedInteger(value.reservedOutputTokens, 1_024, 65_536, 8_192);
+      if (reservedOutputTokens >= contextWindowTokens) {
+        throw badRequest("reservedOutputTokens must be smaller than contextWindowTokens");
+      }
       return {
         ...common,
         agentType: enumValue(value.agentType, "agentType", ["general", "search", "context", "prompt", "loop"], "general"),
-        systemPrompt: boundedText(value.systemPrompt, "systemPrompt", 100_000),
+        systemPrompt: optionalText(value.systemPrompt, "systemPrompt", 100_000),
         model: optionalText(value.model, "model", 240),
         allowedTools: stringList(value.allowedTools, "allowedTools", 128, 240),
         maxTurns: boundedInteger(value.maxTurns, 1, 64, 12),
+        contextWindowTokens,
+        reservedOutputTokens,
       };
+    }
     case "plugins":
       return {
         ...common,
