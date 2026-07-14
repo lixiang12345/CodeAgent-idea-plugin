@@ -182,6 +182,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
             "run.started" -> context.remoteRunId.set(json.decodeFromJsonElement<RemoteRunStarted>(payload).runId)
             "context.updated" -> listener.onContextUpdated(json.decodeFromJsonElement(payload))
             "tool.catalog.updated" -> listener.onToolCatalogUpdated(json.decodeFromJsonElement(payload))
+            "verification.updated" -> listener.onVerificationUpdated(json.decodeFromJsonElement(payload))
             "message.delta" -> json.decodeFromJsonElement<RemoteMessageDelta>(payload).let {
                 listener.onAssistantDelta(it.delta, it.turnIndex)
             }
@@ -281,6 +282,7 @@ interface AgentRunListener {
     fun onAssistantDelta(delta: String, turnIndex: Int) = Unit
     fun onContextUpdated(update: RemoteContextUpdated) = Unit
     fun onToolCatalogUpdated(update: RemoteToolCatalogUpdated) = Unit
+    fun onVerificationUpdated(update: RemoteVerificationUpdated) = Unit
     fun onAssistantMessage(content: String?, turnIndex: Int)
     fun onFileChanged(call: AgentToolCall, change: FileChange) = Unit
     fun onToolChanged(call: AgentToolCall, summary: String, status: String, detail: String?, turnIndex: Int)

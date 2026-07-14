@@ -2,6 +2,13 @@ import { randomUUID } from "node:crypto";
 import { inlineCompletionMessages } from "./prompt.mjs";
 
 const CONFIGURATION_KINDS = new Set(["mcp", "hooks", "commands", "agents", "plugins", "tool-permissions"]);
+const AGENT_CONFIGURATION_DEFAULTS = {
+  general: { maxTurns: 12, maxToolCalls: 48, maxSubagentCalls: 4, verificationPolicy: "after-mutation" },
+  search: { maxTurns: 10, maxToolCalls: 24, maxSubagentCalls: 4, verificationPolicy: "none" },
+  context: { maxTurns: 10, maxToolCalls: 24, maxSubagentCalls: 2, verificationPolicy: "none" },
+  prompt: { maxTurns: 6, maxToolCalls: 12, maxSubagentCalls: 1, verificationPolicy: "none" },
+  loop: { maxTurns: 24, maxToolCalls: 96, maxSubagentCalls: 6, verificationPolicy: "after-mutation" },
+};
 
 export function createRuntimeManifestFromEnv(env = process.env) {
   const raw = env.RUNTIME_MANIFEST_JSON?.trim();
@@ -269,6 +276,8 @@ function normalizeConfiguration(kind, value) {
         timeoutSeconds: boundedInteger(value.timeoutSeconds, 1, 600, 60),
       };
     case "agents": {
+      const agentType = enumValue(value.agentType, "agentType", ["general", "search", "context", "prompt", "loop"], "general");
+      const runtimeDefaults = AGENT_CONFIGURATION_DEFAULTS[agentType];
       const contextWindowTokens = boundedInteger(value.contextWindowTokens, 32_768, 2_000_000, 64_000);
       const reservedOutputTokens = boundedInteger(value.reservedOutputTokens, 1_024, 65_536, 8_192);
       if (reservedOutputTokens >= contextWindowTokens) {
@@ -276,11 +285,14 @@ function normalizeConfiguration(kind, value) {
       }
       return {
         ...common,
-        agentType: enumValue(value.agentType, "agentType", ["general", "search", "context", "prompt", "loop"], "general"),
+        agentType,
         systemPrompt: optionalText(value.systemPrompt, "systemPrompt", 100_000),
         model: optionalText(value.model, "model", 240),
         allowedTools: stringList(value.allowedTools, "allowedTools", 128, 240),
-        maxTurns: boundedInteger(value.maxTurns, 1, 64, 12),
+        maxTurns: boundedInteger(value.maxTurns, 1, 64, runtimeDefaults.maxTurns),
+        maxToolCalls: boundedInteger(value.maxToolCalls, 1, 256, runtimeDefaults.maxToolCalls),
+        maxSubagentCalls: boundedInteger(value.maxSubagentCalls, 0, 16, runtimeDefaults.maxSubagentCalls),
+        verificationPolicy: enumValue(value.verificationPolicy, "verificationPolicy", ["none", "after-mutation"], runtimeDefaults.verificationPolicy),
         contextWindowTokens,
         reservedOutputTokens,
       };

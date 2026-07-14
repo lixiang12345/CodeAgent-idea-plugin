@@ -142,12 +142,20 @@ test("executes configured HTTP integration adapters and normalizes real provider
     registry.execute("supabase_query", { table: "secrets" }),
     /not allowlisted/,
   );
-  assert.match((await registry.execute("subagent", { task: "Review this" })).output, /Delegated finding/);
+  assert.match((await registry.execute("subagent", {
+    task: "Review this",
+    role: "review",
+    expected_output: "Prioritized findings",
+    max_output_tokens: 2048,
+  })).output, /Delegated finding/);
 
   assert.equal(JSON.parse(calls.find((call) => call.url === "https://search.test/query").options.body).query, "web");
   assert.match(calls.find((call) => call.url.startsWith("https://api.github.test")).options.headers.authorization, /github-key/);
   assert.match(calls.find((call) => call.url.startsWith("https://project.supabase.co")).url, /status=eq.open/);
   assert.equal(modelCalls[0].tools.length, 0);
+  assert.equal(modelCalls[0].maxOutputTokens, 2048);
+  assert.match(modelCalls[0].messages[0].content, /review subagent/);
+  assert.match(modelCalls[0].messages[1].content, /Prioritized findings/);
 });
 
 test("serves tool discovery and returns 503 for an unconfigured backend tool", async () => {

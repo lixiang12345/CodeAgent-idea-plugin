@@ -13,9 +13,17 @@ export class AgentRunner {
   async run({ request, agentProfile = builtInAgentProfile("general"), emit, awaitToolResult, signal }) {
     validateRunRequest(request);
     const maxTurns = Math.min(this.maxTurns, agentProfile.maxTurns);
+    const maxToolCalls = Math.min(this.maxToolCalls, agentProfile.maxToolCalls || this.maxToolCalls);
+    const maxSubagentCalls = Math.max(0, agentProfile.maxSubagentCalls ?? 0);
     const toolCatalog = createToolCatalog(agentProfile, request.tools);
+    const toolRiskByName = new Map(request.tools.map((tool) => [tool.name, tool.risk || "read_only"]));
     const seenToolCallIds = new Set();
     let toolCallCount = 0;
+    let subagentCallCount = 0;
+    let pendingVerification = false;
+    let verificationReminderCount = 0;
+    let previousToolSignature = null;
+    let repeatedToolCallCount = 0;
     const messages = [
       { role: "system", content: composeSystemPrompt({ ...request, tools: toolCatalog.activeDefinitions(), agentProfile }) },
       ...request.messages.map(normalizeMessage),
@@ -45,6 +53,16 @@ export class AgentRunner {
       emit("assistant.completed", { content: turn.content, turnIndex });
 
       if (turn.toolCalls.length === 0) {
+        if (pendingVerification && agentProfile.verificationPolicy === "after-mutation") {
+          if (verificationReminderCount >= 1) {
+            throw new Error("Agent finished without required post-mutation verification");
+          }
+          verificationReminderCount += 1;
+          const message = "A project mutation completed without follow-up verification. Inspect the changed behavior and run the smallest meaningful diagnostic, test, build, or focused read before finishing.";
+          emit("verification.updated", { turnIndex, status: "required", message });
+          messages.push({ role: "system", content: `Runtime verification gate: ${message}` });
+          continue;
+        }
         emit("run.completed", { turnCount: turnIndex + 1 });
         return;
       }
@@ -55,8 +73,29 @@ export class AgentRunner {
         validateToolCall(call);
         if (seenToolCallIds.has(call.id)) throw new Error(`Duplicate tool call ID: ${call.id}`);
         seenToolCallIds.add(call.id);
+        const signature = toolCallSignature(call);
+        if (signature === previousToolSignature) repeatedToolCallCount += 1;
+        else {
+          previousToolSignature = signature;
+          repeatedToolCallCount = 1;
+        }
+        if (repeatedToolCallCount > 2) {
+          const summary = "Repeated tool call blocked";
+          messages.push(toolMessage(call.id, `The same ${call.name} call was already attempted twice consecutively. Inspect prior results or change the approach.`, summary));
+          emit("tool.completed", { toolCallId: call.id, status: "failed", summary });
+          continue;
+        }
         toolCallCount += 1;
-        if (toolCallCount > this.maxToolCalls) throw new Error(`Agent exceeded ${this.maxToolCalls} tool calls`);
+        if (toolCallCount > maxToolCalls) throw new Error(`Agent exceeded ${maxToolCalls} tool calls`);
+        if (call.name === "subagent") {
+          subagentCallCount += 1;
+          if (subagentCallCount > maxSubagentCalls) {
+            const summary = "Subagent budget exceeded";
+            messages.push(toolMessage(call.id, `This Agent profile allows at most ${maxSubagentCalls} subagent calls per run.`, summary));
+            emit("tool.completed", { toolCallId: call.id, status: "failed", summary });
+            continue;
+          }
+        }
         if (call.name === DISCOVER_TOOLS_NAME && toolCatalog.discoveryAvailable()) {
           const discovery = toolCatalog.discover(call.arguments);
           emit("tool.catalog.updated", { turnIndex, ...toolCatalog.snapshot(discovery.activated) });
@@ -80,9 +119,50 @@ export class AgentRunner {
         const result = await resultPromise;
         emit("tool.completed", { toolCallId: call.id, status: result.status, summary: result.summary });
         messages.push(toolMessage(call.id, result.output || result.error || result.status, result.summary));
+        if (result.status === "completed") {
+          const risk = toolRiskByName.get(call.name) || "read_only";
+          if (isMutationCall(call, risk)) {
+            pendingVerification = true;
+            verificationReminderCount = 0;
+            emit("verification.updated", { turnIndex, status: "required", toolName: call.name, message: "Project mutation requires follow-up verification" });
+          } else if (pendingVerification && isVerificationCall(call)) {
+            pendingVerification = false;
+            verificationReminderCount = 0;
+            emit("verification.updated", { turnIndex, status: "verified", toolName: call.name, message: "Post-mutation verification completed" });
+          }
+        }
       }
     }
     throw new Error(`Agent exceeded ${maxTurns} model turns`);
+  }
+}
+
+function toolCallSignature(call) {
+  try {
+    return `${call.name}:${JSON.stringify(sortJson(JSON.parse(call.arguments)))}`;
+  } catch {
+    return `${call.name}:${String(call.arguments || "").trim()}`;
+  }
+}
+
+function sortJson(value) {
+  if (Array.isArray(value)) return value.map(sortJson);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortJson(value[key])]));
+}
+
+function isMutationCall(call, risk) {
+  return risk === "mutating" && !isVerificationCall(call);
+}
+
+function isVerificationCall(call) {
+  if (["diagnostics", "read_file", "search_text", "codebase_retrieval"].includes(call.name)) return true;
+  if (call.name !== "run_terminal") return false;
+  try {
+    const command = String(JSON.parse(call.arguments)?.command || "").toLowerCase();
+    return /(^|\s|\/)(test|tests|check|build|lint|verify|gradle|gradlew|mvn|npm|pnpm|yarn|cargo|pytest|jest|vitest|git)(\s|$)/.test(command);
+  } catch {
+    return false;
   }
 }
 

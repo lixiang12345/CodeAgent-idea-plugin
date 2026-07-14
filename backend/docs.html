@@ -84,7 +84,7 @@
     <section>
       <h2>请求要点</h2>
       <p><code>POST /v1/runs</code> 必须使用 streaming <code>fetch</code>，不能使用只支持 GET 的 <code>EventSource</code>。</p>
-      <p>SSE 事件：<code>run.started</code>、<code>turn.started</code>、<code>context.updated</code>、<code>tool.catalog.updated</code>、<code>message.delta</code>、<code>assistant.completed</code>、<code>tool.request</code>、<code>tool.completed</code>、<code>run.completed</code>、<code>run.error</code>。</p>
+      <p>SSE 事件：<code>run.started</code>、<code>turn.started</code>、<code>context.updated</code>、<code>tool.catalog.updated</code>、<code>verification.updated</code>、<code>message.delta</code>、<code>assistant.completed</code>、<code>tool.request</code>、<code>tool.completed</code>、<code>run.completed</code>、<code>run.error</code>。</p>
       <p>收到 <code>tool.request</code> 后，由 IDEA/JVM 执行本地能力，再向工具结果端点回传。</p>
     </section>
 

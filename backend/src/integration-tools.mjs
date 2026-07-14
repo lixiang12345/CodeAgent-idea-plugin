@@ -470,10 +470,13 @@ function createSubagentTool(modelGateway) {
   return tool({
     name: "subagent",
     catalogId: "subagent",
-    description: "Delegate a bounded analysis task to a separate model call without tools",
+    description: "Delegate one bounded specialist analysis task to a separate model call without tools. Use only when independent research, review, test, security, or planning work reduces parent-agent context",
     parameters: objectSchema({
       task: stringSchema("Self-contained task for the delegated model"),
       context: stringSchema("Optional context the delegated model needs"),
+      role: enumSchema("Specialist role", ["research", "review", "test", "security", "planner"]),
+      expected_output: stringSchema("Optional concise output contract for the specialist"),
+      max_output_tokens: integerSchema("Maximum specialist output tokens", 1024, 16000),
     }, ["task"]),
     available,
     unavailableReason: "The backend model gateway is not configured",
@@ -481,11 +484,15 @@ function createSubagentTool(modelGateway) {
     execute: async (args, { signal }) => {
       const task = requiredString(args, "task", 12_000);
       const context = optionalString(args.context, "", 30_000);
+      const role = optionalEnum(args.role, "research", ["research", "review", "test", "security", "planner"]);
+      const expectedOutput = optionalString(args.expected_output, "", 4_000);
+      const maxOutputTokens = boundedInteger(args.max_output_tokens, 4_096, 1_024, 16_000);
       let output = "";
       const turn = await modelGateway.stream({
         model: modelGateway.defaultModel,
         tools: [],
-        messages: delegatedSubagentMessages({ task, context }),
+        messages: delegatedSubagentMessages({ task, context, role, expectedOutput }),
+        maxOutputTokens,
         signal,
         onTextDelta: (delta) => {
           output += delta || "";
@@ -494,7 +501,7 @@ function createSubagentTool(modelGateway) {
       if (!output.trim() && typeof turn?.content === "string") output = turn.content;
       output = truncate(output.trim());
       if (!output) throw httpError(502, "Subagent model returned an empty response");
-      return { output, summary: "Subagent completed", detail: output };
+      return { output, summary: `${role} subagent completed`, detail: output };
     },
   });
 }

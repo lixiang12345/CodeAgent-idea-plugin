@@ -48,6 +48,7 @@ Each event is an SSE block with an `event` name and one JSON `data` line. Lines 
 | `turn.started` | `turnIndex` | A provider model turn started |
 | `context.updated` | `turnIndex`, estimated and target input tokens, compaction counters, `overBudget` | Context budgeting and compaction state for the model turn |
 | `tool.catalog.updated` | `turnIndex`, active and catalog tool counts, active names, newly activated names | Lazy tool discovery state for the model turn |
+| `verification.updated` | `turnIndex`, `status`, `message`, optional `toolName` | Post-mutation verification gate state |
 | `message.delta` | `delta`, `turnIndex` | Append text to the current assistant message |
 | `assistant.completed` | `content`, `turnIndex` | Canonical assistant content for that turn; `content` may be null for a tool-only turn |
 | `tool.request` | `call.id`, `call.name`, `call.arguments`, `turnIndex` | Execute one local tool; `arguments` is a JSON string |

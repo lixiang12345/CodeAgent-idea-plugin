@@ -497,6 +497,9 @@
           "tool.catalog.updated": {
             "$ref": "#/components/schemas/ToolCatalogUpdatedEvent"
           },
+          "verification.updated": {
+            "$ref": "#/components/schemas/VerificationUpdatedEvent"
+          },
           "message.delta": {
             "$ref": "#/components/schemas/MessageDeltaEvent"
           },
@@ -533,7 +536,7 @@
         },
         "responses": {
           "200": {
-            "description": "SSE stream. Events: run.started, turn.started, context.updated, tool.catalog.updated, message.delta, assistant.completed, tool.request, tool.completed, run.completed, run.error.",
+            "description": "SSE stream. Events: run.started, turn.started, context.updated, tool.catalog.updated, verification.updated, message.delta, assistant.completed, tool.request, tool.completed, run.completed, run.error.",
             "headers": {
               "X-CodeAgent-Run-Id": {
                 "schema": {
@@ -1014,6 +1017,23 @@
             "minimum": 1,
             "maximum": 64
           },
+          "maxToolCalls": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 256
+          },
+          "maxSubagentCalls": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16
+          },
+          "verificationPolicy": {
+            "type": "string",
+            "enum": [
+              "none",
+              "after-mutation"
+            ]
+          },
           "contextWindowTokens": {
             "type": "integer",
             "minimum": 32768,
@@ -1263,6 +1283,10 @@
           "model",
           "agentProfileId",
           "agentType",
+          "maxTurns",
+          "maxToolCalls",
+          "maxSubagentCalls",
+          "verificationPolicy",
           "promptVersion",
           "contextWindowTokens",
           "inputBudgetTokens",
@@ -1295,6 +1319,25 @@
               "context",
               "prompt",
               "loop"
+            ]
+          },
+          "maxTurns": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "maxToolCalls": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "maxSubagentCalls": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "verificationPolicy": {
+            "type": "string",
+            "enum": [
+              "none",
+              "after-mutation"
             ]
           },
           "promptVersion": {
@@ -1409,6 +1452,34 @@
             "items": {
               "type": "string"
             }
+          }
+        },
+        "additionalProperties": false
+      },
+      "VerificationUpdatedEvent": {
+        "type": "object",
+        "required": [
+          "turnIndex",
+          "status",
+          "message"
+        ],
+        "properties": {
+          "turnIndex": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "required",
+              "verified"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -1562,6 +1633,9 @@
           },
           {
             "$ref": "#/components/schemas/ToolCatalogUpdatedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/VerificationUpdatedEvent"
           },
           {
             "$ref": "#/components/schemas/MessageDeltaEvent"

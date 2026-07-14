@@ -10,6 +10,7 @@ import com.codeagent.plugin.agent.GitWorkspaceService
 import com.codeagent.plugin.agent.ImageCanvasService
 import com.codeagent.plugin.agent.RemoteContextUpdated
 import com.codeagent.plugin.agent.RemoteToolCatalogUpdated
+import com.codeagent.plugin.agent.RemoteVerificationUpdated
 import com.codeagent.plugin.agent.WorkspaceCustomizationService
 import com.codeagent.plugin.conversation.ConversationStore
 import com.codeagent.plugin.conversation.ConversationSnapshot
@@ -620,6 +621,17 @@ class IdeBridge(
                         catalogToolCount = update.catalogToolCount,
                         discoverableToolCount = update.discoverableToolCount,
                         activatedToolNames = update.activated,
+                    )
+                }) emitRunSnapshot()
+            }
+
+            override fun onVerificationUpdated(update: RemoteVerificationUpdated) {
+                if (withCurrentRun(runId) {
+                    agentRun = agentRun.copy(
+                        turnIndex = update.turnIndex,
+                        verificationState = update.status,
+                        verificationMessage = update.message,
+                        verificationToolName = update.toolName,
                     )
                 }) emitRunSnapshot()
             }

@@ -8,10 +8,38 @@ import {
 } from "./context-policy.mjs";
 
 export const AGENT_PROFILE_TYPES = Object.freeze(["general", "search", "context", "prompt", "loop"]);
+export const VERIFICATION_POLICIES = Object.freeze(["none", "after-mutation"]);
 
 const PROFILE_ID_PATTERN = /^[A-Za-z0-9._-]{1,120}$/;
 const READ_ONLY_PROFILE_TYPES = new Set(["search", "context", "prompt"]);
+const TYPE_RUNTIME_DEFAULTS = {
+  general: { maxTurns: 12, maxToolCalls: 48, maxSubagentCalls: 4, verificationPolicy: "after-mutation" },
+  search: { maxTurns: 10, maxToolCalls: 24, maxSubagentCalls: 4, verificationPolicy: "none" },
+  context: { maxTurns: 10, maxToolCalls: 24, maxSubagentCalls: 2, verificationPolicy: "none" },
+  prompt: { maxTurns: 6, maxToolCalls: 12, maxSubagentCalls: 1, verificationPolicy: "none" },
+  loop: { maxTurns: 24, maxToolCalls: 96, maxSubagentCalls: 6, verificationPolicy: "after-mutation" },
+};
 const TYPE_TOOL_DEFAULTS = {
+  search: new Set([
+    "codebase_retrieval",
+    "read_file",
+    "list_files",
+    "search_text",
+    "diagnostics",
+    "git_history",
+    "conversation_retrieval",
+    "view_tasks",
+    "web_fetch",
+    "web_search",
+    "github_search",
+    "linear_search",
+    "notion_search",
+    "jira_search",
+    "confluence_search",
+    "glean_search",
+    "supabase_query",
+    "subagent",
+  ]),
   context: new Set([
     "codebase_retrieval",
     "read_file",
@@ -120,6 +148,9 @@ function configuredProfile(record) {
     model: value.model,
     allowedTools: value.allowedTools,
     maxTurns: value.maxTurns,
+    maxToolCalls: value.maxToolCalls,
+    maxSubagentCalls: value.maxSubagentCalls,
+    verificationPolicy: value.verificationPolicy,
     contextWindowTokens: value.contextWindowTokens,
     reservedOutputTokens: value.reservedOutputTokens,
     builtin: false,
@@ -134,13 +165,17 @@ function profile({
   systemPrompt = null,
   model = null,
   allowedTools = [],
-  maxTurns = 12,
+  maxTurns,
+  maxToolCalls,
+  maxSubagentCalls,
+  verificationPolicy,
   contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS,
   reservedOutputTokens = DEFAULT_RESERVED_OUTPUT_TOKENS,
   builtin = true,
 }) {
   if (!PROFILE_ID_PATTERN.test(id)) throw validationError("Agent profile ID is invalid");
   if (!AGENT_PROFILE_TYPES.includes(agentType)) throw validationError(`Unsupported Agent profile type: ${agentType}`);
+  const runtimeDefaults = TYPE_RUNTIME_DEFAULTS[agentType] || TYPE_RUNTIME_DEFAULTS.general;
   const normalizedContextWindowTokens = integerSetting(
     contextWindowTokens,
     "contextWindowTokens",
@@ -166,7 +201,10 @@ function profile({
     systemPrompt: typeof systemPrompt === "string" && systemPrompt.trim() ? systemPrompt.trim().slice(0, 100_000) : null,
     model: typeof model === "string" && model.trim() ? model.trim().slice(0, 240) : null,
     allowedTools: Array.isArray(allowedTools) ? [...new Set(allowedTools.filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim()))].slice(0, 128) : [],
-    maxTurns: Number.isInteger(maxTurns) ? Math.min(64, Math.max(1, maxTurns)) : 12,
+    maxTurns: integerRuntimeSetting(maxTurns, 1, 64, runtimeDefaults.maxTurns),
+    maxToolCalls: integerRuntimeSetting(maxToolCalls, 1, 256, runtimeDefaults.maxToolCalls),
+    maxSubagentCalls: integerRuntimeSetting(maxSubagentCalls, 0, 16, runtimeDefaults.maxSubagentCalls),
+    verificationPolicy: VERIFICATION_POLICIES.includes(verificationPolicy) ? verificationPolicy : runtimeDefaults.verificationPolicy,
     contextWindowTokens: normalizedContextWindowTokens,
     reservedOutputTokens: normalizedReservedOutputTokens,
     builtin,
@@ -189,6 +227,10 @@ function integerSetting(value, name, min, max, fallback) {
     throw validationError(`${name} must be an integer between ${min} and ${max}`);
   }
   return value;
+}
+
+function integerRuntimeSetting(value, min, max, fallback) {
+  return Number.isInteger(value) ? Math.min(max, Math.max(min, value)) : fallback;
 }
 
 function validationError(message) {

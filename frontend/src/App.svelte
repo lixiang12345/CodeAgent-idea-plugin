@@ -392,7 +392,13 @@
 
   function runActivityLabel(hasRunningTool: boolean) {
     if (!snapshot) return "Generating response…";
-    const phase = snapshot.agentRun.overBudget ? "Compacting context" : hasRunningTool ? "Resolving tools" : "Generating response";
+    const phase = snapshot.agentRun.verificationState === "required"
+      ? "Verifying changes"
+      : snapshot.agentRun.overBudget
+        ? "Compacting context"
+        : hasRunningTool
+          ? "Resolving tools"
+          : "Generating response";
     const details: string[] = [];
     if (snapshot.agentRun.catalogToolCount > 0) {
       details.push(`${snapshot.agentRun.activeToolCount}/${snapshot.agentRun.catalogToolCount} tools`);

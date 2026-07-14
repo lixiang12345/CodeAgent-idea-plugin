@@ -89,6 +89,9 @@ test("resolves configured Agent profiles and intersects read-only tool policy", 
   assert.equal(effective.agentProfileId, "context-review");
   assert.equal(profile.contextWindowTokens, 96_000);
   assert.equal(profile.reservedOutputTokens, 12_000);
+  assert.equal(profile.maxToolCalls, 24);
+  assert.equal(profile.maxSubagentCalls, 2);
+  assert.equal(profile.verificationPolicy, "none");
   assert.deepEqual(effective.tools.map((tool) => tool.name), ["read_file"]);
 });
 
@@ -113,6 +116,8 @@ test("falls back to built-in profiles when a same-ID customization is disabled",
   const general = await resolveAgentProfile({ store, userId: "user-1", profileId: "general" });
   assert.equal(general.builtin, true);
   assert.equal(general.maxTurns, 12);
+  assert.equal(general.maxToolCalls, 48);
+  assert.equal(builtInAgentProfile("loop").verificationPolicy, "after-mutation");
   await assert.rejects(
     () => resolveAgentProfile({ store, userId: "user-1", profileId: "custom-disabled" }),
     /profile is disabled/,
@@ -204,6 +209,35 @@ test("honors the Agent profile turn budget", async () => {
     awaitToolResult: async () => ({ status: "completed", output: "ok" }),
     signal: new AbortController().signal,
   }), /exceeded 2 model turns/);
+});
+
+test("requires Loop Agent verification after a successful mutation", async () => {
+  const turns = [
+    { content: "Applying change", toolCalls: [{ id: "edit-1", name: "apply_patch", arguments: "{\"patch\":\"diff\"}" }] },
+    { content: "Done", toolCalls: [] },
+    { content: "Checking", toolCalls: [{ id: "check-1", name: "diagnostics", arguments: "{\"path\":\"src/main.ts\"}" }] },
+    { content: "Verified", toolCalls: [] },
+  ];
+  const events = [];
+  const runner = new AgentRunner({ modelGateway: { async stream() { return turns.shift(); } } });
+  await runner.run({
+    request: {
+      mode: "agent",
+      messages: [{ role: "user", content: "Make and verify a change" }],
+      tools: [
+        { name: "apply_patch", description: "Edit", parameters: {}, risk: "mutating" },
+        { name: "diagnostics", description: "Check", parameters: {}, risk: "read_only" },
+      ],
+      workspace: {},
+    },
+    agentProfile: { ...builtInAgentProfile("loop"), maxTurns: 6 },
+    emit: (type, data) => events.push({ type, data }),
+    awaitToolResult: async (id) => ({ status: "completed", output: id === "edit-1" ? "changed" : "clean", summary: id }),
+    signal: new AbortController().signal,
+  });
+  assert.ok(events.some((event) => event.type === "verification.updated" && event.data.status === "required"));
+  assert.ok(events.some((event) => event.type === "verification.updated" && event.data.status === "verified"));
+  assert.equal(events.at(-1).type, "run.completed");
 });
 
 test("validates client-owned run history without opening a stream", () => {
@@ -473,10 +507,12 @@ test("serves the public OpenAPI contract", async () => {
     assert.equal(contract.components.schemas.RunStartedEvent.required.includes("contextWindowTokens"), true);
     assert.equal(contract.components.schemas.ContextUpdatedEvent.required.includes("overBudget"), true);
     assert.equal(contract.components.schemas.ToolCatalogUpdatedEvent.required.includes("activeToolNames"), true);
+    assert.equal(contract.components.schemas.VerificationUpdatedEvent.required.includes("status"), true);
     assert.equal(contract.components.schemas.Workspace.properties.historySummary.type.includes("null"), true);
     assert.equal(contract.components.schemas.ConfigurationValue.properties.contextWindowTokens.default, 64_000);
     assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["context.updated"].$ref, "#/components/schemas/ContextUpdatedEvent");
     assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["tool.catalog.updated"].$ref, "#/components/schemas/ToolCatalogUpdatedEvent");
+    assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["verification.updated"].$ref, "#/components/schemas/VerificationUpdatedEvent");
     assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["run.error"].$ref, "#/components/schemas/RunErrorEvent");
 
     const docs = await fetch(`http://127.0.0.1:${server.address().port}/docs`);
@@ -1075,6 +1111,9 @@ test("validates and persists typed product configurations", async () => {
         model: "model-a",
         allowedTools: ["read_file", "search_text"],
         maxTurns: 8,
+        maxToolCalls: 40,
+        maxSubagentCalls: 3,
+        verificationPolicy: "after-mutation",
         contextWindowTokens: 128_000,
         reservedOutputTokens: 16_000,
         secret: "must-not-survive",
@@ -1086,6 +1125,9 @@ test("validates and persists typed product configurations", async () => {
     assert.equal(saved.kind, "agents");
     assert.equal(saved.value.agentType, "loop");
     assert.equal(saved.value.maxTurns, 8);
+    assert.equal(saved.value.maxToolCalls, 40);
+    assert.equal(saved.value.maxSubagentCalls, 3);
+    assert.equal(saved.value.verificationPolicy, "after-mutation");
     assert.equal(saved.value.contextWindowTokens, 128_000);
     assert.equal(saved.value.reservedOutputTokens, 16_000);
     assert.equal(saved.value.secret, undefined);

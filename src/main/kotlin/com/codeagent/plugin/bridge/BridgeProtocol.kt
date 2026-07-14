@@ -54,6 +54,9 @@ data class AgentRunTelemetryDto(
     val catalogToolCount: Int = 0,
     val discoverableToolCount: Int = 0,
     val activatedToolNames: List<String> = emptyList(),
+    val verificationState: String = "idle",
+    val verificationMessage: String? = null,
+    val verificationToolName: String? = null,
 )
 
 @Serializable

@@ -79,14 +79,22 @@ export class ProductJobRunner {
     let content = "";
     const turn = await this.modelGateway.stream({
       model: typeof job.input?.model === "string" ? job.input.model : undefined,
-      messages: productJobMessages({ type: job.type, prompt, system: job.input?.system }),
+      messages: productJobMessages({
+        type: job.type,
+        prompt,
+        system: job.input?.system,
+        role: job.input?.role,
+        context: job.input?.context,
+        expectedOutput: job.input?.expectedOutput,
+      }),
+      maxOutputTokens: boundedJobInteger(job.input?.maxOutputTokens, 1_024, 16_000, 4_096),
       tools: [],
       signal,
       onTextDelta: (delta) => { content += delta || ""; },
     });
     if (!content && typeof turn?.content === "string") content = turn.content;
     if (!content.trim()) throw new Error("Job model returned empty content");
-    return { content, model: job.input?.model || this.modelGateway.defaultModel || "" };
+    return { content, model: job.input?.model || this.modelGateway.defaultModel || "", role: job.type === "subagent" ? normalizeSubagentRole(job.input?.role) : undefined };
   }
 
   #key(userId, id) {
@@ -99,6 +107,30 @@ function validateJobRequest(request) {
   if (!["subagent", "history-summary"].includes(request.type)) throw badRequest("Unsupported job type");
   if (!request.input || typeof request.input !== "object" || Array.isArray(request.input)) throw badRequest("Job input is required");
   requiredText(request.input.prompt, "Job prompt");
+  if (request.type === "subagent") {
+    normalizeSubagentRole(request.input.role);
+    optionalJobText(request.input.context, "Job context", 30_000);
+    optionalJobText(request.input.expectedOutput, "Expected output", 4_000);
+    boundedJobInteger(request.input.maxOutputTokens, 1_024, 16_000, 4_096);
+  }
+}
+
+function normalizeSubagentRole(value) {
+  const role = typeof value === "string" && value.trim() ? value.trim() : "research";
+  if (!["research", "review", "test", "security", "planner"].includes(role)) throw badRequest("Unsupported subagent role");
+  return role;
+}
+
+function optionalJobText(value, label, max) {
+  if (value === undefined || value === null || value === "") return "";
+  if (typeof value !== "string" || value.length > max) throw badRequest(`${label} is invalid or too long`);
+  return value.trim();
+}
+
+function boundedJobInteger(value, min, max, fallback) {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (!Number.isInteger(value) || value < min || value > max) throw badRequest(`Value must be between ${min} and ${max}`);
+  return value;
 }
 
 function requiredText(value, label) {

@@ -38,6 +38,9 @@ export interface AgentRunTelemetry {
   catalogToolCount: number;
   discoverableToolCount: number;
   activatedToolNames: string[];
+  verificationState: "idle" | "required" | "verified";
+  verificationMessage?: string;
+  verificationToolName?: string;
 }
 
 export interface MessageDelta {
@@ -321,6 +324,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       catalogToolCount: 0,
       discoverableToolCount: 0,
       activatedToolNames: [],
+      verificationState: "idle",
     },
     messages: [
       {

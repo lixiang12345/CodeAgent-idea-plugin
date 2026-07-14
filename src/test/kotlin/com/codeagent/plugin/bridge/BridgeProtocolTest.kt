@@ -45,15 +45,26 @@ class BridgeProtocolTest {
             turnIndex = 3,
             estimatedInputTokens = 12_000,
             targetInputTokens = 48_000,
+            contextWindowTokens = 64_000,
+            reservedOutputTokens = 8_192,
+            toolDefinitionTokens = 800,
+            compactedToolResults = 1,
+            truncatedMessages = 2,
+            overBudget = false,
             activeToolNames = listOf("read_file", "git_history"),
             activeToolCount = 2,
             catalogToolCount = 14,
+            discoverableToolCount = 12,
             activatedToolNames = listOf("git_history"),
+            verificationState = "verified",
+            verificationMessage = "Verified with diagnostics",
+            verificationToolName = "diagnostics",
         )
 
         val encoded = json.encodeToString(telemetry)
         assertEquals(true, encoded.contains("\"estimatedInputTokens\":12000"))
         assertEquals(true, encoded.contains("\"activatedToolNames\":[\"git_history\"]"))
+        assertEquals(true, encoded.contains("\"verificationState\":\"verified\""))
     }
 
     @Test

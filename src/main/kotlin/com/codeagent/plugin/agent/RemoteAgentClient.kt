@@ -439,6 +439,14 @@ data class RemoteToolCatalogUpdated(
 )
 
 @Serializable
+data class RemoteVerificationUpdated(
+    val turnIndex: Int,
+    val status: String,
+    val message: String,
+    val toolName: String? = null,
+)
+
+@Serializable
 internal data class RemoteMessageDelta(val delta: String, val turnIndex: Int)
 
 @Serializable
@@ -566,6 +574,10 @@ internal data class RemoteJobInput(
     val prompt: String,
     val system: String? = null,
     val model: String? = null,
+    val role: String? = null,
+    val context: String? = null,
+    val expectedOutput: String? = null,
+    val maxOutputTokens: Int? = null,
 )
 
 @Serializable
@@ -581,6 +593,7 @@ internal data class RemoteJob(
 internal data class RemoteJobOutput(
     val content: String,
     val model: String? = null,
+    val role: String? = null,
 )
 
 @Serializable
