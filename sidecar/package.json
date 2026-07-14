@@ -8,6 +8,7 @@
     "test": "npm run build && node --test test/**/*.test.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "ignore": "7.0.4"
   },
   "devDependencies": {

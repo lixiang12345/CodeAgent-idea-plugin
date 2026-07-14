@@ -172,6 +172,45 @@ export interface ConfigurationSnapshot {
   items: Partial<Record<ConfigurationKind, ProductConfiguration[]>>;
 }
 
+export type McpRuntimeState = "disabled" | "stopped" | "starting" | "ready" | "degraded" | "error" | "stopping";
+
+export interface McpTool {
+  id: string;
+  serverId: string;
+  name: string;
+  title?: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  risk: "read_only" | "mutating";
+}
+
+export interface McpServerRuntime {
+  id: string;
+  name: string;
+  enabled: boolean;
+  transport: "stdio" | "streamable-http" | "sse";
+  state: McpRuntimeState;
+  label: string;
+  serverName?: string;
+  serverVersion?: string;
+  protocolVersion?: string;
+  capabilities: string[];
+  tools: McpTool[];
+  pid?: number;
+  latencyMs?: number;
+  restartCount: number;
+  lastConnectedAt?: string;
+  lastHealthyAt?: string;
+  lastError?: string;
+}
+
+export interface McpRuntimeSnapshot {
+  state: "idle" | "ready" | "degraded";
+  label: string;
+  servers: McpServerRuntime[];
+  tools: McpTool[];
+}
+
 export type ProductJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 
 export interface ProductJob {
@@ -247,6 +286,7 @@ export interface AppSnapshot {
   models: ModelRegistry;
   backendTools: BackendToolCapability[];
   configurations: ConfigurationSnapshot;
+  mcpRuntime: McpRuntimeSnapshot;
   jobs: ProductJobSnapshot;
   customization: {
     rules: WorkspaceRule[];
@@ -538,7 +578,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
             value: {
               name: "Local Context MCP",
               description: "Saved local development endpoint.",
-              enabled: false,
+              enabled: true,
               transport: "streamable-http",
               command: null,
               args: [],
@@ -552,6 +592,60 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
           },
         ],
       },
+    },
+    mcpRuntime: {
+      state: "ready",
+      label: "1 server · 1 tool",
+      servers: [
+        {
+          id: "local-context",
+          name: "Local Context MCP",
+          enabled: true,
+          transport: "streamable-http",
+          state: "ready",
+          label: "1 tool · 18 ms",
+          serverName: "context-engine",
+          serverVersion: "1.0.0",
+          protocolVersion: "2025-11-25",
+          capabilities: ["tools"],
+          tools: [
+            {
+              id: "mcp__local-context_d9a3a824__search_24193290",
+              serverId: "local-context",
+              name: "search",
+              title: "Search context",
+              description: "Search the connected context service.",
+              parameters: {
+                type: "object",
+                properties: { query: { type: "string" } },
+                required: ["query"],
+                additionalProperties: false,
+              },
+              risk: "read_only",
+            },
+          ],
+          latencyMs: 18,
+          restartCount: 0,
+          lastConnectedAt: new Date(Date.now() - 30_000).toISOString(),
+          lastHealthyAt: new Date(Date.now() - 5_000).toISOString(),
+        },
+      ],
+      tools: [
+        {
+          id: "mcp__local-context_d9a3a824__search_24193290",
+          serverId: "local-context",
+          name: "search",
+          title: "Search context",
+          description: "Search the connected context service.",
+          parameters: {
+            type: "object",
+            properties: { query: { type: "string" } },
+            required: ["query"],
+            additionalProperties: false,
+          },
+          risk: "read_only",
+        },
+      ],
     },
     jobs: {
       state: "ready",

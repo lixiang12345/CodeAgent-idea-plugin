@@ -5,10 +5,29 @@ import path from "node:path";
 import { ContextEngine } from "../../vendor/context-engine/src/engine.ts";
 import type { IndexProgress } from "../../vendor/context-engine/src/types.ts";
 import type { IndexResult } from "../../vendor/context-engine/src/indexer/indexer.ts";
+import {
+  McpRuntimeManager,
+  type McpServerConfiguration,
+} from "./mcp-runtime.ts";
 
 interface RequestEnvelope {
   id: string;
-  type: "health" | "status" | "index" | "watch" | "unwatch" | "retrieve" | "search" | "shutdown";
+  type:
+    | "health"
+    | "status"
+    | "index"
+    | "watch"
+    | "unwatch"
+    | "retrieve"
+    | "search"
+    | "mcp.reconcile"
+    | "mcp.status"
+    | "mcp.start"
+    | "mcp.stop"
+    | "mcp.restart"
+    | "mcp.test"
+    | "mcp.call"
+    | "shutdown";
   root?: string;
   payload?: Record<string, unknown>;
 }
@@ -35,6 +54,7 @@ interface WorkspaceRuntime {
 
 const runtimes = new Map<string, WorkspaceRuntime>();
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
+const mcpRuntime = new McpRuntimeManager(process.cwd());
 
 function send(response: ResponseEnvelope): void {
   process.stdout.write(`${JSON.stringify(response)}\n`);
@@ -72,8 +92,8 @@ async function handle(request: RequestEnvelope): Promise<void> {
         payload: {
           ok: true,
           nodeVersion: process.versions.node,
-          protocolVersion: 1,
-          capabilities: ["incremental-index", "workspace-watch"],
+          protocolVersion: 2,
+          capabilities: ["incremental-index", "workspace-watch", "mcp-runtime"],
         },
       });
       return;
@@ -138,8 +158,39 @@ async function handle(request: RequestEnvelope): Promise<void> {
       send({ id: request.id, type: "result", payload: hits });
       return;
     }
+    case "mcp.reconcile": {
+      const configurations = Array.isArray(request.payload?.configurations)
+        ? request.payload.configurations as McpServerConfiguration[]
+        : [];
+      send({ id: request.id, type: "result", payload: await mcpRuntime.reconcile(configurations) });
+      return;
+    }
+    case "mcp.status":
+      send({ id: request.id, type: "result", payload: mcpRuntime.status() });
+      return;
+    case "mcp.start":
+      send({ id: request.id, type: "result", payload: await mcpRuntime.start(requiredPayloadText(request, "serverId")) });
+      return;
+    case "mcp.stop":
+      send({ id: request.id, type: "result", payload: await mcpRuntime.stop(requiredPayloadText(request, "serverId")) });
+      return;
+    case "mcp.restart":
+      send({ id: request.id, type: "result", payload: await mcpRuntime.restart(requiredPayloadText(request, "serverId")) });
+      return;
+    case "mcp.test":
+      send({ id: request.id, type: "result", payload: await mcpRuntime.test(requiredPayloadText(request, "serverId")) });
+      return;
+    case "mcp.call": {
+      const argumentsValue = request.payload?.arguments;
+      const args = argumentsValue && typeof argumentsValue === "object" && !Array.isArray(argumentsValue)
+        ? argumentsValue as Record<string, unknown>
+        : {};
+      const result = await mcpRuntime.call(requiredPayloadText(request, "toolId"), args);
+      send({ id: request.id, type: "result", payload: result });
+      return;
+    }
     case "shutdown":
-      closeAll();
+      await closeAll();
       send({ id: request.id, type: "result", payload: { ok: true } });
       process.exit(0);
   }
@@ -238,12 +289,19 @@ function statusPayload(runtime: WorkspaceRuntime): Record<string, unknown> {
     : { indexed: false, root: runtime.root, ...watch };
 }
 
-function closeAll(): void {
+async function closeAll(): Promise<void> {
+  await mcpRuntime.close();
   for (const runtime of runtimes.values()) {
     stopWatching(runtime);
     runtime.engine.close();
   }
   runtimes.clear();
+}
+
+function requiredPayloadText(request: RequestEnvelope, field: string): string {
+  const value = request.payload?.[field];
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${field} is required`);
+  return value.trim();
 }
 
 function toOptionalInteger(value: unknown): number | undefined {
@@ -280,5 +338,5 @@ input.on("line", (line) => {
 });
 
 input.on("close", () => {
-  closeAll();
+  void closeAll();
 });

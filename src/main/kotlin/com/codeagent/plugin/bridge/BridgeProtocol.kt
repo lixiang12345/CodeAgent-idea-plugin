@@ -238,6 +238,46 @@ data class ConfigurationSnapshotDto(
 )
 
 @Serializable
+data class McpToolDto(
+    val id: String,
+    val serverId: String,
+    val name: String,
+    val title: String? = null,
+    val description: String,
+    val parameters: JsonObject,
+    val risk: String,
+)
+
+@Serializable
+data class McpServerRuntimeDto(
+    val id: String,
+    val name: String,
+    val enabled: Boolean,
+    val transport: String,
+    val state: String,
+    val label: String,
+    val serverName: String? = null,
+    val serverVersion: String? = null,
+    val protocolVersion: String? = null,
+    val capabilities: List<String> = emptyList(),
+    val tools: List<McpToolDto> = emptyList(),
+    val pid: Int? = null,
+    val latencyMs: Long? = null,
+    val restartCount: Int = 0,
+    val lastConnectedAt: String? = null,
+    val lastHealthyAt: String? = null,
+    val lastError: String? = null,
+)
+
+@Serializable
+data class McpRuntimeSnapshotDto(
+    val state: String = "idle",
+    val label: String = "No MCP servers configured",
+    val servers: List<McpServerRuntimeDto> = emptyList(),
+    val tools: List<McpToolDto> = emptyList(),
+)
+
+@Serializable
 data class ProductJobDto(
     val id: String,
     val type: String,
@@ -309,6 +349,7 @@ data class AppSnapshotDto(
     val models: ModelRegistryDto = ModelRegistryDto(),
     val backendTools: List<BackendToolDto> = emptyList(),
     val configurations: ConfigurationSnapshotDto = ConfigurationSnapshotDto(),
+    val mcpRuntime: McpRuntimeSnapshotDto = McpRuntimeSnapshotDto(),
     val jobs: ProductJobSnapshotDto = ProductJobSnapshotDto(),
     val customization: WorkspaceCustomizationDto = WorkspaceCustomizationDto(),
 )

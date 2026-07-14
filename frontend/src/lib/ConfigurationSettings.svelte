@@ -4,12 +4,15 @@
     sendCommand,
     type ConfigurationKind,
     type ConfigurationSnapshot,
+    type McpRuntimeSnapshot,
+    type McpServerRuntime,
     type ModelOption,
     type ProductConfiguration,
   } from "./protocol";
 
   export let section: string;
   export let configurationSnapshot: ConfigurationSnapshot;
+  export let mcpRuntime: McpRuntimeSnapshot;
   export let models: ModelOption[] = [];
 
   type Draft = {
@@ -305,11 +308,22 @@ $: if (section !== previousSection) {
 
   function summary(item: ProductConfiguration): string {
     const value = item.value;
-    if (kind === "mcp") return `${text(value.transport) || "stdio"} · ${text(value.command) || text(value.url) || "No endpoint"}`;
+    if (kind === "mcp") {
+      const runtime = runtimeFor(item.id);
+      return `${text(value.transport) || "stdio"} · ${runtime?.state ?? "not activated"} · ${runtime?.tools.length ?? 0} tools`;
+    }
     if (kind === "commands") return text(value.argumentHint) || "Prompt command";
     if (kind === "hooks") return `${text(value.event) || "before-run"} · ${numberValue(value.timeoutSeconds, 60)}s`;
     if (kind === "agents") return `${text(value.agentType) || "general"} · ${numberValue(value.maxTurns, 12)} turns · ${numberValue(value.maxToolCalls, 48)} tools · ${Math.round(numberValue(value.contextWindowTokens, 64000) / 1000)}k context`;
     return text(value.version) || text(value.source) || "Extension source";
+  }
+
+  function runtimeFor(serverId: string): McpServerRuntime | undefined {
+    return mcpRuntime.servers.find((server) => server.id === serverId);
+  }
+
+  function controlMcp(command: "startMcpServer" | "stopMcpServer" | "restartMcpServer" | "testMcpServer", serverId: string) {
+    sendCommand(command, { serverId });
   }
 </script>
 
@@ -378,7 +392,7 @@ $: if (section !== previousSection) {
       {/if}
       <label><span>Required environment</span><textarea class="list-textarea" bind:value={draft.requiredEnvironment} spellcheck="false" placeholder="API_TOKEN"></textarea><small>Names only. Secret values stay outside CodeAgent.</small></label>
       <label><span>Timeout seconds</span><input type="number" min="1" max="600" bind:value={draft.timeoutSeconds} /></label>
-      <div class="runtime-note"><Icon name="info" size={13} /><span>This saves the MCP definition. Runtime process/transport health appears only after the MCP gateway activates it.</span></div>
+      <div class="runtime-note"><Icon name="info" size={13} /><span>Enabled definitions connect through the local MCP gateway. Only allowlisted environment names are inherited, and tool calls remain subject to Agent approval policy.</span></div>
     {/if}
 
     <footer>
@@ -401,6 +415,14 @@ $: if (section !== previousSection) {
     <button class="icon-button compact" title="Refresh configurations" disabled={busy} onclick={() => sendCommand("refreshConfigurations")}><Icon name="refresh-ccw" size={13} /></button>
   </div>
 
+  {#if kind === "mcp"}
+    <div class="configuration-status mcp-gateway-status">
+      <span class="status-dot {mcpRuntime.state}"></span>
+      <span><strong>MCP gateway · {mcpRuntime.state}</strong><small>{mcpRuntime.label}</small></span>
+      <button class="icon-button compact" title="Refresh MCP runtime" onclick={() => sendCommand("refreshMcpRuntime")}><Icon name="activity" size={13} /></button>
+    </div>
+  {/if}
+
   {#if configurationSnapshot.state === "unavailable" || configurationSnapshot.state === "error"}
     <section class="configuration-empty">
       <Icon name="circle-alert" size={19} />
@@ -410,7 +432,8 @@ $: if (section !== previousSection) {
   {:else}
     <section class="configuration-list">
       {#each items as item}
-        <article>
+        {@const runtime = kind === "mcp" ? runtimeFor(item.id) : undefined}
+        <article class:mcp-item={kind === "mcp"}>
           <span class="configuration-icon"><Icon name={page.icon} size={14} /></span>
           <button class="configuration-copy" onclick={() => beginEdit(item)}>
             <strong>{text(item.value.name) || item.id}</strong>
@@ -423,6 +446,33 @@ $: if (section !== previousSection) {
           </label>
           <button class="icon-button compact" title="Edit" disabled={busy} onclick={() => beginEdit(item)}><Icon name="pencil" size={12} /></button>
           <button class="icon-button compact danger" title="Delete" disabled={busy} onclick={() => remove(item)}><Icon name="trash-2" size={12} /></button>
+          {#if kind === "mcp"}
+            <div class="mcp-runtime-row">
+              <span class="mcp-runtime-copy">
+                <i class="runtime-state {runtime?.state ?? (item.value.enabled === false ? 'disabled' : 'stopped')}">{runtime?.state ?? (item.value.enabled === false ? "disabled" : "stopped")}</i>
+                <small>{runtime?.label ?? (item.value.enabled === false ? "Disabled" : "Waiting for gateway activation")}</small>
+                {#if runtime?.pid}<small>PID {runtime.pid}</small>{/if}
+                {#if runtime?.latencyMs !== undefined}<small>{runtime.latencyMs} ms</small>{/if}
+              </span>
+              <span class="mcp-runtime-actions">
+                {#if runtime?.state === "ready" || runtime?.state === "degraded" || runtime?.state === "error"}
+                  <button class="icon-button compact" title="Stop MCP server" onclick={() => controlMcp("stopMcpServer", item.id)}><Icon name="square" size={11} /></button>
+                  <button class="icon-button compact" title="Restart MCP server" onclick={() => controlMcp("restartMcpServer", item.id)}><Icon name="refresh-ccw" size={11} /></button>
+                {:else}
+                  <button class="icon-button compact" title="Start MCP server" disabled={item.value.enabled === false || runtime?.state === "starting" || runtime?.state === "stopping"} onclick={() => controlMcp("startMcpServer", item.id)}><Icon name="play" size={11} /></button>
+                {/if}
+                <button class="icon-button compact" title="Test MCP connection" disabled={item.value.enabled === false || runtime?.state === "starting" || runtime?.state === "stopping"} onclick={() => controlMcp("testMcpServer", item.id)}><Icon name="activity" size={11} /></button>
+              </span>
+              {#if runtime && runtime.tools.length > 0}
+                <details class="mcp-tool-list">
+                  <summary>{runtime.tools.length} discovered {runtime.tools.length === 1 ? "tool" : "tools"}</summary>
+                  {#each runtime.tools as tool}
+                    <div><strong>{tool.title ?? tool.name}</strong><small>{tool.description}</small><i>{tool.risk === "read_only" ? "read only" : "approval required"}</i></div>
+                  {/each}
+                </details>
+              {/if}
+            </div>
+          {/if}
         </article>
       {:else}
         <div class="configuration-empty">
@@ -451,16 +501,32 @@ $: if (section !== previousSection) {
   .status-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #777c84; box-shadow: 0 0 0 2px #31343a; }
   .status-dot.ready { background: #62b47a; box-shadow: 0 0 0 2px #2d4d36; }
   .status-dot.loading { background: #d0a05b; box-shadow: 0 0 0 2px #51432d; }
-  .status-dot.error { background: #dc6e74; box-shadow: 0 0 0 2px #523238; }
+  .status-dot.error, .status-dot.degraded { background: #dc6e74; box-shadow: 0 0 0 2px #523238; }
+  .mcp-gateway-status { margin-top: -2px; }
   .configuration-list { overflow: hidden; border: 1px solid var(--line); border-radius: 5px; background: #202225; }
   .configuration-list article { min-height: 62px; padding: 6px 7px; display: flex; align-items: center; gap: 6px; }
   .configuration-list article + article { border-top: 1px solid var(--line); }
+  .configuration-list article.mcp-item { flex-wrap: wrap; }
   .configuration-icon { width: 28px; height: 28px; flex: 0 0 28px; display: grid; place-items: center; border: 1px solid #3c424b; border-radius: 5px; color: #aebbd0; background: #282d34; }
   .configuration-copy { min-width: 0; flex: 1; padding: 2px 0; display: flex; flex-direction: column; align-items: flex-start; border: 0; color: #cbd0d6; background: transparent; text-align: left; cursor: pointer; }
   .configuration-copy strong, .configuration-copy small, .configuration-copy i { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .configuration-copy strong { font-size: 9px; }
   .configuration-copy small { color: var(--muted); font-size: 8px; }
   .configuration-copy i { color: #8190a4; font: normal 7px var(--mono); }
+  .mcp-runtime-row { width: calc(100% - 34px); margin-left: 34px; padding: 6px 0 1px; display: flex; align-items: center; gap: 6px; border-top: 1px solid #30343a; }
+  .mcp-runtime-copy { min-width: 0; flex: 1; display: flex; align-items: center; gap: 6px; }
+  .mcp-runtime-copy small { overflow: hidden; text-overflow: ellipsis; color: var(--muted); font: 7px var(--mono); white-space: nowrap; }
+  .runtime-state { padding: 2px 5px; border-radius: 3px; color: #aab0b7; background: #30343a; font: normal 7px var(--mono); text-transform: uppercase; }
+  .runtime-state.ready { color: #a7d9b3; background: #294331; }
+  .runtime-state.starting, .runtime-state.stopping { color: #e0c28b; background: #4a3c24; }
+  .runtime-state.error, .runtime-state.degraded { color: #e4a1a6; background: #4a292e; }
+  .mcp-runtime-actions { display: flex; gap: 4px; }
+  .mcp-tool-list { width: 100%; color: var(--muted); font-size: 8px; }
+  .mcp-tool-list summary { padding: 5px 0; cursor: pointer; }
+  .mcp-tool-list > div { padding: 5px 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; border-top: 1px solid #30343a; }
+  .mcp-tool-list strong { overflow: hidden; text-overflow: ellipsis; color: #c1c6cc; font-size: 8px; white-space: nowrap; }
+  .mcp-tool-list small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mcp-tool-list i { grid-column: 2; grid-row: 1 / 3; align-self: center; color: #8393a7; font: normal 7px var(--mono); }
   .switch { position: relative; width: 27px; height: 16px; flex: 0 0 27px; }
   .switch input { position: absolute; opacity: 0; }
   .switch span { position: absolute; inset: 0; border: 1px solid #4a4e54; border-radius: 8px; background: #303338; cursor: pointer; }

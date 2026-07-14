@@ -1381,6 +1381,7 @@
               <ConfigurationSettings
                 section={settingsSection}
                 configurationSnapshot={snapshot.configurations}
+                mcpRuntime={snapshot.mcpRuntime}
                 models={snapshot.models.options}
               />
             {:else if settingsSection === "Feature Flags"}
@@ -1391,7 +1392,7 @@
                 <div><Icon name="scan-search" size={14} /><span class="capability-copy"><strong>Semantic retrieval</strong><small>Embedding-backed search is available only when the local ContextEngine reports vectors.</small></span><i class:ready={snapshot.context.hasEmbeddings}>{snapshot.context.hasEmbeddings ? "Active" : "Lexical"}</i></div>
                 <div><Icon name="cloud" size={14} /><span class="capability-copy"><strong>Cloud sessions</strong><small>Account-scoped conversations and durable jobs require a signed-in backend session.</small></span><i class:ready={snapshot.account.state === "signed_in"}>{snapshot.account.state === "signed_in" ? "Active" : "Inactive"}</i></div>
                 <div><Icon name="server" size={14} /><span class="capability-copy"><strong>Backend agent runtime</strong><small>Prompt enhancement, model routing, and bounded agent runs use the deployed backend.</small></span><i class:ready={snapshot.backendHealth.state === "online"}>{snapshot.backendHealth.state === "online" ? "Active" : "Offline"}</i></div>
-                <div><Icon name="mcp" size={14} /><span class="capability-copy"><strong>MCP runtime</strong><small>Definitions are persisted; process lifecycle and tool discovery are not connected yet.</small></span><i>Planned</i></div>
+                <div><Icon name="mcp" size={14} /><span class="capability-copy"><strong>MCP runtime</strong><small>Local stdio and remote HTTP/SSE servers expose namespaced, approval-controlled Agent tools.</small></span><i class:ready={snapshot.mcpRuntime.state === "ready"}>{snapshot.mcpRuntime.state === "ready" ? `${snapshot.mcpRuntime.tools.length} tools` : snapshot.mcpRuntime.state}</i></div>
               </section>
             {:else if settingsSection === "Beta"}
               <h1>Beta <em>Beta</em></h1>

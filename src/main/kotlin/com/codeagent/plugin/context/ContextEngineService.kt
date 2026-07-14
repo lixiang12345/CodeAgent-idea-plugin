@@ -8,6 +8,8 @@ import com.codeagent.plugin.settings.CodeAgentSettings
 import com.codeagent.plugin.settings.CodeAgentSettingsService
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.put
@@ -93,6 +95,12 @@ class ContextEngineService(project: Project) : Disposable {
     ).thenApply { json.decodeFromJsonElement(it) }
 
     fun restart() = client.restart()
+
+    internal fun sidecarRequest(
+        type: String,
+        payload: JsonObject? = null,
+        timeout: Duration = Duration.ofSeconds(30),
+    ): CompletableFuture<JsonElement> = client.request(type, payload, timeout)
 
     override fun dispose() = client.dispose()
 

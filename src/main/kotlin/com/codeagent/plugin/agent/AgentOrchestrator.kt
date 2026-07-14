@@ -24,6 +24,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
     private val executor = AppExecutorUtil.getAppExecutorService()
     private val activeRun = AtomicReference<RunContext?>()
     private val customizations = project.service<WorkspaceCustomizationService>()
+    private val mcpRuntime = project.service<McpRuntimeService>()
     private val guidanceLoader = WorkspaceGuidanceLoader(project.basePath?.let(Path::of))
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -52,6 +53,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
                 val client = RemoteAgentClient(settings)
                 context.client.set(client)
                 val remoteTools = client.tools().join().data.filter(RemoteToolCapability::available)
+                mcpRuntime.prepareForRun().join()
                 val toolRunner = AgentToolExecutor(project, client, remoteTools)
                 val definitions = toolRunner.definitions(mode)
                 val request = RemoteRunRequest(

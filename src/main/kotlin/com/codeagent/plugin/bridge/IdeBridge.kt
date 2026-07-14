@@ -8,6 +8,8 @@ import com.codeagent.plugin.agent.ChangeReviewService
 import com.codeagent.plugin.agent.FileChange
 import com.codeagent.plugin.agent.GitWorkspaceService
 import com.codeagent.plugin.agent.ImageCanvasService
+import com.codeagent.plugin.agent.McpRuntimeService
+import com.codeagent.plugin.agent.McpRuntimeSnapshot
 import com.codeagent.plugin.agent.RemoteContextUpdated
 import com.codeagent.plugin.agent.RemoteJob
 import com.codeagent.plugin.agent.RemoteJobInput
@@ -70,6 +72,7 @@ class IdeBridge(
     private val conversationSummaries = project.service<ConversationSummaryService>()
     private val contextEngine = project.service<ContextEngineService>()
     private val agent = project.service<AgentOrchestrator>()
+    private val mcpRuntimeService = project.service<McpRuntimeService>()
     private val changeReview = project.service<ChangeReviewService>()
     private val gitWorkspace = project.service<GitWorkspaceService>()
     private val imageCanvas = project.service<ImageCanvasService>()
@@ -97,6 +100,9 @@ class IdeBridge(
     private var configurations = ConfigurationSnapshotDto()
 
     @Volatile
+    private var mcpRuntime = mcpRuntimeService.snapshot().toDto()
+
+    @Volatile
     private var productJobs = ProductJobSnapshotDto()
 
     private var productJobsGeneration = 0L
@@ -109,6 +115,10 @@ class IdeBridge(
 
     init {
         cloudSync.setChangeListener { emitSnapshot() }
+        mcpRuntimeService.setChangeListener {
+            mcpRuntime = mcpRuntimeService.snapshot().toDto()
+            emitSnapshot()
+        }
         conversationSummaries.setChangeListener { snapshot ->
             syncConversation(snapshot)
             emitSnapshot()
@@ -139,6 +149,7 @@ class IdeBridge(
         synchronized(stateLock) { runs.invalidate() }
         agent.cancel()
         cloudSync.setChangeListener(null)
+        mcpRuntimeService.setChangeListener(null)
         conversationSummaries.setChangeListener(null)
         syncedAccountUserId = null
         cloudSync.reset()
@@ -241,6 +252,23 @@ class IdeBridge(
                 retryProductJob(request.jobId)
             }
             "refreshConfigurations" -> refreshConfigurations()
+            "refreshMcpRuntime" -> refreshMcpRuntime()
+            "startMcpServer" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<McpServerPayload>(it) }
+                controlMcpServer("start", request.serverId)
+            }
+            "stopMcpServer" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<McpServerPayload>(it) }
+                controlMcpServer("stop", request.serverId)
+            }
+            "restartMcpServer" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<McpServerPayload>(it) }
+                controlMcpServer("restart", request.serverId)
+            }
+            "testMcpServer" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<McpServerPayload>(it) }
+                controlMcpServer("test", request.serverId)
+            }
             "saveConfiguration" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<SaveConfigurationPayload>(it) }
                 saveConfiguration(request)
@@ -826,6 +854,7 @@ class IdeBridge(
                 models = modelRegistry.copy(selectedModel = active.selectedModelId ?: modelRegistry.defaultModel),
                 backendTools = backendTools,
                 configurations = configurations,
+                mcpRuntime = mcpRuntime,
                 jobs = productJobs,
                 customization = WorkspaceCustomizationDto(
                     rules = customization.rules.map { rule ->
@@ -1050,6 +1079,7 @@ class IdeBridge(
 
     private fun clearAuthenticatedCapabilities(label: String) {
         synchronized(stateLock) { productJobsGeneration += 1 }
+        mcpRuntimeService.reconcile(emptyList()).exceptionally { null }
         modelRegistry = ModelRegistryDto(state = "error", label = label)
         backendTools = emptyList()
         configurations = ConfigurationSnapshotDto(state = "unavailable", label = label)
@@ -1126,6 +1156,9 @@ class IdeBridge(
                 )
             }
             if (error == null) {
+                mcpRuntimeService.reconcile(requests.getValue("mcp").join().data).whenComplete { _, mcpError ->
+                    if (mcpError != null) emit("error", mapOf("message" to "MCP activation failed: ${mcpError.rootMessage()}"))
+                }
                 val selected = synchronized(stateLock) { conversations.active().selectedAgentProfileId }
                 if (!isKnownAgentProfile(selected)) {
                     synchronized(stateLock) { conversations.setSelectedAgentProfile("general") }
@@ -1135,6 +1168,93 @@ class IdeBridge(
             emitSnapshot()
         }
     }
+
+    private fun refreshMcpRuntime() {
+        mcpRuntimeService.refresh().whenComplete { _, error ->
+            if (error != null) emit("error", mapOf("message" to error.rootMessage()))
+        }
+    }
+
+    private fun controlMcpServer(action: String, serverId: String) {
+        require(serverId.isNotBlank()) { "MCP server ID is required" }
+        val progressLabel = when (action) {
+            "start" -> "Starting MCP server"
+            "stop" -> "Stopping MCP server"
+            "restart" -> "Restarting MCP server"
+            "test" -> "Testing MCP server"
+            else -> error("Unsupported MCP action: $action")
+        }
+        mcpRuntime = mcpRuntime.copy(state = "degraded", label = progressLabel)
+        emitSnapshot()
+        val request = when (action) {
+            "start" -> mcpRuntimeService.start(serverId)
+            "stop" -> mcpRuntimeService.stop(serverId)
+            "restart" -> mcpRuntimeService.restart(serverId)
+            "test" -> mcpRuntimeService.test(serverId)
+            else -> error("Unsupported MCP action: $action")
+        }
+        request.whenComplete { _, error ->
+            if (error != null) {
+                emit("error", mapOf("message" to error.rootMessage()))
+            } else {
+                val verb = when (action) {
+                    "start" -> "Started"
+                    "stop" -> "Stopped"
+                    "restart" -> "Restarted"
+                    "test" -> "Verified"
+                    else -> action
+                }
+                emit("notice", mapOf("message" to "$verb MCP server"))
+            }
+        }
+    }
+
+    private fun McpRuntimeSnapshot.toDto() = McpRuntimeSnapshotDto(
+        state = state,
+        label = label,
+        servers = servers.map { server ->
+            McpServerRuntimeDto(
+                id = server.id,
+                name = server.name,
+                enabled = server.enabled,
+                transport = server.transport,
+                state = server.state,
+                label = server.label,
+                serverName = server.serverName,
+                serverVersion = server.serverVersion,
+                protocolVersion = server.protocolVersion,
+                capabilities = server.capabilities,
+                tools = server.tools.map { tool ->
+                    McpToolDto(
+                        id = tool.id,
+                        serverId = tool.serverId,
+                        name = tool.name,
+                        title = tool.title,
+                        description = tool.description,
+                        parameters = tool.parameters,
+                        risk = tool.risk,
+                    )
+                },
+                pid = server.pid,
+                latencyMs = server.latencyMs,
+                restartCount = server.restartCount,
+                lastConnectedAt = server.lastConnectedAt,
+                lastHealthyAt = server.lastHealthyAt,
+                lastError = server.lastError,
+            )
+        },
+        tools = tools.map { tool ->
+            McpToolDto(
+                id = tool.id,
+                serverId = tool.serverId,
+                name = tool.name,
+                title = tool.title,
+                description = tool.description,
+                parameters = tool.parameters,
+                risk = tool.risk,
+            )
+        },
+    )
 
     private fun refreshJobs() {
         val generation = synchronized(stateLock) {
@@ -1652,6 +1772,9 @@ class IdeBridge(
         val kind: String,
         val id: String,
     )
+
+    @Serializable
+    private data class McpServerPayload(val serverId: String)
 
     @Serializable
     private data class CreateJobPayload(

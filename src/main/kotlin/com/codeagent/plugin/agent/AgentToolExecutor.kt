@@ -51,6 +51,7 @@ internal class AgentToolExecutor(
     private val guard = ProjectPathGuard(root)
     private val contextEngine = project.service<ContextEngineService>()
     private val conversations = project.service<ConversationStore>()
+    private val mcpRuntime = project.service<McpRuntimeService>()
     private val remoteTools = remoteCapabilities.filter(RemoteToolCapability::available).associateBy(RemoteToolCapability::name)
     private val json = Json { ignoreUnknownKeys = true }
     private val executor = AppExecutorUtil.getAppExecutorService()
@@ -186,17 +187,23 @@ internal class AgentToolExecutor(
         remoteTools.values.forEach { remote ->
             add(tool(remote.name, remote.description, remote.parameters))
         }
+        addAll(mcpRuntime.definitions())
         add(tool("open_file", "Open one known project file in the IDE for user inspection. This changes editor state but does not modify file content", schema(
             properties = mapOf("path" to stringProperty("Project-relative file path")),
             required = listOf("path"),
         )))
     }
 
-    override fun risk(toolName: String): ToolRisk = when (toolName) {
-        "write_file", "replace_text", "remove_files", "apply_patch", "run_terminal" -> ToolRisk.MUTATING
-        "add_tasks", "update_tasks", "reorg_tasks", "ask_user", "open_browser", "open_file", "render_mermaid" -> ToolRisk.LOCAL_STATE
-        else -> ToolRisk.READ_ONLY
-    }
+    override fun risk(toolName: String): ToolRisk =
+        if (mcpRuntime.hasTool(toolName)) {
+            mcpRuntime.risk(toolName)
+        } else {
+            when (toolName) {
+                "write_file", "replace_text", "remove_files", "apply_patch", "run_terminal" -> ToolRisk.MUTATING
+                "add_tasks", "update_tasks", "reorg_tasks", "ask_user", "open_browser", "open_file", "render_mermaid" -> ToolRisk.LOCAL_STATE
+                else -> ToolRisk.READ_ONLY
+            }
+        }
 
     override fun execute(call: AgentToolCall): CompletableFuture<ToolExecutionResult> =
         CompletableFuture.supplyAsync({ executeBlocking(call) }, executor)
@@ -226,7 +233,11 @@ internal class AgentToolExecutor(
             "run_terminal" -> runTerminal(args)
             "ask_user" -> askUser(args)
             "open_file" -> openFile(args)
-            else -> executeRemote(call.name, args)
+            else -> if (mcpRuntime.hasTool(call.name)) {
+                mcpRuntime.execute(call.name, args).join()
+            } else {
+                executeRemote(call.name, args)
+            }
         }
     }
 

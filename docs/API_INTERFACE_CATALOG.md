@@ -318,7 +318,7 @@ Configuration kinds are `mcp`, `commands`, `hooks`, `agents`, `plugins`, and `to
 - `PUT /v1/configurations/{kind}/{id}` validates and account-persists one definition, then returns the normalized record.
 - `DELETE /v1/configurations/{kind}/{id}` returns `204`; unknown records return `404`.
 
-MCP definitions reference credential environment-variable names only. Remote endpoints require HTTPS except loopback HTTP, and URLs containing embedded credentials are rejected. Persisting an MCP definition does not imply that its process or transport is active.
+MCP definitions reference credential environment-variable names only. Remote endpoints require HTTPS except loopback HTTP, and URLs containing embedded credentials are rejected. After configuration refresh, enabled definitions are reconciled into the local managed MCP gateway; secret values are read only from explicitly allowlisted process environment names and never round-trip through the backend or Webview.
 
 ### 3.7 `POST /v1/runs` (SSE)
 
@@ -497,15 +497,15 @@ Conversation is a **node stream**, not a single assistant string:
 | Sidecar IDE tool callbacks | JVM `AgentToolExecutor` |
 | Cloud search/read tools | Backend `GET /v1/tools` + `POST /v1/tools/{toolName}` proxied by `AgentToolExecutor` |
 | gRPC discovery + auth token | Settings backend URL + Password Safe token |
-| MCP / OAuth / Account APIs | Explicit **Not connected** shells; no Augment OAuth/ACP port |
+| MCP / OAuth / Account APIs | Managed stdio/Streamable HTTP/SSE MCP gateway with discovered Agent tools; backend account APIs are real, while provider-specific MCP OAuth/ACP remains out of scope |
 | `postToolUseMessagesByToolId` | Multi assistant messages + interleaved timeline (coarse) |
 
 ---
 
-## 6. Local ContextEngine sidecar (not HTTP backend)
+## 6. Local capability sidecar (not HTTP backend)
 
 Protocol: JSON Lines over process stdio (Node ≥ 22.5).  
-Used when model requests `codebase_retrieval` or UI triggers index/status.
+Used when the model requests `codebase_retrieval`, the UI triggers index/status, or account MCP definitions must be reconciled with local and remote MCP servers.
 
 Logical operations (capability gateway owned):
 
@@ -514,6 +514,10 @@ Logical operations (capability gateway owned):
 - expose automatic-index state, last duration, and changed/deleted file counts
 - retrieve packed context under token budget
 - text/symbol search helpers as implemented by vendor ContextEngine
+ - manage MCP stdio, Streamable HTTP, and legacy SSE transport lifecycle
+ - discover and refresh namespaced MCP tools using the official TypeScript SDK
+ - run MCP health checks, bounded reconnects, calls, timeout enforcement, and graceful shutdown
+ - inherit only explicitly allowlisted environment variables and inject bearer credentials without exposing values to the Webview
 
 These are **not** part of `/v1/*` backend routes.
 

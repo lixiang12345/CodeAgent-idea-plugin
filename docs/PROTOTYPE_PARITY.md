@@ -47,18 +47,18 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | Main panel | Implemented | 420 px IDEA tool window, interleaved user/assistant/tool timeline, context strip, tool cards, approvals, composer, stop/send states |
 | Threads | Implemented | Create, select, search, mode tags, pin ordering, confirmed delete, and Markdown import/export work |
 | Composer | Implemented | Modes, attachments, Skills, model picker, queue/stop/send, slash menu, @ mention menu, Auto, and real prompt enhancement via backend `/v1/enhance` |
-| Tools | Partial | Local tools remain IDEA-owned; backend-owned discovery/execution now connects configured web, GitHub, Linear, Notion, Jira, Confluence, Glean, allowlisted Supabase reads, and a synchronous model-only subagent |
+| Tools | Partial | Local tools remain IDEA-owned; backend-owned discovery/execution connects configured cloud adapters and subagents, while the local MCP gateway contributes dynamically discovered, namespaced tools under the same approval policy |
 | Agent edits | Implemented | Native Diff, undo, keep/discard, Agent Edits overlay, and local checkpoints with restore |
 | Tasks | Implemented | Persistent per-thread tasks, filtering, add/delete/state, clear, Markdown import/export, run-one/run-all, and Agent task tools |
 | Git | Implemented | Real branch/index/worktree status, stage/unstage, native Diff, local message draft, confirmation, and commit |
 | Rules editor | Implemented | Repository Markdown, persisted description and trigger metadata, save, and manual per-thread selection work |
 | Image Canvas | Implemented | Project-contained directory selection, bounded raster gallery, settings, refresh, open, mention, and empty/error states |
 | Mermaid | Implemented | Strict rendering, diagram/code, zoom, fit, error states, and opening source in an IDEA editor tab work |
-| Settings | Partial | Backend health, account, subscription usage, ContextEngine, Rules, Skills, chat zoom, Commands, Hooks, Agent profiles, plugin sources, and MCP definitions are real; feature and Beta pages report live capability state instead of simulated toggles |
+| Settings | Partial | Backend health, account, subscription usage, ContextEngine, Rules, Skills, chat zoom, Commands, Hooks, Agent profiles, plugin sources, and MCP lifecycle controls are real; feature and Beta pages report live capability state instead of simulated toggles |
 | Tools catalog / Icon gallery / Feedback | Implemented | UI overlays for insert-tool seeding, icon name copy, and local feedback notice |
 | Cloud integrations | Conditional | Search/read adapters are advertised only when their backend environment is configured; provider errors and missing credentials remain explicit failures |
 | Subagents | Partial | Synchronous `subagent` and durable asynchronous job persistence are real; cancellation, progress streaming, and complete IDE navigation still need runtime wiring |
-| MCP | Partial | Typed stdio/HTTP/SSE definitions are validated and account-persisted without secrets; process/transport lifecycle, tool discovery, cancellation, and auth injection remain explicit next steps |
+| MCP | Implemented | Enabled stdio, Streamable HTTP, and legacy SSE definitions are reconciled by a local managed gateway with health checks, bounded reconnects, explicit start/stop/restart/test controls, tool-list refresh notifications, environment allowlisting, bearer-token injection, namespaced Agent tools, and approval-aware risk defaults. Provider OAuth remains a separate future adapter |
 
 ## Tool catalog
 
