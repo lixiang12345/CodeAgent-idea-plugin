@@ -114,12 +114,14 @@ class ConversationStoreTest {
                 runId = "run-1",
                 turnIndex = 1,
                 createdAt = 1_000,
+                updatedAt = 1_250,
             ),
         )
 
         assertEquals("run-1", store.active().messages.last().runId)
         assertEquals(2, store.active().messages.last().turnIndex)
         assertEquals(listOf("tool-1"), store.active().tools.map { it.id })
+        assertEquals(1_250, store.active().tools.single().updatedAt)
 
         store.newThread()
         assertTrue(store.active().tools.isEmpty())

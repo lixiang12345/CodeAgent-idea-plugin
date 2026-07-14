@@ -30,6 +30,9 @@ import com.codeagent.plugin.context.ContextEngineService
 import com.codeagent.plugin.settings.CodeAgentSettingsService
 import com.codeagent.plugin.settings.CodeAgentSettingsUpdate
 import com.codeagent.plugin.settings.OidcLoginService
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileChooser.FileChooser
@@ -39,6 +42,7 @@ import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.testFramework.LightVirtualFile
@@ -689,6 +693,7 @@ class IdeBridge(
         agent.start(history, historySummary, request.mode, selectedAgentProfileId, selectedModel, enabledSkillIds, enabledRuleIds, object : AgentRunListener {
             private var streamingMessageId: String? = null
             private var streamingTurnIndex: Int? = null
+            private var runFailed = false
             private fun emitRunSnapshot() = this@IdeBridge.emitSnapshot()
 
             override fun onContextUpdated(update: RemoteContextUpdated) {
@@ -787,8 +792,10 @@ class IdeBridge(
                 detail: String?,
                 turnIndex: Int,
             ) {
+                var approvalRequired = false
                 if (withCurrentRun(runId) {
                     val previous = tools[call.id]
+                    val now = System.currentTimeMillis()
                     val tool = ToolRunDto(
                         id = call.id,
                         name = call.name,
@@ -799,12 +806,23 @@ class IdeBridge(
                         canRevert = changeReview.canRevert(call.id),
                         turnIndex = turnIndex,
                         runId = presentationRunId,
-                        createdAt = previous?.createdAt?.takeIf { it > 0 } ?: System.currentTimeMillis(),
+                        createdAt = previous?.createdAt?.takeIf { it > 0 } ?: now,
+                        updatedAt = now,
                     )
                     tools[call.id] = tool
                     conversations.upsertTool(tool.toConversationTool())
                     runState = if (status == "approval") "awaiting_approval" else "running"
-                }) emitRunSnapshot()
+                    approvalRequired = status == "approval" && previous?.status != "approval"
+                }) {
+                    if (approvalRequired) {
+                        notifyUser(
+                            title = "CodeAgent approval required",
+                            content = summary.ifBlank { call.name },
+                            type = NotificationType.WARNING,
+                        )
+                    }
+                    emitRunSnapshot()
+                }
             }
 
             override fun onRunStateChanged(state: String) {
@@ -817,6 +835,13 @@ class IdeBridge(
                         val snapshot = conversations.active()
                         syncConversation(snapshot)
                         summarizeConversation(snapshot)
+                        if (!runFailed) {
+                            notifyUser(
+                                title = "CodeAgent run completed",
+                                content = snapshot.title,
+                                type = NotificationType.INFORMATION,
+                            )
+                        }
                     }
                     emitRunSnapshot()
                 }
@@ -824,7 +849,15 @@ class IdeBridge(
             }
 
             override fun onError(message: String) {
-                withCurrentRun(runId) { emit("error", mapOf("message" to message)) }
+                runFailed = true
+                withCurrentRun(runId) {
+                    emit("error", mapOf("message" to message))
+                    notifyUser(
+                        title = "CodeAgent run failed",
+                        content = message,
+                        type = NotificationType.ERROR,
+                    )
+                }
             }
         })
     }
@@ -859,6 +892,11 @@ class IdeBridge(
                 backendUrl = request.backendUrl,
                 nodePath = request.nodePath,
                 autoApproveReadOnly = request.autoApproveReadOnly,
+                chatZoom = request.chatZoom,
+                showTimestamps = request.showTimestamps,
+                showRunTelemetry = request.showRunTelemetry,
+                desktopNotifications = request.desktopNotifications,
+                autoDismissNotifications = request.autoDismissNotifications,
                 backendToken = request.backendToken,
                 contextMode = request.contextMode,
                 contextEmbeddingBaseUrl = request.contextEmbeddingBaseUrl,
@@ -924,6 +962,11 @@ class IdeBridge(
                     nodePath = settings.nodePath,
                     backendTokenConfigured = !settings.backendToken.isNullOrBlank(),
                     autoApproveReadOnly = settings.autoApproveReadOnly,
+                    chatZoom = settings.chatZoom,
+                    showTimestamps = settings.showTimestamps,
+                    showRunTelemetry = settings.showRunTelemetry,
+                    desktopNotifications = settings.desktopNotifications,
+                    autoDismissNotifications = settings.autoDismissNotifications,
                     contextMode = settings.contextMode,
                     contextEmbeddingBaseUrl = settings.contextEmbeddingBaseUrl,
                     contextEmbeddingModel = settings.contextEmbeddingModel,
@@ -1162,6 +1205,7 @@ class IdeBridge(
                             status = "failed",
                             summary = "Interrupted before completion",
                             canRevert = false,
+                            updatedAt = System.currentTimeMillis(),
                         )
                     } else restored
                 }
@@ -1186,6 +1230,7 @@ class IdeBridge(
         turnIndex = turnIndex,
         runId = runId,
         createdAt = createdAt,
+        updatedAt = updatedAt,
     )
 
     private fun ToolRunDto.toConversationTool() = ConversationTool(
@@ -1199,11 +1244,12 @@ class IdeBridge(
         turnIndex = turnIndex,
         runId = runId,
         createdAt = createdAt.takeIf { it > 0 } ?: System.currentTimeMillis(),
+        updatedAt = updatedAt.takeIf { it > 0 } ?: createdAt.takeIf { it > 0 } ?: System.currentTimeMillis(),
     )
 
     private fun updateTool(toolId: String, update: (ToolRunDto) -> ToolRunDto): Boolean = synchronized(stateLock) {
         val current = tools[toolId] ?: return@synchronized false
-        val updated = update(current)
+        val updated = update(current).copy(updatedAt = System.currentTimeMillis())
         tools[toolId] = updated
         conversations.upsertTool(updated.toConversationTool())
         true
@@ -1219,6 +1265,17 @@ class IdeBridge(
 
     private fun cloudServicesActive(): Boolean =
         syncedAccountUserId != null && account.userId == syncedAccountUserId
+
+    private fun notifyUser(title: String, content: String, type: NotificationType) {
+        if (!settingsService.snapshot().desktopNotifications) return
+        val safeContent = StringUtil.escapeXmlEntities(content.take(500))
+        ApplicationManager.getApplication().invokeLater {
+            NotificationGroupManager.getInstance()
+                .getNotificationGroup("CodeAgent")
+                .createNotification(title, safeContent, type)
+                .notify(project)
+        }
+    }
 
     private fun clearAuthenticatedCapabilities(label: String) {
         synchronized(stateLock) { productJobsGeneration += 1 }
@@ -2045,6 +2102,11 @@ class IdeBridge(
         val backendUrl: String,
         val nodePath: String,
         val autoApproveReadOnly: Boolean = true,
+        val chatZoom: Int = 100,
+        val showTimestamps: Boolean = true,
+        val showRunTelemetry: Boolean = true,
+        val desktopNotifications: Boolean = false,
+        val autoDismissNotifications: Boolean = true,
         val backendToken: String? = null,
         val contextMode: String = "lexical",
         val contextEmbeddingBaseUrl: String = "http://127.0.0.1:8000/v1",

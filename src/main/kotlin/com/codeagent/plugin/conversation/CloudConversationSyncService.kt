@@ -238,6 +238,7 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
                 runId = tool.runId,
                 turnIndex = tool.turnIndex,
                 createdAt = tool.createdAt,
+                updatedAt = tool.updatedAt,
             )
         },
         version = version,
@@ -269,6 +270,7 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
                 runId = tool.runId,
                 turnIndex = tool.turnIndex,
                 createdAt = tool.createdAt,
+                updatedAt = tool.updatedAt,
             )
         },
     )

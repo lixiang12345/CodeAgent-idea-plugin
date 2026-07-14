@@ -151,7 +151,7 @@ Errors for failed commands: event `error` with `{ message: string }`.
 | `tasks` | `TaskItem[]` | Active thread tasks |
 | `messageQueue` | `QueuedMessage[]` | Queued prompts |
 | `attachments` | `ContextItem[]` | Composer chips |
-| `settings` | object | backendUrl, nodePath, tokenConfigured, autoApproveReadOnly |
+| `settings` | object | Backend/context connection settings plus chatZoom, showTimestamps, showRunTelemetry, desktopNotifications, and autoDismissNotifications |
 | `account` | object | authentication state, identity, session mode, usage, and label |
 | `context` | object | ContextEngine state/label/files/chunks |
 | `backendHealth` | object | online/offline + protocol/provider |
@@ -182,6 +182,9 @@ Errors for failed commands: event `error` with `{ message: string }`.
 | `changePath` | string? |
 | `canRevert` | boolean |
 | `turnIndex` | number? |
+| `runId` | string? |
+| `createdAt` | number (epoch ms) |
+| `updatedAt` | number (epoch ms; final state or latest transition) |
 
 #### Other events
 
@@ -194,6 +197,8 @@ Errors for failed commands: event `error` with `{ message: string }`.
 | `gitSnapshot` | `{ available, branch, repository, unstaged[], staged[], error? }` |
 | `gitCommitSuggested` | `{ message: string }` |
 | `imageCanvas` | `{ directory, images[{id,name,path,dataUrl,sizeBytes}], truncated, error? }` |
+
+In-panel notices can auto-dismiss according to the persisted user-experience preference. When enabled, the JVM also emits IDE-native notifications for run completion, run failure, and approval requests; notification sound and display style remain controlled by JetBrains notification settings.
 
 ---
 

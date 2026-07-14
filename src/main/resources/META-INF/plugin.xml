@@ -16,6 +16,9 @@
                     anchor="right"
                     secondary="true"
                     factoryClass="com.codeagent.plugin.ui.CodeAgentToolWindowFactory"/>
+        <notificationGroup id="CodeAgent"
+                           displayType="BALLOON"
+                           isLogByDefault="true"/>
     </extensions>
 
     <actions>

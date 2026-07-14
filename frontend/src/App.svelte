@@ -152,6 +152,10 @@
   let imageColumns = 3;
   let imageZoom = 100;
   let chatZoom = 100;
+  let showTimestamps = true;
+  let showRunTelemetry = true;
+  let desktopNotifications = false;
+  let autoDismissNotifications = true;
   let slashOpen = false;
   let atOpen = false;
   let iconFilter = "";
@@ -161,6 +165,10 @@
   let renameTitle = "";
   let enhancing = false;
   let checkpoints: Array<{ id: string; label: string; createdAt: number; changeCount: number; paths: string[] }> = [];
+  let noticeTimer: number | undefined;
+  let errorTimer: number | undefined;
+  let scheduledNotice = "";
+  let scheduledError = "";
 
   onMount(() => {
     const unsubscribe = onHostEvent(handleEvent);
@@ -171,9 +179,13 @@
     }, 2000);
     return () => {
       window.clearInterval(jobPoller);
+      if (noticeTimer !== undefined) window.clearTimeout(noticeTimer);
+      if (errorTimer !== undefined) window.clearTimeout(errorTimer);
       unsubscribe();
     };
   });
+
+  $: reconcileToastTimers(notice, error, autoDismissNotifications);
 
   function handleEvent(event: EventEnvelope) {
     if (event.type === "snapshot") {
@@ -181,6 +193,11 @@
       backendUrl = snapshot.settings.backendUrl;
       nodePath = snapshot.settings.nodePath;
       autoApproveReadOnly = snapshot.settings.autoApproveReadOnly;
+      chatZoom = snapshot.settings.chatZoom;
+      showTimestamps = snapshot.settings.showTimestamps;
+      showRunTelemetry = snapshot.settings.showRunTelemetry;
+      desktopNotifications = snapshot.settings.desktopNotifications;
+      autoDismissNotifications = snapshot.settings.autoDismissNotifications;
       contextMode = snapshot.settings.contextMode;
       contextEmbeddingBaseUrl = snapshot.settings.contextEmbeddingBaseUrl;
       contextEmbeddingModel = snapshot.settings.contextEmbeddingModel;
@@ -238,6 +255,35 @@
       return;
     }
     if (event.type === "stateChanged" && snapshot) snapshot = { ...snapshot, ...(event.payload as Partial<AppSnapshot>) };
+  }
+
+  function reconcileToastTimers(currentNotice: string, currentError: string, autoDismiss: boolean) {
+    if (!autoDismiss || !currentNotice) {
+      if (noticeTimer !== undefined) window.clearTimeout(noticeTimer);
+      noticeTimer = undefined;
+      scheduledNotice = "";
+    } else if (scheduledNotice !== currentNotice) {
+      if (noticeTimer !== undefined) window.clearTimeout(noticeTimer);
+      scheduledNotice = currentNotice;
+      noticeTimer = window.setTimeout(() => {
+        if (notice === currentNotice) notice = "";
+        scheduledNotice = "";
+        noticeTimer = undefined;
+      }, 4_000);
+    }
+    if (!autoDismiss || !currentError) {
+      if (errorTimer !== undefined) window.clearTimeout(errorTimer);
+      errorTimer = undefined;
+      scheduledError = "";
+    } else if (scheduledError !== currentError) {
+      if (errorTimer !== undefined) window.clearTimeout(errorTimer);
+      scheduledError = currentError;
+      errorTimer = window.setTimeout(() => {
+        if (error === currentError) error = "";
+        scheduledError = "";
+        errorTimer = undefined;
+      }, 8_000);
+    }
   }
 
   function closeMenus() {
@@ -335,6 +381,11 @@
       nodePath,
       backendToken,
       autoApproveReadOnly,
+      chatZoom,
+      showTimestamps,
+      showRunTelemetry,
+      desktopNotifications,
+      autoDismissNotifications,
       contextMode,
       contextEmbeddingBaseUrl,
       contextEmbeddingModel,
@@ -345,6 +396,27 @@
     });
     backendToken = "";
     contextEmbeddingApiKey = "";
+  }
+
+  function saveUserExperience() {
+    sendCommand("saveSettings", {
+      backendUrl,
+      nodePath,
+      backendToken: "",
+      autoApproveReadOnly,
+      chatZoom,
+      showTimestamps,
+      showRunTelemetry,
+      desktopNotifications,
+      autoDismissNotifications,
+      contextMode,
+      contextEmbeddingBaseUrl,
+      contextEmbeddingModel,
+      contextEmbeddingApiKey: "",
+      contextNeuralRerank,
+      contextRerankBaseUrl,
+      contextRerankModel,
+    });
   }
 
   function signIn() {
@@ -380,6 +452,11 @@
       nodePath,
       backendToken: "",
       autoApproveReadOnly,
+      chatZoom,
+      showTimestamps,
+      showRunTelemetry,
+      desktopNotifications,
+      autoDismissNotifications,
       contextMode,
       contextEmbeddingBaseUrl,
       contextEmbeddingModel,
@@ -436,7 +513,46 @@
   }
 
   function formatTime(timestamp: number) {
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return "";
     return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(timestamp);
+  }
+
+  function formatDuration(durationMs: number) {
+    if (!Number.isFinite(durationMs) || durationMs <= 0) return "";
+    if (durationMs < 1_000) return `${Math.max(1, Math.round(durationMs))} ms`;
+    if (durationMs < 60_000) return `${(durationMs / 1_000).toFixed(durationMs < 10_000 ? 1 : 0)} s`;
+    const minutes = Math.floor(durationMs / 60_000);
+    const seconds = Math.round((durationMs % 60_000) / 1_000);
+    return `${minutes}m ${seconds}s`;
+  }
+
+  function toolTimeline(tool: ToolRun) {
+    const createdAt = tool.createdAt ?? 0;
+    const updatedAt = tool.updatedAt ?? createdAt;
+    return [showTimestamps ? formatTime(createdAt) : "", updatedAt > createdAt ? formatDuration(updatedAt - createdAt) : ""]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  function toolPassMeta(turnIndex: number, tools: ToolRun[]) {
+    const created = tools.map((tool) => tool.createdAt ?? 0).filter((value) => value > 0);
+    const updated = tools.map((tool) => tool.updatedAt ?? tool.createdAt ?? 0).filter((value) => value > 0);
+    const startedAt = created.length > 0 ? Math.min(...created) : 0;
+    const endedAt = updated.length > 0 ? Math.max(...updated) : startedAt;
+    return [
+      `Turn ${turnIndex + 1}`,
+      showTimestamps ? formatTime(startedAt) : "",
+      endedAt > startedAt ? formatDuration(endedAt - startedAt) : "",
+    ].filter(Boolean).join(" · ");
+  }
+
+  function hasRunTelemetry() {
+    if (!snapshot) return false;
+    const telemetry = snapshot.agentRun;
+    return telemetry.turnIndex > 0
+      || telemetry.estimatedInputTokens > 0
+      || telemetry.catalogToolCount > 0
+      || telemetry.verificationState !== "idle";
   }
 
   function startNewThread(mode?: Mode) {
@@ -906,6 +1022,15 @@
           </button>
         </div>
 
+        {#if showRunTelemetry && hasRunTelemetry()}
+          <div class="run-telemetry" title={snapshot.agentRun.verificationMessage ?? snapshot.agentRun.activeToolNames.join(", ")}>
+            <span><Icon name="activity" size={11} />Turn {snapshot.agentRun.turnIndex + 1}</span>
+            {#if snapshot.agentRun.targetInputTokens > 0}<span>{compactTokenCount(snapshot.agentRun.estimatedInputTokens)} / {compactTokenCount(snapshot.agentRun.targetInputTokens)} context</span>{/if}
+            {#if snapshot.agentRun.catalogToolCount > 0}<span>{snapshot.agentRun.activeToolCount} / {snapshot.agentRun.catalogToolCount} tools</span>{/if}
+            {#if snapshot.agentRun.verificationState !== "idle"}<i class={snapshot.agentRun.verificationState}>{snapshot.agentRun.verificationState}</i>{/if}
+          </div>
+        {/if}
+
         <div class="conversation" style={`font-size: calc(10.5px * var(--chat-zoom))`}>
           {#if snapshot.messages.length === 0}
             <div class="empty-state">
@@ -921,13 +1046,19 @@
               {#each conversationTimeline() as item (item.kind === "user" || item.kind === "assistant" ? item.message.id : item.kind === "tools" ? `tools-${item.runId ?? "legacy"}-${item.turnIndex}` : item.kind)}
                 {#if item.kind === "user"}
                   <article class="user-message">
-                    <header><span>You</span><time>{formatTime(item.message.createdAt)}</time><Icon name="user-round" size={14} /></header>
+                    <header><span>You</span>{#if showTimestamps}<time>{formatTime(item.message.createdAt)}</time>{/if}<Icon name="user-round" size={14} /></header>
                     <div>{item.message.content}</div>
                   </article>
                 {:else if item.kind === "assistant"}
                   {#if item.message.content}
                     <section class="assistant-turn">
                       <div class="assistant-message">{item.message.content}</div>
+                      {#if showTimestamps || (showRunTelemetry && item.message.turnIndex !== undefined)}
+                        <div class="assistant-meta">
+                          {#if showTimestamps}<time>{formatTime(item.message.createdAt)}</time>{/if}
+                          {#if showRunTelemetry && item.message.turnIndex !== undefined}<span>Turn {item.message.turnIndex + 1}</span>{/if}
+                        </div>
+                      {/if}
                       <div class="assistant-actions">
                         <button title="Copy response" aria-label="Copy response" onclick={() => { void navigator.clipboard.writeText(item.message.content); notice = "Response copied"; }}><Icon name="copy" size={13} /></button>
                       </div>
@@ -939,7 +1070,7 @@
                   <section class="agent-turn tools-turn">
                     <div class="pass-summary">
                       <Icon name="square-terminal" size={14} />
-                      <strong>Agent tool pass</strong>
+                      <div class="pass-copy"><strong>Agent tool pass</strong>{#if showRunTelemetry}<small>{toolPassMeta(item.turnIndex, item.tools)}</small>{/if}</div>
                       <span>{item.tools.filter((tool) => tool.status === "completed").length} / {item.tools.length}</span>
                       <button onclick={() => setAllTools(true)}>Expand all</button>
                       <button onclick={() => setAllTools(false)}>Collapse all</button>
@@ -950,7 +1081,7 @@
                           <button class="tool-header" onclick={() => toggleTool(tool.id)} aria-expanded={toolsExpanded.has(tool.id)}>
                             <span class="tool-icon"><Icon name={toolIcon(tool)} size={14} /></span>
                             <span class="tool-copy"><strong>{toolTitle(tool)}</strong><small>{tool.summary}</small></span>
-                            <span class="tool-status">{statusLabel(tool.status)}</span>
+                            <span class="tool-state-copy"><span class="tool-status">{statusLabel(tool.status)}</span>{#if showTimestamps && toolTimeline(tool)}<time>{toolTimeline(tool)}</time>{/if}</span>
                             {#if toolsExpanded.has(tool.id)}<Icon name="chevron-down" size={14} />{:else}<Icon name="chevron-right" size={14} />{/if}
                           </button>
                           {#if toolsExpanded.has(tool.id)}
@@ -1121,7 +1252,7 @@
                   title={`${activeAgentProfile().name}: ${activeAgentProfile().description}`}
                   disabled={isBusy()}
                   onclick={() => { agentProfileMenuOpen = !agentProfileMenuOpen; modeMenuOpen = false; modelMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}
-                ><Icon name="bot" size={12} /><span>{activeAgentProfile().name}</span><Icon name="chevron-down" size={11} /></button>
+                ><Icon name="bot" size={12} /><span class="profile-label">{activeAgentProfile().name}</span><Icon name="chevron-down" size={11} /></button>
                 {#if agentProfileMenuOpen}
                   <div class="model-menu profile-menu drop">
                     <header><span>Agent profile</span><small>{agentProfiles().length} available</small></header>
@@ -1182,7 +1313,7 @@
                 {/if}
               </div>
               <span class="toolbar-spacer sp"></span>
-              <button class="auto-toggle" class:active={autoApproveReadOnly} title={autoApproveReadOnly ? "Auto ON — read-only tools run without approval" : "Auto OFF — require approval for most commands"} onclick={toggleAutoRun}>Auto {autoApproveReadOnly ? "ON" : "OFF"}</button>
+              <button class="auto-toggle" class:active={autoApproveReadOnly} title={autoApproveReadOnly ? "Auto ON — read-only tools run without approval" : "Auto OFF — require approval for most commands"} onclick={toggleAutoRun}><span class="auto-label">Auto </span>{autoApproveReadOnly ? "ON" : "OFF"}</button>
               {#if isBusy()}
                 <button class="send-button queue-send" title="Queue message" disabled={!prompt.trim()} onclick={submit}><Icon name="send-horizontal" size={13} /></button>
                 <button class="send-button stop" title="Stop" onclick={() => sendCommand("cancelRun")}><Icon name="square" size={13} /></button>
@@ -1411,17 +1542,33 @@
 
             {:else if settingsSection === "User Experience"}
               <h1>User Experience</h1>
-              <p class="settings-lead">Local panel presentation. Sound, desktop notifications, and timestamps stay unavailable until host hooks exist.</p>
-              <section class="settings-block">
+              <p class="settings-lead">Conversation presentation and IDE-owned notification delivery.</p>
+              <section class="settings-form settings-block">
                 <header><strong>Chat zoom</strong><span>{chatZoom}%</span></header>
                 <div class="image-settings" style="margin:8px 0 0">
                   <label>Zoom <input type="range" min="85" max="140" bind:value={chatZoom} /><span>{chatZoom}%</span></label>
                 </div>
+                <label class="toggle-row">
+                  <input type="checkbox" bind:checked={showTimestamps} />
+                  <span><strong>Timeline timestamps</strong><small>Show message, tool start, and tool duration metadata</small></span>
+                </label>
+                <label class="toggle-row">
+                  <input type="checkbox" bind:checked={showRunTelemetry} />
+                  <span><strong>Run telemetry</strong><small>Show turn, context-budget, tool-catalog, and verification state</small></span>
+                </label>
               </section>
-              <section class="settings-block unavailable">
-                <Icon name="bell" size={18} />
-                <strong>Notifications & sound</strong>
-                <p>Not connected in this build.</p>
+              <section class="settings-form settings-block">
+                <header><strong>Notifications</strong><Icon name="bell" size={14} /></header>
+                <label class="toggle-row">
+                  <input type="checkbox" bind:checked={desktopNotifications} />
+                  <span><strong>IDE notifications</strong><small>Run completion, failures, and approval requests</small></span>
+                </label>
+                <label class="toggle-row">
+                  <input type="checkbox" bind:checked={autoDismissNotifications} />
+                  <span><strong>Auto-dismiss in-panel notices</strong><small>Success after 4 seconds and errors after 8 seconds</small></span>
+                </label>
+                <p>Notification sound and delivery style follow the IDE notification settings.</p>
+                <footer><button class="primary" onclick={saveUserExperience}>Save preferences</button></footer>
               </section>
             {:else if ["MCP Servers", "Commands", "Hooks", "Agents", "Plugins"].includes(settingsSection)}
               <ConfigurationSettings

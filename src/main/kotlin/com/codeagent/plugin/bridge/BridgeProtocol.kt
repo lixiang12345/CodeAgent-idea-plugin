@@ -72,6 +72,7 @@ data class ToolRunDto(
     val turnIndex: Int? = null,
     val runId: String? = null,
     val createdAt: Long = 0,
+    val updatedAt: Long = createdAt,
 )
 
 @Serializable
@@ -153,6 +154,11 @@ data class SettingsSnapshotDto(
     val nodePath: String = "node",
     val backendTokenConfigured: Boolean = false,
     val autoApproveReadOnly: Boolean = true,
+    val chatZoom: Int = 100,
+    val showTimestamps: Boolean = true,
+    val showRunTelemetry: Boolean = true,
+    val desktopNotifications: Boolean = false,
+    val autoDismissNotifications: Boolean = true,
     val contextMode: String = "lexical",
     val contextEmbeddingBaseUrl: String = "http://127.0.0.1:8000/v1",
     val contextEmbeddingModel: String = "Qwen/Qwen3-Embedding-0.6B",

@@ -58,9 +58,11 @@ Envelope version: `1`
 
 ## 2. AppSnapshot (UI model)
 
-Core fields: `projectName`, `mode`, `runState`, `messages[]`, `tools[]`, `threads[]`, `tasks[]`, `messageQueue[]`, `attachments[]`, `settings`, `context`, `backendHealth`, `models`, `customization`. Assistant messages and tool runs may include backend `turnIndex` while a run is active.
+Core fields: `projectName`, `mode`, `runState`, `messages[]`, `tools[]`, `threads[]`, `tasks[]`, `messageQueue[]`, `attachments[]`, `settings`, `context`, `backendHealth`, `models`, `customization`. Assistant messages and tool runs include persisted run/turn identity where available. Tool records carry `createdAt` and `updatedAt` so restored cards retain start time and duration.
 
 Tool card statuses: `running` \| `approval` \| `completed` \| `failed` \| `rejected`.
+
+User Experience settings persist chat zoom, timeline timestamps, run telemetry, IDE-native notifications, and in-panel notice auto-dismiss behavior. Native notification sound and presentation are delegated to JetBrains settings.
 
 ## 3. Deployed backend HTTP/SSE
 

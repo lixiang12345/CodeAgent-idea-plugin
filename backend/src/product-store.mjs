@@ -169,7 +169,8 @@ export class PostgresProductStore {
            SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
              'id', tool.id, 'name', tool.name, 'summary', tool.summary, 'status', tool.status,
              'detail', tool.detail, 'changePath', tool.change_path, 'canRevert', tool.can_revert,
-             'runId', tool.run_id, 'turnIndex', tool.turn_index, 'createdAt', tool.created_at_ms
+             'runId', tool.run_id, 'turnIndex', tool.turn_index, 'createdAt', tool.created_at_ms,
+             'updatedAt', tool.updated_at_ms
            )) ORDER BY tool.created_at_ms, tool.id)
            FROM codeagent_tools tool
            WHERE tool.user_id = $1 AND tool.conversation_id = codeagent_conversations.id
@@ -247,12 +248,12 @@ export class PostgresProductStore {
       await client.query(`DELETE FROM codeagent_tools WHERE user_id = $1 AND conversation_id = $2`, [userId, conversation.id]);
       await client.query(
         `INSERT INTO codeagent_tools
-           (user_id, conversation_id, id, name, summary, status, detail, change_path, can_revert, run_id, turn_index, created_at_ms)
+           (user_id, conversation_id, id, name, summary, status, detail, change_path, can_revert, run_id, turn_index, created_at_ms, updated_at_ms)
          SELECT $1, $2, tool.id, tool.name, tool.summary, tool.status, tool.detail, tool."changePath",
-           tool."canRevert", tool."runId", tool."turnIndex", tool."createdAt"
+           tool."canRevert", tool."runId", tool."turnIndex", tool."createdAt", tool."updatedAt"
          FROM jsonb_to_recordset($3::jsonb) AS tool(
            id text, name text, summary text, status text, detail text, "changePath" text, "canRevert" boolean,
-           "runId" text, "turnIndex" integer, "createdAt" bigint
+           "runId" text, "turnIndex" integer, "createdAt" bigint, "updatedAt" bigint
          )`,
         [userId, conversation.id, JSON.stringify(conversation.tools)],
       );
@@ -675,9 +676,13 @@ CREATE TABLE IF NOT EXISTS codeagent_tools (
   run_id text,
   turn_index integer,
   created_at_ms bigint NOT NULL,
+  updated_at_ms bigint NOT NULL,
   PRIMARY KEY (user_id, conversation_id, id),
   FOREIGN KEY (user_id, conversation_id) REFERENCES codeagent_conversations(user_id, id) ON DELETE CASCADE
 );
+ALTER TABLE codeagent_tools ADD COLUMN IF NOT EXISTS updated_at_ms bigint;
+UPDATE codeagent_tools SET updated_at_ms = created_at_ms WHERE updated_at_ms IS NULL;
+ALTER TABLE codeagent_tools ALTER COLUMN updated_at_ms SET NOT NULL;
 CREATE INDEX IF NOT EXISTS codeagent_tools_order_idx ON codeagent_tools(user_id, conversation_id, created_at_ms, id);
 CREATE TABLE IF NOT EXISTS codeagent_configurations (
   user_id text NOT NULL REFERENCES codeagent_users(id) ON DELETE CASCADE,

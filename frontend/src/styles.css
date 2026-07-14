@@ -104,6 +104,11 @@ button { color: inherit; }
 .repository-strip .repository-spacer { flex: 1; }
 .repository-strip .index-state, .chip.index-state { max-width: 110px; border-color: #385143; color: #8ec69d; }
 .repository-strip .index-state.error, .chip.index-state.error { border-color: #6f3c42; color: #e7898e; }
+.run-telemetry { min-height: 23px; padding: 3px 8px; display: flex; align-items: center; gap: 7px; overflow: hidden; border-bottom: 1px solid var(--border); color: #8f99a6; background: #202225; font: 7.5px var(--mono); }
+.run-telemetry span { min-width: 0; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.run-telemetry span:first-child { color: #b5bdc8; }
+.run-telemetry i { margin-left: auto; padding: 2px 5px; border-radius: 3px; color: #d0b171; background: #443821; font-style: normal; }
+.run-telemetry i.verified { color: #a8d7b4; background: #294331; }
 
 .conversation { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #44484f transparent; }
 .empty-state { min-height: 100%; padding: 42px 22px 160px; display: flex; flex-direction: column; align-items: stretch; justify-content: center; }
@@ -121,7 +126,9 @@ button { color: inherit; }
 .agent-turn { padding-bottom: 4px; }
 .pass-summary { min-height: 39px; margin: 5px 0 7px; padding: 6px 7px; display: grid; grid-template-columns: 18px minmax(0,1fr) auto auto auto; align-items: center; gap: 4px; border: 1px solid #3a5845; border-radius: 5px; background: #222a25; }
 .pass-summary > svg { color: #b7c0c8; }
+.pass-copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .pass-summary strong { font-size: 10px; font-weight: 500; }
+.pass-copy small { overflow: hidden; text-overflow: ellipsis; color: #7f8995; font: 7px var(--mono); white-space: nowrap; }
 .pass-summary > span { padding: 2px 5px; border-radius: 8px; color: #8ea9cf; background: #273c53; font: 9px var(--mono); }
 .pass-summary button { height: 23px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 3px; color: #aeb3ba; background: #2b2e33; font-size: 8px; cursor: pointer; }
 .generation-status { min-height: 26px; margin: 6px 8px 8px; display: flex; align-items: center; gap: 8px; color: #858b94; font-size: 9px; }
@@ -140,6 +147,8 @@ button { color: inherit; }
 .tool-copy strong { flex: 0 0 auto; max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 500; text-transform: capitalize; }
 .tool-copy small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 8.5px var(--mono); }
 .tool-status { flex: 0 0 auto; color: #73b986; font: 8px var(--mono); }
+.tool-state-copy { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+.tool-state-copy time { color: #727b86; font: 6.5px var(--mono); white-space: nowrap; }
 .approval .tool-status { color: var(--amber); }
 .failed .tool-status, .rejected .tool-status { color: var(--red); }
 .tool-header > svg { flex: 0 0 auto; color: #6f747b; }
@@ -156,6 +165,7 @@ button { color: inherit; }
 .approval button.approve { border-color: #4e755a; color: #bce1c5; background: #2a4733; }
 .assistant-turn { margin: 8px 0 10px; }
 .assistant-message { color: #d4d7dc; font-size: 10.5px; line-height: 1.52; white-space: pre-wrap; overflow-wrap: anywhere; }
+.assistant-meta { min-height: 16px; display: flex; align-items: center; gap: 6px; color: #737b85; font: 7px var(--mono); }
 .assistant-actions { min-height: 22px; display: flex; justify-content: flex-end; opacity: 0; transition: opacity .15s ease; }
 .assistant-turn:hover .assistant-actions, .assistant-actions:focus-within { opacity: 1; }
 .assistant-actions button { width: 23px; height: 22px; display: grid; place-items: center; border: 0; background: transparent; color: var(--dim); cursor: pointer; }
@@ -253,8 +263,10 @@ button { color: inherit; }
 .skills-popover label > span { display: flex; flex-direction: column; }
 .skills-popover p { padding: 8px; color: var(--muted); font-size: 11px; }
 .auto-toggle { flex: 0 0 auto; height: 24px; padding: 0 6px; border: 0; border-radius: var(--ds-radius-2); color: #71767e; background: transparent; font-size: 10px; cursor: pointer; white-space: nowrap; }
+ .composer-toolbar > .auto-toggle { width: auto; min-width: 25px; }
 .auto-toggle.active { color: #8fc49d; background: rgba(73,156,84,.12); }
 .send-button { width: 28px; height: 28px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 50%; color: white; background: var(--accent); cursor: pointer; }
+ .composer-toolbar > .send-button { width: 28px; flex: 0 0 28px; }
 .send-button:hover { background: #4a84f0; }
 .send-button:disabled { color: #777c84; background: #30343a; cursor: default; }
 .send-button.stop { color: #f0b1b4; background: #583238; }
@@ -577,6 +589,10 @@ button { color: inherit; }
   .tool-copy strong { max-width: 44%; }
   .change-summary button { padding-inline: 5px; }
   .composer-toolbar .model-select { max-width: 86px; }
+  .composer-toolbar .profile-button { width: 38px; max-width: 38px; padding-inline: 4px; }
+  .composer-toolbar .profile-label { display: none; }
+  .composer-toolbar > .auto-toggle { padding-inline: 4px; }
+  .auto-toggle .auto-label { display: none; }
   .job-form-grid { grid-template-columns: minmax(0, 1fr); }
   .job-form-grid label.wide { grid-column: auto; }
   .jobs-actions > span { display: none; }
@@ -597,5 +613,11 @@ button { color: inherit; }
   .pass-summary button { display: none; }
   .composer-wrap { padding-inline: 5px; }
   .change-summary { margin-inline: -5px; }
+  .composer-toolbar { gap: 1px; }
+  .composer-toolbar > button, .skill-control > button { width: 23px; }
+  .composer-toolbar .mode-button { min-width: 62px; padding-inline: 5px; }
+  .composer-toolbar .profile-button { width: 38px; max-width: 38px; padding-inline: 4px; }
   .composer-toolbar .model-select { display: none; }
+  .composer-toolbar > .auto-toggle { width: auto; min-width: 23px; padding-inline: 4px; }
+  .composer-toolbar > .send-button { width: 24px; flex-basis: 24px; }
 }

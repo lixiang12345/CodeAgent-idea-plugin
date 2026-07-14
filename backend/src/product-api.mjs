@@ -214,6 +214,9 @@ function normalizeConversationTools(value) {
     seen.add(id);
     const runId = optionalText(tool.runId, "tool.runId", 200);
     const turnIndex = optionalInteger(tool.turnIndex, "tool.turnIndex", 0, 10_000);
+    const createdAt = boundedTimestamp(tool.createdAt);
+    const updatedAt = boundedTimestamp(tool.updatedAt ?? createdAt);
+    if (updatedAt < createdAt) throw badRequest("tool.updatedAt must not be earlier than tool.createdAt");
     return {
       id,
       name: boundedText(tool.name, "tool.name", 240),
@@ -224,7 +227,8 @@ function normalizeConversationTools(value) {
       canRevert: optionalBoolean(tool.canRevert, false),
       ...(runId ? { runId } : {}),
       ...(turnIndex === null ? {} : { turnIndex }),
-      createdAt: boundedTimestamp(tool.createdAt),
+      createdAt,
+      updatedAt,
     };
   });
 }

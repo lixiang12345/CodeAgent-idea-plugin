@@ -33,10 +33,21 @@ class BridgeProtocolTest {
     @Test
     fun `encodes turn identity on streaming bridge payloads`() {
         val delta = json.encodeToString(MessageDeltaDto("message-1", "Done", 2))
-        val tool = json.encodeToString(ToolRunDto("tool-1", "read_file", "Read", "completed", turnIndex = 2))
+        val tool = json.encodeToString(
+            ToolRunDto(
+                "tool-1",
+                "read_file",
+                "Read",
+                "completed",
+                turnIndex = 2,
+                createdAt = 1_000,
+                updatedAt = 1_250,
+            ),
+        )
 
         assertEquals("""{"id":"message-1","delta":"Done","turnIndex":2}""", delta)
         assertEquals(true, tool.contains("\"turnIndex\":2"))
+        assertEquals(true, tool.contains("\"updatedAt\":1250"))
     }
 
     @Test
@@ -72,6 +83,9 @@ class BridgeProtocolTest {
         assertEquals("http://127.0.0.1:8788", DEFAULT_BACKEND_URL)
         assertEquals(DEFAULT_BACKEND_URL, CodeAgentSettingsState().backendUrl)
         assertEquals(DEFAULT_BACKEND_URL, SettingsSnapshotDto().backendUrl)
+        assertEquals(100, SettingsSnapshotDto().chatZoom)
+        assertEquals(true, SettingsSnapshotDto().showTimestamps)
+        assertEquals(false, SettingsSnapshotDto().desktopNotifications)
     }
 
     @Test

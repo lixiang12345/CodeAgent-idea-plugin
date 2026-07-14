@@ -28,6 +28,11 @@ class CodeAgentSettingsService : PersistentStateComponent<CodeAgentSettingsState
         backendUrl = settings.backendUrl,
         nodePath = settings.nodePath,
         autoApproveReadOnly = settings.autoApproveReadOnly,
+        chatZoom = settings.chatZoom,
+        showTimestamps = settings.showTimestamps,
+        showRunTelemetry = settings.showRunTelemetry,
+        desktopNotifications = settings.desktopNotifications,
+        autoDismissNotifications = settings.autoDismissNotifications,
         backendToken = PasswordSafe.instance.getPassword(BACKEND_TOKEN_ATTRIBUTES),
         refreshToken = PasswordSafe.instance.getPassword(REFRESH_TOKEN_ATTRIBUTES),
         tokenExpiresAtEpochSeconds = settings.tokenExpiresAtEpochSeconds,
@@ -60,10 +65,16 @@ class CodeAgentSettingsService : PersistentStateComponent<CodeAgentSettingsState
         require(contextRerankModel.isNotEmpty() && contextRerankModel.length <= 240) {
             "Context rerank model is required and must be at most 240 characters"
         }
+        require(update.chatZoom in 85..140) { "Chat zoom must be between 85 and 140" }
 
         settings.backendUrl = backendUrl
         settings.nodePath = update.nodePath.trim().ifEmpty { "node" }
         settings.autoApproveReadOnly = update.autoApproveReadOnly
+        settings.chatZoom = update.chatZoom
+        settings.showTimestamps = update.showTimestamps
+        settings.showRunTelemetry = update.showRunTelemetry
+        settings.desktopNotifications = update.desktopNotifications
+        settings.autoDismissNotifications = update.autoDismissNotifications
         settings.contextMode = contextMode
         settings.contextEmbeddingBaseUrl = contextEmbeddingBaseUrl
         settings.contextEmbeddingModel = contextEmbeddingModel
@@ -115,6 +126,11 @@ data class CodeAgentSettings(
     val backendUrl: String,
     val nodePath: String,
     val autoApproveReadOnly: Boolean,
+    val chatZoom: Int = 100,
+    val showTimestamps: Boolean = true,
+    val showRunTelemetry: Boolean = true,
+    val desktopNotifications: Boolean = false,
+    val autoDismissNotifications: Boolean = true,
     val backendToken: String?,
     val refreshToken: String? = null,
     val tokenExpiresAtEpochSeconds: Long = 0,
@@ -131,6 +147,11 @@ data class CodeAgentSettingsUpdate(
     val backendUrl: String,
     val nodePath: String,
     val autoApproveReadOnly: Boolean,
+    val chatZoom: Int = 100,
+    val showTimestamps: Boolean = true,
+    val showRunTelemetry: Boolean = true,
+    val desktopNotifications: Boolean = false,
+    val autoDismissNotifications: Boolean = true,
     val backendToken: String?,
     val contextMode: String = "lexical",
     val contextEmbeddingBaseUrl: String = DEFAULT_CONTEXT_EMBEDDING_URL,
@@ -145,6 +166,11 @@ class CodeAgentSettingsState {
     var backendUrl: String = DEFAULT_BACKEND_URL
     var nodePath: String = "node"
     var autoApproveReadOnly: Boolean = true
+    var chatZoom: Int = 100
+    var showTimestamps: Boolean = true
+    var showRunTelemetry: Boolean = true
+    var desktopNotifications: Boolean = false
+    var autoDismissNotifications: Boolean = true
     var tokenExpiresAtEpochSeconds: Long = 0
     var contextMode: String = "lexical"
     var contextEmbeddingBaseUrl: String = DEFAULT_CONTEXT_EMBEDDING_URL

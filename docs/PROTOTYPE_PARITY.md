@@ -54,7 +54,7 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | Rules editor | Implemented | Repository Markdown, persisted description and trigger metadata, save, and manual per-thread selection work |
 | Image Canvas | Implemented | Project-contained directory selection, bounded raster gallery, settings, refresh, open, mention, and empty/error states |
 | Mermaid | Implemented | Strict rendering, diagram/code, zoom, fit, error states, and opening source in an IDEA editor tab work |
-| Settings | Partial | Backend health, account, subscription usage, ContextEngine, Rules, Skills, chat zoom, Commands, Hooks, Agent profiles, declarative plugin lifecycle, and MCP lifecycle controls are real; feature and Beta pages report live capability state instead of simulated toggles |
+| Settings | Partial | Backend health, account, subscription usage, ContextEngine, Rules, Skills, persisted chat zoom/timestamps/run telemetry/native notifications, Commands, Hooks, Agent profiles, declarative plugin lifecycle, and MCP lifecycle controls are real; feature and Beta pages report live capability state instead of simulated toggles |
 | Tools catalog / Icon gallery / Feedback | Implemented | UI overlays for insert-tool seeding, icon name copy, and local feedback notice |
 | Cloud integrations | Conditional | Search/read adapters are advertised only when their backend environment is configured; provider errors and missing credentials remain explicit failures |
 | Subagents | Partial | Synchronous `subagent` and durable asynchronous job persistence are real; cancellation, progress streaming, and complete IDE navigation still need runtime wiring |

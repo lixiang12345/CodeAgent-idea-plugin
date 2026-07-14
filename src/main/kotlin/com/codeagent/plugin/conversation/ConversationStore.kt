@@ -255,6 +255,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         state.runId = tool.runId.orEmpty()
         state.turnIndex = tool.turnIndex ?: -1
         state.createdAt = if (state.createdAt > 0) state.createdAt else tool.createdAt
+        state.updatedAt = maxOf(tool.updatedAt, state.createdAt)
         if (thread.tools.size > MAX_TOOLS_PER_THREAD) {
             thread.tools = thread.tools.takeLast(MAX_TOOLS_PER_THREAD).toMutableList()
         }
@@ -470,6 +471,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
                 it.runId = tool.runId.orEmpty()
                 it.turnIndex = tool.turnIndex ?: -1
                 it.createdAt = tool.createdAt
+                it.updatedAt = tool.updatedAt
             }
         }
         state.pinned = pinned
@@ -541,6 +543,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         runId = runId.takeIf(String::isNotBlank),
         turnIndex = turnIndex.takeIf { it >= 0 },
         createdAt = createdAt,
+        updatedAt = updatedAt.takeIf { it > 0 } ?: createdAt,
     )
 
     companion object {
@@ -613,6 +616,7 @@ data class ConversationTool(
     val runId: String? = null,
     val turnIndex: Int? = null,
     val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = createdAt,
 )
 
 class ConversationStoreState {
@@ -658,6 +662,7 @@ class ConversationToolState {
     var runId: String = ""
     var turnIndex: Int = -1
     var createdAt: Long = 0
+    var updatedAt: Long = 0
 }
 
 class ConversationTaskState {

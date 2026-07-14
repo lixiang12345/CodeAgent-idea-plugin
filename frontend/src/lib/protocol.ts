@@ -24,6 +24,7 @@ export interface ToolRun {
   turnIndex?: number;
   runId?: string;
   createdAt?: number;
+  updatedAt?: number;
 }
 
 export interface AgentRunTelemetry {
@@ -113,6 +114,11 @@ export interface SettingsSnapshot {
   nodePath: string;
   backendTokenConfigured: boolean;
   autoApproveReadOnly: boolean;
+  chatZoom: number;
+  showTimestamps: boolean;
+  showRunTelemetry: boolean;
+  desktopNotifications: boolean;
+  autoDismissNotifications: boolean;
   contextMode: "lexical" | "private-semantic";
   contextEmbeddingBaseUrl: string;
   contextEmbeddingModel: string;
@@ -554,6 +560,11 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       nodePath: "node",
       backendTokenConfigured: false,
       autoApproveReadOnly: true,
+      chatZoom: 100,
+      showTimestamps: true,
+      showRunTelemetry: true,
+      desktopNotifications: false,
+      autoDismissNotifications: true,
       contextMode: "lexical",
       contextEmbeddingBaseUrl: "",
       contextEmbeddingModel: "",

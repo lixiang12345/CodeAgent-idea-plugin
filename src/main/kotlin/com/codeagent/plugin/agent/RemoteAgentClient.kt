@@ -594,6 +594,7 @@ internal data class RemoteConversationTool(
     val runId: String? = null,
     val turnIndex: Int? = null,
     val createdAt: Long,
+    val updatedAt: Long = createdAt,
 )
 
 @Serializable
