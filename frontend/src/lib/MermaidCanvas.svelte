@@ -1,5 +1,5 @@
 <script lang="ts">
-  import mermaid from "mermaid";
+  import { loadMermaid } from "./mermaid-loader";
 
   interface Props {
     source: string;
@@ -12,19 +12,13 @@
   let error = $state("");
   let generation = 0;
 
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: "strict",
-    theme: "dark",
-    fontFamily: "Inter, Segoe UI, sans-serif",
-  });
-
   $effect(() => {
     const activeGeneration = ++generation;
     const currentSource = source;
     svg = "";
     error = "";
-    void mermaid.render(`codeagent-mermaid-${activeGeneration}-${Date.now()}`, currentSource)
+    void loadMermaid()
+      .then((mermaid) => mermaid.render(`codeagent-mermaid-${activeGeneration}-${Date.now()}`, currentSource))
       .then((result) => {
         if (activeGeneration === generation) svg = result.svg;
       })
