@@ -601,8 +601,14 @@ class IdeBridge(
     }
 
     private fun sendMessage(payload: JsonElement) {
-        val request = json.decodeFromJsonElement<SendMessagePayload>(payload)
+        val request = prepareMessage(json.decodeFromJsonElement<SendMessagePayload>(payload))
         require(request.text.isNotBlank()) { "Message must not be blank" }
+        require(request.mode == "agent" || request.mode == "chat" || request.mode == "ask") {
+            "Unsupported message mode: ${request.mode}"
+        }
+        request.agentProfileId?.let { agentProfileId ->
+            require(isKnownAgentProfile(agentProfileId)) { "Unknown Agent profile: $agentProfileId" }
+        }
         val presentationRunId = UUID.randomUUID().toString()
         val runId = synchronized(stateLock) {
             require(runState != "running" && runState != "awaiting_approval") { "Agent is already running" }
@@ -632,7 +638,8 @@ class IdeBridge(
         }
         val enabledSkillIds = synchronized(stateLock) { conversations.active().selectedSkillIds.toSet() }
         val enabledRuleIds = synchronized(stateLock) { conversations.active().selectedRuleIds.toSet() }
-        val selectedAgentProfileId = synchronized(stateLock) { conversations.active().selectedAgentProfileId }
+        val selectedAgentProfileId = request.agentProfileId
+            ?: synchronized(stateLock) { conversations.active().selectedAgentProfileId }
         val selectedModel = synchronized(stateLock) { conversations.active().selectedModelId }
         val historySummary = synchronized(stateLock) { conversations.active().summary }
         agent.start(history, historySummary, request.mode, selectedAgentProfileId, selectedModel, enabledSkillIds, enabledRuleIds, object : AgentRunListener {
@@ -776,6 +783,22 @@ class IdeBridge(
                 withCurrentRun(runId) { emit("error", mapOf("message" to message)) }
             }
         })
+    }
+
+    private fun prepareMessage(request: SendMessagePayload): SendMessagePayload {
+        val text = request.text.trim()
+        if (!text.startsWith('/')) return request.copy(text = text)
+        val invocation = ConfiguredCommandRuntime.resolve(
+            commandLine = text,
+            fallbackMode = request.mode,
+            projectName = project.name,
+            configurations = configurations.items["commands"].orEmpty(),
+        )
+        return SendMessagePayload(
+            text = invocation.prompt,
+            mode = invocation.mode,
+            agentProfileId = invocation.agentProfileId,
+        )
     }
 
     private fun withCurrentRun(generation: Long, action: () -> Unit): Boolean = synchronized(stateLock) {
@@ -1741,7 +1764,11 @@ class IdeBridge(
     private data class NewThreadPayload(val mode: String)
 
     @Serializable
-    private data class SendMessagePayload(val text: String, val mode: String)
+    private data class SendMessagePayload(
+        val text: String,
+        val mode: String,
+        val agentProfileId: String? = null,
+    )
 
     @Serializable
     private data class ApprovalPayload(val toolId: String, val approved: Boolean)

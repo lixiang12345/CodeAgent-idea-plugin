@@ -254,6 +254,10 @@
   function submit() {
     const text = prompt.trim();
     if (!text || !snapshot) return;
+    if (runLocalSlash(text)) {
+      prompt = "";
+      return;
+    }
     prompt = "";
     closeMenus();
     sendCommand(isBusy() ? "queueMessage" : "sendMessage", { text, mode: snapshot.mode });
@@ -487,6 +491,41 @@
     slashOpen = false;
   }
 
+  type SlashCommandOption = { command: string; description: string; argumentHint?: string };
+
+  const localSlashActions: Record<string, () => void> = {
+    "/commit": () => openWorkspaceView("git"),
+    "/tasks": () => openWorkspaceView("tasks"),
+    "/rules": () => openSettings("Rules & Guidelines"),
+  };
+
+  function runLocalSlash(text: string): boolean {
+    const action = localSlashActions[text.toLowerCase()];
+    if (!action) return false;
+    action();
+    return true;
+  }
+
+  function availableSlashCommands(): SlashCommandOption[] {
+    const commands = new Map<string, SlashCommandOption>(
+      SLASH_COMMANDS.map((item) => [item.command, { ...item }]),
+    );
+    for (const configuration of snapshot?.configurations.items.commands ?? []) {
+      if (configuration.value.enabled === false) continue;
+      const command = `/${configuration.id}`;
+      if (localSlashActions[command]) continue;
+      const name = typeof configuration.value.name === "string" ? configuration.value.name : configuration.id;
+      const description = typeof configuration.value.description === "string"
+        ? configuration.value.description
+        : `Run ${name}`;
+      const argumentHint = typeof configuration.value.argumentHint === "string"
+        ? configuration.value.argumentHint
+        : undefined;
+      commands.set(command, { command, description, argumentHint });
+    }
+    return [...commands.values()].sort((left, right) => left.command.localeCompare(right.command));
+  }
+
   function insertMention(kind: string) {
     atOpen = false;
     if (kind === "file") {
@@ -501,8 +540,8 @@
   }
 
   function filteredSlash() {
-    const q = prompt.startsWith("/") ? prompt.slice(1).toLowerCase() : "";
-    return SLASH_COMMANDS.filter((item) => !q || item.command.slice(1).includes(q) || item.description.toLowerCase().includes(q));
+    const q = prompt.startsWith("/") ? prompt.slice(1).split(/\s+/, 1)[0].toLowerCase() : "";
+    return availableSlashCommands().filter((item) => !q || item.command.slice(1).includes(q) || item.description.toLowerCase().includes(q));
   }
 
   function filteredTools() {
@@ -1010,7 +1049,7 @@
               <div class="composer-popup slash-menu">
                 <header><strong>Slash commands</strong><button class="icon-button compact" title="Close" onclick={() => slashOpen = false}><Icon name="x" size={12} /></button></header>
                 {#each filteredSlash() as item}
-                  <button onclick={() => insertSlash(item.command)}><strong>{item.command}</strong><small>{item.description}</small></button>
+                  <button onclick={() => insertSlash(item.command)}><strong>{item.command}</strong><small>{item.description}{item.argumentHint ? ` · ${item.argumentHint}` : ""}</small></button>
                 {:else}
                   <p>No matching commands</p>
                 {/each}
@@ -1397,7 +1436,7 @@
               <p class="settings-lead">Connected previews with explicit maturity and execution boundaries.</p>
               <section class="settings-block capability-list">
                 <div><Icon name="bot" size={14} /><span class="capability-copy"><strong>Specialized Agent profiles</strong><small>Search, context, prompt, loop, and general profiles can be stored with model and tool budgets.</small></span><i class:ready={snapshot.configurations.state === "ready"}>{snapshot.configurations.state === "ready" ? "Active" : "Unavailable"}</i></div>
-                <div><Icon name="square-terminal" size={14} /><span class="capability-copy"><strong>Reusable commands</strong><small>Prompt commands are persisted now; composer invocation is the next runtime connection.</small></span><i class:ready={snapshot.configurations.state === "ready"}>{snapshot.configurations.state === "ready" ? "Preview" : "Unavailable"}</i></div>
+                <div><Icon name="square-terminal" size={14} /><span class="capability-copy"><strong>Reusable commands</strong><small>Account commands are discovered in the composer and expanded by the IDE runtime.</small></span><i class:ready={snapshot.configurations.state === "ready"}>{snapshot.configurations.state === "ready" ? "Active" : "Unavailable"}</i></div>
                 <div><Icon name="list-checks" size={14} /><span class="capability-copy"><strong>Durable subagent jobs</strong><small>Backend jobs survive IDE reconnects and can be restored through the account session.</small></span><i class:ready={snapshot.account.state === "signed_in"}>{snapshot.account.state === "signed_in" ? "Preview" : "Sign in"}</i></div>
                 <div><Icon name="wand-sparkles" size={14} /><span class="capability-copy"><strong>Repository skills</strong><small>Skills are loaded from repository instructions and selected per conversation.</small></span><i class:ready={snapshot.customization.skills.length > 0}>{snapshot.customization.skills.length > 0 ? "Preview" : "None found"}</i></div>
               </section>

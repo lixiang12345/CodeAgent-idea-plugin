@@ -1195,6 +1195,37 @@ test("validates and persists typed product configurations", async () => {
       enabled: true,
     });
 
+    const commandResponse = await fetch(`${baseUrl}/v1/configurations/commands/release-check`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Release check",
+        description: "Run the release verification workflow",
+        prompt: "Check release readiness for {{arguments}}",
+        argumentHint: "[scope]",
+        mode: "agent",
+        agentProfileId: "loop",
+      }),
+    });
+    assert.equal(commandResponse.status, 200);
+    assert.deepEqual((await commandResponse.json()).value, {
+      name: "Release check",
+      description: "Run the release verification workflow",
+      enabled: true,
+      prompt: "Check release readiness for {{arguments}}",
+      argumentHint: "[scope]",
+      mode: "agent",
+      agentProfileId: "loop",
+    });
+
+    const invalidCommandMode = await fetch(`${baseUrl}/v1/configurations/commands/unsafe-mode`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Unsafe mode", prompt: "Run checks", mode: "unbounded" }),
+    });
+    assert.equal(invalidCommandMode.status, 400);
+    assert.match((await invalidCommandMode.json()).error, /mode must be one of/);
+
     const invalidId = await fetch(`${baseUrl}/v1/configurations/commands/not%20safe`, {
       method: "PUT",
       headers: { "content-type": "application/json" },

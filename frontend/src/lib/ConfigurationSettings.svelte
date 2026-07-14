@@ -22,6 +22,8 @@
     enabled: boolean;
     prompt: string;
     argumentHint: string;
+    commandMode: string;
+    commandAgentProfileId: string;
     event: string;
     command: string;
     timeoutSeconds: number;
@@ -118,6 +120,8 @@ $: if (section !== previousSection) {
       enabled: true,
       prompt: "",
       argumentHint: "",
+      commandMode: "inherit",
+      commandAgentProfileId: "",
       event: "before-run",
       command: "",
       timeoutSeconds: 60,
@@ -177,6 +181,8 @@ $: if (section !== previousSection) {
       enabled: value.enabled !== false,
       prompt: text(value.prompt),
       argumentHint: text(value.argumentHint),
+      commandMode: text(value.mode) || "inherit",
+      commandAgentProfileId: text(value.agentProfileId),
       event: text(value.event) || "before-run",
       command: text(value.command),
       timeoutSeconds: numberValue(value.timeoutSeconds, 60),
@@ -222,7 +228,13 @@ $: if (section !== previousSection) {
       enabled: draft.enabled,
     };
     if (kind === "commands") {
-      return { ...common, prompt: draft.prompt, argumentHint: draft.argumentHint.trim() || null };
+      return {
+        ...common,
+        prompt: draft.prompt,
+        argumentHint: draft.argumentHint.trim() || null,
+        mode: draft.commandMode,
+        agentProfileId: draft.commandAgentProfileId.trim() || null,
+      };
     }
     if (kind === "hooks") {
       return { ...common, event: draft.event, command: draft.command, timeoutSeconds: draft.timeoutSeconds };
@@ -312,7 +324,11 @@ $: if (section !== previousSection) {
       const runtime = runtimeFor(item.id);
       return `${text(value.transport) || "stdio"} · ${runtime?.state ?? "not activated"} · ${runtime?.tools.length ?? 0} tools`;
     }
-    if (kind === "commands") return text(value.argumentHint) || "Prompt command";
+    if (kind === "commands") {
+      const mode = text(value.mode) || "inherit";
+      const profile = text(value.agentProfileId);
+      return [text(value.argumentHint) || "Prompt command", mode, profile].filter(Boolean).join(" · ");
+    }
     if (kind === "hooks") return `${text(value.event) || "before-run"} · ${numberValue(value.timeoutSeconds, 60)}s`;
     if (kind === "agents") return `${text(value.agentType) || "general"} · ${numberValue(value.maxTurns, 12)} turns · ${numberValue(value.maxToolCalls, 48)} tools · ${Math.round(numberValue(value.contextWindowTokens, 64000) / 1000)}k context`;
     return text(value.version) || text(value.source) || "Extension source";
@@ -350,7 +366,10 @@ $: if (section !== previousSection) {
 
     {#if kind === "commands"}
       <label><span>Argument hint</span><input bind:value={draft.argumentHint} maxlength="500" placeholder="[scope] [options]" /></label>
+      <label><span>Run mode</span><select bind:value={draft.commandMode}><option value="inherit">Current thread mode</option><option value="agent">Agent</option><option value="chat">Chat</option><option value="ask">Ask</option></select></label>
+      <label><span>Agent profile</span><select bind:value={draft.commandAgentProfileId}><option value="">Current thread profile</option><option value="general">General Agent</option><option value="search">Search Agent</option><option value="context">Context Agent</option><option value="prompt">Prompt Engineer</option><option value="loop">Loop Agent</option>{#each configurationSnapshot.items.agents ?? [] as agent}{#if agent.value.enabled !== false}<option value={agent.id}>{text(agent.value.name) || agent.id}</option>{/if}{/each}</select></label>
       <label><span>Prompt template</span><textarea bind:value={draft.prompt} spellcheck="true"></textarea></label>
+      <div class="runtime-note"><Icon name="info" size={13} /><span>Use <code>&#123;&#123;arguments&#125;&#125;</code>, <code>&#123;&#123;project&#125;&#125;</code>, and <code>&#123;&#123;command&#125;&#125;</code> placeholders. Arguments are appended in a bounded block when the template omits the arguments placeholder.</span></div>
     {:else if kind === "hooks"}
       <label><span>Event</span><select bind:value={draft.event}><option value="before-run">Before run</option><option value="after-run">After run</option><option value="before-tool">Before tool</option><option value="after-tool">After tool</option><option value="on-error">On error</option></select></label>
       <label><span>Command</span><textarea class="command-textarea" bind:value={draft.command} spellcheck="false"></textarea></label>

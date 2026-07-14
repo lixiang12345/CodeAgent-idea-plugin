@@ -297,11 +297,19 @@ function normalizeConfiguration(kind, value) {
 
   switch (kind) {
     case "commands":
-      return {
+      {
+        const agentProfileId = optionalText(value.agentProfileId, "agentProfileId", 120);
+        if (agentProfileId && !/^[A-Za-z0-9._-]{1,120}$/.test(agentProfileId)) {
+          throw badRequest("agentProfileId must use letters, numbers, dots, underscores, or hyphens");
+        }
+        return {
         ...common,
         prompt: boundedText(value.prompt, "prompt", 100_000),
         argumentHint: optionalText(value.argumentHint, "argumentHint", 500),
-      };
+          mode: enumValue(value.mode, "mode", ["inherit", "agent", "chat", "ask"], "inherit"),
+          agentProfileId,
+        };
+      }
     case "hooks":
       return {
         ...common,
