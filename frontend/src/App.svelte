@@ -25,13 +25,6 @@
 
   type SettingsItem = { id: string; label: string; icon: string; badge?: string };
   type SettingsGroup = { label: string; items: SettingsItem[] };
-  const SUPPORTED_MODELS: AppSnapshot["models"]["options"] = [
-    { id: "gpt-5.6-sol", ownedBy: "openai" },
-    { id: "grok-4.5", ownedBy: "xai" },
-    { id: "claude-fable-5", ownedBy: "anthropic" },
-    { id: "claude-sonnet-5", ownedBy: "anthropic" },
-  ];
-
   const settingsGroups: SettingsGroup[] = [
     { label: "", items: [{ id: "Home", label: "Home", icon: "plugin-icon" }] },
     {
@@ -410,22 +403,20 @@
     const normalized = modelId.trim();
     if (!normalized) return;
     modelMenuOpen = false;
-    if (snapshot.models.selectedModel === normalized) return;
-    snapshot = { ...snapshot, models: { ...snapshot.models, selectedModel: normalized } };
-    notice = `AI model set to: ${normalized}`;
+    if (activeModelId() === normalized) return;
     sendCommand("selectModel", { modelId: normalized });
   }
 
   function toggleModelMenu(event: MouseEvent) {
     event.stopPropagation();
+    if (!snapshot || snapshot.models.state !== "ready" || snapshot.models.options.length === 0) return;
     const open = !modelMenuOpen;
     closeMenus();
     modelMenuOpen = open;
   }
 
   function availableModels() {
-    const discovered = new Map((snapshot?.models.options ?? []).map((model) => [model.id, model]));
-    return SUPPORTED_MODELS.map((model) => ({ ...model, ...discovered.get(model.id) }));
+    return snapshot?.models.options ?? [];
   }
 
   function activeModelId() {
@@ -1602,6 +1593,7 @@
                   type="button"
                   class="model-select"
                   class:active={modelMenuOpen}
+                  disabled={snapshot.models.state !== "ready" || snapshot.models.options.length === 0}
                   aria-label="Model selection"
                   aria-haspopup="listbox"
                   aria-expanded={modelMenuOpen}
