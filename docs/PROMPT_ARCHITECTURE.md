@@ -58,14 +58,22 @@ The deployed backend composes the system prompt in this order:
 
 1. Product identity and operating loop from backend-owned code.
 2. Non-overridable safety and authority policy.
-3. Agent, Chat, or Ask mode policy.
-4. Optional repository-root `AGENTS.md` guidance, explicitly marked lower priority.
-5. Always-on `.codeagent/rules/*.md` repository rules, with a bounded total prompt budget.
-6. User-enabled repository Skills, resolved from backend-discovered IDs and bounded separately.
-7. Conversation messages and user-selected file references as user content.
-8. Retrieved files and tool results as untrusted tool data.
+3. Explicit instruction-priority and bounded operating policy.
+4. Context retrieval, tool-selection, task lifecycle, delegation, completion, and capability-boundary policy.
+5. Agent, Chat, or Ask mode policy.
+6. The selected Agent profile type and its optional account-scoped custom instructions.
+7. The currently active tool names and discovery guidance.
+8. Optional repository-root `AGENTS.md` guidance, explicitly marked lower priority.
+9. Always-on and selected `.codeagent/rules/*.md` repository rules, with a bounded total prompt budget.
+10. User-enabled repository Skills, resolved from backend-discovered IDs and bounded separately.
+11. The compact conversation summary.
+12. Conversation messages, attachments, retrieved files, and tool results as lower-trust run data.
 
-The prompt explains policy, but code enforces it. Ask mode does not receive mutating tools. File tools canonicalize paths. Mutations and terminal commands require host approval. A prompt injection therefore cannot grant itself a capability.
+The prompt explains policy, but code enforces it. Chat and Ask remove every mutating local, backend, and MCP definition before the request is sent, and the JVM rejects a mutating tool request again before execution. File tools canonicalize paths. Mutations and terminal commands require host approval. A prompt injection therefore cannot grant itself a capability.
+
+Task-list mutation has a runtime completion gate. After `add_tasks`, `update_tasks`, or `reorg_tasks`, the model must call `view_tasks` before it can finish; one reminder turn is allowed, then the run fails closed. The prompt separately requires created or changed tasks to be completed or cancelled unless the run is genuinely blocked.
+
+The synchronous `subagent` is a bounded model-only delegation for `research`, `review`, `test`, `security`, or `planner` analysis. It receives an explicit delegated task and output contract, has no IDE tools, and cannot edit files, execute commands, request approval, or certify tests. The parent Agent remains responsible for evidence inspection, implementation, verification, and the final decision.
 
 Rules and Skills remain below product safety and mode policy. Their text can guide conventions and methods, but it cannot register tools, change risk levels, bypass JVM approvals, or make Chat/Ask mode writable. The plugin package contains no Agent system prompt or model credential.
 

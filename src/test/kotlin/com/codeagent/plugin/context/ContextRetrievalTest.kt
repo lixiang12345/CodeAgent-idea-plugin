@@ -2,6 +2,7 @@ package com.codeagent.plugin.context
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ContextRetrievalTest {
@@ -51,6 +52,22 @@ class ContextRetrievalTest {
         assertTrue(pack.packedText.contains("RemoteAgentClient.kt:120-124"))
         assertTrue(pack.packedText.contains("matched_queries: 1, 2"))
         assertTrue(pack.truncated)
+    }
+
+    @Test
+    fun `pack builder returns every reranked candidate when no cap is supplied`() {
+        val plan = ContextQueryPlanner.plan("Trace retrieval ownership", "balanced")
+        val first = hit("one", "src/One.kt", 10, "fun one() = Unit", 0.9)
+        val second = hit("two", "src/Two.kt", 20, "fun two() = Unit", 0.8)
+        val results = listOf(ContextQueryResult(plan.queries[0], listOf(first, second)))
+
+        val pack = ContextPackBuilder.build(plan, results, maxTokens = null)
+
+        assertEquals(2, pack.availableHitCount)
+        assertEquals(2, pack.hitCount)
+        assertFalse(pack.truncated)
+        assertTrue(pack.packedText.contains("src/One.kt:10-14"))
+        assertTrue(pack.packedText.contains("src/Two.kt:20-24"))
     }
 
     private fun hit(

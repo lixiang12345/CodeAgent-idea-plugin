@@ -14,7 +14,7 @@ docker compose -f backend/compose.yaml up -d --build
 
 Docker publishes the service at `http://127.0.0.1:8788`; fresh plugin installs use that address automatically. Direct development without Docker remains available through `cd backend && npm start` on port `8787`, which requires overriding the Backend URL in Advanced Settings.
 
-For a hosted deployment, build `backend/Dockerfile` and provide the unified model gateway contract (`MODEL_BASE_URL`, `MODEL_API_KEY`) plus `DATABASE_URL`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `PUBLIC_BASE_URL`, and `SESSION_SIGNING_KEY`. Optional web/SaaS integration variables are listed in `backend/.env.example`. The service exposes public OIDC bootstrap endpoints and authenticated account, model, tool, conversation, job, completion, and Agent APIs.
+For a hosted deployment, build `backend/Dockerfile` and configure either the unified model gateway contract (`MODEL_BASE_URL`, `MODEL_API_KEY`) or a fixed multi-provider allowlist using the `OPENAI_*`, `GROK_*`, and `ANTHROPIC_*` variables documented in `backend/.env.example`. Also provide `DATABASE_URL`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `PUBLIC_BASE_URL`, and `SESSION_SIGNING_KEY`. The service exposes public OIDC bootstrap endpoints and authenticated account, model, tool, conversation, job, completion, and Agent APIs.
 
 ## Install and use
 
@@ -56,7 +56,7 @@ The installable ZIP is written to `build/distributions/`.
 
 ContextEngine is pinned as a Git submodule and bundled into the local Node sidecar. Its SQLite index and file watcher run on each developer machine. Lexical, symbol, path, graph, and Git-lineage retrieval need no model. CodeAgent does not install or start a local embedding or reranker model; semantic retrieval is an explicit opt-in to an operator- or organization-hosted OpenAI-compatible endpoint and requires an explicit index rebuild. Its MIT license is included in the plugin distribution; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
-CodeAgent plugins are bounded declarative JSON manifests, not executable IDEA plugins. Account configuration records synchronize the source, exact version, integrity pin, and granted capabilities; each IDE installation explicitly validates and caches the manifest before activation. The current runtime consumes namespaced slash-command contributions. Reserved capabilities do not load JVM, Node.js, or shell code.
+CodeAgent plugins are bounded declarative JSON manifests, not executable IDEA plugins. Account configuration records synchronize the source, exact version, integrity pin, and granted capabilities; each IDE installation explicitly validates and caches the manifest before activation. The runtime consumes explicitly granted namespaced commands and prompt templates plus read-only rules and selectable skills. Reserved execution capabilities do not load JVM, Node.js, shell, MCP, or tool-handler code.
 
 ## Verify
 

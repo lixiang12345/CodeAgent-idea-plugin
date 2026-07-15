@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import Icon from "./lib/Icon.svelte";
   import ConfigurationSettings from "./lib/ConfigurationSettings.svelte";
   import MermaidCanvas from "./lib/MermaidCanvas.svelte";
@@ -10,6 +10,7 @@
     onHostEvent,
     sendCommand,
     type AppSnapshot,
+    type ChatMessage,
     type EventEnvelope,
     type GitFile,
     type GitSnapshot,
@@ -24,6 +25,12 @@
 
   type SettingsItem = { id: string; label: string; icon: string; badge?: string };
   type SettingsGroup = { label: string; items: SettingsItem[] };
+  const SUPPORTED_MODELS: AppSnapshot["models"]["options"] = [
+    { id: "gpt-5.6-sol", ownedBy: "openai" },
+    { id: "grok-4.5", ownedBy: "xai" },
+    { id: "claude-fable-5", ownedBy: "anthropic" },
+    { id: "claude-sonnet-5", ownedBy: "anthropic" },
+  ];
 
   const settingsGroups: SettingsGroup[] = [
     { label: "", items: [{ id: "Home", label: "Home", icon: "plugin-icon" }] },
@@ -104,7 +111,6 @@
   let settingsNavigationOpen = true;
   let threadDrawerOpen = false;
   let modeMenuOpen = false;
-  let agentProfileMenuOpen = false;
   let modelMenuOpen = false;
   let skillsOpen = false;
   let tasksOpen = true;
@@ -119,11 +125,14 @@
   let ruleDescription = "";
   let editingExistingRule = false;
   let toolsExpanded = new Set<string>();
+  let resolvingApprovalIds = new Set<string>();
   let backendUrl = "";
   let nodePath = "";
   let backendToken = "";
   let autoApproveReadOnly = true;
-  let contextMode: "lexical" | "private-semantic" = "lexical";
+  let contextMode: "remote-http" | "lexical" | "private-semantic" = "remote-http";
+  let contextHttpBaseUrl = "http://127.0.0.1:8790";
+  let contextHttpApiKey = "";
   let contextEmbeddingBaseUrl = "http://127.0.0.1:8000/v1";
   let contextEmbeddingModel = "Qwen/Qwen3-Embedding-0.6B";
   let contextEmbeddingApiKey = "";
@@ -152,7 +161,11 @@
   let imageSettingsOpen = false;
   let imageColumns = 3;
   let imageZoom = 100;
-  let chatZoom = 100;
+  const CHAT_ZOOM_MIN = 85;
+  const CHAT_ZOOM_MAX = 140;
+  const CHAT_ZOOM_DEFAULT = 100;
+  const CHAT_ZOOM_STEP = 10;
+  let chatZoom = CHAT_ZOOM_DEFAULT;
   let showTimestamps = true;
   let showRunTelemetry = true;
   let desktopNotifications = false;
@@ -170,6 +183,11 @@
   let errorTimer: number | undefined;
   let scheduledNotice = "";
   let scheduledError = "";
+  let conversationElement: HTMLDivElement | undefined;
+  let followConversation = true;
+  let forceConversationFollow = true;
+  let visibleThreadId: string | undefined;
+  let pendingUserMessages: ChatMessage[] = [];
 
   onMount(() => {
     const unsubscribe = onHostEvent(handleEvent);
@@ -190,7 +208,23 @@
 
   function handleEvent(event: EventEnvelope) {
     if (event.type === "snapshot") {
-      snapshot = event.payload as AppSnapshot;
+      const nextSnapshot = event.payload as AppSnapshot;
+      const nextThreadId = nextSnapshot.threads.find((thread) => thread.active)?.id;
+      const threadChanged = visibleThreadId !== undefined && nextThreadId !== visibleThreadId;
+      const forceFollow = forceConversationFollow || nextThreadId !== visibleThreadId;
+      if (threadChanged) {
+        pendingUserMessages = [];
+      } else {
+        reconcilePendingUserMessages(nextSnapshot.messages);
+      }
+      snapshot = nextSnapshot;
+      visibleThreadId = nextThreadId;
+      forceConversationFollow = false;
+      resolvingApprovalIds = new Set(
+        [...resolvingApprovalIds].filter((toolId) =>
+          nextSnapshot.tools.some((tool) => tool.id === toolId && tool.status === "approval")
+        )
+      );
       backendUrl = snapshot.settings.backendUrl;
       nodePath = snapshot.settings.nodePath;
       autoApproveReadOnly = snapshot.settings.autoApproveReadOnly;
@@ -200,12 +234,14 @@
       desktopNotifications = snapshot.settings.desktopNotifications;
       autoDismissNotifications = snapshot.settings.autoDismissNotifications;
       contextMode = snapshot.settings.contextMode;
+      contextHttpBaseUrl = snapshot.settings.contextHttpBaseUrl;
       contextEmbeddingBaseUrl = snapshot.settings.contextEmbeddingBaseUrl;
       contextEmbeddingModel = snapshot.settings.contextEmbeddingModel;
       contextNeuralRerank = snapshot.settings.contextNeuralRerank;
       contextRerankBaseUrl = snapshot.settings.contextRerankBaseUrl;
       contextRerankModel = snapshot.settings.contextRerankModel;
       if (snapshot.jobs.state !== "loading") creatingJob = false;
+      scrollConversationToBottom(forceFollow);
       return;
     }
     if (event.type === "error") {
@@ -253,9 +289,35 @@
         message.turnIndex = data.turnIndex;
       }
       snapshot = { ...snapshot, messages: [...snapshot.messages] };
+      scrollConversationToBottom();
       return;
     }
-    if (event.type === "stateChanged" && snapshot) snapshot = { ...snapshot, ...(event.payload as Partial<AppSnapshot>) };
+    if (event.type === "stateChanged" && snapshot) {
+      snapshot = { ...snapshot, ...(event.payload as Partial<AppSnapshot>) };
+      reconcilePendingUserMessages(snapshot.messages);
+      scrollConversationToBottom();
+    }
+  }
+
+  function reconcilePendingUserMessages(messages: ChatMessage[]) {
+    if (pendingUserMessages.length === 0) return;
+    const persistedIds = new Set(messages.map((message) => message.id));
+    pendingUserMessages = pendingUserMessages.filter((message) => !persistedIds.has(message.id));
+  }
+
+  function updateConversationFollow() {
+    if (!conversationElement) return;
+    const distanceFromBottom = conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight;
+    followConversation = distanceFromBottom <= 48;
+  }
+
+  function scrollConversationToBottom(force = false) {
+    if (!force && !followConversation) return;
+    void tick().then(() => {
+      if (!conversationElement || (!force && !followConversation)) return;
+      conversationElement.scrollTop = conversationElement.scrollHeight;
+      followConversation = true;
+    });
   }
 
   function reconcileToastTimers(currentNotice: string, currentError: string, autoDismiss: boolean) {
@@ -291,7 +353,6 @@
     moreMenuOpen = false;
     threadOptOpen = false;
     modeMenuOpen = false;
-    agentProfileMenuOpen = false;
     modelMenuOpen = false;
     skillsOpen = false;
     slashOpen = false;
@@ -305,9 +366,28 @@
       prompt = "";
       return;
     }
+    const busy = isBusy();
+    const clientMessageId = crypto.randomUUID();
+    if (!busy) {
+      const optimisticMessage: ChatMessage = {
+        id: clientMessageId,
+        role: "user",
+        content: text,
+        createdAt: Date.now(),
+      };
+      pendingUserMessages = [...pendingUserMessages, optimisticMessage];
+    }
     prompt = "";
     closeMenus();
-    sendCommand(isBusy() ? "queueMessage" : "sendMessage", { text, mode: snapshot.mode });
+    forceConversationFollow = true;
+    scrollConversationToBottom(true);
+    sendCommand(busy ? "queueMessage" : "sendMessage", { text, mode: snapshot.mode, clientMessageId });
+  }
+
+  function resolveApproval(toolId: string, approved: boolean) {
+    if (resolvingApprovalIds.has(toolId)) return;
+    resolvingApprovalIds = new Set(resolvingApprovalIds).add(toolId);
+    sendCommand("resolveApproval", { toolId, approved });
   }
 
   function enhancePrompt() {
@@ -325,45 +405,85 @@
     sendCommand("setMode", { mode });
   }
 
-  type AgentProfileOption = { id: string; name: string; description: string; agentType: string; builtin: boolean };
-
-  const builtInAgentProfiles: AgentProfileOption[] = [
-    { id: "general", name: "General Agent", description: "Balanced implementation and verification", agentType: "general", builtin: true },
-    { id: "search", name: "Search Agent", description: "Evidence-first repository and connected search", agentType: "search", builtin: true },
-    { id: "context", name: "Context Agent", description: "Builds a compact cited project context pack", agentType: "context", builtin: true },
-    { id: "prompt", name: "Prompt Engineer", description: "Refines tasks into execution-ready prompts", agentType: "prompt", builtin: true },
-    { id: "loop", name: "Loop Agent", description: "Implements and verifies through bounded iterations", agentType: "loop", builtin: true },
-  ];
-
-  function agentProfiles(): AgentProfileOption[] {
-    const profiles = new Map(builtInAgentProfiles.map((profile) => [profile.id, profile]));
-    for (const configuration of snapshot?.configurations.items.agents ?? []) {
-      if (configuration.value.enabled === false) continue;
-      const name = typeof configuration.value.name === "string" ? configuration.value.name : configuration.id;
-      const description = typeof configuration.value.description === "string" ? configuration.value.description : "Custom Agent profile";
-      const agentType = typeof configuration.value.agentType === "string" ? configuration.value.agentType : "general";
-      profiles.set(configuration.id, { id: configuration.id, name, description, agentType, builtin: false });
-    }
-    return [...profiles.values()];
-  }
-
-  function activeAgentProfile(): AgentProfileOption {
-    const selected = snapshot?.selectedAgentProfileId ?? "general";
-    return agentProfiles().find((profile) => profile.id === selected) ?? builtInAgentProfiles[0];
-  }
-
-  function selectAgentProfile(agentProfileId: string) {
-    if (!snapshot || isBusy()) return;
-    snapshot = { ...snapshot, selectedAgentProfileId: agentProfileId };
-    agentProfileMenuOpen = false;
-    sendCommand("selectAgentProfile", { agentProfileId });
-  }
-
   function selectModel(modelId: string) {
-    if (!snapshot || isBusy()) return;
-    snapshot = { ...snapshot, models: { ...snapshot.models, selectedModel: modelId } };
+    if (!snapshot) return;
+    const normalized = modelId.trim();
+    if (!normalized) return;
     modelMenuOpen = false;
-    sendCommand("selectModel", { modelId });
+    if (snapshot.models.selectedModel === normalized) return;
+    snapshot = { ...snapshot, models: { ...snapshot.models, selectedModel: normalized } };
+    notice = `AI model set to: ${normalized}`;
+    sendCommand("selectModel", { modelId: normalized });
+  }
+
+  function toggleModelMenu(event: MouseEvent) {
+    event.stopPropagation();
+    const open = !modelMenuOpen;
+    closeMenus();
+    modelMenuOpen = open;
+  }
+
+  function availableModels() {
+    const discovered = new Map((snapshot?.models.options ?? []).map((model) => [model.id, model]));
+    return SUPPORTED_MODELS.map((model) => ({ ...model, ...discovered.get(model.id) }));
+  }
+
+  function activeModelId() {
+    const models = availableModels();
+    const selected = snapshot?.models.selectedModel;
+    if (selected && models.some((model) => model.id === selected)) return selected;
+    const defaultModel = snapshot?.models.defaultModel;
+    if (defaultModel && models.some((model) => model.id === defaultModel)) return defaultModel;
+    return models[0]?.id ?? selected ?? defaultModel;
+  }
+
+  function modelLabel() {
+    return activeModelId() ?? "Select model";
+  }
+
+  function modelTitle() {
+    if (!snapshot) return "Model selection";
+    const modelId = activeModelId();
+    return modelId ? `Model: ${modelId}` : "Select a model";
+  }
+
+  function modelVendorName(model: AppSnapshot["models"]["options"][number]) {
+    if (model.ownedBy === "openai") return "OpenAI";
+    if (model.ownedBy === "anthropic") return "Anthropic";
+    if (model.ownedBy === "xai") return "xAI";
+    return model.ownedBy ?? "Model provider";
+  }
+
+  function modelVendorIcon(model: AppSnapshot["models"]["options"][number]) {
+    if (model.ownedBy === "openai") return "openai-brand";
+    if (model.ownedBy === "anthropic") return "anthropic-brand";
+    if (model.ownedBy === "xai") return "xai-brand";
+    return "settings-2";
+  }
+
+  function modelContextUsage() {
+    if (!snapshot) return null;
+    const windowTokens = snapshot.agentRun.contextWindowTokens;
+    const reservedTokens = snapshot.agentRun.reservedOutputTokens;
+    const usedTokens = snapshot.agentRun.estimatedInputTokens;
+    if (windowTokens <= 0 || usedTokens <= 0) return null;
+    const inputCapacity = Math.max(1, windowTokens - reservedTokens);
+    return {
+      usedTokens,
+      inputCapacity,
+      percent: Math.min(100, Math.max(0, Math.round((usedTokens / inputCapacity) * 100))),
+    };
+  }
+
+  function contextMeterText() {
+    const usage = modelContextUsage();
+    return usage ? `${usage.percent}%` : "--";
+  }
+
+  function contextMeterTitle() {
+    const usage = modelContextUsage();
+    if (!usage) return "Model context usage appears after the first model turn";
+    return `${usage.usedTokens.toLocaleString()} of ${usage.inputCapacity.toLocaleString()} input-context tokens used`;
   }
 
   function toggleTool(id: string) {
@@ -388,6 +508,8 @@
       desktopNotifications,
       autoDismissNotifications,
       contextMode,
+      contextHttpBaseUrl,
+      contextHttpApiKey,
       contextEmbeddingBaseUrl,
       contextEmbeddingModel,
       contextEmbeddingApiKey,
@@ -396,6 +518,7 @@
       contextRerankModel,
     });
     backendToken = "";
+    contextHttpApiKey = "";
     contextEmbeddingApiKey = "";
   }
 
@@ -411,6 +534,8 @@
       desktopNotifications,
       autoDismissNotifications,
       contextMode,
+      contextHttpBaseUrl,
+      contextHttpApiKey: "",
       contextEmbeddingBaseUrl,
       contextEmbeddingModel,
       contextEmbeddingApiKey: "",
@@ -557,6 +682,8 @@
       desktopNotifications,
       autoDismissNotifications,
       contextMode,
+      contextHttpBaseUrl,
+      contextHttpApiKey: "",
       contextEmbeddingBaseUrl,
       contextEmbeddingModel,
       contextEmbeddingApiKey: "",
@@ -579,7 +706,7 @@
   }
 
   function isBusy() {
-    return snapshot?.runState === "running" || snapshot?.runState === "awaiting_approval";
+    return snapshot?.runState === "starting" || snapshot?.runState === "running" || snapshot?.runState === "awaiting_approval";
   }
 
   function compactTokenCount(value: number) {
@@ -589,6 +716,7 @@
 
   function runActivityLabel(hasRunningTool: boolean) {
     if (!snapshot) return "Generating response…";
+    if (snapshot.runState === "starting") return "Starting queued message…";
     const phase = snapshot.agentRun.verificationState === "required"
       ? "Verifying changes"
       : snapshot.agentRun.overBudget
@@ -747,6 +875,15 @@
         argumentHint: contribution.argumentHint,
       });
     }
+    for (const contribution of snapshot?.pluginRuntime.prompts ?? []) {
+      const command = `/${contribution.id}`;
+      if (localSlashActions[command]) continue;
+      commands.set(command, {
+        command,
+        description: contribution.description ?? `${contribution.name} · ${contribution.pluginId}@${contribution.pluginVersion}`,
+        argumentHint: contribution.argumentHint,
+      });
+    }
     return [...commands.values()].sort((left, right) => left.command.localeCompare(right.command));
   }
 
@@ -754,6 +891,10 @@
     atOpen = false;
     if (kind === "file") {
       sendCommand("pickContext");
+      return;
+    }
+    if (kind === "editor") {
+      sendCommand("attachActiveEditor");
       return;
     }
     if (kind === "rule") {
@@ -771,6 +912,10 @@
   function filteredTools() {
     const q = toolFilter.trim().toLowerCase();
     return TOOL_CATALOG.filter((tool) => !q || tool.id.includes(q) || tool.name.toLowerCase().includes(q) || tool.desc.toLowerCase().includes(q));
+  }
+
+  function attachmentIcon(item: { kind?: string }) {
+    return item.kind === "image" ? "image" : item.kind === "ide_state" ? "code" : "file";
   }
 
   function filteredIcons() {
@@ -894,6 +1039,34 @@
     return status;
   }
 
+  function terminalCommand(tool: ToolRun) {
+    return tool.summary.replace(/\s+\(exit -?\d+\)$/, "").trim() || "Command";
+  }
+
+  function terminalOutput(tool: ToolRun) {
+    return (tool.detail ?? "").replace(/^exit=-?\d+(?: timeout=true)?\n?/, "").trimEnd();
+  }
+
+  function terminalExitCode(tool: ToolRun) {
+    const match = tool.detail?.match(/^exit=(-?\d+)/);
+    return match ? Number(match[1]) : null;
+  }
+
+  function terminalTimedOut(tool: ToolRun) {
+    return /^exit=-?\d+ timeout=true/.test(tool.detail ?? "");
+  }
+
+  function terminalFailed(tool: ToolRun) {
+    const exitCode = terminalExitCode(tool);
+    return terminalTimedOut(tool) || (exitCode !== null && exitCode !== 0);
+  }
+
+  function terminalStatus(tool: ToolRun) {
+    if (terminalTimedOut(tool)) return "timed out";
+    const exitCode = terminalExitCode(tool);
+    return exitCode === null ? statusLabel(tool.status) : `exit ${exitCode}`;
+  }
+
   function changeTools() {
     return snapshot?.tools.filter((tool) => Boolean(tool.changePath)) ?? [];
   }
@@ -932,8 +1105,38 @@
     return "Agent";
   }
 
+  function setChatZoom(next: number, persist = true) {
+    const clamped = Math.min(CHAT_ZOOM_MAX, Math.max(CHAT_ZOOM_MIN, next));
+    if (clamped === chatZoom) return;
+    chatZoom = clamped;
+    if (persist) saveUserExperience();
+  }
+
   function adjustChatZoom(delta: number) {
-    chatZoom = Math.min(140, Math.max(85, chatZoom + delta));
+    setChatZoom(chatZoom + delta);
+  }
+
+  function resetChatZoom() {
+    setChatZoom(CHAT_ZOOM_DEFAULT);
+  }
+
+  function handleChatZoomShortcut(event: KeyboardEvent): boolean {
+    const primary = event.metaKey || event.ctrlKey;
+    if (!primary || event.altKey) return false;
+
+    const increase = event.code === "Equal" || event.key === "+" || event.key === "=";
+    const decrease = event.code === "Minus" || event.key === "-" || event.key === "_";
+    const reset = event.code === "Digit0" || event.key === "0";
+    if (!increase && !decrease && !reset) return false;
+
+    if (increase) adjustChatZoom(CHAT_ZOOM_STEP);
+    else if (decrease) adjustChatZoom(-CHAT_ZOOM_STEP);
+    else resetChatZoom();
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    return true;
   }
 
   function seedSlash() {
@@ -941,8 +1144,6 @@
     slashOpen = true;
     atOpen = false;
     modeMenuOpen = false;
-    agentProfileMenuOpen = false;
-    modelMenuOpen = false;
     skillsOpen = false;
   }
 
@@ -950,8 +1151,6 @@
     atOpen = true;
     slashOpen = false;
     modeMenuOpen = false;
-    agentProfileMenuOpen = false;
-    modelMenuOpen = false;
     skillsOpen = false;
   }
 
@@ -960,16 +1159,21 @@
   type TimelineItem =
     | { kind: "user"; message: TimelineMessage }
     | { kind: "assistant"; message: TimelineMessage }
+    | { kind: "queued"; message: AppSnapshot["messageQueue"][number]; position: number }
     | { kind: "tools"; runId?: string; turnIndex: number; tools: ToolRun[] }
     | { kind: "activity"; label: string }
     | { kind: "tasks" };
 
-  function conversationTimeline(): TimelineItem[] {
-    if (!snapshot) return [];
+  function conversationTimeline(currentSnapshot: AppSnapshot, optimisticMessages: ChatMessage[]): TimelineItem[] {
     const items: TimelineItem[] = [];
-    const messages = snapshot.messages;
-    const tools = snapshot.tools;
+    const persistedMessageIds = new Set(currentSnapshot.messages.map((message) => message.id));
+    const messages = [
+      ...currentSnapshot.messages,
+      ...optimisticMessages.filter((message) => !persistedMessageIds.has(message.id)),
+    ];
+    const tools = currentSnapshot.tools;
     const insertedToolTurns = new Set<string>();
+    const seenRunIds = new Set<string>();
 
     function groupKey(runId: string | undefined, turnIndex: number) {
       return `${runId ?? "legacy"}:${turnIndex}`;
@@ -983,13 +1187,33 @@
       insertedToolTurns.add(key);
     }
 
+    function insertEarlierToolTurns(message: TimelineMessage, messageIndex: number) {
+      if (messageIndex === 0) return;
+      [...tools]
+        .filter((tool) => {
+          const key = groupKey(tool.runId, tool.turnIndex ?? 0);
+          if (insertedToolTurns.has(key)) return false;
+          if (message.runId && tool.runId === message.runId) return false;
+          if (tool.runId) return seenRunIds.has(tool.runId);
+          return (tool.createdAt ?? 0) <= message.createdAt;
+        })
+        .sort((left, right) =>
+          (left.createdAt ?? 0) - (right.createdAt ?? 0) ||
+          (left.turnIndex ?? 0) - (right.turnIndex ?? 0)
+        )
+        .forEach((tool) => insertToolTurn(tool.runId, tool.turnIndex ?? 0));
+    }
+
     for (let index = 0; index < messages.length; index += 1) {
       const message = messages[index];
       if (message.role === "user") {
+        insertEarlierToolTurns(message, index);
         items.push({ kind: "user", message });
+        if (message.runId) seenRunIds.add(message.runId);
         continue;
       }
       if (message.role !== "assistant") continue;
+      if (message.runId) seenRunIds.add(message.runId);
       const turnIndex = message.turnIndex;
       if (turnIndex !== undefined) {
         tools
@@ -1009,15 +1233,17 @@
       .forEach((tool) => insertToolTurn(tool.runId, tool.turnIndex ?? 0));
 
     const hasRunningTool = tools.some((tool) => tool.status === "running");
-    if (snapshot.runState === "running" && (tools.length === 0 || hasRunningTool)) {
+    if ((currentSnapshot.runState === "starting" || currentSnapshot.runState === "running") && (tools.length === 0 || hasRunningTool)) {
       items.push({ kind: "activity", label: runActivityLabel(hasRunningTool) });
     }
-    if (snapshot.tasks.length > 0) items.push({ kind: "tasks" });
+    currentSnapshot.messageQueue.forEach((message, index) => items.push({ kind: "queued", message, position: index + 1 }));
+    if (currentSnapshot.tasks.length > 0) items.push({ kind: "tasks" });
     return items;
   }
 </script>
 
 <svelte:window onkeydown={(event) => {
+  if (handleChatZoomShortcut(event)) return;
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") submit();
   if (event.key === "Escape") {
     threadDrawerOpen = false;
@@ -1087,9 +1313,12 @@
             <strong class="thread-title" title="Double-click to rename" ondblclick={beginRename}>{activeThread()?.title ?? "New thread"}</strong>
           {/if}
           <div class="ch-actions">
-            <button class="context-meter" title={snapshot.context.label} onclick={updateContext}><Icon name="gauge" size={12} /> Context <b>{snapshot.context.state === "ready" ? snapshot.context.watching ? "Live" : "Ready" : "--"}</b></button>
-            <button class="icon-button compact" title="Chat zoom out" onclick={() => adjustChatZoom(-5)}>−</button>
-            <button class="icon-button compact" title="Chat zoom in" onclick={() => adjustChatZoom(5)}>+</button>
+            <span class="context-meter" title={contextMeterTitle()}><Icon name="gauge" size={12} /> Context <b>{contextMeterText()}</b></span>
+            <div class="chat-zoom-controls" role="group" aria-label="Chat zoom">
+              <button class="icon-button compact" title="Decrease chat zoom (Cmd/Ctrl -)" aria-label="Decrease chat zoom" disabled={chatZoom <= CHAT_ZOOM_MIN} onclick={() => adjustChatZoom(-CHAT_ZOOM_STEP)}><Icon name="minus" size={13} /></button>
+              <button class="chat-zoom-value" title="Reset chat zoom (Cmd/Ctrl 0)" aria-label={`Reset chat zoom, currently ${chatZoom}%`} onclick={resetChatZoom}>{chatZoom}%</button>
+              <button class="icon-button compact" title="Increase chat zoom (Cmd/Ctrl +)" aria-label="Increase chat zoom" disabled={chatZoom >= CHAT_ZOOM_MAX} onclick={() => adjustChatZoom(CHAT_ZOOM_STEP)}><Icon name="plus" size={13} /></button>
+            </div>
             <button class="icon-button compact" title="Share link to session" onclick={copyThread}><Icon name="share-2" size={13} /></button>
             <div class="more-control">
               <button class="icon-button compact" class:active={threadOptOpen} title="Thread options" onclick={() => { threadOptOpen = !threadOptOpen; moreMenuOpen = false; }}><Icon name="ellipsis" size={14} /></button>
@@ -1130,8 +1359,8 @@
           </div>
         {/if}
 
-        <div class="conversation" style={`font-size: calc(10.5px * var(--chat-zoom))`}>
-          {#if snapshot.messages.length === 0}
+        <div class="conversation" bind:this={conversationElement} onscroll={updateConversationFollow}>
+          {#if snapshot.messages.length === 0 && pendingUserMessages.length === 0}
             <div class="empty-state">
               <span class="empty-logo"><Icon name="plugin-icon" size={18} /></span>
               <h1>Start a new task</h1>
@@ -1142,11 +1371,11 @@
             </div>
           {:else}
             <div class="message-list">
-              {#each conversationTimeline() as item (item.kind === "user" || item.kind === "assistant" ? item.message.id : item.kind === "tools" ? `tools-${item.runId ?? "legacy"}-${item.turnIndex}` : item.kind)}
+              {#each conversationTimeline(snapshot, pendingUserMessages) as item (item.kind === "user" || item.kind === "assistant" || item.kind === "queued" ? item.message.id : item.kind === "tools" ? `tools-${item.runId ?? "legacy"}-${item.turnIndex}` : item.kind)}
                 {#if item.kind === "user"}
                   <article class="user-message">
-                    <header><span>You</span>{#if showTimestamps}<time>{formatTime(item.message.createdAt)}</time>{/if}<Icon name="user-round" size={14} /></header>
-                    <div>{item.message.content}</div>
+                    {#if showTimestamps}<time>{formatTime(item.message.createdAt)}</time>{/if}
+                    <div class="user-message-content">{item.message.content}</div>
                   </article>
                 {:else if item.kind === "assistant"}
                   {#if item.message.content}
@@ -1163,19 +1392,18 @@
                       </div>
                     </section>
                   {/if}
+                {:else if item.kind === "queued"}
+                  <article class="user-message queued-message">
+                    <header><span>Queued</span><span class="queued-position">#{item.position} · sends after the current run</span><Icon name="clock" size={14} /></header>
+                    <div>{item.message.text}</div>
+                    <footer><button title="Remove queued message" onclick={() => sendCommand("removeQueuedMessage", { messageId: item.message.id })}><Icon name="x" size={12} />Remove</button></footer>
+                  </article>
                 {:else if item.kind === "activity"}
                   <div class="generation-status" role="status" aria-live="polite" title={snapshot.agentRun.activeToolNames.join(", ")}><Icon name="circle-dashed" size={13} /><span>{item.label}</span></div>
                 {:else if item.kind === "tools"}
                   <section class="agent-turn tools-turn">
-                    <div class="pass-summary">
-                      <Icon name="square-terminal" size={14} />
-                      <div class="pass-copy"><strong>Agent tool pass</strong>{#if showRunTelemetry}<small>{toolPassMeta(item.turnIndex, item.tools)}</small>{/if}</div>
-                      <span>{item.tools.filter((tool) => tool.status === "completed").length} / {item.tools.length}</span>
-                      <button onclick={() => setAllTools(true)}>Expand all</button>
-                      <button onclick={() => setAllTools(false)}>Collapse all</button>
-                    </div>
                     <div class="tool-list">
-                      {#each item.tools as tool}
+                      {#each item.tools as tool (tool.id)}
                         <section class="tool-card {tool.status}">
                           <button class="tool-header" onclick={() => toggleTool(tool.id)} aria-expanded={toolsExpanded.has(tool.id)}>
                             <span class="tool-icon"><Icon name={toolIcon(tool)} size={14} /></span>
@@ -1185,11 +1413,35 @@
                           </button>
                           {#if toolsExpanded.has(tool.id)}
                             <div class="tool-detail">
-                              <span class="detail-label">Details</span>
-                              {#if tool.name === "render_mermaid" && tool.detail}
+                              {#if tool.name === "run_terminal"}
+                                <div class="shell-details">
+                                  <section>
+                                    <header>
+                                      <strong>Command</strong>
+                                      <button title="Copy command" aria-label="Copy command" onclick={() => copyText(terminalCommand(tool), "Command copied")}><Icon name="copy" size={12} /></button>
+                                    </header>
+                                    <pre><span>$</span> {terminalCommand(tool)}</pre>
+                                  </section>
+                                  {#if tool.detail}
+                                    <section class:error={terminalFailed(tool)}>
+                                      <header>
+                                        <strong>{terminalFailed(tool) ? "Error" : "Output"}</strong>
+                                        <i>{terminalStatus(tool)}</i>
+                                        <button title="Copy output" aria-label="Copy output" onclick={() => copyText(terminalOutput(tool), "Terminal output copied")}><Icon name="copy" size={12} /></button>
+                                      </header>
+                                      <pre>{terminalOutput(tool) || "Command completed without output."}</pre>
+                                    </section>
+                                  {/if}
+                                  <button class="secondary-action" onclick={() => sendCommand("openTerminal")}><Icon name="square-terminal" size={13} />Show Terminal</button>
+                                </div>
+                              {:else if tool.name === "render_mermaid" && tool.detail}
+                                <span class="detail-label">Details</span>
                                 <MermaidCanvas source={tool.detail} compact />
                                 <button class="secondary-action" onclick={() => openMermaid(tool)}><Icon name="maximize-2" size={13} />Open Canvas</button>
-                              {:else if tool.detail}<pre>{tool.detail}</pre>{:else}<p>No additional output.</p>{/if}
+                              {:else}
+                                <span class="detail-label">Details</span>
+                                {#if tool.detail}<pre>{tool.detail}</pre>{:else}<p>No additional output.</p>{/if}
+                              {/if}
                               {#if tool.changePath}
                                 <div class="file-actions">
                                   <span>{tool.changePath}</span>
@@ -1197,17 +1449,14 @@
                                   {#if tool.canRevert}<button onclick={() => sendCommand("revertChange", { toolId: tool.id })}><Icon name="undo-2" size={13} />Undo</button>{/if}
                                 </div>
                               {/if}
-                              {#if tool.name === "run_terminal"}
-                                <button class="secondary-action" onclick={() => sendCommand("openTerminal")}><Icon name="square-terminal" size={13} />Open Terminal</button>
-                              {/if}
                             </div>
                           {/if}
                           {#if tool.status === "approval"}
-                            <div class="approval">
+                            <div class="approval" role="status" aria-live="polite">
                               <Icon name="circle-alert" size={14} />
-                              <span>Approval required</span>
-                              <button onclick={() => sendCommand("resolveApproval", { toolId: tool.id, approved: false })}>Skip</button>
-                              <button class="approve" onclick={() => sendCommand("resolveApproval", { toolId: tool.id, approved: true })}>Approve</button>
+                              <span>Waiting for user input</span>
+                              <button disabled={resolvingApprovalIds.has(tool.id)} onclick={() => resolveApproval(tool.id, false)}>Skip</button>
+                              <button class="approve" disabled={resolvingApprovalIds.has(tool.id)} onclick={() => resolveApproval(tool.id, true)}><Icon name="circle-play" size={12} />{resolvingApprovalIds.has(tool.id) ? "Approving..." : "Approve"}</button>
                             </div>
                           {/if}
                         </section>
@@ -1263,7 +1512,7 @@
           {#if snapshot.attachments.length > 0}
             <div class="context-chips chips">
               {#each snapshot.attachments as item}
-                <span class="chip accent"><Icon name="file" size={12} /><b title={item.path}>{item.label}</b><button title="Remove" onclick={() => sendCommand("removeContext", { id: item.id })}><Icon name="x" size={11} /></button></span>
+                <span class="chip accent"><Icon name={attachmentIcon(item)} size={12} /><b title={item.path}>{item.label}</b><button title="Remove" onclick={() => sendCommand("removeContext", { id: item.id })}><Icon name="x" size={11} /></button></span>
               {/each}
               <button class="chip" onclick={() => sendCommand("pickContext")}><Icon name="plus" size={12} /> context</button>
             </div>
@@ -1271,14 +1520,6 @@
             <div class="context-chips chips">
               <button class="chip" onclick={() => sendCommand("pickContext")}><Icon name="plus" size={12} /> context</button>
             </div>
-          {/if}
-          {#if snapshot.messageQueue.length > 0}
-            <section class="message-queue">
-              <header><Icon name="list-checks" size={12} /><strong>Message Queue</strong><span>{snapshot.messageQueue.length}</span></header>
-              {#each snapshot.messageQueue as item, index}
-                <div><i>{index + 1}</i><span>{item.text}</span><b>{item.mode}</b><button title="Remove queued message" onclick={() => sendCommand("removeQueuedMessage", { messageId: item.id })}><Icon name="x" size={11} /></button></div>
-              {/each}
-            </section>
           {/if}
           <div class="composer comp" class:busy={isBusy()}>
             {#if snapshot.mode === "ask"}
@@ -1302,6 +1543,17 @@
                 {/each}
               </div>
             {/if}
+            {#if modelMenuOpen}
+              <div class="composer-popup model-menu" role="listbox" aria-label="Available models">
+                {#each availableModels() as model}
+                  <button type="button" class:active={activeModelId() === model.id} role="option" aria-selected={activeModelId() === model.id} onclick={() => selectModel(model.id)}>
+                    <span class="model-vendor-mark {model.ownedBy ?? "unknown"}"><Icon name={modelVendorIcon(model)} size={14} /></span>
+                    <span class="model-option-copy"><strong>{model.id}</strong><small>{modelVendorName(model)} · Applies to this thread</small></span>
+                    {#if activeModelId() === model.id}<Icon name="check" size={13} />{/if}
+                  </button>
+                {/each}
+              </div>
+            {/if}
             <textarea
               bind:value={prompt}
               placeholder="Type a message or command..."
@@ -1320,7 +1572,7 @@
             ></textarea>
             <div class="composer-toolbar abar">
               <div class="mode-control">
-                <button class="mode-button dd-btn" onclick={() => { modeMenuOpen = !modeMenuOpen; agentProfileMenuOpen = false; modelMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}>
+                <button class="mode-button dd-btn" onclick={() => { modeMenuOpen = !modeMenuOpen; modelMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}>
                   <span class="tag {snapshot.mode}">{modeLabel()}</span>
                   <Icon name="chevron-down" size={12} />
                 </button>
@@ -1345,44 +1597,19 @@
                   </div>
                 {/if}
               </div>
-              <div class="profile-control">
+              <div class="model-control" title={modelTitle()}>
                 <button
-                  class="profile-button model-btn"
-                  title={`${activeAgentProfile().name}: ${activeAgentProfile().description}`}
-                  disabled={isBusy()}
-                  onclick={() => { agentProfileMenuOpen = !agentProfileMenuOpen; modeMenuOpen = false; modelMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}
-                ><Icon name="bot" size={12} /><span class="profile-label">{activeAgentProfile().name}</span><Icon name="chevron-down" size={11} /></button>
-                {#if agentProfileMenuOpen}
-                  <div class="model-menu profile-menu drop">
-                    <header><span>Agent profile</span><small>{agentProfiles().length} available</small></header>
-                    {#each agentProfiles() as profile}
-                      <button class:active={(snapshot.selectedAgentProfileId ?? "general") === profile.id} onclick={() => selectAgentProfile(profile.id)}>
-                        <Icon name={profile.agentType === "search" ? "search" : profile.agentType === "context" ? "layers-2" : profile.agentType === "prompt" ? "sparkles" : profile.agentType === "loop" ? "repeat-2" : "bot"} size={13} />
-                        <span><strong>{profile.name}</strong><small>{profile.description}</small></span>
-                        {#if (snapshot.selectedAgentProfileId ?? "general") === profile.id}<Icon name="check" size={13} />{/if}
-                      </button>
-                    {/each}
-                  </div>
-                {/if}
-              </div>
-              <div class="model-control">
-                <button
-                  class="model-select model-btn"
-                  title={snapshot.models.selectedModel ?? snapshot.models.defaultModel ?? snapshot.models.label}
-                  disabled={isBusy() || snapshot.models.state !== "ready" || snapshot.models.options.length === 0}
-                  onclick={() => { modelMenuOpen = !modelMenuOpen; modeMenuOpen = false; agentProfileMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}
-                ><span>{snapshot.models.selectedModel ?? snapshot.models.defaultModel ?? "auto-detect"}</span><Icon name="chevron-down" size={11} /></button>
-                {#if modelMenuOpen}
-                  <div class="model-menu drop">
-                    <header><span>{snapshot.models.provider}</span><small>{snapshot.models.options.length} models</small></header>
-                    {#each snapshot.models.options as model}
-                      <button class:active={(snapshot.models.selectedModel ?? snapshot.models.defaultModel) === model.id} onclick={() => selectModel(model.id)}>
-                        <span><strong>{model.id}</strong>{#if model.ownedBy}<small>{model.ownedBy}</small>{/if}</span>
-                        {#if (snapshot.models.selectedModel ?? snapshot.models.defaultModel) === model.id}<Icon name="check" size={13} />{/if}
-                      </button>
-                    {/each}
-                  </div>
-                {/if}
+                  type="button"
+                  class="model-select"
+                  class:active={modelMenuOpen}
+                  aria-label="Model selection"
+                  aria-haspopup="listbox"
+                  aria-expanded={modelMenuOpen}
+                  onclick={toggleModelMenu}
+                >
+                  <Icon name="settings-2" size={12} />
+                  <span>{modelLabel()}</span>
+                </button>
               </div>
               <button title="Context Canvas" onclick={() => openWorkspaceView("images")}><Icon name="layers-2" size={14} /></button>
               <button title="@ mention" onclick={seedMention}><Icon name="at-sign" size={14} /></button>
@@ -1390,7 +1617,7 @@
               <button title="Attach file/image" onclick={() => sendCommand("pickContext")}><Icon name="file-input" size={14} /></button>
               <button title={enhancing ? "Enhancing…" : "Enhance prompt"} disabled={!prompt.trim() || enhancing || isBusy()} onclick={enhancePrompt}><Icon name="sparkles" size={14} /></button>
               <div class="skill-control">
-                <button class:active={skillsOpen} title="Skills" onclick={() => { skillsOpen = !skillsOpen; modeMenuOpen = false; agentProfileMenuOpen = false; modelMenuOpen = false; }}>
+                <button class:active={skillsOpen} title="Skills" onclick={() => { skillsOpen = !skillsOpen; modeMenuOpen = false; modelMenuOpen = false; }}>
                   <Icon name="wand-sparkles" size={14} />
                   {#if selectedSkillCount() > 0}<i>{selectedSkillCount()}</i>{/if}
                 </button>
@@ -1512,7 +1739,7 @@
                 </div>
                 <div>
                   <Icon name="layers" size={14} />
-                  <span class="capability-copy"><strong>Declarative plugins</strong><small>{snapshot.pluginRuntime.items.length} configured · {snapshot.pluginRuntime.commands.length} active command contributions</small></span>
+                  <span class="capability-copy"><strong>Declarative plugins</strong><small>{snapshot.pluginRuntime.items.length} configured · {snapshot.pluginRuntime.commands.length + snapshot.pluginRuntime.prompts.length} active prompt templates</small></span>
                   <i class:ready={snapshot.pluginRuntime.state === "ready"}>{snapshot.pluginRuntime.state}</i>
                 </div>
                 <div>
@@ -1533,7 +1760,7 @@
               <h1>{settingsSection === "API Keys" ? "API Keys" : "Services"}</h1>
               <p class="settings-lead">
                 {#if settingsSection === "API Keys"}
-                  Agent model credentials stay on the deployed backend. Private Context Engine endpoint credentials remain in JetBrains Password Safe.
+                  Agent model credentials stay on the deployed backend. ContextEngine deployment credentials remain in JetBrains Password Safe.
                 {:else}
                   Connect this IDE capability gateway to the deployed Agent backend.
                 {/if}
@@ -1542,7 +1769,11 @@
                 <label><span>Backend URL</span><input bind:value={backendUrl} /></label>
                 <label><span>Backend token</span><input type="password" bind:value={backendToken} placeholder={snapshot.settings.backendTokenConfigured ? "Configured" : "Not configured"} /></label>
                 <label><span>Node.js executable</span><input bind:value={nodePath} /></label>
-                <label><span>Context retrieval</span><select bind:value={contextMode}><option value="lexical">Local lexical and symbol index</option><option value="private-semantic">Private semantic endpoint</option></select></label>
+                <label><span>Context retrieval</span><select bind:value={contextMode}><option value="remote-http">ContextEngine HTTP deployment</option><option value="lexical">Local lexical and symbol index</option><option value="private-semantic">Local index with private embeddings</option></select></label>
+                {#if contextMode === "remote-http"}
+                  <label><span>ContextEngine URL</span><input bind:value={contextHttpBaseUrl} placeholder="http://127.0.0.1:8790" /></label>
+                  <label><span>ContextEngine token</span><input type="password" bind:value={contextHttpApiKey} placeholder={snapshot.settings.contextHttpTokenConfigured ? "Configured" : "Required unless unauthenticated mode is enabled"} /></label>
+                {/if}
                 {#if contextMode === "private-semantic"}
                   <label><span>Embedding API URL</span><input bind:value={contextEmbeddingBaseUrl} /></label>
                   <label><span>Embedding model</span><input bind:value={contextEmbeddingModel} /></label>
@@ -1616,12 +1847,14 @@
                   {#each snapshot.customization.rules as rule}
                     <div>
                       <Icon name="book-open" size={14} />
-                      <button class="rule-copy" onclick={() => editRule(rule)}><strong>{rule.name}</strong><small>{rule.description || rule.path}</small></button>
+                      <button class="rule-copy" disabled={rule.source !== undefined && rule.source !== "workspace"} title={rule.source !== undefined && rule.source !== "workspace" ? "Plugin rules are read-only" : undefined} onclick={() => editRule(rule)}><strong>{rule.name}</strong><small>{rule.description || rule.path}</small></button>
                       <i>{rule.trigger}</i>
                       {#if rule.trigger === "manual"}
                         <label title="Enable for this thread"><input type="checkbox" checked={rule.selected} onchange={() => sendCommand("toggleRule", { ruleId: rule.id, selected: !rule.selected })} /></label>
                       {/if}
-                      <button class="icon-button compact" title="Edit rule" onclick={() => editRule(rule)}><Icon name="file-pen" size={13} /></button>
+                      {#if rule.source === undefined || rule.source === "workspace"}
+                        <button class="icon-button compact" title="Edit rule" onclick={() => editRule(rule)}><Icon name="file-pen" size={13} /></button>
+                      {/if}
                     </div>
                   {:else}
                     <p>No repository rules found.</p>
@@ -1692,9 +1925,14 @@
               <h1>User Experience</h1>
               <p class="settings-lead">Conversation presentation and IDE-owned notification delivery.</p>
               <section class="settings-form settings-block">
-                <header><strong>Chat zoom</strong><span>{chatZoom}%</span></header>
-                <div class="image-settings" style="margin:8px 0 0">
-                  <label>Zoom <input type="range" min="85" max="140" bind:value={chatZoom} /><span>{chatZoom}%</span></label>
+                <header><strong>Appearance</strong><span>{chatZoom}%</span></header>
+                <div class="chat-zoom-setting">
+                  <span><strong>Chat Zoom</strong><small>Increase or decrease the zoom level of the chat</small></span>
+                  <div class="chat-zoom-controls" role="group" aria-label="Chat zoom">
+                    <button class="icon-button compact" title="Decrease chat zoom" aria-label="Decrease chat zoom" disabled={chatZoom <= CHAT_ZOOM_MIN} onclick={() => adjustChatZoom(-CHAT_ZOOM_STEP)}><Icon name="minus" size={13} /></button>
+                    <span class="chat-zoom-setting-value">{chatZoom}%</span>
+                    <button class="icon-button compact" title="Increase chat zoom" aria-label="Increase chat zoom" disabled={chatZoom >= CHAT_ZOOM_MAX} onclick={() => adjustChatZoom(CHAT_ZOOM_STEP)}><Icon name="plus" size={13} /></button>
+                  </div>
                 </div>
                 <label class="toggle-row">
                   <input type="checkbox" bind:checked={showTimestamps} />

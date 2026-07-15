@@ -7,6 +7,19 @@ data class AgentMessage(
     val content: String? = null,
     val toolCalls: List<AgentToolCall>? = null,
     val toolCallId: String? = null,
+    val attachments: List<AgentAttachment> = emptyList(),
+)
+
+data class AgentAttachment(
+    val type: String,
+    val id: String,
+    val label: String,
+    val path: String? = null,
+    val mimeType: String? = null,
+    val data: String? = null,
+    val textExcerpt: String? = null,
+    val sizeBytes: Long = 0,
+    val metadata: Map<String, String> = emptyMap(),
 )
 
 data class AgentToolCall(

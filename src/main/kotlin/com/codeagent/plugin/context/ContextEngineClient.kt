@@ -210,6 +210,8 @@ class ContextEngineClient(
     companion object {
         private val LOG = logger<ContextEngineClient>()
         private val CONTEXT_ENVIRONMENT_KEYS = setOf(
+            "CONTEXTENGINE_HTTP_URL",
+            "CONTEXTENGINE_HTTP_API_KEY",
             "CONTEXTENGINE_EMBEDDING_API_KEY",
             "CONTEXTENGINE_EMBEDDING_BASE_URL",
             "CONTEXTENGINE_EMBEDDING_MODEL",

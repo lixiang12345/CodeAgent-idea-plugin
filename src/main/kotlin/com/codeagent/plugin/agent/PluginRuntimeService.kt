@@ -36,6 +36,16 @@ internal data class PluginCommandDefinition(
     val agentProfileId: String? = null,
 )
 
+internal data class PluginPromptDefinition(
+    val id: String,
+    val pluginId: String,
+    val pluginVersion: String,
+    val name: String,
+    val description: String? = null,
+    val prompt: String,
+    val argumentHint: String? = null,
+)
+
 internal data class PluginRuntimeItem(
     val id: String,
     val name: String,
@@ -50,6 +60,9 @@ internal data class PluginRuntimeItem(
     val grantedCapabilities: List<String> = emptyList(),
     val declaredCapabilities: List<String> = emptyList(),
     val commandCount: Int = 0,
+    val promptCount: Int = 0,
+    val ruleCount: Int = 0,
+    val skillCount: Int = 0,
     val installedAt: String? = null,
     val lastCheckedAt: String? = null,
     val lastError: String? = null,
@@ -60,6 +73,9 @@ internal data class PluginRuntimeSnapshot(
     val label: String = "No plugins configured",
     val items: List<PluginRuntimeItem> = emptyList(),
     val commands: List<PluginCommandDefinition> = emptyList(),
+    val prompts: List<PluginPromptDefinition> = emptyList(),
+    val rules: List<WorkspaceRule> = emptyList(),
+    val skills: List<WorkspaceSkill> = emptyList(),
 )
 
 internal data class PluginDefinition(
@@ -84,6 +100,9 @@ internal data class DeclarativePluginManifest(
     val homepage: String? = null,
     val capabilities: List<String> = emptyList(),
     val commands: List<DeclarativePluginCommand> = emptyList(),
+    val prompts: List<DeclarativePluginPrompt> = emptyList(),
+    val rules: List<DeclarativePluginRule> = emptyList(),
+    val skills: List<DeclarativePluginSkill> = emptyList(),
 )
 
 @Serializable
@@ -95,6 +114,32 @@ internal data class DeclarativePluginCommand(
     val argumentHint: String? = null,
     val mode: String = "inherit",
     val agentProfileId: String? = null,
+)
+
+@Serializable
+internal data class DeclarativePluginPrompt(
+    val id: String,
+    val name: String,
+    val description: String? = null,
+    val prompt: String,
+    val argumentHint: String? = null,
+)
+
+@Serializable
+internal data class DeclarativePluginRule(
+    val id: String,
+    val name: String,
+    val description: String? = null,
+    val content: String,
+    val trigger: String = "always",
+)
+
+@Serializable
+internal data class DeclarativePluginSkill(
+    val id: String,
+    val name: String,
+    val description: String? = null,
+    val content: String,
 )
 
 internal data class StoredPluginManifest(
@@ -198,6 +243,9 @@ internal class PluginRuntime(
 
     fun snapshot(): PluginRuntimeSnapshot = synchronized(lock) {
         val commands = activeCommandsLocked()
+        val prompts = activePromptsLocked()
+        val rules = activeRulesLocked()
+        val skills = activeSkillsLocked()
         val items = definitions.values.sortedBy(PluginDefinition::name).map { definition ->
             val installedPlugin = installed[definition.id]
             val checkedPlugin = checked[definition.id]
@@ -234,6 +282,9 @@ internal class PluginRuntime(
                 grantedCapabilities = definition.grantedCapabilities,
                 declaredCapabilities = manifest?.capabilities.orEmpty(),
                 commandCount = commands.count { it.pluginId == definition.id },
+                promptCount = prompts.count { it.pluginId == definition.id },
+                ruleCount = rules.count { it.source == "plugin:${definition.id}" },
+                skillCount = skills.count { it.source == "plugin:${definition.id}" },
                 installedAt = installedPlugin?.installedAt,
                 lastCheckedAt = checkedPlugin?.checkedAt,
                 lastError = lastError,
@@ -251,10 +302,14 @@ internal class PluginRuntime(
             label = if (items.isEmpty()) {
                 "No plugins configured"
             } else {
-                "${items.size} configured · $installedCount installed · $activeCount active"
+                "${items.size} configured · $installedCount installed · $activeCount active · " +
+                    "${commands.size + prompts.size + rules.size + skills.size} contributions"
             },
             items = items,
             commands = commands,
+            prompts = prompts,
+            rules = rules,
+            skills = skills,
         )
     }
 
@@ -280,12 +335,7 @@ internal class PluginRuntime(
     }
 
     private fun activeCommandsLocked(): List<PluginCommandDefinition> =
-        definitions.values.asSequence()
-            .filter(PluginDefinition::enabled)
-            .filter { "commands" in it.grantedCapabilities }
-            .mapNotNull { definition ->
-                installed[definition.id]?.manifest?.let { definition to it }
-            }
+        activeManifestsLocked("commands")
             .flatMap { (definition, manifest) ->
                 manifest.commands.asSequence().map { command ->
                     PluginCommandDefinition(
@@ -303,6 +353,65 @@ internal class PluginRuntime(
             }
             .sortedBy(PluginCommandDefinition::id)
             .toList()
+
+    private fun activePromptsLocked(): List<PluginPromptDefinition> =
+        activeManifestsLocked("prompts")
+            .flatMap { (definition, manifest) ->
+                manifest.prompts.asSequence().map { prompt ->
+                    PluginPromptDefinition(
+                        id = "${definition.id}.${prompt.id}",
+                        pluginId = definition.id,
+                        pluginVersion = manifest.version,
+                        name = prompt.name,
+                        description = prompt.description,
+                        prompt = prompt.prompt,
+                        argumentHint = prompt.argumentHint,
+                    )
+                }
+            }
+            .sortedBy(PluginPromptDefinition::id)
+            .toList()
+
+    private fun activeRulesLocked(): List<WorkspaceRule> =
+        activeManifestsLocked("rules")
+            .flatMap { (definition, manifest) ->
+                manifest.rules.asSequence().map { rule ->
+                    WorkspaceRule(
+                        id = "plugin:${definition.id}:rule:${rule.id}",
+                        name = rule.name,
+                        path = "plugin://${definition.id}/rules/${rule.id}.md",
+                        content = rule.content,
+                        trigger = rule.trigger,
+                        description = rule.description ?: "Plugin rule from ${definition.name}",
+                        source = "plugin:${definition.id}",
+                    )
+                }
+            }
+            .sortedBy(WorkspaceRule::id)
+            .toList()
+
+    private fun activeSkillsLocked(): List<WorkspaceSkill> =
+        activeManifestsLocked("skills")
+            .flatMap { (definition, manifest) ->
+                manifest.skills.asSequence().map { skill ->
+                    WorkspaceSkill(
+                        id = "plugin:${definition.id}:skill:${skill.id}",
+                        name = skill.name,
+                        description = skill.description ?: "Plugin skill from ${definition.name}",
+                        path = "plugin://${definition.id}/skills/${skill.id}/SKILL.md",
+                        content = skill.content,
+                        source = "plugin:${definition.id}",
+                    )
+                }
+            }
+            .sortedBy(WorkspaceSkill::id)
+            .toList()
+
+    private fun activeManifestsLocked(capability: String): Sequence<Pair<PluginDefinition, DeclarativePluginManifest>> =
+        definitions.values.asSequence()
+            .filter(PluginDefinition::enabled)
+            .filter { capability in it.grantedCapabilities }
+            .mapNotNull { definition -> installed[definition.id]?.manifest?.let { definition to it } }
 
     private data class InstalledPlugin(
         val manifest: DeclarativePluginManifest,
@@ -492,6 +601,33 @@ private fun validateManifest(
     require(manifest.commands.isEmpty() || "commands" in declaredCapabilities) {
         "Plugin command contributions require the commands capability"
     }
+    require(manifest.prompts.isEmpty() || "prompts" in declaredCapabilities) {
+        "Plugin prompt contributions require the prompts capability"
+    }
+    require(manifest.rules.isEmpty() || "rules" in declaredCapabilities) {
+        "Plugin rule contributions require the rules capability"
+    }
+    require(manifest.skills.isEmpty() || "skills" in declaredCapabilities) {
+        "Plugin skill contributions require the skills capability"
+    }
+    require(manifest.commands.size <= MAX_PLUGIN_CONTRIBUTIONS_PER_TYPE) {
+        "Plugin declares too many command contributions"
+    }
+    require(manifest.prompts.size <= MAX_PLUGIN_CONTRIBUTIONS_PER_TYPE) {
+        "Plugin declares too many prompt contributions"
+    }
+    require(manifest.rules.size <= MAX_PLUGIN_CONTRIBUTIONS_PER_TYPE) {
+        "Plugin declares too many rule contributions"
+    }
+    require(manifest.skills.size <= MAX_PLUGIN_CONTRIBUTIONS_PER_TYPE) {
+        "Plugin declares too many skill contributions"
+    }
+    require(
+        manifest.commands.size + manifest.prompts.size + manifest.rules.size + manifest.skills.size <=
+            MAX_PLUGIN_CONTRIBUTIONS_TOTAL,
+    ) {
+        "Plugin declares too many contributions"
+    }
     val commandIds = mutableSetOf<String>()
     manifest.commands.forEach { command ->
         require(PLUGIN_COMMAND_ID_PATTERN.matches(command.id)) { "Invalid plugin command ID '${command.id}'" }
@@ -514,6 +650,52 @@ private fun validateManifest(
         }
         require(command.agentProfileId == null || command.agentProfileId in BUILT_IN_AGENT_PROFILES) {
             "Plugin command Agent profile is invalid"
+        }
+    }
+    val promptIds = mutableSetOf<String>()
+    manifest.prompts.forEach { prompt ->
+        require(PLUGIN_COMMAND_ID_PATTERN.matches(prompt.id)) { "Invalid plugin prompt ID '${prompt.id}'" }
+        require(promptIds.add(prompt.id)) { "Duplicate plugin prompt ID '${prompt.id}'" }
+        require(PLUGIN_ID_PATTERN.matches("${manifest.id}.${prompt.id}")) {
+            "Namespaced plugin prompt ID is too long"
+        }
+        require(prompt.name.isNotBlank() && prompt.name.length <= 160) { "Plugin prompt name is invalid" }
+        require(prompt.description == null || prompt.description.length <= 2_000) {
+            "Plugin prompt description is too long"
+        }
+        require(prompt.prompt.isNotBlank() && prompt.prompt.length <= 100_000) {
+            "Plugin prompt template is invalid"
+        }
+        require(prompt.argumentHint == null || prompt.argumentHint.length <= 500) {
+            "Plugin prompt argument hint is too long"
+        }
+    }
+    require(commandIds.intersect(promptIds).isEmpty()) {
+        "Plugin command and prompt IDs must be unique across slash contributions"
+    }
+    val ruleIds = mutableSetOf<String>()
+    manifest.rules.forEach { rule ->
+        require(PLUGIN_COMMAND_ID_PATTERN.matches(rule.id)) { "Invalid plugin rule ID '${rule.id}'" }
+        require(ruleIds.add(rule.id)) { "Duplicate plugin rule ID '${rule.id}'" }
+        require(rule.name.isNotBlank() && rule.name.length <= 160) { "Plugin rule name is invalid" }
+        require(rule.description == null || rule.description.length <= 2_000) {
+            "Plugin rule description is too long"
+        }
+        require(rule.content.isNotBlank() && rule.content.length <= MAX_PLUGIN_CONTEXT_CONTENT_CHARS) {
+            "Plugin rule content is invalid"
+        }
+        require(rule.trigger in RULE_TRIGGERS) { "Plugin rule trigger is invalid" }
+    }
+    val skillIds = mutableSetOf<String>()
+    manifest.skills.forEach { skill ->
+        require(PLUGIN_COMMAND_ID_PATTERN.matches(skill.id)) { "Invalid plugin skill ID '${skill.id}'" }
+        require(skillIds.add(skill.id)) { "Duplicate plugin skill ID '${skill.id}'" }
+        require(skill.name.isNotBlank() && skill.name.length <= 160) { "Plugin skill name is invalid" }
+        require(skill.description == null || skill.description.length <= 2_000) {
+            "Plugin skill description is too long"
+        }
+        require(skill.content.isNotBlank() && skill.content.length <= MAX_PLUGIN_CONTEXT_CONTENT_CHARS) {
+            "Plugin skill content is invalid"
         }
     }
     return manifest.copy(capabilities = declaredCapabilities)
@@ -562,4 +744,8 @@ private val ALLOWED_PLUGIN_CAPABILITIES = setOf(
     "prompts",
 )
 private val BUILT_IN_AGENT_PROFILES = setOf("general", "search", "context", "prompt", "loop")
+private val RULE_TRIGGERS = setOf("always", "manual", "agent")
 private const val MAX_PLUGIN_MANIFEST_BYTES = 1_048_576
+private const val MAX_PLUGIN_CONTRIBUTIONS_PER_TYPE = 32
+private const val MAX_PLUGIN_CONTRIBUTIONS_TOTAL = 64
+private const val MAX_PLUGIN_CONTEXT_CONTENT_CHARS = 16_000

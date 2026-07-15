@@ -146,8 +146,8 @@ internal object ContextQueryPlanner {
 }
 
 internal object ContextPackBuilder {
-    fun build(plan: ContextQueryPlan, results: List<ContextQueryResult>, maxTokens: Int): PlannedContextPack {
-        val budget = maxTokens.coerceIn(500, 20_000)
+    fun build(plan: ContextQueryPlan, results: List<ContextQueryResult>, maxTokens: Int?): PlannedContextPack {
+        val budget = maxTokens?.coerceAtLeast(1)
         val aggregates = linkedMapOf<String, AggregatedHit>()
         results.forEachIndexed { queryIndex, result ->
             for (hit in result.hits) {
@@ -181,7 +181,7 @@ internal object ContextPackBuilder {
         for (aggregate in ordered) {
             val block = formatHit(aggregate, aggregate.hit.chunk.content)
             val blockTokens = estimateTokens(block)
-            if (tokens + blockTokens <= budget) {
+            if (budget == null || tokens + blockTokens <= budget) {
                 parts += block
                 tokens += blockTokens
                 used += aggregate
@@ -189,14 +189,15 @@ internal object ContextPackBuilder {
             }
 
             truncated = true
+            val explicitBudget = requireNotNull(budget)
             if (used.isNotEmpty()) break
-            val remainingTokens = budget - tokens
+            val remainingTokens = explicitBudget - tokens
             val overheadTokens = estimateTokens(formatHit(aggregate, ""))
             val contentTokens = remainingTokens - overheadTokens - 20
             if (contentTokens > 0) {
                 val content = aggregate.hit.chunk.content.take(contentTokens * 4) + "\n...[truncated to context pack budget]..."
                 val shortened = formatHit(aggregate, content)
-                if (tokens + estimateTokens(shortened) <= budget) {
+                if (tokens + estimateTokens(shortened) <= explicitBudget) {
                     parts += shortened
                     tokens += estimateTokens(shortened)
                     used += aggregate
@@ -206,7 +207,10 @@ internal object ContextPackBuilder {
         }
 
         if (used.isEmpty()) {
-            parts += "No indexed evidence matched the planned queries within the context budget."
+            parts += if (budget == null)
+                "No indexed evidence matched the planned queries."
+            else
+                "No indexed evidence matched the planned queries within the explicit context cap."
         }
         truncated = truncated || used.size < ordered.size
         val packedText = parts.joinToString("\n")

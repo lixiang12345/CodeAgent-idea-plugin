@@ -51,6 +51,46 @@ class PluginRuntimeServiceTest {
     }
 
     @Test
+    fun `activates explicitly granted prompt rule and skill contributions`() {
+        val source = "https://plugins.example.test/review.json"
+        val runtime = PluginRuntime(
+            MutablePluginFetcher(source, safeContextManifest(version = "1.0.0")),
+            MemoryPluginStore(),
+        )
+        runtime.reconcile(listOf(configuration(source, capabilities = listOf("prompts", "rules", "skills"))))
+
+        val installed = runtime.install("review-pack")
+
+        assertEquals(listOf("review-pack.security-review"), installed.prompts.map(PluginPromptDefinition::id))
+        assertEquals(listOf("plugin:review-pack:rule:secure-defaults"), installed.rules.map(WorkspaceRule::id))
+        assertEquals("manual", installed.rules.single().trigger)
+        assertEquals("plugin:review-pack", installed.rules.single().source)
+        assertEquals(listOf("plugin:review-pack:skill:threat-model"), installed.skills.map(WorkspaceSkill::id))
+        assertEquals("plugin:review-pack", installed.skills.single().source)
+        assertEquals(1, installed.items.single().promptCount)
+        assertEquals(1, installed.items.single().ruleCount)
+        assertEquals(1, installed.items.single().skillCount)
+        assertTrue(installed.commands.isEmpty())
+    }
+
+    @Test
+    fun `rejects command and prompt IDs that collide in the slash namespace`() {
+        val source = "https://plugins.example.test/review.json"
+        val runtime = PluginRuntime(
+            MutablePluginFetcher(source, slashCollisionManifest()),
+            MemoryPluginStore(),
+        )
+        runtime.reconcile(listOf(configuration(source, capabilities = listOf("commands", "prompts"))))
+
+        val error = assertFailsWith<IllegalArgumentException> {
+            runtime.install("review-pack")
+        }
+
+        assertTrue(error.message.orEmpty().contains("unique across slash contributions"))
+        assertEquals("error", runtime.snapshot().items.single().state)
+    }
+
+    @Test
     fun `detects an available update without replacing the installed manifest`() {
         val source = "https://plugins.example.test/review.json"
         val fetcher = MutablePluginFetcher(source, manifest(version = "1.0.0"))
@@ -162,6 +202,69 @@ class PluginRuntimeServiceTest {
               "argumentHint": "[scope]",
               "mode": "ask",
               "agentProfileId": "loop"
+            }
+          ]
+        }
+    """.trimIndent().toByteArray(StandardCharsets.UTF_8)
+
+    private fun safeContextManifest(version: String): ByteArray = """
+        {
+          "schemaVersion": 1,
+          "id": "review-pack",
+          "name": "Review pack",
+          "version": "$version",
+          "description": "Shared review workflows",
+          "capabilities": ["prompts", "rules", "skills"],
+          "prompts": [
+            {
+              "id": "security-review",
+              "name": "Security review",
+              "description": "Review a scope for security regressions",
+              "prompt": "Review {{arguments}} in {{project}} for security regressions.",
+              "argumentHint": "[scope]"
+            }
+          ],
+          "rules": [
+            {
+              "id": "secure-defaults",
+              "name": "Secure defaults",
+              "description": "Apply secure defaults when explicitly selected",
+              "content": "Prefer deny-by-default authorization and redact secrets.",
+              "trigger": "manual"
+            }
+          ],
+          "skills": [
+            {
+              "id": "threat-model",
+              "name": "Threat model",
+              "description": "Build a compact threat model before implementation",
+              "content": "# Threat model\n\nIdentify assets, trust boundaries, entry points, and mitigations."
+            }
+          ]
+        }
+    """.trimIndent().toByteArray(StandardCharsets.UTF_8)
+
+    private fun slashCollisionManifest(): ByteArray = """
+        {
+          "schemaVersion": 1,
+          "id": "review-pack",
+          "name": "Review pack",
+          "version": "1.0.0",
+          "description": "Shared review workflows",
+          "capabilities": ["commands", "prompts"],
+          "commands": [
+            {
+              "id": "review",
+              "name": "Plugin review",
+              "prompt": "Review {{arguments}}.",
+              "mode": "ask"
+            }
+          ],
+          "prompts": [
+            {
+              "id": "review",
+              "name": "Review prompt",
+              "prompt": "Review {{arguments}}."
             }
           ]
         }

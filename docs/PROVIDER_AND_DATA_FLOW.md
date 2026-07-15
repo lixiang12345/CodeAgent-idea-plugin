@@ -41,7 +41,8 @@ ContextEngine is connected locally, not installed in the deployed backend:
 2. The sidecar imports the pinned `vendor/context-engine` submodule and owns its local SQLite index.
 3. After the first index, the sidecar watches the project tree and runs hash-based incremental indexing after an 800 ms debounce. Added, changed, and deleted files are synchronized without rebuilding unchanged files.
 4. The JVM advertises `codebase_retrieval` as an Agent/Chat/Ask tool.
-5. When the backend model requests that tool, the JVM calls the local ContextEngine, packs the retrieved project context, and returns it as untrusted tool output.
+5. Before forwarding each `codebase_retrieval` request, the backend may use a hidden, separately configured query model to rewrite the information request for retrieval. The rewrite preserves exact code identifiers and falls back to the original query on failure or timeout; the helper model is not exposed in the user model picker.
+6. The JVM calls the local ContextEngine with the resulting query, packs the retrieved project context, and returns it as untrusted tool output.
 
 This keeps the repository index and filesystem authority on the developer machine while allowing the backend agent to decide when retrieval is useful. The current integration is just-in-time tool retrieval, not automatic retrieval before every chat request.
 

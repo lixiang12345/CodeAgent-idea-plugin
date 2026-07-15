@@ -265,6 +265,7 @@ Returns backend-owned tool schemas and runtime configuration status. The JVM adv
       "catalogId": "web",
       "description": "Search the public web through the configured backend search provider",
       "parameters": { "type": "object" },
+      "risk": "read_only",
       "available": false,
       "unavailableReason": "Set WEB_SEARCH_ENDPOINT",
       "requiredEnvironment": ["WEB_SEARCH_ENDPOINT"]
@@ -272,6 +273,8 @@ Returns backend-owned tool schemas and runtime configuration status. The JVM adv
   ]
 }
 ```
+
+`risk` is one of `read_only`, `local_state`, or `mutating`. The JVM carries this value into the run tool definition, filters mutating tools from Chat/Ask, and treats an unknown future risk value as mutating.
 
 ### 3.4 `POST /v1/tools/{toolName}`
 
@@ -325,9 +328,9 @@ Configuration kinds are `mcp`, `commands`, `hooks`, `agents`, `plugins`, and `to
 
 MCP definitions reference credential environment-variable names only. Remote endpoints require HTTPS except loopback HTTP, and URLs containing embedded credentials are rejected. After configuration refresh, enabled definitions are reconciled into the local managed MCP gateway; secret values are read only from explicitly allowlisted process environment names and never round-trip through the backend or Webview.
 
-Plugin definitions contain `source`, optional exact `version`, optional `sha256:<hex>` `integrity`, and an explicit capability grant list. Sources require HTTPS except loopback HTTP and cannot contain credentials or fragments. The account record does not install a plugin by itself: the Webview invokes the IDE-owned `installPlugin`, `updatePlugin`, `testPlugin`, or `uninstallPlugin` bridge command, and the JVM downloads at most a 1 MiB declarative JSON manifest into the device-local cache. It rejects unknown manifest fields, mismatched identity/version/integrity, undeclared grants, unsupported capabilities, and invalid command contributions. Removing the account configuration also removes the local cached manifest.
+Plugin definitions contain `source`, optional exact `version`, optional `sha256:<hex>` `integrity`, and an explicit capability grant list. Sources require HTTPS except loopback HTTP and cannot contain credentials or fragments. The account record does not install a plugin by itself: the Webview invokes the IDE-owned `installPlugin`, `updatePlugin`, `testPlugin`, or `uninstallPlugin` bridge command, and the JVM downloads at most a 1 MiB declarative JSON manifest into the device-local cache. It rejects unknown manifest fields, mismatched identity/version/integrity, undeclared grants, unsupported capabilities, invalid declarative contributions, and command/prompt IDs that collide in the shared slash namespace. Removing the account configuration also removes the local cached manifest.
 
-Manifest schema version `1` supports the declared capabilities `commands`, `agents`, `hooks`, `mcp`, `rules`, `skills`, `tools`, and `prompts`. Only explicitly granted `commands` are consumed today. They are exposed to the composer as `/<plugin-id>.<command-id>` and resolve through the same bounded command-template runtime as account commands. The other capability names reserve forward-compatible permission boundaries and do not execute plugin-provided JVM, Node.js, or shell code.
+Manifest schema version `1` supports the declared capabilities `commands`, `agents`, `hooks`, `mcp`, `rules`, `skills`, `tools`, and `prompts`. Explicitly granted `commands` and `prompts` are exposed to the composer as namespaced slash templates and resolve through the same bounded command runtime as account commands. Explicitly granted `rules` and `skills` become read-only namespaced workspace context, with manual rules and skills selected per conversation. `agents`, `hooks`, `mcp`, and `tools` remain reserved permission boundaries and cannot execute plugin-provided JVM, Node.js, shell, network, or tool-handler code.
 
 ### 3.7 `POST /v1/runs` (SSE)
 

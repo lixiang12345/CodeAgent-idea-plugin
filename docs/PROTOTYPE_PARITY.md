@@ -59,7 +59,7 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | Cloud integrations | Conditional | Search/read adapters are advertised only when their backend environment is configured; provider errors and missing credentials remain explicit failures |
 | Subagents | Implemented | Synchronous `subagent` plus durable asynchronous jobs support persisted partial output, polling progress, cancellation, retry, composer handoff, and read-only IDE result navigation |
 | MCP | Implemented | Enabled stdio, Streamable HTTP, and legacy SSE definitions are reconciled by a local managed gateway with health checks, bounded reconnects, explicit start/stop/restart/test controls, tool-list refresh notifications, environment allowlisting, bearer-token injection, namespaced Agent tools, and approval-aware risk defaults. Provider OAuth remains a separate future adapter |
-| Plugins | Implemented | Account-synchronized plugin definitions drive explicit per-device install, validate, update, and uninstall actions for bounded declarative manifests. Identity, exact version, SHA-256 integrity, capabilities, and command schemas are verified; granted command contributions become namespaced slash commands without loading arbitrary code |
+| Plugins | Implemented | Account-synchronized plugin definitions drive explicit per-device install, validate, update, and uninstall actions for bounded declarative manifests. Identity, exact version, SHA-256 integrity, capabilities, and contribution schemas are verified; granted commands and prompt templates become namespaced slash commands, while rules and skills become read-only workspace context, without loading arbitrary code |
 
 ## Tool catalog
 

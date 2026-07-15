@@ -60,7 +60,9 @@ internal class WebResourceHandler(
         response.setStatus(200)
         response.setStatusText("OK")
         response.setMimeType(mimeType)
-        response.setHeaderByName("Cache-Control", "no-cache", true)
+        response.setHeaderByName("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0", true)
+        response.setHeaderByName("Pragma", "no-cache", true)
+        response.setHeaderByName("Expires", "0", true)
         response.setHeaderByName("Access-Control-Allow-Origin", "*", true)
         responseLength?.set(if (available >= 0) available else -1)
     }
@@ -96,10 +98,21 @@ internal class WebResourceHandler(
     companion object {
         const val ORIGIN = "http://codeagent.localhost"
         private const val RESOURCE_ROOT = "/web"
+        private val LOCAL_ASSET_ATTRIBUTE = Regex("""(src|href)=(["'])(/assets/[^"'?#]+)\2""")
 
         fun isWebviewUrl(url: String?): Boolean {
             if (url.isNullOrBlank()) return false
             return url.startsWith("$ORIGIN/") || url == ORIGIN || url == "$ORIGIN/"
+        }
+
+        fun versionAssetUrls(html: String, cacheToken: String): String {
+            require(cacheToken.matches(Regex("""[A-Za-z0-9._-]+"""))) { "Invalid webview cache token" }
+            return LOCAL_ASSET_ATTRIBUTE.replace(html) { match ->
+                val attribute = match.groupValues[1]
+                val quote = match.groupValues[2]
+                val path = match.groupValues[3]
+                "$attribute=$quote$path?v=$cacheToken$quote"
+            }
         }
 
         fun resourcePathFor(url: String): String? {

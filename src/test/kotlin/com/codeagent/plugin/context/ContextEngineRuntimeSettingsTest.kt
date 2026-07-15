@@ -8,6 +8,22 @@ import kotlin.test.assertTrue
 
 class ContextEngineRuntimeSettingsTest {
     @Test
+    fun `remote HTTP mode maps deployment endpoint and token`() {
+        val runtime = contextEngineRuntimeSettings(
+            settings(
+                contextMode = "remote-http",
+                contextEmbeddingApiKey = null,
+                contextHttpApiKey = "http-secret",
+            ),
+            resolvedNodePath = "/opt/node",
+        )
+
+        assertEquals("http://127.0.0.1:8790", runtime.environment["CONTEXTENGINE_HTTP_URL"])
+        assertEquals("http-secret", runtime.environment["CONTEXTENGINE_HTTP_API_KEY"])
+        assertFalse(runtime.environment.containsKey("CONTEXTENGINE_EMBEDDING_API_KEY"))
+    }
+
+    @Test
     fun `lexical mode cannot inherit semantic endpoint configuration`() {
         val runtime = contextEngineRuntimeSettings(
             settings(contextMode = "lexical", contextEmbeddingApiKey = "secret"),
@@ -55,6 +71,7 @@ class ContextEngineRuntimeSettingsTest {
     private fun settings(
         contextMode: String,
         contextEmbeddingApiKey: String?,
+        contextHttpApiKey: String? = null,
         contextNeuralRerank: Boolean = false,
     ) = CodeAgentSettings(
         backendUrl = "https://agent.example",
@@ -62,6 +79,8 @@ class ContextEngineRuntimeSettingsTest {
         autoApproveReadOnly = true,
         backendToken = null,
         contextMode = contextMode,
+        contextHttpBaseUrl = "http://127.0.0.1:8790",
+        contextHttpApiKey = contextHttpApiKey,
         contextEmbeddingBaseUrl = "https://context.example/v1",
         contextEmbeddingModel = "Qwen/custom-embedding",
         contextEmbeddingApiKey = contextEmbeddingApiKey,

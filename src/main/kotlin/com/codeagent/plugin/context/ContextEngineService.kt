@@ -52,13 +52,13 @@ class ContextEngineService(project: Project) : Disposable {
     fun retrieve(
         informationRequest: String,
         topK: Int = 14,
-        maxTokens: Int = 8_000,
+        maxTokens: Int? = null,
     ): CompletableFuture<PackedContext> = client.request(
         type = "retrieve",
         payload = buildJsonObject {
             put("informationRequest", informationRequest)
             put("topK", topK)
-            put("maxTokens", maxTokens)
+            maxTokens?.let { put("maxTokens", it) }
         },
         timeout = Duration.ofMinutes(2),
     ).thenApply { json.decodeFromJsonElement(it) }
@@ -67,7 +67,7 @@ class ContextEngineService(project: Project) : Disposable {
         informationRequest: String,
         strategy: String = "balanced",
         focusPaths: List<String> = emptyList(),
-        maxTokens: Int = 8_000,
+        maxTokens: Int? = null,
     ): CompletableFuture<PlannedContextPack> {
         val plan = ContextQueryPlanner.plan(informationRequest, strategy, focusPaths)
         val topK = when (plan.strategy) {
@@ -119,6 +119,14 @@ internal fun contextEngineRuntimeSettings(
     current: CodeAgentSettings,
     resolvedNodePath: String = NodeRuntimeLocator.find(current.nodePath),
 ): ContextEngineRuntimeSettings {
+    if (current.contextMode == "remote-http") {
+        val environment = buildMap {
+            put("CONTEXTENGINE_HTTP_URL", current.contextHttpBaseUrl)
+            current.contextHttpApiKey?.takeIf { it.isNotBlank() }?.let { put("CONTEXTENGINE_HTTP_API_KEY", it) }
+        }
+        return ContextEngineRuntimeSettings(nodePath = resolvedNodePath, environment = environment)
+    }
+
     if (current.contextMode != "private-semantic") {
         return ContextEngineRuntimeSettings(nodePath = resolvedNodePath)
     }

@@ -14,7 +14,11 @@ import {
   createModelGatewayFromEnv,
 } from "../src/model-gateway.mjs";
 import { composeSystemPrompt, PROMPT_VERSION, productJobMessages } from "../src/prompt.mjs";
-import { contextBudgetFor, prepareModelMessages } from "../src/context-policy.mjs";
+import {
+  contextBudgetFor,
+  prepareModelMessages,
+  retrievalBudgetForContextWindow,
+} from "../src/context-policy.mjs";
 import { createToolCatalog, DISCOVER_TOOLS_NAME } from "../src/tool-catalog.mjs";
 import { MemoryProductStore } from "../src/product-store.mjs";
 
@@ -32,6 +36,28 @@ test("composes server-owned policy before repository customization", () => {
   assert.match(prompt, /Inspect the diff/);
   assert.match(prompt, /Use codebase_retrieval as the default first step/);
   assert.match(prompt, /search_text only for a known identifier/);
+  assert.match(prompt, /Use the persistent task list only for substantive multi-step work/);
+  assert.match(prompt, /Do not delegate trivial work/);
+  assert.match(prompt, /complete or cancel every task created or changed in this run/);
+  assert.match(prompt, /Chat and Ask runs are read-only/);
+});
+
+test("uses Agent profile context settings without a model registry", () => {
+  assert.equal(retrievalBudgetForContextWindow(64_000), 8_192);
+  assert.equal(retrievalBudgetForContextWindow(200_000), 15_360);
+  assert.equal(retrievalBudgetForContextWindow(400_000), 21_504);
+  assert.equal(retrievalBudgetForContextWindow(500_000), 24_064);
+
+  const defaults = contextBudgetFor(builtInAgentProfile("general"), []);
+  assert.equal(defaults.contextWindowTokens, 64_000);
+  assert.equal(defaults.retrievalBudgetTokens, 8_192);
+
+  const configured = contextBudgetFor(
+    { ...builtInAgentProfile("general"), contextWindowTokens: 128_000 },
+    [],
+  );
+  assert.equal(configured.contextWindowTokens, 128_000);
+  assert.equal(configured.retrievalBudgetTokens, 11_776);
 });
 
 test("anchors Agent profile policy before lower-priority customization", () => {
@@ -227,6 +253,167 @@ test("honors the Agent profile turn budget", async () => {
   }), /exceeded 2 model turns/);
 });
 
+test("fails a stalled model turn with a clear timeout", async () => {
+  const runner = new AgentRunner({
+    modelTurnTimeoutMs: 20,
+    modelGateway: {
+      async stream({ signal }) {
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      },
+    },
+  });
+
+  await assert.rejects(() => runner.run({
+    request: {
+      mode: "chat",
+      messages: [{ role: "user", content: "Wait forever" }],
+      tools: [],
+      workspace: {},
+    },
+    emit() {},
+    awaitToolResult: async () => ({ status: "completed", output: "" }),
+    signal: new AbortController().signal,
+  }), /Model turn 1 timed out/);
+});
+
+test("fails an idle provider SSE stream before the full model turn timeout", async () => {
+  const gateway = new OpenAIResponsesGateway({
+    endpoint: "https://gateway.example.com",
+    apiKey: "test-key",
+    model: "model-a",
+    streamIdleTimeoutMs: 20,
+    fetchImpl: async () => new Response(new ReadableStream({ start() {} }), {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    }),
+  });
+
+  await assert.rejects(() => gateway.stream({
+    messages: [{ role: "user", content: "Wait forever" }],
+    tools: [],
+    signal: new AbortController().signal,
+    onTextDelta() {},
+  }), /Model stream stalled for 20 ms without receiving data/);
+});
+
+test("rewrites ContextEngine requests through the hidden query model", async () => {
+  const turns = [
+    { content: "Searching", toolCalls: [{ id: "retrieve-1", name: "codebase_retrieval", arguments: JSON.stringify({ information_request: "where login happens", strategy: "balanced" }) }] },
+    { content: "Done", toolCalls: [] },
+  ];
+  const internalRequests = [];
+  const events = [];
+  const runner = new AgentRunner({
+    modelGateway: {
+      contextQueryModel: "gpt-5.4-mini",
+      async stream() { return turns.shift(); },
+      async streamInternal(request) {
+        internalRequests.push(request);
+        return {
+          content: null,
+          toolCalls: [{
+            id: "rewrite-1",
+            name: "rewrite_context_query",
+            arguments: JSON.stringify({ query: "authentication login flow AuthService token validation callers tests" }),
+          }],
+        };
+      },
+    },
+  });
+
+  await runner.run({
+    request: {
+      mode: "agent",
+      messages: [{ role: "user", content: "Explain how users log in and where tokens are checked" }],
+      tools: [{ name: "codebase_retrieval", description: "Retrieve", parameters: {}, risk: "read_only" }],
+      workspace: {},
+    },
+    emit: (type, data) => events.push({ type, data }),
+    awaitToolResult: async () => ({ status: "completed", output: "context", summary: "Retrieved" }),
+    signal: new AbortController().signal,
+  });
+
+  assert.equal(internalRequests.length, 1);
+  assert.equal(internalRequests[0].model, "gpt-5.4-mini");
+  assert.equal(internalRequests[0].tools[0].name, "rewrite_context_query");
+  assert.match(internalRequests[0].messages[1].content, /where login happens/);
+  assert.match(internalRequests[0].messages[1].content, /where tokens are checked/);
+  const requestEvent = events.find((event) => event.type === "tool.request");
+  assert.deepEqual(JSON.parse(requestEvent.data.call.arguments), {
+    information_request: "authentication login flow AuthService token validation callers tests",
+    strategy: "balanced",
+  });
+});
+
+test("falls back when the hidden model answers instead of returning a retrieval query", async () => {
+  const turns = [
+    { content: "Searching", toolCalls: [{ id: "retrieve-1", name: "codebase_retrieval", arguments: JSON.stringify({ information_request: "approval stuck" }) }] },
+    { content: "Done", toolCalls: [] },
+  ];
+  const events = [];
+  const runner = new AgentRunner({
+    modelGateway: {
+      contextQueryModel: "gpt-5.4-mini",
+      async stream() { return turns.shift(); },
+      async streamInternal() {
+        return { content: "Here are the common reasons approval can get stuck", toolCalls: [] };
+      },
+    },
+  });
+
+  await runner.run({
+    request: {
+      mode: "agent",
+      messages: [{ role: "user", content: "Why does approval get stuck?" }],
+      tools: [{ name: "codebase_retrieval", description: "Retrieve", parameters: {}, risk: "read_only" }],
+      workspace: {},
+    },
+    emit: (type, data) => events.push({ type, data }),
+    awaitToolResult: async () => ({ status: "completed", output: "context", summary: "Retrieved" }),
+    signal: new AbortController().signal,
+  });
+
+  const requestEvent = events.find((event) => event.type === "tool.request");
+  assert.equal(JSON.parse(requestEvent.data.call.arguments).information_request, "approval stuck");
+});
+
+test("falls back to the original ContextEngine request when query rewriting times out", async () => {
+  const turns = [
+    { content: "Searching", toolCalls: [{ id: "retrieve-1", name: "codebase_retrieval", arguments: JSON.stringify({ information_request: "PaymentService refund path" }) }] },
+    { content: "Done", toolCalls: [] },
+  ];
+  const events = [];
+  const runner = new AgentRunner({
+    contextQueryTimeoutMs: 10,
+    modelGateway: {
+      contextQueryModel: "gpt-5.4-mini",
+      async stream() { return turns.shift(); },
+      async streamInternal({ signal }) {
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      },
+    },
+  });
+
+  await runner.run({
+    request: {
+      mode: "agent",
+      messages: [{ role: "user", content: "Trace refunds" }],
+      tools: [{ name: "codebase_retrieval", description: "Retrieve", parameters: {}, risk: "read_only" }],
+      workspace: {},
+    },
+    emit: (type, data) => events.push({ type, data }),
+    awaitToolResult: async () => ({ status: "completed", output: "context", summary: "Retrieved" }),
+    signal: new AbortController().signal,
+  });
+
+  const requestEvent = events.find((event) => event.type === "tool.request");
+  assert.equal(JSON.parse(requestEvent.data.call.arguments).information_request, "PaymentService refund path");
+});
+
 test("requires Loop Agent verification after a successful mutation", async () => {
   const turns = [
     { content: "Applying change", toolCalls: [{ id: "edit-1", name: "apply_patch", arguments: JSON.stringify({ patch: "--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1 +1 @@\n-old\n+new" }) }] },
@@ -312,6 +499,96 @@ test("does not treat repository retrieval as post-mutation verification", async 
   }), /without required post-mutation verification/);
 });
 
+test("requires a task-state review after task-list mutation", async () => {
+  const turns = [
+    {
+      content: "Starting the task",
+      toolCalls: [{
+        id: "task-1",
+        name: "update_tasks",
+        arguments: JSON.stringify({ task_id: "task-a", state: "in_progress" }),
+      }],
+    },
+    { content: "Done", toolCalls: [] },
+    { content: "Reviewing task state", toolCalls: [{ id: "task-2", name: "view_tasks", arguments: "{}" }] },
+    { content: "Complete", toolCalls: [] },
+  ];
+  const modelMessages = [];
+  const events = [];
+  const runner = new AgentRunner({
+    modelGateway: {
+      async stream({ messages }) {
+        modelMessages.push(messages);
+        return turns.shift();
+      },
+    },
+  });
+
+  await runner.run({
+    request: {
+      mode: "agent",
+      messages: [{ role: "user", content: "Complete the planned work" }],
+      tools: [
+        { name: "update_tasks", description: "Update task", parameters: {}, risk: "local_state" },
+        { name: "view_tasks", description: "View tasks", parameters: {}, risk: "read_only" },
+      ],
+      workspace: {},
+    },
+    agentProfile: { ...builtInAgentProfile("loop"), maxTurns: 6 },
+    emit: (type, data) => events.push({ type, data }),
+    awaitToolResult: async (id) => ({
+      status: "completed",
+      output: id === "task-1" ? "Updated task-a" : "1. [completed] Planned work\n   id=task-a",
+      summary: id,
+    }),
+    signal: new AbortController().signal,
+  });
+
+  assert.ok(modelMessages[2].some((message) => (
+    message.role === "system" && message.content.includes("Runtime task gate")
+  )));
+  assert.equal(events.some((event) => event.type === "task.updated"), false);
+  assert.equal(events.at(-1).type, "run.completed");
+});
+
+test("fails closed when task state is not reviewed after a reminder", async () => {
+  const turns = [
+    {
+      content: "Updating the task",
+      toolCalls: [{
+        id: "task-1",
+        name: "update_tasks",
+        arguments: JSON.stringify({ task_id: "task-a", state: "in_progress" }),
+      }],
+    },
+    { content: "Done", toolCalls: [] },
+    { content: "Still done", toolCalls: [] },
+  ];
+  const runner = new AgentRunner({
+    modelGateway: {
+      async stream() {
+        return turns.shift();
+      },
+    },
+  });
+
+  await assert.rejects(() => runner.run({
+    request: {
+      mode: "agent",
+      messages: [{ role: "user", content: "Complete the planned work" }],
+      tools: [
+        { name: "update_tasks", description: "Update task", parameters: {}, risk: "local_state" },
+        { name: "view_tasks", description: "View tasks", parameters: {}, risk: "read_only" },
+      ],
+      workspace: {},
+    },
+    agentProfile: { ...builtInAgentProfile("loop"), maxTurns: 5 },
+    emit() {},
+    awaitToolResult: async () => ({ status: "completed", output: "Updated task-a" }),
+    signal: new AbortController().signal,
+  }), /without reviewing task state/);
+});
+
 test("validates client-owned run history without opening a stream", () => {
   assert.doesNotThrow(() => validateRunRequest({
     mode: "agent",
@@ -326,6 +603,25 @@ test("validates client-owned run history without opening a stream", () => {
   assert.throws(
     () => validateRunRequest({ mode: "agent", messages: [], tools: [{ name: "read_file", description: "Read" }], workspace: {} }),
     /object parameters/,
+  );
+  assert.throws(
+    () => validateRunRequest({
+      mode: "agent",
+      messages: [{
+        role: "user",
+        content: "Inspect",
+        attachments: [{
+          type: "image",
+          id: "image-1",
+          label: "screen.png",
+          mimeType: "image/png",
+          sizeBytes: 12,
+        }],
+      }],
+      tools: [],
+      workspace: {},
+    }),
+    /require image MIME type and data/,
   );
 });
 
@@ -505,6 +801,7 @@ test("applies configured Agent profile policy before streaming a run", async () 
     assert.equal(started.contextWindowTokens, 96_000);
     assert.equal(started.inputBudgetTokens, 84_000);
     assert.equal(started.reservedOutputTokens, 12_000);
+    assert.equal(started.retrievalBudgetTokens, 10_240);
     assert.ok(events.some((event) => event.type === "context.updated"));
     assert.deepEqual(captured.tools.map((tool) => tool.name), ["read_file"]);
     assert.equal(captured.model, "model-context");
@@ -577,6 +874,8 @@ test("serves the public OpenAPI contract", async () => {
     assert.deepEqual(contract.components.schemas.ToolDefinition.properties.risk.enum, ["read_only", "local_state", "mutating"]);
     assert.equal(contract.components.schemas.RunStartedEvent.required.includes("promptVersion"), true);
     assert.equal(contract.components.schemas.RunStartedEvent.required.includes("contextWindowTokens"), true);
+    assert.equal(contract.components.schemas.RunStartedEvent.required.includes("retrievalBudgetTokens"), true);
+    assert.equal(contract.components.schemas.ContextUpdatedEvent.required.includes("retrievalBudgetTokens"), true);
     assert.equal(contract.components.schemas.ContextUpdatedEvent.required.includes("overBudget"), true);
     assert.equal(contract.components.schemas.ToolCatalogUpdatedEvent.required.includes("activeToolNames"), true);
     assert.equal(contract.components.schemas.VerificationUpdatedEvent.required.includes("status"), true);
@@ -680,6 +979,64 @@ test("normalizes OpenAI Responses streaming and function call events", async () 
   assert.deepEqual(result.toolCalls, [{ id: "call-2", name: "diagnostics", arguments: "{\"path\":\"README.md\"}" }]);
 });
 
+test("sends structured file and image attachments through OpenAI Responses", async () => {
+  let captured;
+  const gateway = new OpenAIResponsesGateway({
+    endpoint: "https://api.openai.test",
+    apiKey: "openai-secret",
+    model: "gpt-test",
+    fetchImpl: async (_url, options) => {
+      captured = JSON.parse(options.body);
+      return Response.json({ output: [{ type: "message", content: [{ type: "output_text", text: "Attached context received" }] }] });
+    },
+  });
+
+  await gateway.stream({
+    messages: [{
+      role: "user",
+      content: "Inspect these inputs",
+      attachments: [
+        {
+          type: "file",
+          id: "file-1",
+          label: "README.md",
+          path: "README.md",
+          mimeType: "text/markdown",
+          data: "IyBIZWFkbGluZQ==",
+          textExcerpt: "# Headline",
+          sizeBytes: 10,
+        },
+        {
+          type: "image",
+          id: "image-1",
+          label: "error.png",
+          path: "docs/error.png",
+          mimeType: "image/png",
+          data: "cG5nLWJ5dGVz",
+          sizeBytes: 9,
+        },
+      ],
+    }],
+    tools: [],
+    signal: new AbortController().signal,
+    onTextDelta: () => {},
+  });
+
+  assert.deepEqual(captured.input[0].content, [
+    { type: "input_text", text: "Inspect these inputs" },
+    {
+      type: "input_file",
+      filename: "README.md",
+      file_data: "data:text/markdown;base64,IyBIZWFkbGluZQ==",
+    },
+    {
+      type: "input_image",
+      image_url: "data:image/png;base64,cG5nLWJ5dGVz",
+      detail: "high",
+    },
+  ]);
+});
+
 
 test("routes a unified native gateway from only Base URL and API key", async () => {
   const requests = [];
@@ -734,13 +1091,25 @@ test("routes a unified native gateway from only Base URL and API key", async () 
   assert.equal(result.content, "Native response");
 });
 
-test("rejects unified gateway models without native protocol metadata", async () => {
+test("infers a native protocol from standard provider metadata and skips unknown models", async () => {
   const gateway = createModelGatewayFromEnv({
     MODEL_BASE_URL: "https://gateway.test",
     MODEL_API_KEY: "unified-secret",
-  }, async () => Response.json({ data: [{ id: "unknown-model" }] }));
+  }, async () => Response.json({
+    data: [
+      { id: "unknown-model" },
+      { id: "gpt-standard", owned_by: "openai" },
+      { id: "claude-standard", provider: "anthropic" },
+    ],
+  }));
 
-  await assert.rejects(() => gateway.listModels(), /missing supported provider\/protocol metadata/);
+  assert.deepEqual(
+    (await gateway.listModels()).map(({ id, ownedBy, protocol }) => ({ id, ownedBy, protocol })),
+    [
+      { id: "claude-standard", ownedBy: "anthropic", protocol: "anthropic-messages" },
+      { id: "gpt-standard", ownedBy: "openai", protocol: "openai-responses" },
+    ],
+  );
 });
 
 test("requires an API key for the unified model gateway", () => {
@@ -758,15 +1127,70 @@ test("requires HTTPS for a remote unified model gateway", () => {
 });
 
 
-test("does not accept legacy provider configuration", () => {
-  assert.throws(
-    () => createModelGatewayFromEnv({
-      MODEL_ENDPOINT: "https://legacy-gateway.test",
-      MODEL_API_KEY: "legacy-secret",
-      OPENAI_MODELS: "gpt-legacy",
-    }),
-    /MODEL_BASE_URL is required/,
+test("accepts legacy unified gateway aliases for deployment compatibility", () => {
+  const gateway = createModelGatewayFromEnv({
+    MODEL_ENDPOINT: "https://legacy-gateway.test",
+    OPENAI_API_KEY: "legacy-secret",
+  });
+
+  assert.equal(gateway.endpoint, "https://legacy-gateway.test");
+});
+
+test("routes a fixed model allowlist through separate provider credentials", async () => {
+  const requests = [];
+  const gateway = createModelGatewayFromEnv({
+    MODEL: "gpt-5.6-sol",
+    CONTEXT_QUERY_MODEL: "gpt-5.4-mini",
+    OPENAI_BASE_URL: "https://openai-gateway.test",
+    OPENAI_API_KEY: "openai-secret",
+    OPENAI_MODELS: "gpt-5.6-sol",
+    OPENAI_INTERNAL_MODELS: "gpt-5.4-mini",
+    GROK_BASE_URL: "https://grok-gateway.test",
+    GROK_API_KEY: "grok-secret",
+    GROK_MODELS: "grok-4.5",
+    ANTHROPIC_BASE_URL: "https://anthropic-gateway.test",
+    ANTHROPIC_API_KEY: "anthropic-secret",
+    ANTHROPIC_MODELS: "claude-fable-5,claude-sonnet-5",
+  }, async (url, options = {}) => {
+    requests.push({ url, options });
+    if (url.includes("anthropic")) {
+      return Response.json({ content: [{ type: "text", text: "Claude response" }] });
+    }
+    return Response.json({ output: [{ type: "message", content: [{ type: "output_text", text: "Response" }] }] });
+  });
+  const request = {
+    messages: [{ role: "user", content: "Test" }],
+    tools: [],
+    signal: new AbortController().signal,
+    onTextDelta: () => {},
+  };
+
+  assert.equal(gateway.provider, "configured-native");
+  assert.equal(gateway.defaultModel, "gpt-5.6-sol");
+  assert.deepEqual(await gateway.listModels(), [
+    { id: "gpt-5.6-sol", ownedBy: "openai", protocol: "openai-responses" },
+    { id: "grok-4.5", ownedBy: "xai", protocol: "xai-responses" },
+    { id: "claude-fable-5", ownedBy: "anthropic", protocol: "anthropic-messages" },
+    { id: "claude-sonnet-5", ownedBy: "anthropic", protocol: "anthropic-messages" },
+  ]);
+  await assert.rejects(
+    () => gateway.stream({ ...request, model: "gpt-5.4-mini" }),
+    /Model is not enabled/,
   );
+
+  await gateway.stream({ ...request, model: "gpt-5.6-sol" });
+  await gateway.stream({ ...request, model: "grok-4.5" });
+  await gateway.stream({ ...request, model: "claude-sonnet-5" });
+  await gateway.streamInternal({ ...request, model: "gpt-5.4-mini" });
+
+  assert.equal(requests[0].url, "https://openai-gateway.test/v1/responses");
+  assert.equal(requests[0].options.headers.authorization, "Bearer openai-secret");
+  assert.equal(requests[1].url, "https://grok-gateway.test/v1/responses");
+  assert.equal(requests[1].options.headers.authorization, "Bearer grok-secret");
+  assert.equal(requests[2].url, "https://anthropic-gateway.test/v1/messages");
+  assert.equal(requests[2].options.headers["x-api-key"], "anthropic-secret");
+  assert.equal(requests[3].url, "https://openai-gateway.test/v1/responses");
+  assert.equal(requests[3].options.headers.authorization, "Bearer openai-secret");
 });
 
 test("normalizes Anthropic Messages streaming text and tool calls", async () => {
@@ -804,6 +1228,58 @@ test("normalizes Anthropic Messages streaming text and tool calls", async () => 
   assert.deepEqual(deltas, ["Inspecting "]);
   assert.equal(result.content, "Inspecting ");
   assert.deepEqual(result.toolCalls, [{ id: "toolu-1", name: "read_file", arguments: "{\"path\":\"README.md\"}" }]);
+});
+
+test("sends native Anthropic image blocks and text fallback attachment context", async () => {
+  let captured;
+  const gateway = new AnthropicMessagesGateway({
+    endpoint: "https://api.anthropic.test",
+    apiKey: "anthropic-secret",
+    model: "claude-test",
+    fetchImpl: async (_url, options) => {
+      captured = JSON.parse(options.body);
+      return Response.json({ content: [{ type: "text", text: "Attached context received" }] });
+    },
+  });
+
+  await gateway.stream({
+    messages: [{
+      role: "user",
+      content: "Inspect this editor state",
+      attachments: [
+        {
+          type: "image",
+          id: "image-1",
+          label: "error.png",
+          path: "docs/error.png",
+          mimeType: "image/png",
+          data: "cG5nLWJ5dGVz",
+          sizeBytes: 9,
+        },
+        {
+          type: "ide_state",
+          id: "editor-1",
+          label: "Active editor: Main.kt",
+          path: "src/Main.kt",
+          mimeType: "text/plain",
+          textExcerpt: "fun main() = error(\"boom\")",
+          sizeBytes: 28,
+          metadata: { scope: "selection", line_start: "4", line_end: "4" },
+        },
+      ],
+    }],
+    tools: [],
+    signal: new AbortController().signal,
+    onTextDelta: () => {},
+  });
+
+  assert.deepEqual(captured.messages[0].content[0], { type: "text", text: "Inspect this editor state" });
+  assert.deepEqual(captured.messages[0].content[1], {
+    type: "image",
+    source: { type: "base64", media_type: "image/png", data: "cG5nLWJ5dGVz" },
+  });
+  assert.match(captured.messages[0].content[2].text, /User-selected ide_state attachment/);
+  assert.match(captured.messages[0].content[2].text, /fun main\(\) = error/);
 });
 
 
@@ -1167,6 +1643,17 @@ test("persists product conversations and exposes the local account", async () =>
     assert.deepEqual(restored.tasks, [{ id: "task-1", name: "Review change", state: "completed" }]);
     assert.deepEqual(restored.tools.map((tool) => tool.id), ["tool-1"]);
     assert.equal(restored.tools[0].updatedAt, 1_250);
+
+    const sparseResponse = await fetch(`${baseUrl}/v1/conversations`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "thread-empty", title: "Empty", mode: "agent", updatedAt: 2_100 }),
+    });
+    assert.equal(sparseResponse.status, 201);
+    const sparse = await sparseResponse.json();
+    assert.deepEqual(sparse.messages, []);
+    assert.deepEqual(sparse.tasks, []);
+    assert.deepEqual(sparse.tools, []);
 
     const invalidToolTime = await fetch(`${baseUrl}/v1/conversations`, {
       method: "POST",

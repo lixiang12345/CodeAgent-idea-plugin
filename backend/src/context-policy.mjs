@@ -9,14 +9,20 @@ const COMPACTED_TOOL_EXCERPT_TOKENS = 256;
 const COMPACTED_MESSAGE_TOKENS = 192;
 const RECENT_TOOL_RESULTS = 3;
 const RECENT_MESSAGES = 6;
+const BASE_INPUT_TOKENS = DEFAULT_CONTEXT_WINDOW_TOKENS - DEFAULT_RESERVED_OUTPUT_TOKENS;
+const BASE_RETRIEVAL_TOKENS = 8_192;
+const MIN_RETRIEVAL_TOKENS = 4_096;
+const MAX_RETRIEVAL_TOKENS = 24_576;
+const RETRIEVAL_BUDGET_STEP = 512;
 
 export function contextBudgetFor(agentProfile = {}, tools = []) {
-  const contextWindowTokens = integerInRange(
+  const configuredContextWindowTokens = integerInRange(
     agentProfile.contextWindowTokens,
     MIN_CONTEXT_WINDOW_TOKENS,
     MAX_CONTEXT_WINDOW_TOKENS,
     DEFAULT_CONTEXT_WINDOW_TOKENS,
   );
+  const contextWindowTokens = configuredContextWindowTokens;
   const requestedOutputTokens = integerInRange(
     agentProfile.reservedOutputTokens,
     MIN_RESERVED_OUTPUT_TOKENS,
@@ -29,6 +35,10 @@ export function contextBudgetFor(agentProfile = {}, tools = []) {
   );
   const inputBudgetTokens = contextWindowTokens - reservedOutputTokens;
   const toolDefinitionTokens = estimateTokens(JSON.stringify(tools || []));
+  const retrievalBudgetTokens = retrievalBudgetForContextWindow(
+    contextWindowTokens,
+    reservedOutputTokens,
+  );
 
   return {
     contextWindowTokens,
@@ -36,9 +46,29 @@ export function contextBudgetFor(agentProfile = {}, tools = []) {
     inputBudgetTokens,
     systemPromptTokens: Math.max(4_096, Math.min(24_000, Math.floor(inputBudgetTokens * 0.36))),
     maxMessageTokens: Math.max(2_048, Math.min(16_000, Math.floor(inputBudgetTokens * 0.24))),
-    maxToolResultTokens: Math.max(1_024, Math.min(12_000, Math.floor(inputBudgetTokens * 0.16))),
+    maxToolResultTokens: retrievalBudgetTokens,
+    retrievalBudgetTokens,
     toolDefinitionTokens,
   };
+}
+
+export function retrievalBudgetForContextWindow(
+  contextWindowTokens,
+  reservedOutputTokens = DEFAULT_RESERVED_OUTPUT_TOKENS,
+) {
+  const availableInputTokens = Math.max(
+    1_024,
+    contextWindowTokens - reservedOutputTokens,
+  );
+  const scaled =
+    BASE_RETRIEVAL_TOKENS *
+    Math.sqrt(availableInputTokens / BASE_INPUT_TOKENS);
+  const stepped =
+    Math.round(scaled / RETRIEVAL_BUDGET_STEP) * RETRIEVAL_BUDGET_STEP;
+  return Math.min(
+    MAX_RETRIEVAL_TOKENS,
+    Math.max(MIN_RETRIEVAL_TOKENS, stepped),
+  );
 }
 
 export function prepareModelMessages(messages, budget) {
@@ -118,6 +148,7 @@ export function prepareModelMessages(messages, budget) {
       targetInputTokens,
       contextWindowTokens: budget.contextWindowTokens,
       reservedOutputTokens: budget.reservedOutputTokens,
+      retrievalBudgetTokens: budget.retrievalBudgetTokens,
       toolDefinitionTokens: budget.toolDefinitionTokens,
       compactedToolResults,
       truncatedMessages,
@@ -170,6 +201,7 @@ function estimateMessages(messages) {
       + estimateTokens(message.content)
       + estimateTokens(message.toolCallId)
       + estimateTokens(JSON.stringify(message.toolCalls || []))
+      + estimateAttachments(message.attachments)
       + 8;
   }, 0);
 }
@@ -177,10 +209,28 @@ function estimateMessages(messages) {
 function cloneMessage(message) {
   return {
     ...message,
+    attachments: Array.isArray(message.attachments)
+      ? message.attachments.map((attachment) => ({
+        ...attachment,
+        metadata: attachment.metadata ? { ...attachment.metadata } : attachment.metadata,
+      }))
+      : message.attachments,
     toolCalls: Array.isArray(message.toolCalls)
       ? message.toolCalls.map((call) => ({ ...call }))
       : message.toolCalls,
   };
+}
+
+function estimateAttachments(attachments) {
+  if (!Array.isArray(attachments)) return 0;
+  return attachments.reduce((total, attachment) => {
+    const textTokens = estimateTokens(attachment.textExcerpt) + estimateTokens(JSON.stringify(attachment.metadata || {}));
+    const rawTokens = Number.isSafeInteger(attachment.sizeBytes)
+      ? Math.ceil(attachment.sizeBytes * 0.25)
+      : 0;
+    const visualTokens = attachment.type === "image" ? 2_048 : 0;
+    return total + Math.min(32_000, Math.max(256, textTokens, rawTokens, visualTokens));
+  }, 0);
 }
 
 function findLastIndex(values, predicate) {

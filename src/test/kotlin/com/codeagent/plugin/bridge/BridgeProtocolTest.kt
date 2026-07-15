@@ -31,6 +31,18 @@ class BridgeProtocolTest {
     }
 
     @Test
+    fun `encodes ordered browser event sequence`() {
+        val encoded = json.encodeToString(
+            EventEnvelope(
+                sequence = 42L,
+                type = "snapshot",
+            ),
+        )
+
+        assertEquals("""{"sequence":42,"type":"snapshot"}""", encoded)
+    }
+
+    @Test
     fun `encodes turn identity on streaming bridge payloads`() {
         val delta = json.encodeToString(MessageDeltaDto("message-1", "Done", 2))
         val tool = json.encodeToString(
@@ -58,6 +70,7 @@ class BridgeProtocolTest {
             targetInputTokens = 48_000,
             contextWindowTokens = 64_000,
             reservedOutputTokens = 8_192,
+            retrievalBudgetTokens = 8_192,
             toolDefinitionTokens = 800,
             compactedToolResults = 1,
             truncatedMessages = 2,
@@ -74,6 +87,7 @@ class BridgeProtocolTest {
 
         val encoded = json.encodeToString(telemetry)
         assertEquals(true, encoded.contains("\"estimatedInputTokens\":12000"))
+        assertEquals(true, encoded.contains("\"retrievalBudgetTokens\":8192"))
         assertEquals(true, encoded.contains("\"activatedToolNames\":[\"git_history\"]"))
         assertEquals(true, encoded.contains("\"verificationState\":\"verified\""))
     }
@@ -154,6 +168,9 @@ class BridgeProtocolTest {
                     grantedCapabilities = listOf("commands"),
                     declaredCapabilities = listOf("commands"),
                     commandCount = 1,
+                    promptCount = 1,
+                    ruleCount = 1,
+                    skillCount = 1,
                 ),
             ),
             commands = listOf(
@@ -165,6 +182,14 @@ class BridgeProtocolTest {
                     mode = "ask",
                 ),
             ),
+            prompts = listOf(
+                PluginPromptDto(
+                    id = "review-pack.security-review",
+                    pluginId = "review-pack",
+                    pluginVersion = "1.0.0",
+                    name = "Security review",
+                ),
+            ),
         )
 
         val encoded = json.encodeToString(plugins)
@@ -172,6 +197,8 @@ class BridgeProtocolTest {
         assertEquals(true, encoded.contains("\"installedVersion\":\"1.0.0\""))
 
         assertEquals(true, encoded.contains("\"id\":\"review-pack.review\""))
+        assertEquals(true, encoded.contains("\"id\":\"review-pack.security-review\""))
+        assertEquals(true, encoded.contains("\"promptCount\":1"))
     }
 
 }

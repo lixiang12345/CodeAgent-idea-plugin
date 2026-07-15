@@ -13,6 +13,7 @@ export class IntegrationToolRegistry {
       catalogId: tool.catalogId,
       description: tool.description,
       parameters: tool.parameters,
+      risk: tool.risk,
       available: tool.available,
       unavailableReason: tool.unavailableReason || undefined,
       requiredEnvironment: tool.requiredEnvironment || [],
@@ -507,8 +508,13 @@ function createSubagentTool(modelGateway) {
 }
 
 function tool(definition) {
+  const risk = definition.risk || "read_only";
+  if (!["read_only", "local_state", "mutating"].includes(risk)) {
+    throw new Error(`Unsupported backend tool risk: ${risk}`);
+  }
   return {
     ...definition,
+    risk,
     available: Boolean(definition.available),
     execute: definition.execute || (async () => {
       throw httpError(503, definition.unavailableReason || "Tool is unavailable");

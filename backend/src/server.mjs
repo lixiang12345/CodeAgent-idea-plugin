@@ -179,7 +179,10 @@ export function createCodeAgentServer({
         const selectedModel = effectiveRequest.model || gateway.defaultModel || "";
         if (selectedModel) effectiveRequest.model = selectedModel;
         const initialToolCatalog = createToolCatalog(agentProfile, effectiveRequest.tools);
-        const contextBudget = contextBudgetFor(agentProfile, initialToolCatalog.activeDefinitions());
+        const contextBudget = contextBudgetFor(
+          agentProfile,
+          initialToolCatalog.activeDefinitions(),
+        );
         const run = new RunSession({ id: randomUUID(), userId: principal.id, response, onClose: () => runs.delete(run.id) });
         runs.set(run.id, run);
         run.emit("run.started", {
@@ -197,6 +200,7 @@ export function createCodeAgentServer({
           contextWindowTokens: contextBudget.contextWindowTokens,
           inputBudgetTokens: contextBudget.inputBudgetTokens,
           reservedOutputTokens: contextBudget.reservedOutputTokens,
+          retrievalBudgetTokens: contextBudget.retrievalBudgetTokens,
           toolDefinitionTokens: contextBudget.toolDefinitionTokens,
         });
         void runner.run({
@@ -220,6 +224,7 @@ export function createCodeAgentServer({
               contextWindowTokens: contextBudget.contextWindowTokens,
               inputBudgetTokens: contextBudget.inputBudgetTokens,
               reservedOutputTokens: contextBudget.reservedOutputTokens,
+              retrievalBudgetTokens: contextBudget.retrievalBudgetTokens,
               toolDefinitionTokens: contextBudget.toolDefinitionTokens,
             },
           });

@@ -13,14 +13,23 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
+
+private val SHARED_HTTP_CLIENT: HttpClient = HttpClient.newBuilder()
+    .connectTimeout(Duration.ofSeconds(10))
+    .build()
 
 internal class RemoteAgentClient(
     private val settings: CodeAgentSettings,
-    private val httpClient: HttpClient = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(10))
-        .build(),
+    private val httpClient: HttpClient = SHARED_HTTP_CLIENT,
 ) {
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = Json {
+        ignoreUnknownKeys = true
+    }
+    private val conversationJson = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
     private val runsUri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/runs")
 
     fun health(): CompletableFuture<RemoteBackendHealth> {
@@ -75,7 +84,7 @@ internal class RemoteAgentClient(
         val request = requestBuilder(conversationUri(conversation.id))
             .timeout(Duration.ofSeconds(30))
             .apply { expectedVersion?.let { header("If-Match", it.toString()) } }
-            .PUT(HttpRequest.BodyPublishers.ofString(json.encodeToString(conversation)))
+            .PUT(HttpRequest.BodyPublishers.ofString(conversationJson.encodeToString(conversation)))
             .build()
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString()).thenApply { response ->
             if (response.statusCode() != 200) throw remoteHttpError("Conversation write", response)
@@ -265,13 +274,19 @@ internal class RemoteAgentClient(
         onStreamChanged: (Closeable?) -> Unit,
         onEvent: (String, JsonElement) -> Unit,
     ) {
-        val response = httpClient.send(
+        val responseFuture = httpClient.sendAsync(
             requestBuilder(runsUri)
                 .header("Accept", "text/event-stream")
                 .POST(HttpRequest.BodyPublishers.ofString(json.encodeToString(request)))
                 .build(),
             HttpResponse.BodyHandlers.ofInputStream(),
         )
+        val response = try {
+            responseFuture.orTimeout(STREAM_HEADER_TIMEOUT_SECONDS, TimeUnit.SECONDS).join()
+        } catch (error: Throwable) {
+            responseFuture.cancel(true)
+            throw error
+        }
         if (response.statusCode() != 200) {
             response.body().use { body ->
                 val message = errorMessage(body.bufferedReader().readText())
@@ -298,8 +313,16 @@ internal class RemoteAgentClient(
                 .build(),
             HttpResponse.BodyHandlers.ofString(),
         )
-        check(response.statusCode() == 202) {
-            "Backend rejected tool result with HTTP " + response.statusCode() + ": " + errorMessage(response.body())
+        when (response.statusCode()) {
+            202 -> return
+            404, 410 -> throw RemoteRunExpiredException(
+                runId,
+                "Backend run no longer accepts tool results: ${errorMessage(response.body())}",
+            )
+            else -> throw RemoteHttpException(
+                response.statusCode(),
+                "Backend rejected tool result with HTTP ${response.statusCode()}: ${errorMessage(response.body())}",
+            )
         }
     }
 
@@ -355,18 +378,20 @@ internal class RemoteAgentClient(
         var type: String? = null
         val data = StringBuilder()
 
-        fun dispatch() {
+        fun dispatch(): Boolean {
             val eventType = type
             if (eventType != null && data.isNotEmpty()) {
                 onEvent(eventType, json.parseToJsonElement(data.toString()))
             }
             type = null
             data.setLength(0)
+            return eventType in TERMINAL_RUN_EVENTS
         }
 
-        reader.forEachLine { line ->
+        while (true) {
+            val line = reader.readLine() ?: break
             when {
-                line.isEmpty() -> dispatch()
+                line.isEmpty() && dispatch() -> return
                 line.startsWith("event:") -> type = line.removePrefix("event:").trim()
                 line.startsWith("data:") -> {
                     if (data.isNotEmpty()) data.append('\n')
@@ -379,6 +404,8 @@ internal class RemoteAgentClient(
 
     companion object {
         private val CONFIGURATION_KINDS = setOf("mcp", "hooks", "commands", "agents", "plugins", "tool-permissions")
+        private val TERMINAL_RUN_EVENTS = setOf("run.completed", "run.error", "run.cancelled")
+        private const val STREAM_HEADER_TIMEOUT_SECONDS = 45L
     }
 }
 
@@ -413,6 +440,20 @@ internal data class RemoteRunRequest(
 internal data class RemoteMessage(
     val role: String,
     val content: String? = null,
+    val attachments: List<RemoteAttachment> = emptyList(),
+)
+
+@Serializable
+internal data class RemoteAttachment(
+    val type: String,
+    val id: String,
+    val label: String,
+    val path: String? = null,
+    val mimeType: String? = null,
+    val data: String? = null,
+    val textExcerpt: String? = null,
+    val sizeBytes: Long = 0,
+    val metadata: Map<String, String> = emptyMap(),
 )
 
 @Serializable
@@ -448,7 +489,11 @@ internal data class RemoteToolResult(
 )
 
 @Serializable
-internal data class RemoteRunStarted(val runId: String)
+internal data class RemoteRunStarted(
+    val runId: String,
+    val contextWindowTokens: Int = 64_000,
+    val retrievalBudgetTokens: Int = 8_192,
+)
 
 @Serializable
 data class RemoteContextUpdated(
@@ -457,6 +502,7 @@ data class RemoteContextUpdated(
     val targetInputTokens: Int,
     val contextWindowTokens: Int,
     val reservedOutputTokens: Int,
+    val retrievalBudgetTokens: Int = 8_192,
     val toolDefinitionTokens: Int,
     val compactedToolResults: Int,
     val truncatedMessages: Int,
@@ -510,6 +556,11 @@ internal class RemoteHttpException(
     val statusCode: Int,
     message: String,
 ) : IllegalStateException(message)
+
+internal class RemoteRunExpiredException(
+    val runId: String,
+    message: String,
+ ) : IllegalStateException(message)
 
 
 @Serializable
@@ -691,6 +742,7 @@ internal data class RemoteToolCapability(
     val catalogId: String,
     val description: String,
     val parameters: JsonObject,
+    val risk: String = "read_only",
     val available: Boolean,
     val unavailableReason: String? = null,
     val requiredEnvironment: List<String> = emptyList(),

@@ -1,6 +1,7 @@
 package com.codeagent.plugin.bridge
 
 import com.codeagent.plugin.settings.DEFAULT_BACKEND_URL
+import com.codeagent.plugin.settings.DEFAULT_CONTEXT_HTTP_URL
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -18,6 +19,7 @@ data class CommandEnvelope(
 @Serializable
 data class EventEnvelope(
     val version: Int = BRIDGE_PROTOCOL_VERSION,
+    val sequence: Long? = null,
     val type: String,
     val payload: JsonElement? = null,
 )
@@ -46,6 +48,7 @@ data class AgentRunTelemetryDto(
     val targetInputTokens: Int = 0,
     val contextWindowTokens: Int = 0,
     val reservedOutputTokens: Int = 0,
+    val retrievalBudgetTokens: Int = 0,
     val toolDefinitionTokens: Int = 0,
     val compactedToolResults: Int = 0,
     val truncatedMessages: Int = 0,
@@ -104,6 +107,7 @@ data class ContextItemDto(
     val id: String,
     val label: String,
     val path: String,
+    val kind: String = "file",
 )
 
 @Serializable
@@ -159,7 +163,9 @@ data class SettingsSnapshotDto(
     val showRunTelemetry: Boolean = true,
     val desktopNotifications: Boolean = false,
     val autoDismissNotifications: Boolean = true,
-    val contextMode: String = "lexical",
+    val contextMode: String = "remote-http",
+    val contextHttpBaseUrl: String = DEFAULT_CONTEXT_HTTP_URL,
+    val contextHttpTokenConfigured: Boolean = false,
     val contextEmbeddingBaseUrl: String = "http://127.0.0.1:8000/v1",
     val contextEmbeddingModel: String = "Qwen/Qwen3-Embedding-0.6B",
     val contextEmbeddingTokenConfigured: Boolean = false,
@@ -284,6 +290,16 @@ data class PluginCommandDto(
 )
 
 @Serializable
+data class PluginPromptDto(
+    val id: String,
+    val pluginId: String,
+    val pluginVersion: String,
+    val name: String,
+    val description: String? = null,
+    val argumentHint: String? = null,
+)
+
+@Serializable
 data class PluginRuntimeItemDto(
     val id: String,
     val name: String,
@@ -298,6 +314,9 @@ data class PluginRuntimeItemDto(
     val grantedCapabilities: List<String> = emptyList(),
     val declaredCapabilities: List<String> = emptyList(),
     val commandCount: Int = 0,
+    val promptCount: Int = 0,
+    val ruleCount: Int = 0,
+    val skillCount: Int = 0,
     val installedAt: String? = null,
     val lastCheckedAt: String? = null,
     val lastError: String? = null,
@@ -309,6 +328,7 @@ data class PluginRuntimeSnapshotDto(
     val label: String = "No plugins configured",
     val items: List<PluginRuntimeItemDto> = emptyList(),
     val commands: List<PluginCommandDto> = emptyList(),
+    val prompts: List<PluginPromptDto> = emptyList(),
 )
 
 @Serializable
@@ -385,6 +405,7 @@ data class WorkspaceRuleDto(
     val trigger: String,
     val selected: Boolean,
     val description: String,
+    val source: String = "workspace",
 )
 
 @Serializable
@@ -394,6 +415,7 @@ data class WorkspaceSkillDto(
     val description: String,
     val path: String,
     val selected: Boolean,
+    val source: String = "workspace",
 )
 
 @Serializable

@@ -1,18 +1,97 @@
 export function createModelGatewayFromEnv(env = process.env, fetchImpl = fetch) {
+  const providers = configuredNativeProviders(env);
+  if (providers.length > 0) {
+    return new ConfiguredNativeGateway({
+      providers,
+      contextQueryModel: optionalSetting(env, "CONTEXT_QUERY_MODEL"),
+      defaultModel: optionalSetting(env, "MODEL"),
+      maxTokens: positiveIntegerSetting(env, "MODEL_MAX_OUTPUT_TOKENS", 8_192),
+      streamIdleTimeoutMs: positiveIntegerSetting(env, "MODEL_STREAM_IDLE_TIMEOUT_MS", 45_000),
+      fetchImpl,
+    });
+  }
+
   return new UnifiedNativeGateway({
-    endpoint: requiredSetting(env, "MODEL_BASE_URL"),
-    apiKey: requiredSetting(env, "MODEL_API_KEY"),
+    endpoint: requiredSetting(env, "MODEL_BASE_URL", ["MODEL_ENDPOINT"]),
+    apiKey: requiredSetting(env, "MODEL_API_KEY", ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GROK_API_KEY"]),
+    streamIdleTimeoutMs: positiveIntegerSetting(env, "MODEL_STREAM_IDLE_TIMEOUT_MS", 45_000),
     fetchImpl,
   });
 }
 
+export class ConfiguredNativeGateway {
+  constructor({ providers, contextQueryModel = "", defaultModel, maxTokens = 8_192, streamIdleTimeoutMs = 45_000, fetchImpl = fetch }) {
+    this.provider = "configured-native";
+    this.maxTokens = maxTokens;
+    this.fetchImpl = fetchImpl;
+    this.models = [];
+    this.routes = new Map();
+    this.visibleModels = new Set();
+    this.internalModels = new Set();
+
+    for (const provider of providers) {
+      const endpoint = normalizeGatewayEndpoint(provider.endpoint);
+      const routedModels = [...new Set([...provider.models, ...provider.internalModels])];
+      for (const model of routedModels) {
+        if (this.routes.has(model)) throw new Error(`Model is configured more than once: ${model}`);
+        const route = provider.protocol === "anthropic-messages"
+          ? new AnthropicMessagesGateway({ endpoint, apiKey: provider.apiKey, model, maxTokens, streamIdleTimeoutMs, fetchImpl })
+          : new OpenAIResponsesGateway({
+              endpoint,
+              apiKey: provider.apiKey,
+              model,
+              provider: provider.provider,
+              maxTokens,
+              streamIdleTimeoutMs,
+              fetchImpl,
+            });
+        this.routes.set(model, route);
+      }
+      for (const model of provider.models) {
+        this.models.push({ id: model, ownedBy: provider.ownedBy, protocol: provider.protocol });
+        this.visibleModels.add(model);
+      }
+      for (const model of provider.internalModels) this.internalModels.add(model);
+    }
+
+    if (this.models.length === 0) throw new Error("At least one model must be configured");
+    this.defaultModel = defaultModel || this.models[0].id;
+    if (!this.routes.has(this.defaultModel)) {
+      throw new Error(`Default model is not enabled: ${this.defaultModel}`);
+    }
+    this.contextQueryModel = contextQueryModel;
+    if (this.contextQueryModel && !this.internalModels.has(this.contextQueryModel)) {
+      throw new Error(`Context query model is not configured as an internal model: ${this.contextQueryModel}`);
+    }
+  }
+
+  async listModels() {
+    return this.models.map(({ id, ownedBy, protocol }) => ({ id, ownedBy, protocol }));
+  }
+
+  async stream(request) {
+    const model = request.model || this.defaultModel;
+    if (!this.visibleModels.has(model)) throw new Error(`Model is not enabled: ${model}`);
+    const gateway = this.routes.get(model);
+    if (!gateway) throw new Error(`Model route is unavailable: ${model}`);
+    return gateway.stream({ ...request, model });
+  }
+
+  async streamInternal(request) {
+    const model = request.model;
+    if (!model || !this.internalModels.has(model)) throw new Error(`Internal model is not enabled: ${model || "missing"}`);
+    return this.routes.get(model).stream({ ...request, model });
+  }
+}
+
 
 export class UnifiedNativeGateway {
-  constructor({ endpoint, apiKey, maxTokens = 8_192, fetchImpl = fetch }) {
+  constructor({ endpoint, apiKey, maxTokens = 8_192, streamIdleTimeoutMs = 45_000, fetchImpl = fetch }) {
     this.endpoint = normalizeGatewayEndpoint(endpoint);
     this.apiKey = apiKey;
     this.defaultModel = "";
     this.maxTokens = maxTokens;
+    this.streamIdleTimeoutMs = streamIdleTimeoutMs;
     this.fetchImpl = fetchImpl;
     this.provider = "unified-native";
     this.models = null;
@@ -62,6 +141,7 @@ export class UnifiedNativeGateway {
         endpoint: this.endpoint,
         apiKey: this.apiKey,
         maxTokens: this.maxTokens,
+        streamIdleTimeoutMs: this.streamIdleTimeoutMs,
         fetchImpl: this.fetchImpl,
       }));
     }
@@ -74,12 +154,13 @@ export class UnifiedNativeGateway {
 }
 
 export class OpenAIResponsesGateway {
-  constructor({ endpoint, apiKey, model, provider = "openai", maxTokens = 8_192, fetchImpl = fetch }) {
+  constructor({ endpoint, apiKey, model, provider = "openai", maxTokens = 8_192, streamIdleTimeoutMs = 45_000, fetchImpl = fetch }) {
     this.endpoint = endpoint.replace(/\/$/, "");
     this.apiKey = apiKey;
     this.defaultModel = model;
     this.provider = provider;
     this.maxTokens = maxTokens;
+    this.streamIdleTimeoutMs = streamIdleTimeoutMs;
     this.fetchImpl = fetchImpl;
   }
 
@@ -99,7 +180,7 @@ export class OpenAIResponsesGateway {
       headers: this.#headers("text/event-stream, application/json"),
       body: JSON.stringify({
         model: model || this.defaultModel,
-        input: toOpenAIResponseInput(messages),
+        input: toOpenAIResponseInput(messages, { nativeAttachments: this.provider === "openai" }),
         tools: tools.length ? tools.map(toOpenAIResponseTool) : undefined,
         max_output_tokens: outputTokenLimit(maxOutputTokens, this.maxTokens),
         stream: true,
@@ -110,7 +191,7 @@ export class OpenAIResponsesGateway {
     if (!isEventStream(response)) return completeOpenAIResponseTurn(await response.json());
 
     const accumulator = new OpenAIResponsesStreamAccumulator(onTextDelta);
-    await consumeSse(response.body, (event) => accumulator.accept(event.data));
+    await consumeSse(response.body, (event) => accumulator.accept(event.data), { idleTimeoutMs: this.streamIdleTimeoutMs });
     return accumulator.finish();
   }
 
@@ -125,11 +206,12 @@ export class OpenAIResponsesGateway {
 
 
 export class AnthropicMessagesGateway {
-  constructor({ endpoint, apiKey, model, maxTokens = 8_192, fetchImpl = fetch }) {
+  constructor({ endpoint, apiKey, model, maxTokens = 8_192, streamIdleTimeoutMs = 45_000, fetchImpl = fetch }) {
     this.endpoint = endpoint.replace(/\/$/, "");
     this.apiKey = apiKey;
     this.defaultModel = model;
     this.maxTokens = maxTokens;
+    this.streamIdleTimeoutMs = streamIdleTimeoutMs;
     this.provider = "anthropic";
     this.fetchImpl = fetchImpl;
   }
@@ -163,7 +245,7 @@ export class AnthropicMessagesGateway {
     if (!isEventStream(response)) return completeAnthropicTurn(await response.json());
 
     const accumulator = new AnthropicStreamAccumulator(onTextDelta);
-    await consumeSse(response.body, (event) => accumulator.accept(event.data));
+    await consumeSse(response.body, (event) => accumulator.accept(event.data), { idleTimeoutMs: this.streamIdleTimeoutMs });
     return accumulator.finish();
   }
 
@@ -322,14 +404,25 @@ function completeAnthropicTurn(body) {
 
 
 
-function toOpenAIResponseInput(messages) {
+function toOpenAIResponseInput(messages, { nativeAttachments = false } = {}) {
   const input = [];
   for (const message of messages) {
     if (message.role === "tool") {
       input.push({ type: "function_call_output", call_id: message.toolCallId, output: message.content || "" });
       continue;
     }
-    if (message.content) input.push({ role: message.role, content: message.content });
+    const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+    if (attachments.length > 0) {
+      const content = [];
+      if (message.content) content.push({ type: "input_text", text: message.content });
+      for (const attachment of attachments) {
+        const native = nativeAttachments && openAIAttachmentBlock(attachment);
+        content.push(native || { type: "input_text", text: attachmentText(attachment) });
+      }
+      input.push({ role: message.role, content: content.length ? content : [{ type: "input_text", text: "" }] });
+    } else if (message.content) {
+      input.push({ role: message.role, content: message.content });
+    }
     for (const call of message.toolCalls || []) {
       input.push({
         type: "function_call",
@@ -362,6 +455,10 @@ function toAnthropicMessages(messages) {
     }
     const blocks = [];
     if (message.content) blocks.push({ type: "text", text: message.content });
+    for (const attachment of message.attachments || []) {
+      const image = anthropicImageBlock(attachment);
+      blocks.push(image || { type: "text", text: attachmentText(attachment) });
+    }
     for (const call of message.toolCalls || []) {
       blocks.push({ type: "tool_use", id: call.id, name: call.name, input: parseArguments(call.arguments) });
     }
@@ -382,27 +479,100 @@ function appendContentMessage(messages, role, content, field = "content") {
   else messages.push({ role, [field]: content });
 }
 
+function openAIAttachmentBlock(attachment) {
+  if (attachment.type === "image" && attachment.mimeType && attachment.data) {
+    return {
+      type: "input_image",
+      image_url: `data:${attachment.mimeType};base64,${attachment.data}`,
+      detail: "high",
+    };
+  }
+  if (attachment.type === "file" && attachment.mimeType && attachment.data) {
+    return {
+      type: "input_file",
+      filename: attachment.label || "attachment",
+      file_data: `data:${attachment.mimeType};base64,${attachment.data}`,
+    };
+  }
+  return null;
+}
+
+function anthropicImageBlock(attachment) {
+  if (attachment.type !== "image" || !attachment.mimeType || !attachment.data) return null;
+  return {
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: attachment.mimeType,
+      data: attachment.data,
+    },
+  };
+}
+
+function attachmentText(attachment) {
+  const metadata = Object.entries(attachment.metadata || {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
+  const header = [
+    `[User-selected ${attachment.type || "context"} attachment]`,
+    `Name: ${attachment.label || "unnamed"}`,
+    attachment.path ? `Path: ${attachment.path}` : "",
+    attachment.mimeType ? `MIME: ${attachment.mimeType}` : "",
+    Number.isFinite(attachment.sizeBytes) ? `Size: ${attachment.sizeBytes} bytes` : "",
+    metadata ? `Metadata:\n${metadata}` : "",
+  ].filter(Boolean).join("\n");
+  if (!attachment.textExcerpt) return `${header}\nNo textual preview is available. Use a project tool for further inspection when relevant.`;
+  return `${header}\n<user_selected_attachment>\n${attachment.textExcerpt}\n</user_selected_attachment>`;
+}
+
 function normalizedTurn(content, toolCalls) {
   return { content: content || null, toolCalls };
 }
 
-async function consumeSse(body, onEvent) {
+async function consumeSse(body, onEvent, { idleTimeoutMs = 45_000 } = {}) {
+  if (!body) throw new Error("Model stream returned no response body");
   const decoder = new TextDecoder();
+  const reader = body.getReader();
   let buffer = "";
-  for await (const chunk of body) {
-    buffer += decoder.decode(chunk, { stream: true });
-    let boundary;
-    while ((boundary = findEventBoundary(buffer)) !== null) {
-      const raw = buffer.slice(0, boundary.index);
-      buffer = buffer.slice(boundary.index + boundary.length);
-      const event = parseSseEvent(raw);
-      if (event.data) onEvent(event);
+  try {
+    while (true) {
+      const { value, done } = await readSseChunk(reader, idleTimeoutMs);
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let boundary;
+      while ((boundary = findEventBoundary(buffer)) !== null) {
+        const raw = buffer.slice(0, boundary.index);
+        buffer = buffer.slice(boundary.index + boundary.length);
+        const event = parseSseEvent(raw);
+        if (event.data) onEvent(event);
+      }
     }
+  } finally {
+    reader.releaseLock();
   }
   buffer += decoder.decode();
   if (buffer.trim()) {
     const event = parseSseEvent(buffer);
     if (event.data) onEvent(event);
+  }
+}
+
+async function readSseChunk(reader, idleTimeoutMs) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const duration = idleTimeoutMs % 1_000 === 0 ? `${idleTimeoutMs / 1_000} seconds` : `${idleTimeoutMs} ms`;
+      reject(new Error(`Model stream stalled for ${duration} without receiving data`));
+    }, idleTimeoutMs);
+  });
+  try {
+    return await Promise.race([reader.read(), timeout]);
+  } catch (error) {
+    try { await reader.cancel(error); } catch {}
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -460,8 +630,9 @@ function normalizeUnifiedModels(models) {
     const id = typeof model?.id === "string" ? model.id.trim() : "";
     if (!id || seen.has(id)) return [];
     const ownedBy = String(model.provider || model.owned_by || model.ownedBy || model.publisher || "").trim().toLowerCase();
-    const protocol = normalizeUnifiedProtocol(model.protocol || model.api_protocol || model.apiProtocol);
-    if (!protocol) throw new Error(`Model '${id}' is missing supported provider/protocol metadata`);
+    const protocol = normalizeUnifiedProtocol(model.protocol || model.api_protocol || model.apiProtocol)
+      || protocolForProvider(ownedBy);
+    if (!protocol) return [];
     seen.add(id);
     return [{ id, ownedBy: ownedBy || protocolProvider(protocol), protocol }];
   }).sort((left, right) => left.id.localeCompare(right.id));
@@ -481,8 +652,15 @@ function protocolProvider(protocol) {
   return "openai";
 }
 
-function createUnifiedRoute(model, { endpoint, apiKey, maxTokens, fetchImpl }) {
-  const options = { endpoint, apiKey, model: model.id, maxTokens, fetchImpl };
+function protocolForProvider(provider) {
+  if (["openai", "openai-compatible", "openai_compatible"].includes(provider)) return "openai-responses";
+  if (["anthropic", "claude"].includes(provider)) return "anthropic-messages";
+  if (["xai", "grok"].includes(provider)) return "xai-responses";
+  return null;
+}
+
+function createUnifiedRoute(model, { endpoint, apiKey, maxTokens, streamIdleTimeoutMs, fetchImpl }) {
+  const options = { endpoint, apiKey, model: model.id, maxTokens, streamIdleTimeoutMs, fetchImpl };
   if (model.protocol === "anthropic-messages") return new AnthropicMessagesGateway(options);
   if (model.protocol === "xai-responses") return new OpenAIResponsesGateway({ ...options, provider: "grok" });
   return new OpenAIResponsesGateway(options);
@@ -552,8 +730,72 @@ function normalizeGatewayEndpoint(value) {
   return url.toString().replace(/\/$/, "");
 }
 
-function requiredSetting(env, name) {
-  const value = env[name]?.trim();
+function requiredSetting(env, name, aliases = []) {
+  const value = [name, ...aliases].map((candidate) => env[candidate]?.trim()).find(Boolean);
   if (!value) throw new Error(`${name} is required`);
   return value;
+}
+
+function optionalSetting(env, name) {
+  return typeof env[name] === "string" ? env[name].trim() : "";
+}
+
+function positiveIntegerSetting(env, name, fallback) {
+  const value = Number.parseInt(optionalSetting(env, name), 10);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function configuredNativeProviders(env) {
+  const definitions = [
+    {
+      provider: "openai",
+      ownedBy: "openai",
+      protocol: "openai-responses",
+      endpointName: "OPENAI_BASE_URL",
+      apiKeyName: "OPENAI_API_KEY",
+      modelsName: "OPENAI_MODELS",
+      internalModelsName: "OPENAI_INTERNAL_MODELS",
+    },
+    {
+      provider: "grok",
+      ownedBy: "xai",
+      protocol: "xai-responses",
+      endpointName: "GROK_BASE_URL",
+      apiKeyName: "GROK_API_KEY",
+      modelsName: "GROK_MODELS",
+      internalModelsName: "GROK_INTERNAL_MODELS",
+    },
+    {
+      provider: "anthropic",
+      ownedBy: "anthropic",
+      protocol: "anthropic-messages",
+      endpointName: "ANTHROPIC_BASE_URL",
+      apiKeyName: "ANTHROPIC_API_KEY",
+      modelsName: "ANTHROPIC_MODELS",
+      internalModelsName: "ANTHROPIC_INTERNAL_MODELS",
+    },
+  ];
+  const providerMode = definitions.some(({ endpointName, modelsName, internalModelsName }) =>
+    optionalSetting(env, endpointName) || optionalSetting(env, modelsName) || optionalSetting(env, internalModelsName),
+  );
+  if (!providerMode) return [];
+
+  return definitions.flatMap((definition) => {
+    const models = optionalSetting(env, definition.modelsName)
+      .split(",")
+      .map((model) => model.trim())
+      .filter(Boolean)
+      .filter((model, index, values) => values.indexOf(model) === index);
+    const internalModels = optionalSetting(env, definition.internalModelsName)
+      .split(",")
+      .map((model) => model.trim())
+      .filter(Boolean)
+      .filter((model, index, values) => values.indexOf(model) === index);
+    if (models.length === 0 && internalModels.length === 0) return [];
+    const endpoint = optionalSetting(env, definition.endpointName);
+    const apiKey = optionalSetting(env, definition.apiKeyName);
+    if (!endpoint) throw new Error(`${definition.endpointName} is required when provider models are configured`);
+    if (!apiKey) throw new Error(`${definition.apiKeyName} is required when provider models are configured`);
+    return [{ ...definition, endpoint, apiKey, models, internalModels }];
+  });
 }

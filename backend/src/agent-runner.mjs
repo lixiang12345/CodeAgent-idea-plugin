@@ -4,10 +4,18 @@ import { contextBudgetFor, prepareModelMessages } from "./context-policy.mjs";
 import { createToolCatalog, DISCOVER_TOOLS_NAME } from "./tool-catalog.mjs";
 
 export class AgentRunner {
-  constructor({ modelGateway, maxTurns = 64, maxToolCalls = 128 }) {
+  constructor({
+    modelGateway,
+    maxTurns = 64,
+    maxToolCalls = 128,
+    modelTurnTimeoutMs = 120_000,
+    contextQueryTimeoutMs = 10_000,
+  }) {
     this.modelGateway = modelGateway;
     this.maxTurns = maxTurns;
     this.maxToolCalls = maxToolCalls;
+    this.modelTurnTimeoutMs = modelTurnTimeoutMs;
+    this.contextQueryTimeoutMs = contextQueryTimeoutMs;
   }
 
   async run({ request, agentProfile = builtInAgentProfile("general"), emit, awaitToolResult, signal }) {
@@ -24,29 +32,38 @@ export class AgentRunner {
     const pendingMutationPaths = new Set();
     let pendingUnknownMutation = false;
     let verificationReminderCount = 0;
+    let pendingTaskReview = false;
+    let taskReviewReminderCount = 0;
     let previousToolSignature = null;
     let repeatedToolCallCount = 0;
     const messages = [
       { role: "system", content: composeSystemPrompt({ ...request, tools: toolCatalog.activeDefinitions(), agentProfile }) },
       ...request.messages.map(normalizeMessage),
     ];
+    const latestUserRequest = [...request.messages].reverse()
+      .find((message) => message.role === "user" && typeof message.content === "string")?.content || "";
     emit("tool.catalog.updated", { turnIndex: 0, ...toolCatalog.snapshot() });
 
     for (let turnIndex = 0; turnIndex < maxTurns; turnIndex += 1) {
       throwIfAborted(signal);
       emit("turn.started", { turnIndex });
       const activeTools = toolCatalog.activeDefinitions();
-      const contextBudget = contextBudgetFor(agentProfile, activeTools);
+      const contextBudget = contextBudgetFor(
+        agentProfile,
+        activeTools,
+      );
       const prepared = prepareModelMessages(messages, contextBudget);
       emit("context.updated", { turnIndex, ...prepared.stats });
-      const turn = await this.modelGateway.stream({
+      const turn = await this.#streamTurn({
         messages: prepared.messages,
         tools: activeTools,
         model: request.model,
         maxOutputTokens: contextBudget.reservedOutputTokens,
         signal,
+        turnIndex,
         onTextDelta: (delta) => emit("message.delta", { delta, turnIndex }),
       });
+      turn.toolCalls = await this.#rewriteContextQueries(turn.toolCalls, latestUserRequest, signal);
       messages.push({
         role: "assistant",
         content: turn.content,
@@ -68,6 +85,15 @@ export class AgentRunner {
           const message = `A project mutation completed without relevant follow-up verification. Inspect the changed behavior and run the smallest meaningful diagnostic, test, build, or focused read of every changed path before finishing.${scope}`;
           emit("verification.updated", { turnIndex, status: "required", message });
           messages.push({ role: "system", content: `Runtime verification gate: ${message}` });
+          continue;
+        }
+        if (pendingTaskReview) {
+          if (taskReviewReminderCount >= 1) {
+            throw new Error("Agent finished after task mutation without reviewing task state");
+          }
+          taskReviewReminderCount += 1;
+          const message = "A task-list mutation completed without a follow-up task review. Call view_tasks, then complete or cancel every task created or changed in this run, or report a concrete blocker before finishing.";
+          messages.push({ role: "system", content: `Runtime task gate: ${message}` });
           continue;
         }
         emit("run.completed", { turnCount: turnIndex + 1 });
@@ -148,11 +174,130 @@ export class AgentRunner {
               emit("verification.updated", { turnIndex, status: "verified", toolName: call.name, message: "Post-mutation verification completed" });
             }
           }
+          if (["add_tasks", "update_tasks", "reorg_tasks"].includes(call.name)) {
+            pendingTaskReview = true;
+            taskReviewReminderCount = 0;
+          } else if (call.name === "view_tasks" && pendingTaskReview) {
+            pendingTaskReview = false;
+            taskReviewReminderCount = 0;
+          }
         }
       }
     }
     throw new Error(`Agent exceeded ${maxTurns} model turns`);
   }
+
+  async #streamTurn({ signal, turnIndex, ...request }) {
+    const controller = new AbortController();
+    const abortFromRun = () => controller.abort(signal.reason || new Error("Run cancelled"));
+    const timeout = setTimeout(
+      () => controller.abort(new Error(`Model turn ${turnIndex + 1} timed out after ${this.modelTurnTimeoutMs / 1_000} seconds`)),
+      this.modelTurnTimeoutMs,
+    );
+    signal.addEventListener("abort", abortFromRun, { once: true });
+    try {
+      return await this.modelGateway.stream({ ...request, signal: controller.signal });
+    } catch (error) {
+      if (controller.signal.aborted && !signal.aborted) throw controller.signal.reason;
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", abortFromRun);
+    }
+  }
+
+  async #rewriteContextQueries(calls, userRequest, signal) {
+    if (!this.modelGateway.contextQueryModel || typeof this.modelGateway.streamInternal !== "function") return calls;
+    return Promise.all(calls.map(async (call) => {
+      if (call.name !== "codebase_retrieval") return call;
+      const argumentsObject = parseArguments(call);
+      const originalQuery = typeof argumentsObject?.information_request === "string"
+        ? argumentsObject.information_request.trim()
+        : "";
+      if (!originalQuery) return call;
+
+      const controller = new AbortController();
+      const abortFromRun = () => controller.abort(signal.reason || new Error("Run cancelled"));
+      const timeout = setTimeout(
+        () => controller.abort(new Error(`Context query rewrite timed out after ${this.contextQueryTimeoutMs / 1_000} seconds`)),
+        this.contextQueryTimeoutMs,
+      );
+      signal.addEventListener("abort", abortFromRun, { once: true });
+      try {
+        const rewritten = await this.modelGateway.streamInternal({
+          model: this.modelGateway.contextQueryModel,
+          tools: [
+            {
+              name: "rewrite_context_query",
+              description: "Return one compact codebase retrieval query and nothing else",
+              parameters: {
+                type: "object",
+                properties: {
+                  query: { type: "string", description: "Retrieval-oriented symbols, paths, behaviors, callers, tests, configuration, and data-flow terms" },
+                },
+                required: ["query"],
+                additionalProperties: false,
+              },
+            },
+          ],
+          maxOutputTokens: 256,
+          messages: [
+            {
+              role: "system",
+              content: "You are a code-search query compiler. Call rewrite_context_query exactly once. Never answer, explain, diagnose, plan, or use Markdown. Preserve exact symbols, class names, method names, paths, error text, and quoted literals. Produce a compact retrieval description covering likely implementations, callers, tests, configuration, state transitions, and data flow only when relevant.",
+            },
+            {
+              role: "user",
+              content: `User request:\n${userRequest || "(not available)"}\n\nCurrent retrieval request:\n${originalQuery}`,
+            },
+          ],
+          signal: controller.signal,
+          onTextDelta() {},
+        });
+        const informationRequest = extractContextQuery(rewritten, originalQuery);
+        if (!informationRequest || informationRequest === originalQuery) return call;
+        return {
+          ...call,
+          arguments: JSON.stringify({ ...argumentsObject, information_request: informationRequest }),
+        };
+      } catch (error) {
+        if (signal.aborted) throw signal.reason || error;
+        return call;
+      } finally {
+        clearTimeout(timeout);
+        signal.removeEventListener("abort", abortFromRun);
+      }
+    }));
+  }
+}
+
+function extractContextQuery(turn, originalQuery) {
+  const toolCall = Array.isArray(turn?.toolCalls)
+    ? turn.toolCalls.find((call) => call.name === "rewrite_context_query")
+    : null;
+  const toolArguments = toolCall ? parseArguments(toolCall) : null;
+  const candidate = normalizeContextQueryCandidate(toolArguments?.query);
+  if (!candidate || !isUsefulContextQuery(candidate, originalQuery)) return "";
+  return candidate;
+}
+
+function normalizeContextQueryCandidate(value) {
+  if (typeof value !== "string") return "";
+  return value
+    .replace(/^```(?:text)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .replace(/\s+/g, " ")
+    .slice(0, 1_000);
+}
+
+function isUsefulContextQuery(candidate, originalQuery) {
+  if (candidate.length < 3 || candidate.length > 1_000) return false;
+  if (/(?:^|\b)(?:i(?:'m| am) going to|i will|here are|the reason is|let me|通常|常见原因|我会|我将|可以帮你|无法|不能)/i.test(candidate)) return false;
+  const identifiers = String(originalQuery || "").match(/`[^`]+`|"[^"]+"|'[^']+'|[A-Z][A-Za-z0-9_$]{2,}|[A-Za-z_$][A-Za-z0-9_$]*(?:[./:#_-][A-Za-z0-9_$.-]+)+/g) || [];
+  const lowerCandidate = candidate.toLowerCase();
+  return identifiers.every((identifier) => lowerCandidate.includes(identifier.replace(/^[`"']|[`"']$/g, "").toLowerCase()));
 }
 
 function toolCallSignature(call) {
@@ -297,7 +442,55 @@ function normalizeMessage(message) {
   if (message.content !== undefined && message.content !== null && typeof message.content !== "string") {
     throw new Error("Message content must be a string or null");
   }
-  return message;
+  const attachments = message.attachments === undefined ? [] : message.attachments;
+  if (!Array.isArray(attachments) || attachments.length > 8) {
+    throw new Error("Message attachments must contain at most 8 entries");
+  }
+  return {
+    ...message,
+    attachments: attachments.map(normalizeAttachment),
+  };
+}
+
+function normalizeAttachment(attachment) {
+  if (!attachment || typeof attachment !== "object" || Array.isArray(attachment)) {
+    throw new Error("Attachment entries must be objects");
+  }
+  if (!["file", "image", "ide_state"].includes(attachment.type)) {
+    throw new Error("Attachment type is unsupported");
+  }
+  validateRequiredString(attachment.id, "Attachment id", 240);
+  validateRequiredString(attachment.label, "Attachment label", 1_000);
+  validateOptionalString(attachment.path, "Attachment path", 4_000);
+  validateOptionalString(attachment.mimeType, "Attachment MIME type", 240);
+  validateOptionalString(attachment.data, "Attachment data", 700_000);
+  validateOptionalString(attachment.textExcerpt, "Attachment text excerpt", 24_000);
+  if (!Number.isSafeInteger(attachment.sizeBytes) || attachment.sizeBytes < 0 || attachment.sizeBytes > 1_000_000) {
+    throw new Error("Attachment sizeBytes is invalid");
+  }
+  if (attachment.metadata !== undefined) {
+    if (!attachment.metadata || typeof attachment.metadata !== "object" || Array.isArray(attachment.metadata)) {
+      throw new Error("Attachment metadata must be an object");
+    }
+    const entries = Object.entries(attachment.metadata);
+    if (entries.length > 16) throw new Error("Attachment metadata may contain at most 16 entries");
+    for (const [key, value] of entries) {
+      validateRequiredString(key, "Attachment metadata key", 120);
+      validateRequiredString(value, "Attachment metadata value", 1_000);
+    }
+  }
+  if (attachment.type === "image") {
+    if (!attachment.mimeType?.startsWith("image/") || !attachment.data) {
+      throw new Error("Image attachments require image MIME type and data");
+    }
+  }
+  if (attachment.type === "file" && !attachment.data) {
+    throw new Error("File attachments require data");
+  }
+  if (attachment.type === "ide_state" && !attachment.textExcerpt) {
+    throw new Error("IDE-state attachments require a text excerpt");
+  }
+  return attachment;
 }
 
 function toolMessage(toolCallId, content, summary) {
@@ -312,6 +505,11 @@ function toolMessage(toolCallId, content, summary) {
 function validateOptionalString(value, field, maxLength) {
   if (value === undefined || value === null) return;
   if (typeof value !== "string") throw new Error(`${field} must be a string when provided`);
+  if (value.length > maxLength) throw new Error(`${field} exceeds ${maxLength} characters`);
+}
+
+function validateRequiredString(value, field, maxLength) {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${field} is required`);
   if (value.length > maxLength) throw new Error(`${field} exceeds ${maxLength} characters`);
 }
 

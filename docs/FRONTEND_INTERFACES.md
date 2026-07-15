@@ -104,7 +104,7 @@ System prompts and provider credentials **never** leave the backend process.
 | Feedback | local notice only |
 | MCP | typed account configuration CRUD plus local gateway state, lifecycle controls, discovered tools, latency, process ID, errors, and approval risk |
 | Commands / Hooks / Agents | typed account configuration CRUD plus their bounded command, lifecycle-hook, and Agent-profile runtimes |
-| Plugins | typed account configuration CRUD plus device-local install, validate, update, uninstall, runtime state, permission display, and namespaced command contributions |
+| Plugins | typed account configuration CRUD plus device-local install, validate, update, uninstall, runtime state, permission display, namespaced command and prompt contributions, and read-only rule/skill context |
 | Account / Subscription | real backend identity, session state, and metered usage; no simulated billing actions |
 | Feature Flags / Beta | read-only live capability and maturity reports |
 | Unconfigured cloud tools | explicit **Not connected** states |

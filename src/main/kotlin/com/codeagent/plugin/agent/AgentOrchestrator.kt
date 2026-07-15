@@ -5,6 +5,7 @@ import com.codeagent.plugin.settings.OidcLoginService
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.AppExecutorUtil
 import kotlinx.serialization.json.Json
@@ -15,8 +16,11 @@ import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+
+private const val AGENT_PREFLIGHT_TIMEOUT_SECONDS = 45L
 
 @Service(Service.Level.PROJECT)
 class AgentOrchestrator(private val project: Project) : Disposable {
@@ -25,10 +29,12 @@ class AgentOrchestrator(private val project: Project) : Disposable {
     private val executor = AppExecutorUtil.getAppExecutorService()
     private val activeRun = AtomicReference<RunContext?>()
     private val customizations = project.service<WorkspaceCustomizationService>()
+    private val pluginRuntime = project.service<PluginRuntimeService>()
     private val mcpRuntime = project.service<McpRuntimeService>()
     private val hookRuntime = project.service<HookRuntimeService>()
     private val guidanceLoader = WorkspaceGuidanceLoader(project.basePath?.let(Path::of))
     private val json = Json { ignoreUnknownKeys = true }
+    private val log = Logger.getInstance(AgentOrchestrator::class.java)
 
     fun start(
         history: List<AgentMessage>,
@@ -41,32 +47,55 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         listener: AgentRunListener,
     ) {
         cancel()
-        val context = RunContext()
+        val context = RunContext(mode = mode)
         activeRun.set(context)
 
         executor.execute {
             listener.onRunStateChanged("running")
+            val startedAt = System.nanoTime()
             try {
+                log.info("Agent run ${context.hookRunId} preflight started")
                 hookRuntime.runLifecycle(
                     "before-run",
                     HookExecutionContext(context.hookRunId, "before-run"),
                 )
                 require(mode in setOf("agent", "chat", "ask")) { "Unsupported mode: $mode" }
                 require(history.none { it.role == "system" }) { "Conversation history cannot contain system messages" }
-                oidcLogin.ensureFreshToken().join()
+                awaitStage("authentication", oidcLogin.ensureFreshToken())
                 val settings = settingsService.snapshot()
                 val customization = customizations.refresh()
+                val pluginContributions = pluginRuntime.snapshot()
                 val client = RemoteAgentClient(settings)
                 context.client.set(client)
-                val remoteTools = client.tools().join().data.filter(RemoteToolCapability::available)
-                mcpRuntime.prepareForRun().join()
+                val remoteTools = awaitStage("tool discovery", client.tools())
+                    .data
+                    .filter(RemoteToolCapability::available)
+                awaitStage("MCP preparation", mcpRuntime.prepareForRun())
                 val toolRunner = AgentToolExecutor(project, client, remoteTools)
                 val definitions = toolRunner.definitions(mode)
                 val request = RemoteRunRequest(
                     mode = mode,
                     agentProfileId = agentProfileId,
                     model = model,
-                    messages = history.map { RemoteMessage(it.role, it.content) },
+                    messages = history.map { message ->
+                        RemoteMessage(
+                            role = message.role,
+                            content = message.content,
+                            attachments = message.attachments.map { attachment ->
+                                RemoteAttachment(
+                                    type = attachment.type,
+                                    id = attachment.id,
+                                    label = attachment.label,
+                                    path = attachment.path,
+                                    mimeType = attachment.mimeType,
+                                    data = attachment.data,
+                                    textExcerpt = attachment.textExcerpt,
+                                    sizeBytes = attachment.sizeBytes,
+                                    metadata = attachment.metadata,
+                                )
+                            },
+                        )
+                    },
                     tools = definitions.map { definition ->
                         RemoteToolDefinition(
                             definition.name,
@@ -82,18 +111,22 @@ class AgentOrchestrator(private val project: Project) : Disposable {
                     workspace = RemoteWorkspace(
                         guidance = guidanceLoader.load(),
                         historySummary = historySummary,
-                        rules = customization.rules
+                        rules = (customization.rules + pluginContributions.rules)
                             .filter { rule ->
                                 rule.trigger == "always" ||
                                     (rule.trigger == "agent" && mode == "agent") ||
                                     (rule.trigger == "manual" && rule.id in enabledRuleIds)
                             }
                             .map { RemoteWorkspaceEntry(it.name, it.path, it.content) },
-                        skills = customization.skills
+                        skills = (customization.skills + pluginContributions.skills)
                             .filter { it.id in enabledSkillIds }
                             .take(WorkspaceCustomizationLoader.MAX_SELECTED_SKILLS)
                             .map { RemoteWorkspaceEntry(it.name, it.path, it.content) },
                     ),
+                )
+                log.info(
+                    "Agent run ${context.hookRunId} streaming after ${elapsedMillis(startedAt)} ms " +
+                        "with ${definitions.size} tools",
                 )
                 client.stream(
                     request = request,
@@ -125,6 +158,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
             } catch (error: Throwable) {
                 if (!context.cancelled.get()) {
                     val message = error.rootMessage()
+                    log.warn("Agent run ${context.hookRunId} failed after ${elapsedMillis(startedAt)} ms: $message", error)
                     runCatching {
                         hookRuntime.runLifecycle(
                             "on-error",
@@ -140,11 +174,29 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         }
     }
 
+    private fun <T> awaitStage(stage: String, future: CompletableFuture<T>): T {
+        val startedAt = System.nanoTime()
+        return try {
+            future.orTimeout(AGENT_PREFLIGHT_TIMEOUT_SECONDS, TimeUnit.SECONDS).join().also {
+                log.info("Agent preflight stage '$stage' completed in ${elapsedMillis(startedAt)} ms")
+            }
+        } catch (error: Throwable) {
+            future.cancel(true)
+            throw IllegalStateException(
+                "Agent startup timed out or failed during $stage: ${error.rootMessage()}",
+                error,
+            )
+        }
+    }
+
+    private fun elapsedMillis(startedAt: Long): Long =
+        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+
     internal fun health(): CompletableFuture<RemoteBackendHealth> = RemoteAgentClient(settingsService.snapshot()).health()
 
     internal fun account(): CompletableFuture<RemoteAccountResponse> = withClient(RemoteAgentClient::account)
 
-    internal fun models(): CompletableFuture<RemoteModelsResponse> = withClient(RemoteAgentClient::models)
+    internal fun models(): CompletableFuture<RemoteModelsResponse> = RemoteAgentClient(settingsService.snapshot()).models()
 
     internal fun tools(): CompletableFuture<RemoteToolsResponse> = withClient(RemoteAgentClient::tools)
 
@@ -188,8 +240,11 @@ class AgentOrchestrator(private val project: Project) : Disposable {
     private fun <T> withClient(request: (RemoteAgentClient) -> CompletableFuture<T>): CompletableFuture<T> =
         oidcLogin.ensureFreshToken().thenCompose { request(RemoteAgentClient(settingsService.snapshot())) }
 
-    fun resolveApproval(toolId: String, approved: Boolean): Boolean =
-        activeRun.get()?.approvals?.remove(toolId)?.complete(approved) ?: false
+    fun resolveApproval(toolId: String, approved: Boolean): Boolean {
+        val context = activeRun.get() ?: return false
+        val approval = context.approvals.remove(toolId) ?: return false
+        return approval.complete(approved)
+    }
 
     fun cancel() {
         activeRun.getAndSet(null)?.let { context ->
@@ -205,6 +260,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
     override fun dispose() = cancel()
 
     private data class RunContext(
+        val mode: String,
         val hookRunId: String = UUID.randomUUID().toString(),
         val cancelled: AtomicBoolean = AtomicBoolean(false),
         val remoteRunId: AtomicReference<String?> = AtomicReference(null),
@@ -226,7 +282,10 @@ class AgentOrchestrator(private val project: Project) : Disposable {
     ) {
         ensureActive(context)
         when (type) {
-            "run.started" -> context.remoteRunId.set(json.decodeFromJsonElement<RemoteRunStarted>(payload).runId)
+            "run.started" -> json.decodeFromJsonElement<RemoteRunStarted>(payload).let { started ->
+                context.remoteRunId.set(started.runId)
+                toolRunner.updateRetrievalBudget(started.retrievalBudgetTokens)
+            }
             "context.updated" -> listener.onContextUpdated(json.decodeFromJsonElement(payload))
             "tool.catalog.updated" -> listener.onToolCatalogUpdated(json.decodeFromJsonElement(payload))
             "verification.updated" -> listener.onVerificationUpdated(json.decodeFromJsonElement(payload))
@@ -266,6 +325,12 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         }
 
         val risk = toolRunner.risk(call.name)
+        if (!isToolAllowedInMode(context.mode, risk)) {
+            val message = "Mutating tools are unavailable in ${context.mode} mode"
+            listener.onToolChanged(call, message, "rejected", call.arguments, request.turnIndex)
+            client.submitToolResult(runId, RemoteToolResult(call.id, "rejected", output = message))
+            return
+        }
         val needsApproval = risk == ToolRisk.MUTATING || (risk == ToolRisk.READ_ONLY && !autoApproveReadOnly)
         if (needsApproval && !requestApproval(context, call, request.turnIndex, listener)) {
             listener.onToolChanged(call, "Rejected by user", "rejected", call.arguments, request.turnIndex)
@@ -312,6 +377,11 @@ class AgentOrchestrator(private val project: Project) : Disposable {
             client.submitToolResult(
                 runId,
                 RemoteToolResult(call.id, "completed", output = result.output, summary = result.summary),
+            )
+        } catch (error: RemoteRunExpiredException) {
+            throw IllegalStateException(
+                "Tool '${call.name}' completed locally, but backend run ${error.runId} expired before accepting its result",
+                error,
             )
         } catch (error: Throwable) {
             if (context.cancelled.get()) throw RemoteRunCancelledException()

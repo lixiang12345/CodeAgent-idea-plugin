@@ -182,6 +182,7 @@ function normalizeConversation(body, id) {
 }
 
 function normalizeMessages(value) {
+  if (value === undefined || value === null) return [];
   if (!Array.isArray(value) || value.length > 200) throw badRequest("messages must contain at most 200 items");
   const seen = new Set();
   return value.map((message) => {
@@ -234,6 +235,7 @@ function normalizeConversationTools(value) {
 }
 
 function normalizeTasks(value) {
+  if (value === undefined || value === null) return [];
   if (!Array.isArray(value) || value.length > 100) throw badRequest("tasks must contain at most 100 items");
   const seen = new Set();
   return value.map((task) => {

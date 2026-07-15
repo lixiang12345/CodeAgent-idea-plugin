@@ -55,6 +55,7 @@ export const SLASH_COMMANDS = [
 
 export const MENTION_KINDS = [
   { id: "file", label: "Project file", icon: "file" },
+  { id: "editor", label: "Active editor", icon: "code" },
   { id: "rule", label: "Rule / guideline", icon: "book-open" },
   { id: "symbol", label: "Symbol search", icon: "code" },
 ] as const;

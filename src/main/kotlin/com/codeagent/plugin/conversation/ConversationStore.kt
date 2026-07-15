@@ -16,6 +16,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
 
     override fun loadState(state: ConversationStoreState) {
         data = state
+        normalizePersistedThreads()
         ensureActive()
     }
 
@@ -193,10 +194,18 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         content: String,
         runId: String? = null,
         turnIndex: Int? = null,
+        messageId: String? = null,
     ): ConversationMessage {
         val thread = mutableActive()
+        val normalizedMessageId = messageId?.trim()?.takeIf { it.isNotEmpty() }
+        require(normalizedMessageId == null || normalizedMessageId.matches(Regex("[A-Za-z0-9._-]{1,200}"))) {
+            "Message ID is invalid"
+        }
+        require(normalizedMessageId == null || thread.messages.none { it.id == normalizedMessageId }) {
+            "Message ID already exists: $normalizedMessageId"
+        }
         val message = ConversationMessageState().apply {
-            id = UUID.randomUUID().toString()
+            id = normalizedMessageId ?: UUID.randomUUID().toString()
             this.role = role
             this.content = content
             createdAt = System.currentTimeMillis()
@@ -261,6 +270,29 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         }
         thread.updatedAt = System.currentTimeMillis()
         return state.toDomain()
+    }
+
+    @Synchronized
+    fun interruptTools(reason: String): List<ConversationTool> {
+        val normalizedReason = reason.replace(Regex("\\s+"), " ").trim().take(240).ifBlank { "Run interrupted" }
+        val thread = mutableActive()
+        val interrupted = thread.tools.filter { it.status == "approval" || it.status == "running" }
+        if (interrupted.isEmpty()) return emptyList()
+
+        val now = System.currentTimeMillis()
+        interrupted.forEach { tool ->
+            if (tool.status == "approval") {
+                tool.status = "rejected"
+                tool.summary = "Approval expired: $normalizedReason"
+            } else {
+                tool.status = "failed"
+                tool.summary = "Interrupted: $normalizedReason"
+            }
+            tool.canRevert = false
+            tool.updatedAt = now
+        }
+        thread.updatedAt = now
+        return interrupted.map { it.toDomain() }
     }
 
     @Synchronized
@@ -494,6 +526,22 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         if (data.threads.none { it.id == data.activeThreadId }) {
             data.activeThreadId = data.threads.maxByOrNull { it.updatedAt }?.id.orEmpty()
         }
+    }
+
+    private fun normalizePersistedThreads() {
+        data.threads.forEach { thread ->
+            thread.tasks = thread.tasks.asSequence()
+                .filter { task ->
+                    task.id.isNotBlank() &&
+                        task.name.isNotBlank() &&
+                        task.state in TASK_STATES
+                }
+                .distinctBy { it.id }
+                .take(MAX_TASKS_PER_THREAD)
+                .toList()
+                .toMutableList()
+        }
+        trimHistory()
     }
 
     private fun trimHistory() {

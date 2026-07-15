@@ -38,6 +38,7 @@ class CodeAgentPanel(private val project: Project) : Disposable {
 
     private fun createBrowserComponent(): JComponent {
         val jcefBrowser = JBCefBrowser()
+        jcefBrowser.jbCefClient.setProperty("JBCefClient.JSQuery.poolSize", 20)
         val ideBridge = IdeBridge(project, jcefBrowser)
         browser = jcefBrowser
         bridge = ideBridge
@@ -45,6 +46,7 @@ class CodeAgentPanel(private val project: Project) : Disposable {
         val cefBrowser = jcefBrowser.cefBrowser
         val client = jcefBrowser.jbCefClient
         val bridgeScript = ideBridge.injectBridgeScript()
+        val resourceVersion = System.nanoTime().toString()
 
         val resourceRequestHandler = object : CefResourceRequestHandlerAdapter() {
             override fun getResourceHandler(
@@ -53,12 +55,13 @@ class CodeAgentPanel(private val project: Project) : Disposable {
                 request: CefRequest?,
             ) = if (WebResourceHandler.isWebviewUrl(request?.url)) {
                 WebResourceHandler(request?.url ?: WebResourceHandler.ORIGIN) { html ->
-                    if (html.contains("</head>")) {
-                        html.replaceFirst("</head>", "$bridgeScript</head>")
-                    } else if (html.contains("</body>")) {
-                        html.replaceFirst("</body>", "$bridgeScript</body>")
+                    val versioned = WebResourceHandler.versionAssetUrls(html, resourceVersion)
+                    if (versioned.contains("</head>")) {
+                        versioned.replaceFirst("</head>", "$bridgeScript</head>")
+                    } else if (versioned.contains("</body>")) {
+                        versioned.replaceFirst("</body>", "$bridgeScript</body>")
                     } else {
-                        html + bridgeScript
+                        versioned + bridgeScript
                     }
                 }
             } else {
@@ -107,7 +110,7 @@ class CodeAgentPanel(private val project: Project) : Disposable {
         loadHandler = onLoad
         client.addLoadHandler(onLoad, cefBrowser)
 
-        jcefBrowser.loadURL("${WebResourceHandler.ORIGIN}/index.html")
+        jcefBrowser.loadURL("${WebResourceHandler.ORIGIN}/index.html?v=$resourceVersion")
         return jcefBrowser.component
     }
 

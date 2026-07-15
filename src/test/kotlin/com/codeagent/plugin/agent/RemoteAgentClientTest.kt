@@ -8,8 +8,13 @@ import java.net.InetSocketAddress
 import java.net.http.HttpClient
 import java.time.Duration
 import java.util.concurrent.CompletionException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
@@ -81,6 +86,7 @@ class RemoteAgentClientTest {
                     "catalogId":"web",
                     "description":"Search the web",
                     "parameters":{"type":"object"},
+                    "risk":"read_only",
                     "available":true,
                     "requiredEnvironment":["WEB_SEARCH_ENDPOINT"]
                   }
@@ -159,7 +165,24 @@ class RemoteAgentClientTest {
                     mode = "agent",
                     agentProfileId = "context-review",
                     model = "claude-fable-5",
-                    messages = listOf(RemoteMessage("user", "Inspect the project")),
+                    messages = listOf(
+                        RemoteMessage(
+                            role = "user",
+                            content = "Inspect the project",
+                            attachments = listOf(
+                                RemoteAttachment(
+                                    type = "ide_state",
+                                    id = "editor:src/Main.kt",
+                                    label = "Active editor: Main.kt",
+                                    path = "src/Main.kt",
+                                    mimeType = "text/plain",
+                                    textExcerpt = "fun main() = Unit",
+                                    sizeBytes = 17,
+                                    metadata = mapOf("scope" to "caret_window"),
+                                ),
+                            ),
+                        ),
+                    ),
                     tools = listOf(RemoteToolDefinition("read_file", "Read", buildJsonObject { put("type", "object") }, "read_only")),
                     workspace = RemoteWorkspace(
                         guidance = "Use repository conventions.",
@@ -207,6 +230,10 @@ class RemoteAgentClientTest {
             assertTrue(eventPayloads[2].contains("\"turnIndex\":0"))
             assertTrue(runBody.contains("\"model\":\"claude-fable-5\""))
             assertTrue(runBody.contains("\"agentProfileId\":\"context-review\""))
+            assertTrue(runBody.contains("\"type\":\"ide_state\""))
+            assertTrue(runBody.contains("\"id\":\"editor:src/Main.kt\""))
+            assertTrue(runBody.contains("\"textExcerpt\":\"fun main() = Unit\""))
+            assertTrue(runBody.contains("\"scope\":\"caret_window\""))
             assertTrue(runBody.contains("Use repository conventions."))
             assertTrue(runBody.contains("\"historySummary\":\"Earlier work completed indexing.\""))
             assertTrue(runBody.contains("\"read_file\""))
@@ -222,6 +249,7 @@ class RemoteAgentClientTest {
             assertEquals("gpt-5.6-sol", models.defaultModel)
             assertEquals(listOf("gpt-5.6-sol", "claude-fable-5"), models.data.map { it.id })
             assertEquals(listOf("web_search"), tools.data.map { it.name })
+            assertEquals("read_only", tools.data.single().risk)
             assertEquals("Search result", backendTool.output)
             assertTrue(backendToolBody.contains("\"query\":\"CodeAgent\""))
             assertTrue(jobBody.contains("\"type\":\"history-summary\""))
@@ -239,10 +267,50 @@ class RemoteAgentClientTest {
             server.stop(0)
         }
     }
+
+    @Test
+    fun `conversation writes include default empty collections`() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val requestBody = AtomicReference("")
+        server.createContext("/v1/conversations/thread-empty") { exchange ->
+            requestBody.set(exchange.requestBody.bufferedReader().readText())
+            val body = """{"id":"thread-empty","title":"Empty","mode":"agent","updatedAt":1000,"selectedAgentProfileId":"general","selectedSkillIds":[],"selectedRuleIds":[],"pinned":false,"messages":[],"tasks":[],"tools":[],"version":1}""".toByteArray()
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        server.start()
+
+        try {
+            val client = RemoteAgentClient(
+                settings = CodeAgentSettings(
+                    backendUrl = "http://127.0.0.1:${server.address.port}",
+                    nodePath = "node",
+                    autoApproveReadOnly = true,
+                    backendToken = null,
+                ),
+                httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build(),
+            )
+            val saved = client.putConversation(
+                RemoteConversation(id = "thread-empty", title = "Empty", mode = "agent", updatedAt = 1_000),
+                expectedVersion = null,
+            ).join()
+
+            assertEquals(1, saved.version)
+            assertTrue(requestBody.get().contains("\"messages\":[]"))
+            assertTrue(requestBody.get().contains("\"tasks\":[]"))
+            assertTrue(requestBody.get().contains("\"tools\":[]"))
+        } finally {
+            server.stop(0)
+        }
+    }
+
     @Test
     fun `surfaces structured backend error messages`() {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val requestBody = AtomicReference("")
         server.createContext("/v1/runs") { exchange ->
+            requestBody.set(exchange.requestBody.bufferedReader().readText())
             val body = """{"error":"Unsupported run mode"}""".toByteArray()
             exchange.responseHeaders.add("Content-Type", "application/json")
             exchange.sendResponseHeaders(400, body.size.toLong())
@@ -269,6 +337,143 @@ class RemoteAgentClientTest {
             }
 
             assertTrue(error.message.orEmpty().endsWith("Unsupported run mode"))
+            assertFalse(requestBody.get().contains("\"model\""))
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun `continues a streaming run after delayed approval posts a tool result`() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val executor = Executors.newCachedThreadPool()
+        val runRequestReceived = CountDownLatch(1)
+        val approvalShown = CountDownLatch(1)
+        val approvalGranted = CountDownLatch(1)
+        val toolResultReceived = CountDownLatch(1)
+        val streamCompleted = CountDownLatch(1)
+        val allowResponseClose = CountDownLatch(1)
+        val toolResultBody = AtomicReference("")
+        server.executor = executor
+        server.createContext("/v1/runs") { exchange ->
+            exchange.requestBody.close()
+            runRequestReceived.countDown()
+            exchange.responseHeaders.add("Content-Type", "text/event-stream")
+            exchange.sendResponseHeaders(200, 0)
+            exchange.responseBody.bufferedWriter().use { writer ->
+                writer.write(
+                    "event: run.started\r\n" +
+                        "data: {\"runId\":\"run-approval\"}\r\n\r\n" +
+                        "event: tool.request\r\n" +
+                        "data: {\"turnIndex\":0,\"call\":{\"id\":\"call-approval\",\"name\":\"run_terminal\",\"arguments\":{\"command\":\"pwd\"}}}\r\n\r\n",
+                )
+                writer.flush()
+                check(toolResultReceived.await(5, TimeUnit.SECONDS)) { "Tool result was not received" }
+                writer.write(
+                    "event: tool.completed\r\n" +
+                        "data: {\"turnIndex\":0,\"call\":{\"id\":\"call-approval\",\"name\":\"run_terminal\",\"arguments\":{\"command\":\"pwd\"}},\"summary\":\"pwd completed\",\"detail\":\"/workspace\"}\r\n\r\n" +
+                        "event: assistant.completed\r\n" +
+                        "data: {\"turnIndex\":0,\"content\":\"Terminal command finished.\"}\r\n\r\n" +
+                        "event: run.completed\r\n" +
+                        "data: {\"runId\":\"run-approval\"}\r\n\r\n",
+                )
+                writer.flush()
+                check(allowResponseClose.await(5, TimeUnit.SECONDS)) { "Client did not close after run.completed" }
+            }
+        }
+        server.createContext("/v1/runs/run-approval/tool-results") { exchange ->
+            toolResultBody.set(exchange.requestBody.bufferedReader().readText())
+            toolResultReceived.countDown()
+            exchange.sendResponseHeaders(202, -1)
+            exchange.close()
+        }
+        server.start()
+
+        try {
+            val client = RemoteAgentClient(
+                settings = CodeAgentSettings(
+                    backendUrl = "http://127.0.0.1:${server.address.port}",
+                    nodePath = "node",
+                    autoApproveReadOnly = false,
+                    backendToken = null,
+                ),
+                httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build(),
+            )
+            val eventTypes = mutableListOf<String>()
+            val stream = executor.submit {
+                try {
+                    client.stream(
+                        request = RemoteRunRequest("agent", messages = emptyList(), tools = emptyList(), workspace = RemoteWorkspace()),
+                        onStreamChanged = {},
+                        onEvent = { type, _ ->
+                            eventTypes += type
+                            if (type == "tool.request") {
+                                approvalShown.countDown()
+                                check(approvalGranted.await(5, TimeUnit.SECONDS)) { "Approval was not granted" }
+                                client.submitToolResult(
+                                    "run-approval",
+                                    RemoteToolResult("call-approval", "completed", output = "/workspace"),
+                                )
+                            }
+                        },
+                    )
+                } finally {
+                    streamCompleted.countDown()
+                }
+            }
+
+            assertTrue(runRequestReceived.await(2, TimeUnit.SECONDS))
+            assertTrue(approvalShown.await(2, TimeUnit.SECONDS))
+            assertFalse(streamCompleted.await(150, TimeUnit.MILLISECONDS))
+            approvalGranted.countDown()
+            assertTrue(toolResultReceived.await(2, TimeUnit.SECONDS))
+            assertTrue(streamCompleted.await(1, TimeUnit.SECONDS))
+            allowResponseClose.countDown()
+            stream.get(1, TimeUnit.SECONDS)
+            assertEquals(
+                listOf("run.started", "tool.request", "tool.completed", "assistant.completed", "run.completed"),
+                eventTypes,
+            )
+            assertTrue(toolResultBody.get().contains("\"toolCallId\":\"call-approval\""))
+            assertTrue(toolResultBody.get().contains("\"status\":\"completed\""))
+        } finally {
+            allowResponseClose.countDown()
+            server.stop(0)
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `distinguishes an expired run from a terminal execution failure`() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/v1/runs/expired-run/tool-results") { exchange ->
+            exchange.requestBody.close()
+            val body = """{"error":"Run not found"}""".toByteArray()
+            exchange.sendResponseHeaders(404, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        server.start()
+
+        try {
+            val client = RemoteAgentClient(
+                settings = CodeAgentSettings(
+                    backendUrl = "http://127.0.0.1:${server.address.port}",
+                    nodePath = "node",
+                    autoApproveReadOnly = true,
+                    backendToken = null,
+                ),
+                httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build(),
+            )
+
+            val error = assertFailsWith<RemoteRunExpiredException> {
+                client.submitToolResult(
+                    "expired-run",
+                    RemoteToolResult("terminal-call", "completed", output = "exit=0\n/workspace"),
+                )
+            }
+
+            assertEquals("expired-run", error.runId)
+            assertTrue(error.message.orEmpty().contains("Run not found"))
         } finally {
             server.stop(0)
         }

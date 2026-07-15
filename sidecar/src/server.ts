@@ -5,6 +5,7 @@ import path from "node:path";
 import { ContextEngine } from "../../vendor/context-engine/src/engine.ts";
 import type { IndexProgress } from "../../vendor/context-engine/src/types.ts";
 import type { IndexResult } from "../../vendor/context-engine/src/indexer/indexer.ts";
+import { HttpContextRuntime } from "./http-context-runtime.ts";
 import {
   McpRuntimeManager,
   type McpServerConfiguration,
@@ -46,7 +47,7 @@ interface ResponseEnvelope {
 }
 
 interface WorkspaceRuntime {
-  engine: ContextEngine;
+  backend: ContextBackend;
   root: string;
   roots: string[];
   indexTail: Promise<void>;
@@ -58,6 +59,23 @@ interface WorkspaceRuntime {
   lastAutomaticIndexAt: string | null;
   lastAutomaticResult: IndexResult | null;
   lastWatchError: string | null;
+}
+
+interface ContextBackend {
+  hasIndex(): Promise<boolean>;
+  index(onProgress?: (progress: IndexProgress) => void): Promise<IndexResult>;
+  stats(): Promise<Record<string, unknown>>;
+  codebaseRetrieval(
+    informationRequest: string,
+    options: { topK?: number; maxTokens?: number },
+  ): Promise<unknown>;
+  search(input: {
+    query: string;
+    topK: number;
+    pathPrefix?: string;
+    mode: "auto" | "bm25" | "semantic" | "hybrid";
+  }): Promise<unknown>;
+  close(): void | Promise<void>;
 }
 
 const runtimes = new Map<string, WorkspaceRuntime>();
@@ -76,7 +94,7 @@ function getRuntime(rootValue: string | undefined, extraRootValues: IndexRootInp
   let runtime = runtimes.get(root);
   if (!runtime) {
     runtime = {
-      engine: ContextEngine.open({ root, extraRoots }),
+      backend: openContextBackend(root, extraRoots),
       root,
       roots,
       indexTail: Promise.resolve(),
@@ -106,7 +124,7 @@ async function handle(request: RequestEnvelope): Promise<void> {
           ok: true,
           nodeVersion: process.versions.node,
           protocolVersion: 3,
-          capabilities: ["incremental-index", "workspace-watch", "multi-root-index", "mcp-runtime"],
+          capabilities: ["incremental-index", "workspace-watch", "multi-root-index", "remote-http", "mcp-runtime"],
         },
       });
       return;
@@ -116,7 +134,7 @@ async function handle(request: RequestEnvelope): Promise<void> {
       send({
         id: request.id,
         type: "result",
-        payload: statusPayload(runtime),
+        payload: await statusPayload(runtime),
       });
       return;
     }
@@ -130,24 +148,24 @@ async function handle(request: RequestEnvelope): Promise<void> {
     }
     case "watch": {
       const runtime = getRuntime(request.root, request.extraRoots);
-      if (!runtime.engine.hasIndex()) throw new Error("Project is not indexed");
+      if (!await runtime.backend.hasIndex()) throw new Error("Project is not indexed");
       startWatching(runtime, toDebounceMs(request.payload?.debounceMs));
-      send({ id: request.id, type: "result", payload: statusPayload(runtime) });
+      send({ id: request.id, type: "result", payload: await statusPayload(runtime) });
       return;
     }
     case "unwatch": {
       const runtime = getRuntime(request.root, request.extraRoots);
       stopWatching(runtime);
-      send({ id: request.id, type: "result", payload: statusPayload(runtime) });
+      send({ id: request.id, type: "result", payload: await statusPayload(runtime) });
       return;
     }
     case "retrieve": {
       const runtime = getRuntime(request.root, request.extraRoots);
       await runtime.indexTail;
-      if (!runtime.engine.hasIndex()) throw new Error("Project is not indexed");
+      if (!await runtime.backend.hasIndex()) throw new Error("Project is not indexed");
       const informationRequest = String(request.payload?.informationRequest ?? "").trim();
       if (!informationRequest) throw new Error("informationRequest is required");
-      const packed = await runtime.engine.codebaseRetrieval(informationRequest, {
+      const packed = await runtime.backend.codebaseRetrieval(informationRequest, {
         topK: toOptionalInteger(request.payload?.topK),
         maxTokens: toOptionalInteger(request.payload?.maxTokens),
       });
@@ -157,10 +175,10 @@ async function handle(request: RequestEnvelope): Promise<void> {
     case "search": {
       const runtime = getRuntime(request.root, request.extraRoots);
       await runtime.indexTail;
-      if (!runtime.engine.hasIndex()) throw new Error("Project is not indexed");
+      if (!await runtime.backend.hasIndex()) throw new Error("Project is not indexed");
       const query = String(request.payload?.query ?? "").trim();
       if (!query) throw new Error("query is required");
-      const hits = await runtime.engine.search({
+      const hits = await runtime.backend.search({
         query,
         topK: toOptionalInteger(request.payload?.topK) ?? 10,
         pathPrefix: typeof request.payload?.pathPrefix === "string" ? request.payload.pathPrefix : undefined,
@@ -217,7 +235,7 @@ function queueIndex(
   const run = runtime.indexTail
     .catch(() => undefined)
     .then(async () => {
-      const result = await runtime.engine.index(onProgress);
+      const result = await runtime.backend.index(onProgress);
       if (automatic) {
         runtime.automaticIndexRuns += 1;
         runtime.lastAutomaticIndexAt = new Date().toISOString();
@@ -291,7 +309,7 @@ function shouldIgnoreWatchPath(value: string): boolean {
   return relative.split("/").some((segment) => ignoredSegments.has(segment));
 }
 
-function statusPayload(runtime: WorkspaceRuntime): Record<string, unknown> {
+async function statusPayload(runtime: WorkspaceRuntime): Promise<Record<string, unknown>> {
   const watch = {
     roots: runtime.roots,
     watching: runtime.watchers.size === runtime.roots.length,
@@ -306,8 +324,9 @@ function statusPayload(runtime: WorkspaceRuntime): Record<string, unknown> {
     lastAutomaticChunksWritten: runtime.lastAutomaticResult?.chunksWritten ?? 0,
     watchError: runtime.lastWatchError,
   };
-  return runtime.engine.hasIndex()
-    ? { indexed: true, ...runtime.engine.stats(), ...watch }
+  const indexed = await runtime.backend.hasIndex();
+  return indexed
+    ? { indexed: true, ...await runtime.backend.stats(), ...watch }
     : { indexed: false, root: runtime.root, ...watch };
 }
 
@@ -315,9 +334,24 @@ async function closeAll(): Promise<void> {
   await mcpRuntime.close();
   for (const runtime of runtimes.values()) {
     stopWatching(runtime);
-    runtime.engine.close();
+    await runtime.backend.close();
   }
   runtimes.clear();
+}
+
+function openContextBackend(root: string, extraRoots: IndexRootInput[]): ContextBackend {
+  if (process.env.CONTEXTENGINE_HTTP_URL?.trim()) {
+    return new HttpContextRuntime(root, extraRoots);
+  }
+  const engine = ContextEngine.open({ root, extraRoots });
+  return {
+    hasIndex: async () => engine.hasIndex(),
+    index: (onProgress) => engine.index(onProgress),
+    stats: async () => engine.stats() as unknown as Record<string, unknown>,
+    codebaseRetrieval: (informationRequest, options) => engine.codebaseRetrieval(informationRequest, options),
+    search: (input) => engine.search(input),
+    close: () => engine.close(),
+  };
 }
 
 function normalizeExtraRoots(root: string, values: IndexRootInput[] | undefined): IndexRootInput[] {

@@ -20,6 +20,7 @@ import com.codeagent.plugin.agent.RemoteJobInput
 import com.codeagent.plugin.agent.RemoteJobRequest
 import com.codeagent.plugin.agent.RemoteToolCatalogUpdated
 import com.codeagent.plugin.agent.RemoteVerificationUpdated
+import com.codeagent.plugin.agent.WorkspaceCustomization
 import com.codeagent.plugin.agent.WorkspaceCustomizationService
 import com.codeagent.plugin.conversation.ConversationStore
 import com.codeagent.plugin.conversation.ConversationSnapshot
@@ -49,6 +50,7 @@ import com.intellij.testFramework.LightVirtualFile
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefBrowserBase
 import com.intellij.ui.jcef.JBCefJSQuery
+import com.intellij.util.concurrency.AppExecutorUtil
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -64,6 +66,11 @@ import java.nio.file.Files
 import java.awt.datatransfer.StringSelection
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+
+private const val BROWSER_EVENT_RETRY_MS = 750L
 
 class IdeBridge(
     private val project: Project,
@@ -77,6 +84,7 @@ class IdeBridge(
     private val tools = linkedMapOf<String, ToolRunDto>()
     private val messageTurns = mutableMapOf<String, Int>()
     private val attachments = linkedMapOf<String, ContextItemDto>()
+    private val attachmentResolver = AttachmentContextResolver(project)
     private val messageQueue = mutableListOf<QueuedMessageDto>()
     private val conversations = project.service<ConversationStore>()
     private val cloudSync = project.service<CloudConversationSyncService>()
@@ -94,6 +102,10 @@ class IdeBridge(
     private val oidcLogin = service<OidcLoginService>()
     private val stateLock = Any()
     private val runs = RunGeneration()
+    private val browserEvents = BrowserEventQueue()
+    private val browserEventSequence = AtomicLong()
+    private val browserDispatchScheduled = AtomicBoolean()
+    private val disposed = AtomicBoolean()
     private var runState = "idle"
     private var agentRun = AgentRunTelemetryDto()
 
@@ -126,6 +138,9 @@ class IdeBridge(
 
     private var productJobsGeneration = 0L
 
+    private fun isRunBusy(): Boolean =
+        runState == "starting" || runState == "running" || runState == "awaiting_approval"
+
     @Volatile
     private var account = AccountSnapshotDto()
 
@@ -135,7 +150,11 @@ class IdeBridge(
     init {
         restoreConversationPresentation()
         cloudSync.setChangeListener {
-            restoreConversationPresentation()
+            synchronized(stateLock) {
+                if (!isRunBusy()) {
+                    restoreConversationPresentation()
+                }
+            }
             emitSnapshot()
         }
         mcpRuntimeService.setChangeListener {
@@ -177,7 +196,11 @@ class IdeBridge(
     """.trimIndent()
 
     fun dispose() {
-        synchronized(stateLock) { runs.invalidate() }
+        if (!disposed.compareAndSet(false, true)) return
+        synchronized(stateLock) {
+            runs.invalidate()
+            interruptActiveToolsLocked("IDE view closed")
+        }
         agent.cancel()
         cloudSync.setChangeListener(null)
         mcpRuntimeService.setChangeListener(null)
@@ -187,6 +210,7 @@ class IdeBridge(
         syncedAccountUserId = null
         cloudSync.reset()
         conversationSummaries.reset()
+        browserEvents.reset()
         query.dispose()
     }
 
@@ -197,14 +221,21 @@ class IdeBridge(
         }
 
         when (command.type) {
+            "ackEvent" -> {
+                val acknowledgment = requireNotNull(command.payload).let {
+                    json.decodeFromJsonElement<EventAcknowledgmentPayload>(it)
+                }
+                acknowledgeBrowserEvent(acknowledgment)
+            }
             "bootstrap" -> {
+                resetBrowserEventTransport()
                 emitSnapshot()
                 refreshContextStatus()
                 checkBackendHealth()
             }
             "setMode" -> {
                 synchronized(stateLock) {
-                    require(runState != "running" && runState != "awaiting_approval") {
+                    require(!isRunBusy()) {
                         "Cannot change mode while the agent is running"
                     }
                     conversations.setMode(
@@ -218,11 +249,10 @@ class IdeBridge(
             "selectModel" -> {
                 val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ModelSelectionPayload>(it) }
                 synchronized(stateLock) {
-                    require(runState != "running" && runState != "awaiting_approval") {
-                        "Cannot change model while the agent is running"
-                    }
-                    require(modelRegistry.options.any { it.id == selection.modelId }) {
-                        "Unknown backend model: ${selection.modelId}"
+                    selection.modelId?.let { modelId ->
+                        require(modelRegistry.options.any { it.id == modelId }) {
+                            "Unknown backend model: $modelId"
+                        }
                     }
                     conversations.setSelectedModel(selection.modelId)
                 }
@@ -232,7 +262,7 @@ class IdeBridge(
             "selectAgentProfile" -> {
                 val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<AgentProfileSelectionPayload>(it) }
                 synchronized(stateLock) {
-                    require(runState != "running" && runState != "awaiting_approval") {
+                    require(!isRunBusy()) {
                         "Cannot change Agent profile while the agent is running"
                     }
                     require(isKnownAgentProfile(selection.agentProfileId)) {
@@ -244,20 +274,7 @@ class IdeBridge(
                 emitSnapshot()
             }
             "newThread" -> newThread(command.payload)
-            "sendMessage" -> sendMessage(requireNotNull(command.payload) { "sendMessage requires payload" })
-            "queueMessage" -> {
-                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<SendMessagePayload>(it) }
-                require(request.text.isNotBlank()) { "Queued message must not be blank" }
-                require(request.mode == "agent" || request.mode == "chat" || request.mode == "ask") {
-                    "Unsupported queued message mode: ${request.mode}"
-                }
-                synchronized(stateLock) {
-                    require(runState == "running" || runState == "awaiting_approval") { "No active run to queue behind" }
-                    require(messageQueue.size < MAX_QUEUED_MESSAGES) { "Queue can contain at most $MAX_QUEUED_MESSAGES messages" }
-                    messageQueue += QueuedMessageDto(UUID.randomUUID().toString(), request.text.trim(), request.mode)
-                }
-                emitSnapshot()
-            }
+            "sendMessage", "queueMessage" -> submitMessage(requireNotNull(command.payload) { "${command.type} requires payload" })
             "removeQueuedMessage" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<QueuedMessagePayload>(it) }
                 synchronized(stateLock) {
@@ -335,19 +352,48 @@ class IdeBridge(
                 controlPlugin("uninstall", request.pluginId)
             }
             "cancelRun" -> {
-                synchronized(stateLock) {
+                val cancellation = synchronized(stateLock) {
                     runs.invalidate()
+                    interruptActiveToolsLocked("cancelled by user")
+                    val queuedCount = messageQueue.size
+                    messageQueue.clear()
                     runState = "idle"
+                    conversations.active() to queuedCount
                 }
                 agent.cancel()
-                summarizeConversation(conversations.active())
+                syncConversation(cancellation.first)
+                summarizeConversation(cancellation.first)
                 emitSnapshot()
+                if (cancellation.second > 0) {
+                    emit("notice", mapOf("message" to "Cancelled run and cleared ${cancellation.second} queued message(s)"))
+                }
             }
             "resolveApproval" -> {
                 val approval = requireNotNull(command.payload).let { json.decodeFromJsonElement<ApprovalPayload>(it) }
-                require(agent.resolveApproval(approval.toolId, approval.approved)) { "Approval is no longer pending" }
-                synchronized(stateLock) { runState = "running" }
-                emitSnapshot()
+                if (agent.resolveApproval(approval.toolId, approval.approved)) {
+                    updateTool(approval.toolId) { tool ->
+                        if (tool.status != "approval") {
+                            tool
+                        } else if (approval.approved) {
+                            tool.copy(status = "running", summary = "Approved; starting", canRevert = false)
+                        } else {
+                            tool.copy(status = "rejected", summary = "Skipped by user", canRevert = false)
+                        }
+                    }
+                    synchronized(stateLock) { runState = "running" }
+                    emitSnapshot()
+                } else {
+                    updateTool(approval.toolId) { tool ->
+                        if (tool.status == "approval") {
+                            tool.copy(status = "rejected", summary = "Approval expired after the run ended", canRevert = false)
+                        } else tool
+                    }
+                    synchronized(stateLock) {
+                        if (runState == "awaiting_approval") runState = "idle"
+                    }
+                    emitSnapshot()
+                    emit("notice", mapOf("message" to "This approval expired because the run already ended"))
+                }
             }
             "openDiff" -> {
                 val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ChangePayload>(it) }
@@ -398,7 +444,7 @@ class IdeBridge(
             "enhancePrompt" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<EnhancePromptPayload>(it) }
                 require(request.text.isNotBlank()) { "Prompt text is required" }
-                require(runState != "running" && runState != "awaiting_approval") { "Cannot enhance while the agent is running" }
+                require(!isRunBusy()) { "Cannot enhance while the agent is running" }
                 val active = synchronized(stateLock) { conversations.active() }
                 val mode = request.mode.ifBlank { active.mode }
                 val conversationContext = enhancementConversationContext(active)
@@ -453,18 +499,28 @@ class IdeBridge(
             }
             "selectThread" -> {
                 val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPayload>(it) }
-                synchronized(stateLock) {
-                    runs.invalidate()
-                    conversations.select(selection.threadId)
-                    restoreConversationPresentation()
-                    agentRun = AgentRunTelemetryDto()
-                    attachments.clear()
-                    messageQueue.clear()
-                    runState = "idle"
+                val currentThreadId = synchronized(stateLock) { conversations.active().id }
+                if (currentThreadId == selection.threadId) {
+                    emitSnapshot()
+                } else {
+                    val interruptedConversation = synchronized(stateLock) {
+                        runs.invalidate()
+                        interruptActiveToolsLocked("thread switched")
+                        val previous = conversations.active()
+                        conversations.select(selection.threadId)
+                        restoreConversationPresentation()
+                        agentRun = AgentRunTelemetryDto()
+                        attachments.clear()
+                        messageQueue.clear()
+                        runState = "idle"
+                        previous
+                    }
+                    agent.cancel()
+                    syncConversation(interruptedConversation)
+                    summarizeConversation(interruptedConversation)
+                    summarizeConversation(conversations.active())
+                    emitSnapshot()
                 }
-                agent.cancel()
-                summarizeConversation(conversations.active())
-                emitSnapshot()
             }
             "toggleThreadPinned" -> {
                 val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPayload>(it) }
@@ -484,10 +540,10 @@ class IdeBridge(
             }
             "toggleSkill" -> {
                 val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<SkillSelectionPayload>(it) }
-                val available = customizations.snapshot().skills
+                val available = availableCustomization().skills
                 require(available.any { it.id == selection.skillId }) { "Unknown workspace skill: ${selection.skillId}" }
                 synchronized(stateLock) {
-                    require(runState != "running" && runState != "awaiting_approval") {
+                    require(!isRunBusy()) {
                         "Cannot change skills while the agent is running"
                     }
                     val selected = conversations.active().selectedSkillIds.toMutableSet()
@@ -499,7 +555,7 @@ class IdeBridge(
             }
             "toggleRule" -> {
                 val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<RuleSelectionPayload>(it) }
-                val rule = requireNotNull(customizations.snapshot().rules.firstOrNull { it.id == selection.ruleId }) {
+                val rule = requireNotNull(availableCustomization().rules.firstOrNull { it.id == selection.ruleId }) {
                     "Unknown workspace rule: ${selection.ruleId}"
                 }
                 require(rule.trigger == "manual") { "Only manual rules can be selected per thread" }
@@ -523,7 +579,7 @@ class IdeBridge(
                 emitSnapshot()
             }
             "refreshCustomization" -> {
-                val customization = customizations.refresh()
+                val customization = availableCustomization(refreshWorkspace = true)
                 val availableIds = customization.skills.mapTo(mutableSetOf()) { it.id }
                 val manualRuleIds = customization.rules.filter { it.trigger == "manual" }.mapTo(mutableSetOf()) { it.id }
                 synchronized(stateLock) {
@@ -567,7 +623,7 @@ class IdeBridge(
                     "Unknown task: ${request.taskId}"
                 }
                 conversations.updateTask(task.id, "in_progress", null)
-                sendMessage(json.encodeToJsonElement(SendMessagePayload("Complete this task: ${task.name}", "agent")))
+                submitMessage(json.encodeToJsonElement(SendMessagePayload("Complete this task: ${task.name}", "agent")))
             }
             "runAllTasks" -> {
                 val tasks = conversations.active().tasks.filter { it.state == "not_started" || it.state == "in_progress" }
@@ -576,7 +632,7 @@ class IdeBridge(
                     append("Complete these tasks in order, updating their task state as you work:\n")
                     tasks.forEachIndexed { index, task -> append(index + 1).append(". ").append(task.name).append('\n') }
                 }
-                sendMessage(json.encodeToJsonElement(SendMessagePayload(prompt.trim(), "agent")))
+                submitMessage(json.encodeToJsonElement(SendMessagePayload(prompt.trim(), "agent")))
             }
             "exportTasks" -> exportTasks()
             "importTasks" -> importTasks()
@@ -619,8 +675,18 @@ class IdeBridge(
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<ImagePayload>(it) }
                 imageCanvas.projectPath(request.path)
                 synchronized(stateLock) {
-                    attachments[request.path] = ContextItemDto(request.path, Path.of(request.path).fileName.toString(), request.path)
+                    attachments[request.path] = ContextItemDto(
+                        id = request.path,
+                        label = Path.of(request.path).fileName.toString(),
+                        path = request.path,
+                        kind = "image",
+                    )
                 }
+                emitSnapshot()
+            }
+            "attachActiveEditor" -> {
+                val attachment = attachmentResolver.activeEditorItem()
+                synchronized(stateLock) { attachments[attachment.id] = attachment }
                 emitSnapshot()
             }
             "openMermaidEditor" -> {
@@ -653,14 +719,18 @@ class IdeBridge(
                 syncConversation(conversations.renameThread(request.threadId, request.title))
                 emitSnapshot()
             }
-            "openTerminal" -> ToolWindowManager.getInstance(project).getToolWindow("Terminal")?.activate(null)
+            "openTerminal" -> ApplicationManager.getApplication().invokeLater {
+                ToolWindowManager.getInstance(project).getToolWindow("Terminal")?.activate(null)
+            }
             else -> error("Unknown bridge command: ${command.type}")
         }
     }
 
     private fun newThread(payload: JsonElement?) {
-        synchronized(stateLock) {
+        val interruptedConversation = synchronized(stateLock) {
             runs.invalidate()
+            interruptActiveToolsLocked("new thread started")
+            val previous = conversations.active()
             tools.clear()
             messageTurns.clear()
             agentRun = AgentRunTelemetryDto()
@@ -670,13 +740,44 @@ class IdeBridge(
             val mode = payload?.let { json.decodeFromJsonElement<NewThreadPayload>(it).mode }
                 ?: conversations.active().mode
             conversations.newThread(mode)
+            previous
         }
         agent.cancel()
+        syncConversation(interruptedConversation)
+        summarizeConversation(interruptedConversation)
         syncActiveConversation()
         emitSnapshot()
     }
 
-    private fun sendMessage(payload: JsonElement) {
+    private fun submitMessage(payload: JsonElement) {
+        val request = json.decodeFromJsonElement<SendMessagePayload>(payload)
+        require(request.text.isNotBlank()) { "Message must not be blank" }
+        require(request.mode == "agent" || request.mode == "chat" || request.mode == "ask") {
+            "Unsupported message mode: ${request.mode}"
+        }
+        var startImmediately = false
+        var drainQueue = false
+        synchronized(stateLock) {
+            if (isRunBusy()) {
+                require(messageQueue.size < MAX_QUEUED_MESSAGES) { "Queue can contain at most $MAX_QUEUED_MESSAGES messages" }
+                messageQueue += QueuedMessageDto(request.clientMessageId ?: UUID.randomUUID().toString(), request.text.trim(), request.mode)
+            } else if (messageQueue.isEmpty()) {
+                startImmediately = true
+            } else {
+                require(messageQueue.size < MAX_QUEUED_MESSAGES) { "Queue can contain at most $MAX_QUEUED_MESSAGES messages" }
+                messageQueue += QueuedMessageDto(request.clientMessageId ?: UUID.randomUUID().toString(), request.text.trim(), request.mode)
+                drainQueue = true
+            }
+        }
+        if (startImmediately) {
+            startMessage(json.encodeToJsonElement(request))
+        } else {
+            emitSnapshot()
+            if (drainQueue) startNextQueuedMessage()
+        }
+    }
+
+    private fun startMessage(payload: JsonElement, fromQueue: Boolean = false) {
         val request = prepareMessage(json.decodeFromJsonElement<SendMessagePayload>(payload))
         require(request.text.isNotBlank()) { "Message must not be blank" }
         require(request.mode == "agent" || request.mode == "chat" || request.mode == "ask") {
@@ -685,11 +786,17 @@ class IdeBridge(
         request.agentProfileId?.let { agentProfileId ->
             require(isKnownAgentProfile(agentProfileId)) { "Unknown Agent profile: $agentProfileId" }
         }
+        val resolvedAttachments = attachmentResolver.resolve(synchronized(stateLock) { attachments.values.toList() })
         val presentationRunId = UUID.randomUUID().toString()
         val runId = synchronized(stateLock) {
-            require(runState != "running" && runState != "awaiting_approval") { "Agent is already running" }
+            require(if (fromQueue) runState == "starting" else !isRunBusy()) { "Agent is already running" }
             conversations.setMode(request.mode)
-            conversations.addMessage("user", request.text.trim(), runId = presentationRunId)
+            conversations.addMessage(
+                role = "user",
+                content = request.text.trim(),
+                runId = presentationRunId,
+                messageId = request.clientMessageId,
+            )
             agentRun = AgentRunTelemetryDto()
             runState = "running"
             runs.next()
@@ -700,14 +807,11 @@ class IdeBridge(
         val history = synchronized(stateLock) {
             val messages = conversations.active().messages
                 .mapTo(mutableListOf()) { AgentMessage(role = it.role, content = it.content) }
-            if (attachments.isNotEmpty()) {
+            if (resolvedAttachments.isNotEmpty()) {
                 val lastUserMessage = messages.indexOfLast { it.role == "user" }
                 if (lastUserMessage >= 0) {
-                    val paths = attachments.values.joinToString("\n") { "- ${it.path.replace('\n', ' ')}" }
                     val message = messages[lastUserMessage]
-                    messages[lastUserMessage] = message.copy(
-                        content = "${message.content}\n\nUser-selected project file references:\n$paths",
-                    )
+                    messages[lastUserMessage] = message.copy(attachments = resolvedAttachments)
                 }
             }
             messages
@@ -732,6 +836,7 @@ class IdeBridge(
                         targetInputTokens = update.targetInputTokens,
                         contextWindowTokens = update.contextWindowTokens,
                         reservedOutputTokens = update.reservedOutputTokens,
+                        retrievalBudgetTokens = update.retrievalBudgetTokens,
                         toolDefinitionTokens = update.toolDefinitionTokens,
                         compactedToolResults = update.compactedToolResults,
                         truncatedMessages = update.truncatedMessages,
@@ -856,10 +961,17 @@ class IdeBridge(
             override fun onRunStateChanged(state: String) {
                 var startQueued = false
                 if (withCurrentRun(runId) {
+                    if (state == "idle" || state == "failed") {
+                        interruptActiveToolsLocked(
+                            if (state == "failed") "Agent run failed before the tool finished"
+                            else "Agent run ended before the tool finished",
+                        )
+                    }
                     runState = state
-                    startQueued = state == "idle" && messageQueue.isNotEmpty()
+                    startQueued = (state == "idle" || state == "failed") && messageQueue.isNotEmpty()
+                    if (startQueued) runState = "idle"
                 }) {
-                    if (state == "idle") {
+                    if (state == "idle" || state == "failed") {
                         val snapshot = conversations.active()
                         syncConversation(snapshot)
                         summarizeConversation(snapshot)
@@ -899,7 +1011,7 @@ class IdeBridge(
             projectName = project.name,
             configurations = configurations.items["commands"].orEmpty() + pluginCommandConfigurations(),
         )
-        return SendMessagePayload(
+        return request.copy(
             text = invocation.prompt,
             mode = invocation.mode,
             agentProfileId = invocation.agentProfileId,
@@ -927,6 +1039,8 @@ class IdeBridge(
                 autoDismissNotifications = request.autoDismissNotifications,
                 backendToken = request.backendToken,
                 contextMode = request.contextMode,
+                contextHttpBaseUrl = request.contextHttpBaseUrl,
+                contextHttpApiKey = request.contextHttpApiKey,
                 contextEmbeddingBaseUrl = request.contextEmbeddingBaseUrl,
                 contextEmbeddingModel = request.contextEmbeddingModel,
                 contextEmbeddingApiKey = request.contextEmbeddingApiKey,
@@ -941,6 +1055,8 @@ class IdeBridge(
         }
         if (previous.nodePath != current.nodePath ||
             previous.contextMode != current.contextMode ||
+            previous.contextHttpBaseUrl != current.contextHttpBaseUrl ||
+            previous.contextHttpApiKey != current.contextHttpApiKey ||
             previous.contextEmbeddingBaseUrl != current.contextEmbeddingBaseUrl ||
             previous.contextEmbeddingModel != current.contextEmbeddingModel ||
             previous.contextEmbeddingApiKey != current.contextEmbeddingApiKey ||
@@ -955,11 +1071,20 @@ class IdeBridge(
         checkBackendHealth()
     }
 
+    private fun availableCustomization(refreshWorkspace: Boolean = false): WorkspaceCustomization {
+        val workspace = if (refreshWorkspace) customizations.refresh() else customizations.snapshot()
+        val pluginContributions = pluginRuntimeService.snapshot()
+        return WorkspaceCustomization(
+            rules = workspace.rules + pluginContributions.rules,
+            skills = workspace.skills + pluginContributions.skills,
+        )
+    }
+
     private fun emitSnapshot() {
         val settings = settingsService.snapshot()
         val snapshot = synchronized(stateLock) {
             val active = conversations.active()
-            val customization = customizations.snapshot()
+            val customization = availableCustomization()
             val selectedSkillIds = active.selectedSkillIds.toSet()
             val selectedRuleIds = active.selectedRuleIds.toSet()
             AppSnapshotDto(
@@ -996,6 +1121,8 @@ class IdeBridge(
                     desktopNotifications = settings.desktopNotifications,
                     autoDismissNotifications = settings.autoDismissNotifications,
                     contextMode = settings.contextMode,
+                    contextHttpBaseUrl = settings.contextHttpBaseUrl,
+                    contextHttpTokenConfigured = !settings.contextHttpApiKey.isNullOrBlank(),
                     contextEmbeddingBaseUrl = settings.contextEmbeddingBaseUrl,
                     contextEmbeddingModel = settings.contextEmbeddingModel,
                     contextEmbeddingTokenConfigured = !settings.contextEmbeddingApiKey.isNullOrBlank(),
@@ -1006,7 +1133,7 @@ class IdeBridge(
                 account = account,
                 context = context,
                 backendHealth = backendHealth,
-                models = modelRegistry.copy(selectedModel = active.selectedModelId ?: modelRegistry.defaultModel),
+                models = modelRegistry.copy(selectedModel = active.selectedModelId),
                 backendTools = backendTools,
                 configurations = configurations,
                 mcpRuntime = mcpRuntime,
@@ -1023,6 +1150,7 @@ class IdeBridge(
                             trigger = rule.trigger,
                             selected = rule.id in selectedRuleIds,
                             description = rule.description,
+                            source = rule.source,
                         )
                     },
                     skills = customization.skills.map { skill ->
@@ -1032,6 +1160,7 @@ class IdeBridge(
                             description = skill.description,
                             path = skill.path,
                             selected = skill.id in selectedSkillIds,
+                            source = skill.source,
                         )
                     },
                     maxSelectedSkills = ConversationStore.MAX_SELECTED_SKILLS,
@@ -1099,7 +1228,10 @@ class IdeBridge(
                 configurations = ConfigurationSnapshotDto(state = "error", label = backendHealth.label)
             }
             emitSnapshot()
-            if (backendHealth.state == "online") refreshAccount()
+            if (backendHealth.state == "online") {
+                refreshModels()
+                refreshAccount()
+            }
         }
     }
 
@@ -1180,7 +1312,6 @@ class IdeBridge(
                     label = "Signed in as ${response.user.displayName}",
                 )
                 emitSnapshot()
-                refreshModels()
                 refreshBackendTools()
                 refreshConfigurations()
                 refreshJobs()
@@ -1267,6 +1398,12 @@ class IdeBridge(
         }
     }
 
+    private fun interruptActiveToolsLocked(reason: String) {
+        conversations.interruptTools(reason).forEach { interrupted ->
+            tools[interrupted.id] = interrupted.toDto()
+        }
+    }
+
     private fun ConversationTool.toDto() = ToolRunDto(
         id = id,
         name = name,
@@ -1330,7 +1467,6 @@ class IdeBridge(
         mcpRuntimeService.reconcile(emptyList()).exceptionally { null }
         hookRuntimeService.reconcile(emptyList())
         pluginRuntimeService.reconcile(emptyList())
-        modelRegistry = ModelRegistryDto(state = "error", label = label)
         backendTools = emptyList()
         configurations = ConfigurationSnapshotDto(state = "unavailable", label = label)
         productJobs = ProductJobSnapshotDto(state = "unavailable", label = label)
@@ -1691,6 +1827,9 @@ class IdeBridge(
                 grantedCapabilities = item.grantedCapabilities,
                 declaredCapabilities = item.declaredCapabilities,
                 commandCount = item.commandCount,
+                promptCount = item.promptCount,
+                ruleCount = item.ruleCount,
+                skillCount = item.skillCount,
                 installedAt = item.installedAt,
                 lastCheckedAt = item.lastCheckedAt,
                 lastError = item.lastError,
@@ -1708,25 +1847,54 @@ class IdeBridge(
                 agentProfileId = command.agentProfileId,
             )
         },
+        prompts = prompts.map { prompt ->
+            PluginPromptDto(
+                id = prompt.id,
+                pluginId = prompt.pluginId,
+                pluginVersion = prompt.pluginVersion,
+                name = prompt.name,
+                description = prompt.description,
+                argumentHint = prompt.argumentHint,
+            )
+        },
     )
 
     private fun pluginCommandConfigurations(): List<ProductConfigurationDto> =
-        pluginRuntimeService.snapshot().commands.map { command ->
-            ProductConfigurationDto(
-                id = command.id,
-                kind = "commands",
-                value = buildJsonObject {
-                    put("name", command.name)
-                    command.description?.let { put("description", it) }
-                    put("enabled", true)
-                    put("prompt", command.prompt)
-                    command.argumentHint?.let { put("argumentHint", it) }
-                    put("mode", command.mode)
-                    command.agentProfileId?.let { put("agentProfileId", it) }
-                    put("pluginId", command.pluginId)
-                    put("pluginVersion", command.pluginVersion)
-                },
-            )
+        pluginRuntimeService.snapshot().let { runtime ->
+            runtime.commands.map { command ->
+                ProductConfigurationDto(
+                    id = command.id,
+                    kind = "commands",
+                    value = buildJsonObject {
+                        put("name", command.name)
+                        command.description?.let { put("description", it) }
+                        put("enabled", true)
+                        put("prompt", command.prompt)
+                        command.argumentHint?.let { put("argumentHint", it) }
+                        put("mode", command.mode)
+                        command.agentProfileId?.let { put("agentProfileId", it) }
+                        put("pluginId", command.pluginId)
+                        put("pluginVersion", command.pluginVersion)
+                        put("pluginCapability", "commands")
+                    },
+                )
+            } + runtime.prompts.map { prompt ->
+                ProductConfigurationDto(
+                    id = prompt.id,
+                    kind = "commands",
+                    value = buildJsonObject {
+                        put("name", prompt.name)
+                        prompt.description?.let { put("description", it) }
+                        put("enabled", true)
+                        put("prompt", prompt.prompt)
+                        prompt.argumentHint?.let { put("argumentHint", it) }
+                        put("mode", "inherit")
+                        put("pluginId", prompt.pluginId)
+                        put("pluginVersion", prompt.pluginVersion)
+                        put("pluginCapability", "prompts")
+                    },
+                )
+            }
         }
 
     private fun saveConfiguration(request: SaveConfigurationPayload) {
@@ -1827,11 +1995,23 @@ class IdeBridge(
     private fun startNextQueuedMessage() {
         val next = synchronized(stateLock) {
             if (runState != "idle") return
-            messageQueue.removeFirstOrNull()
+            messageQueue.removeFirstOrNull()?.also { runState = "starting" }
         } ?: return
+        emitSnapshot()
         runCatching {
-            sendMessage(json.encodeToJsonElement(SendMessagePayload(next.text, next.mode)))
-        }.onFailure { emit("error", mapOf("message" to it.rootMessage())) }
+            startMessage(
+                json.encodeToJsonElement(SendMessagePayload(next.text, next.mode, clientMessageId = next.id)),
+                fromQueue = true,
+            )
+        }.onFailure { error ->
+            val continueQueue = synchronized(stateLock) {
+                if (runState == "starting") runState = "idle"
+                messageQueue.isNotEmpty()
+            }
+            emit("error", mapOf("message" to error.rootMessage()))
+            emitSnapshot()
+            if (continueQueue) startNextQueuedMessage()
+        }
     }
 
     private fun indexWorkspace() {
@@ -1864,7 +2044,12 @@ class IdeBridge(
             }
             val relative = root.relativize(selected).toString()
             synchronized(stateLock) {
-                attachments[relative] = ContextItemDto(relative, file.name, relative)
+                attachments[relative] = ContextItemDto(
+                    id = relative,
+                    label = file.name,
+                    path = relative,
+                    kind = attachmentResolver.kindFor(relative),
+                )
             }
             emitSnapshot()
         }
@@ -2067,13 +2252,71 @@ class IdeBridge(
             is Map<*, *> -> json.encodeToJsonElement(payload.entries.associate { it.key.toString() to it.value.toString() })
             else -> error("Unsupported event payload: ${payload::class.simpleName}")
         }
-        val eventJson = json.encodeToString(EventEnvelope(type = type, payload = element))
+        val sequence = browserEventSequence.incrementAndGet()
+        val eventJson = json.encodeToString(EventEnvelope(sequence = sequence, type = type, payload = element))
         val escaped = json.encodeToString(eventJson)
-        browser.cefBrowser.executeJavaScript(
-            "window.CodeAgent && window.CodeAgent.receive($escaped);",
-            browser.cefBrowser.url,
-            0,
+        browserEvents.enqueue(BrowserEvent(sequence, "window.CodeAgent && window.CodeAgent.receive($escaped);"))
+        scheduleBrowserDispatch()
+    }
+
+    private fun scheduleBrowserDispatch() {
+        if (disposed.get()) {
+            browserEvents.reset()
+            return
+        }
+        if (!browserDispatchScheduled.compareAndSet(false, true)) return
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                if (disposed.get()) {
+                    browserEvents.reset()
+                    return@invokeLater
+                }
+                browserEvents.nextForDispatch()?.let(::dispatchBrowserEvent)
+            } finally {
+                browserDispatchScheduled.set(false)
+                if (!disposed.get() && browserEvents.hasDispatchableEvent()) scheduleBrowserDispatch()
+            }
+        }
+    }
+
+    private fun dispatchBrowserEvent(event: BrowserEvent) {
+        if (disposed.get() || !browserEvents.isCurrent(event.sequence)) return
+        runCatching {
+            browser.cefBrowser.executeJavaScript(event.script, browser.cefBrowser.url, 0)
+        }.onFailure { error ->
+            LOG.warn("Failed to dispatch browser event ${event.sequence}", error)
+        }
+        AppExecutorUtil.getAppScheduledExecutorService().schedule(
+            {
+                val retry = if (disposed.get()) null else browserEvents.retry(event.sequence)
+                if (retry != null) {
+                    if (retry.attempts == 1 || retry.attempts % 10 == 0) {
+                        LOG.warn("Retrying unacknowledged browser event ${retry.sequence} (attempt ${retry.attempts})")
+                    }
+                    ApplicationManager.getApplication().invokeLater { dispatchBrowserEvent(retry) }
+                }
+            },
+            BROWSER_EVENT_RETRY_MS,
+            TimeUnit.MILLISECONDS,
         )
+    }
+
+    private fun acknowledgeBrowserEvent(acknowledgment: EventAcknowledgmentPayload) {
+        if (!browserEvents.acknowledge(acknowledgment.sequence)) return
+        if (acknowledgment.eventType == "snapshot") {
+            val currentMessageCount = synchronized(stateLock) { conversations.active().messages.size }
+            LOG.info(
+                "Browser acknowledged snapshot event ${acknowledgment.sequence}: " +
+                    "receivedMessages=${acknowledgment.snapshotMessageCount} " +
+                    "currentMessages=$currentMessageCount lastMessageId=${acknowledgment.lastMessageId}",
+            )
+        }
+        scheduleBrowserDispatch()
+    }
+
+    private fun resetBrowserEventTransport() {
+        browserEvents.reset()
+        browserDispatchScheduled.set(false)
     }
 
     private fun com.codeagent.plugin.agent.CheckpointSummary.toDto() = CheckpointSummaryDto(
@@ -2088,6 +2331,14 @@ class IdeBridge(
     private data class ModePayload(val mode: String)
 
     @Serializable
+    private data class EventAcknowledgmentPayload(
+        val sequence: Long,
+        val eventType: String? = null,
+        val snapshotMessageCount: Int? = null,
+        val lastMessageId: String? = null,
+    )
+
+    @Serializable
     private data class NewThreadPayload(val mode: String)
 
     @Serializable
@@ -2095,6 +2346,7 @@ class IdeBridge(
         val text: String,
         val mode: String,
         val agentProfileId: String? = null,
+        val clientMessageId: String? = null,
     )
 
     @Serializable
@@ -2163,7 +2415,7 @@ class IdeBridge(
     private data class CopyTextPayload(val text: String)
 
     @Serializable
-    private data class ModelSelectionPayload(val modelId: String)
+    private data class ModelSelectionPayload(val modelId: String? = null)
 
     @Serializable
     private data class AgentProfileSelectionPayload(val agentProfileId: String)
@@ -2188,7 +2440,9 @@ class IdeBridge(
         val desktopNotifications: Boolean = false,
         val autoDismissNotifications: Boolean = true,
         val backendToken: String? = null,
-        val contextMode: String = "lexical",
+        val contextMode: String = "remote-http",
+        val contextHttpBaseUrl: String = "http://127.0.0.1:8790",
+        val contextHttpApiKey: String? = null,
         val contextEmbeddingBaseUrl: String = "http://127.0.0.1:8000/v1",
         val contextEmbeddingModel: String = "Qwen/Qwen3-Embedding-0.6B",
         val contextEmbeddingApiKey: String? = null,

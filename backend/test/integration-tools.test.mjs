@@ -13,6 +13,7 @@ test("reports missing integration credentials and rejects execution explicitly",
   const tools = registry.list();
 
   assert.equal(tools.find((tool) => tool.name === "web_search").available, false);
+  assert.equal(tools.find((tool) => tool.name === "web_search").risk, "read_only");
   assert.match(tools.find((tool) => tool.name === "github_search").unavailableReason, /GITHUB_TOKEN/);
   assert.equal(tools.find((tool) => tool.name === "subagent").available, false);
   await assert.rejects(
@@ -180,6 +181,7 @@ test("serves tool discovery and returns 503 for an unconfigured backend tool", a
     const list = await listResponse.json();
     assert.equal(list.object, "list");
     assert.equal(list.data.find((tool) => tool.name === "web_search").available, false);
+    assert.equal(list.data.find((tool) => tool.name === "web_search").risk, "read_only");
 
     const executeResponse = await fetch(`${baseUrl}/v1/tools/web_search`, {
       method: "POST",

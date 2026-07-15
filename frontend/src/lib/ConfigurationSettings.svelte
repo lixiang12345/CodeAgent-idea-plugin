@@ -107,12 +107,12 @@
 
   const pluginCapabilities = [
     { id: "commands", label: "Commands", description: "Namespaced slash commands" },
-    { id: "prompts", label: "Prompts", description: "Reserved prompt assets" },
+    { id: "prompts", label: "Prompts", description: "Namespaced prompt templates" },
     { id: "agents", label: "Agents", description: "Reserved Agent profiles" },
     { id: "hooks", label: "Hooks", description: "Reserved lifecycle definitions" },
     { id: "mcp", label: "MCP", description: "Reserved MCP definitions" },
-    { id: "rules", label: "Rules", description: "Reserved workspace rules" },
-    { id: "skills", label: "Skills", description: "Reserved repository skills" },
+    { id: "rules", label: "Rules", description: "Read-only workspace rules" },
+    { id: "skills", label: "Skills", description: "Read-only selectable skills" },
     { id: "tools", label: "Tools", description: "Reserved tool declarations" },
   ];
 
@@ -387,7 +387,7 @@ $: if (section !== previousSection) {
     if (kind === "plugins") {
       const runtime = pluginRuntimeFor(item.id);
       return runtime
-        ? `${runtime.state} · ${runtime.installedVersion ?? "not installed"} · ${runtime.commandCount} commands`
+        ? `${runtime.state} · ${runtime.installedVersion ?? "not installed"} · ${runtime.commandCount + runtime.promptCount} templates · ${runtime.ruleCount + runtime.skillCount} context assets`
         : text(value.version) || text(value.source) || "Declarative manifest";
     }
     return text(value.version) || text(value.source) || "Extension source";
@@ -586,7 +586,7 @@ $: if (section !== previousSection) {
     <div class="configuration-status plugin-runtime-status">
       <span class="status-dot {pluginRuntime.state}"></span>
       <span><strong>Plugin runtime · {pluginRuntime.state}</strong><small>{pluginRuntime.label}</small></span>
-      <i>{pluginRuntime.commands.length} commands</i>
+      <i>{pluginRuntime.commands.length + pluginRuntime.prompts.length} templates</i>
     </div>
   {/if}
 

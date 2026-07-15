@@ -7,6 +7,22 @@ import kotlin.test.assertTrue
 
 class ConversationStoreTest {
     @Test
+    fun `uses caller-provided message identity for optimistic bridge updates`() {
+        val store = ConversationStore()
+        val message = store.addMessage(
+            role = "user",
+            content = "Inspect the terminal failure",
+            messageId = "client-message-1",
+        )
+
+        assertEquals("client-message-1", message.id)
+        assertEquals("client-message-1", store.active().messages.single().id)
+        assertFailsWith<IllegalArgumentException> {
+            store.addMessage("user", "Duplicate", messageId = "client-message-1")
+        }
+    }
+
+    @Test
     fun `appends and finalizes a streaming message`() {
         val store = ConversationStore()
         val message = store.addMessage("assistant", "")
@@ -54,6 +70,9 @@ class ConversationStoreTest {
         val first = store.active()
         store.setSelectedModel("claude-sonnet-5")
         assertEquals("claude-sonnet-5", store.active().selectedModelId)
+        store.setSelectedModel(null)
+        assertEquals(null, store.active().selectedModelId)
+        store.setSelectedModel("claude-sonnet-5")
 
         val second = store.newThread()
         assertEquals(null, second.selectedModelId)
@@ -99,6 +118,33 @@ class ConversationStoreTest {
     }
 
     @Test
+    fun `normalizes legacy persisted task lists to cloud limits`() {
+        val store = ConversationStore()
+        val state = ConversationStoreState().apply {
+            activeThreadId = "legacy-thread"
+            threads = mutableListOf(
+                ConversationThreadState().apply {
+                    id = "legacy-thread"
+                    title = "Legacy task history"
+                    updatedAt = 1_000
+                    tasks = (1..102).mapTo(mutableListOf()) { index ->
+                        ConversationTaskState().apply {
+                            id = if (index == 102) "task-1" else "task-$index"
+                            name = if (index == 101) "" else "Task $index"
+                            state = if (index == 100) "unknown" else "not_started"
+                        }
+                    }
+                },
+            )
+        }
+        store.loadState(state)
+
+        val tasks = store.active().tasks
+        assertEquals(99, tasks.size)
+        assertEquals((1..99).map { "task-$it" }, tasks.map { it.id })
+    }
+
+    @Test
     fun `persists tool cards and message turn identity per thread`() {
         val store = ConversationStore()
         val first = store.active()
@@ -127,6 +173,55 @@ class ConversationStoreTest {
         assertTrue(store.active().tools.isEmpty())
         store.select(first.id)
         assertEquals("Read auth service", store.active().tools.single().summary)
+    }
+
+    @Test
+    fun `interrupts pending tools without dropping completed history`() {
+        val store = ConversationStore()
+        val thread = store.active()
+        store.upsertTool(
+            ConversationTool(
+                id = "completed-tool",
+                name = "view",
+                summary = "Listed files",
+                status = "completed",
+                createdAt = 1_000,
+                updatedAt = 1_100,
+            ),
+        )
+        store.upsertTool(
+            ConversationTool(
+                id = "approval-tool",
+                name = "run_terminal",
+                summary = "Approval required",
+                status = "approval",
+                createdAt = 1_200,
+                updatedAt = 1_200,
+            ),
+        )
+        store.upsertTool(
+            ConversationTool(
+                id = "running-tool",
+                name = "read_file",
+                summary = "Running",
+                status = "running",
+                createdAt = 1_300,
+                updatedAt = 1_300,
+            ),
+        )
+
+        val interrupted = store.interruptTools("thread switched")
+
+        assertEquals(setOf("approval-tool", "running-tool"), interrupted.mapTo(mutableSetOf()) { it.id })
+        assertEquals("completed", store.active().tools.first { it.id == "completed-tool" }.status)
+        assertEquals("rejected", store.active().tools.first { it.id == "approval-tool" }.status)
+        assertTrue(store.active().tools.first { it.id == "approval-tool" }.summary.contains("thread switched"))
+        assertEquals("failed", store.active().tools.first { it.id == "running-tool" }.status)
+
+        store.newThread()
+        store.select(thread.id)
+        assertEquals(3, store.active().tools.size)
+        assertEquals("rejected", store.active().tools.first { it.id == "approval-tool" }.status)
     }
 
     @Test

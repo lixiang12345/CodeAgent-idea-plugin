@@ -11,6 +11,7 @@ import com.codeagent.plugin.settings.OidcLoginService
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.AppExecutorUtil
 import kotlinx.serialization.encodeToString
@@ -159,12 +160,21 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
             Unit
         }
         return write.handle { result, error ->
+            val cause = error?.rootCause()
             when {
                 error == null -> CompletableFuture.completedFuture(result)
-                isCurrent(generation) && error.rootCause() is RemoteHttpException &&
-                    (error.rootCause() as RemoteHttpException).statusCode == 409 ->
+                isCurrent(generation) && cause is RemoteHttpException && cause.statusCode == 409 ->
                     resolveConflict(client, payload, generation)
-                else -> CompletableFuture.failedFuture(error.rootCause())
+                isCurrent(generation) && cause is RemoteHttpException && cause.statusCode in NON_RETRYABLE_STATUS_CODES -> {
+                    pending.remove(payload.id, payload)
+                    LOG.warn(
+                        "Cloud conversation ${payload.id} was rejected with HTTP ${cause.statusCode}; " +
+                            "the invalid snapshot will not be retried until it changes",
+                        cause,
+                    )
+                    CompletableFuture.completedFuture(Unit)
+                }
+                else -> CompletableFuture.failedFuture(cause ?: requireNotNull(error))
             }
         }.thenCompose { it }
     }
@@ -224,9 +234,11 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
         selectedRuleIds = selectedRuleIds,
         pinned = pinned,
         summary = summary,
-        messages = messages.map { RemoteConversationMessage(it.id, it.role, it.content, it.createdAt, it.runId, it.turnIndex) },
-        tasks = tasks.map { RemoteConversationTask(it.id, it.name, it.state) },
-        tools = tools.map { tool ->
+        messages = messages.takeLast(MAX_REMOTE_MESSAGES).map {
+            RemoteConversationMessage(it.id, it.role, it.content, it.createdAt, it.runId, it.turnIndex)
+        },
+        tasks = tasks.take(MAX_REMOTE_TASKS).map { RemoteConversationTask(it.id, it.name, it.state) },
+        tools = tools.takeLast(MAX_REMOTE_TOOLS).map { tool ->
             RemoteConversationTool(
                 id = tool.id,
                 name = tool.name,
@@ -285,9 +297,14 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
     }
 
     companion object {
+        private val LOG = Logger.getInstance(CloudConversationSyncService::class.java)
+        private val NON_RETRYABLE_STATUS_CODES = setOf(400, 404, 413, 422)
         private const val NO_GENERATION = -1L
         private const val DEBOUNCE_MILLIS = 750L
         private const val RETRY_MILLIS = 5_000L
+        private const val MAX_REMOTE_MESSAGES = 200
+        private const val MAX_REMOTE_TASKS = 100
+        private const val MAX_REMOTE_TOOLS = 1_000
     }
 }
 

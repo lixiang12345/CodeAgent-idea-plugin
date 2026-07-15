@@ -26,6 +26,7 @@ internal data class WorkspaceRule(
     val content: String,
     val trigger: String,
     val description: String,
+    val source: String = "workspace",
 )
 
 internal data class WorkspaceSkill(
@@ -34,6 +35,7 @@ internal data class WorkspaceSkill(
     val description: String,
     val path: String,
     val content: String,
+    val source: String = "workspace",
 )
 
 @Service(Service.Level.PROJECT)

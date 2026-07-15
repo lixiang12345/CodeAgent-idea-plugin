@@ -12,6 +12,17 @@ CodeAgent vendors the upstream `lixiang12345/ContextEngine-plugin` commit as a p
 - A project is indexed once manually. The sidecar then watches the primary project root and any external IntelliJ content roots recursively, and runs one 800 ms debounced incremental pass across the complete root set.
 - Incremental passes compare content hashes, rewrite only changed files, and remove deleted files. Reads wait for an active index pass so the Agent does not use a half-updated searcher.
 
+## Model-neutral retrieval output
+
+ContextEngine does not maintain a model registry and does not infer output size
+from model names or context windows. It owns indexing, multi-signal retrieval,
+reranking, deduplication, and evidence formatting only.
+
+`codebase_retrieval` returns the complete reranked evidence pack selected by
+the query plan and `top_k`. Callers may provide `max_tokens` when they explicitly
+need a smaller transport payload. Model-specific conversation compaction remains
+the responsibility of the host Agent runtime and does not alter retrieval recall.
+
 ## Model deployment
 
 No model is required for the default local mode. ContextEngine combines SQLite FTS5, symbols, paths, graph expansion, Git lineage, reranking, and context packing.

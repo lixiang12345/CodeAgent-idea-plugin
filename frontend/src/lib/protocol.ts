@@ -2,7 +2,7 @@ export const PROTOCOL_VERSION = 1;
 
 export type Mode = "agent" | "chat" | "ask";
 export type MessageRole = "user" | "assistant" | "system";
-export type RunState = "idle" | "running" | "awaiting_approval" | "failed";
+export type RunState = "idle" | "starting" | "running" | "awaiting_approval" | "failed";
 
 export interface ChatMessage {
   id: string;
@@ -33,6 +33,7 @@ export interface AgentRunTelemetry {
   targetInputTokens: number;
   contextWindowTokens: number;
   reservedOutputTokens: number;
+  retrievalBudgetTokens: number;
   toolDefinitionTokens: number;
   compactedToolResults: number;
   truncatedMessages: number;
@@ -78,6 +79,7 @@ export interface ContextItem {
   id: string;
   label: string;
   path: string;
+  kind?: "file" | "image" | "ide_state";
 }
 
 export interface GitFile {
@@ -119,7 +121,9 @@ export interface SettingsSnapshot {
   showRunTelemetry: boolean;
   desktopNotifications: boolean;
   autoDismissNotifications: boolean;
-  contextMode: "lexical" | "private-semantic";
+  contextMode: "remote-http" | "lexical" | "private-semantic";
+  contextHttpBaseUrl: string;
+  contextHttpTokenConfigured: boolean;
   contextEmbeddingBaseUrl: string;
   contextEmbeddingModel: string;
   contextEmbeddingTokenConfigured: boolean;
@@ -213,6 +217,15 @@ export interface PluginCommand {
   agentProfileId?: string;
 }
 
+export interface PluginPrompt {
+  id: string;
+  pluginId: string;
+  pluginVersion: string;
+  name: string;
+  description?: string;
+  argumentHint?: string;
+}
+
 export interface PluginRuntimeItem {
   id: string;
   name: string;
@@ -227,6 +240,9 @@ export interface PluginRuntimeItem {
   grantedCapabilities: string[];
   declaredCapabilities: string[];
   commandCount: number;
+  promptCount: number;
+  ruleCount: number;
+  skillCount: number;
   installedAt?: string;
   lastCheckedAt?: string;
   lastError?: string;
@@ -237,6 +253,7 @@ export interface PluginRuntimeSnapshot {
   label: string;
   items: PluginRuntimeItem[];
   commands: PluginCommand[];
+  prompts: PluginPrompt[];
 }
 
 export type McpRuntimeState = "disabled" | "stopped" | "starting" | "ready" | "degraded" | "error" | "stopping";
@@ -311,6 +328,7 @@ export interface WorkspaceRule {
   trigger: "always" | "manual" | "agent";
   selected: boolean;
   description: string;
+  source?: string;
 }
 
 export interface WorkspaceSkill {
@@ -319,6 +337,7 @@ export interface WorkspaceSkill {
   description: string;
   path: string;
   selected: boolean;
+  source?: string;
 }
 
 export interface AppSnapshot {
@@ -376,6 +395,7 @@ export interface CommandEnvelope {
 
 export interface EventEnvelope {
   version: number;
+  sequence?: number;
   type: string;
   payload?: unknown;
 }
@@ -388,6 +408,7 @@ declare global {
 }
 
 const listeners = new Set<(event: EventEnvelope) => void>();
+let lastHostEventSequence = 0;
 
 export function onHostEvent(listener: (event: EventEnvelope) => void): () => void {
   listeners.add(listener);
@@ -413,9 +434,46 @@ export function sendCommand(type: string, payload?: unknown): void {
 window.CodeAgent = {
   receive(json: string) {
     const event = JSON.parse(json) as EventEnvelope;
-    listeners.forEach((listener) => listener(event));
+    const sequence = Number(event.sequence ?? 0);
+    if (sequence > 0 && sequence <= lastHostEventSequence) {
+      acknowledgeHostEvent(event);
+      return;
+    }
+    if (listeners.size === 0) return;
+    try {
+      listeners.forEach((listener) => listener(event));
+      if (sequence > 0) {
+        lastHostEventSequence = sequence;
+        acknowledgeHostEvent(event);
+      }
+    } catch (error) {
+      console.error("CodeAgent host event failed", error);
+    }
   },
 };
+
+function acknowledgeHostEvent(event: EventEnvelope): void {
+  if (!window.codeAgentPost) return;
+  const sequence = Number(event.sequence ?? 0);
+  if (sequence <= 0) return;
+  const snapshot = event.type === "snapshot" && event.payload && typeof event.payload === "object"
+    ? event.payload as { messages?: Array<{ id?: unknown }> }
+    : undefined;
+  const messages = Array.isArray(snapshot?.messages) ? snapshot.messages : undefined;
+  const lastMessageId = messages?.at(-1)?.id;
+  const command: CommandEnvelope = {
+    version: PROTOCOL_VERSION,
+    id: crypto.randomUUID(),
+    type: "ackEvent",
+    payload: {
+      sequence,
+      eventType: event.type,
+      snapshotMessageCount: messages?.length,
+      lastMessageId: typeof lastMessageId === "string" ? lastMessageId : undefined,
+    },
+  };
+  window.codeAgentPost(JSON.stringify(command));
+}
 
 function handleDevelopmentCommand(command: CommandEnvelope): void {
   if (command.type === "refreshGit") {
@@ -452,6 +510,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       targetInputTokens: 0,
       contextWindowTokens: 0,
       reservedOutputTokens: 0,
+      retrievalBudgetTokens: 0,
       toolDefinitionTokens: 0,
       compactedToolResults: 0,
       truncatedMessages: 0,
@@ -557,7 +616,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       { id: "task-4", name: "Run the complete integration suite", state: "not_started" },
     ],
     messageQueue: [],
-    attachments: [{ id: "attachment-1", label: "UserRepository.java", path: "src/main/java/com/example/UserRepository.java" }],
+    attachments: [{ id: "attachment-1", label: "UserRepository.java", path: "src/main/java/com/example/UserRepository.java", kind: "file" }],
     settings: {
       backendUrl: "http://127.0.0.1:8788",
       nodePath: "node",
@@ -568,7 +627,9 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       showRunTelemetry: true,
       desktopNotifications: false,
       autoDismissNotifications: true,
-      contextMode: "lexical",
+      contextMode: "remote-http",
+      contextHttpBaseUrl: "http://127.0.0.1:8790",
+      contextHttpTokenConfigured: false,
       contextEmbeddingBaseUrl: "",
       contextEmbeddingModel: "",
       contextEmbeddingTokenConfigured: false,
@@ -595,7 +656,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       state: "ready",
       provider: "unified-native",
       defaultModel: "gpt-5.6-sol",
-      selectedModel: "gpt-5.6-sol",
+      selectedModel: undefined,
       options: [
         { id: "gpt-5.6-sol", ownedBy: "openai" },
         { id: "claude-fable-5", ownedBy: "anthropic" },
@@ -682,7 +743,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
               model: "gpt-5.6-sol",
               allowedTools: ["codebase_retrieval", "read_file", "search_text"],
               maxTurns: 10,
-              contextWindowTokens: 64000,
+              contextWindowTokens: 400000,
               reservedOutputTokens: 8192,
             },
           },
@@ -796,9 +857,12 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
           label: "Installed and active",
           installedVersion: "1.0.0",
           latestVersion: "1.0.0",
-          grantedCapabilities: ["commands"],
-          declaredCapabilities: ["commands"],
+          grantedCapabilities: ["commands", "prompts"],
+          declaredCapabilities: ["commands", "prompts"],
           commandCount: 1,
+          promptCount: 1,
+          ruleCount: 0,
+          skillCount: 0,
           installedAt: new Date(Date.now() - 86_400_000).toISOString(),
           lastCheckedAt: new Date(Date.now() - 60_000).toISOString(),
         },
@@ -813,6 +877,16 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
           argumentHint: "[scope]",
           mode: "ask",
           agentProfileId: "loop",
+        },
+      ],
+      prompts: [
+        {
+          id: "review-pack.security-review",
+          pluginId: "review-pack",
+          pluginVersion: "1.0.0",
+          name: "Security review",
+          description: "Review a scope for security regressions",
+          argumentHint: "[scope]",
         },
       ],
     },

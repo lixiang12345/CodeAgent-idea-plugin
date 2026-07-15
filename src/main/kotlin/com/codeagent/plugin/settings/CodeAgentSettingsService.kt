@@ -9,6 +9,7 @@ import com.intellij.openapi.components.Storage
 import java.net.URI
 
 const val DEFAULT_BACKEND_URL = "http://127.0.0.1:8788"
+const val DEFAULT_CONTEXT_HTTP_URL = "http://127.0.0.1:8790"
 const val DEFAULT_CONTEXT_EMBEDDING_URL = "http://127.0.0.1:8000/v1"
 const val DEFAULT_CONTEXT_EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 const val DEFAULT_CONTEXT_RERANK_MODEL = "Qwen/Qwen3-Reranker-0.6B"
@@ -37,6 +38,8 @@ class CodeAgentSettingsService : PersistentStateComponent<CodeAgentSettingsState
         refreshToken = PasswordSafe.instance.getPassword(REFRESH_TOKEN_ATTRIBUTES),
         tokenExpiresAtEpochSeconds = settings.tokenExpiresAtEpochSeconds,
         contextMode = settings.contextMode,
+        contextHttpBaseUrl = settings.contextHttpBaseUrl,
+        contextHttpApiKey = PasswordSafe.instance.getPassword(CONTEXT_HTTP_TOKEN_ATTRIBUTES),
         contextEmbeddingBaseUrl = settings.contextEmbeddingBaseUrl,
         contextEmbeddingModel = settings.contextEmbeddingModel,
         contextEmbeddingApiKey = PasswordSafe.instance.getPassword(CONTEXT_EMBEDDING_TOKEN_ATTRIBUTES),
@@ -48,7 +51,12 @@ class CodeAgentSettingsService : PersistentStateComponent<CodeAgentSettingsState
     fun update(update: CodeAgentSettingsUpdate) {
         val backendUrl = normalizeHttpUrl(update.backendUrl, "Backend URL", allowRemoteHttp = true)
         val contextMode = update.contextMode.trim()
-        require(contextMode in setOf("lexical", "private-semantic")) { "Unsupported Context Engine mode" }
+        require(contextMode in setOf("remote-http", "lexical", "private-semantic")) { "Unsupported Context Engine mode" }
+        val contextHttpBaseUrl = normalizeHttpUrl(
+            update.contextHttpBaseUrl.trim().ifEmpty { DEFAULT_CONTEXT_HTTP_URL },
+            "ContextEngine HTTP URL",
+            allowRemoteHttp = false,
+        )
         val contextEmbeddingBaseUrl = normalizeHttpUrl(
             update.contextEmbeddingBaseUrl.trim().ifEmpty { DEFAULT_CONTEXT_EMBEDDING_URL },
             "Context embedding URL",
@@ -76,6 +84,7 @@ class CodeAgentSettingsService : PersistentStateComponent<CodeAgentSettingsState
         settings.desktopNotifications = update.desktopNotifications
         settings.autoDismissNotifications = update.autoDismissNotifications
         settings.contextMode = contextMode
+        settings.contextHttpBaseUrl = contextHttpBaseUrl
         settings.contextEmbeddingBaseUrl = contextEmbeddingBaseUrl
         settings.contextEmbeddingModel = contextEmbeddingModel
         settings.contextNeuralRerank = update.contextNeuralRerank
@@ -83,6 +92,9 @@ class CodeAgentSettingsService : PersistentStateComponent<CodeAgentSettingsState
         settings.contextRerankModel = contextRerankModel
         update.backendToken?.takeIf { it.isNotBlank() }?.let {
             PasswordSafe.instance.setPassword(BACKEND_TOKEN_ATTRIBUTES, it)
+        }
+        update.contextHttpApiKey?.takeIf { it.isNotBlank() }?.let {
+            PasswordSafe.instance.setPassword(CONTEXT_HTTP_TOKEN_ATTRIBUTES, it)
         }
         update.contextEmbeddingApiKey?.takeIf { it.isNotBlank() }?.let {
             PasswordSafe.instance.setPassword(CONTEXT_EMBEDDING_TOKEN_ATTRIBUTES, it)
@@ -118,6 +130,7 @@ class CodeAgentSettingsService : PersistentStateComponent<CodeAgentSettingsState
     companion object {
         private val BACKEND_TOKEN_ATTRIBUTES = CredentialAttributes("CodeAgent backend authentication token")
         private val REFRESH_TOKEN_ATTRIBUTES = CredentialAttributes("CodeAgent OIDC refresh token")
+        private val CONTEXT_HTTP_TOKEN_ATTRIBUTES = CredentialAttributes("CodeAgent ContextEngine HTTP token")
         private val CONTEXT_EMBEDDING_TOKEN_ATTRIBUTES = CredentialAttributes("CodeAgent Context Engine embedding token")
     }
 }
@@ -134,7 +147,9 @@ data class CodeAgentSettings(
     val backendToken: String?,
     val refreshToken: String? = null,
     val tokenExpiresAtEpochSeconds: Long = 0,
-    val contextMode: String = "lexical",
+    val contextMode: String = "remote-http",
+    val contextHttpBaseUrl: String = DEFAULT_CONTEXT_HTTP_URL,
+    val contextHttpApiKey: String? = null,
     val contextEmbeddingBaseUrl: String = DEFAULT_CONTEXT_EMBEDDING_URL,
     val contextEmbeddingModel: String = DEFAULT_CONTEXT_EMBEDDING_MODEL,
     val contextEmbeddingApiKey: String? = null,
@@ -153,7 +168,9 @@ data class CodeAgentSettingsUpdate(
     val desktopNotifications: Boolean = false,
     val autoDismissNotifications: Boolean = true,
     val backendToken: String?,
-    val contextMode: String = "lexical",
+    val contextMode: String = "remote-http",
+    val contextHttpBaseUrl: String = DEFAULT_CONTEXT_HTTP_URL,
+    val contextHttpApiKey: String? = null,
     val contextEmbeddingBaseUrl: String = DEFAULT_CONTEXT_EMBEDDING_URL,
     val contextEmbeddingModel: String = DEFAULT_CONTEXT_EMBEDDING_MODEL,
     val contextEmbeddingApiKey: String? = null,
@@ -172,7 +189,8 @@ class CodeAgentSettingsState {
     var desktopNotifications: Boolean = false
     var autoDismissNotifications: Boolean = true
     var tokenExpiresAtEpochSeconds: Long = 0
-    var contextMode: String = "lexical"
+    var contextMode: String = "remote-http"
+    var contextHttpBaseUrl: String = DEFAULT_CONTEXT_HTTP_URL
     var contextEmbeddingBaseUrl: String = DEFAULT_CONTEXT_EMBEDDING_URL
     var contextEmbeddingModel: String = DEFAULT_CONTEXT_EMBEDDING_MODEL
     var contextNeuralRerank: Boolean = false

@@ -1442,6 +1442,7 @@
           "contextWindowTokens",
           "inputBudgetTokens",
           "reservedOutputTokens",
+          "retrievalBudgetTokens",
           "toolDefinitionTokens"
         ],
         "properties": {
@@ -1506,6 +1507,11 @@
             "type": "integer",
             "minimum": 1024
           },
+          "retrievalBudgetTokens": {
+            "type": "integer",
+            "minimum": 4096,
+            "maximum": 24576
+          },
           "toolDefinitionTokens": {
             "type": "integer",
             "minimum": 0
@@ -1521,6 +1527,7 @@
           "targetInputTokens",
           "contextWindowTokens",
           "reservedOutputTokens",
+          "retrievalBudgetTokens",
           "toolDefinitionTokens",
           "compactedToolResults",
           "truncatedMessages",
@@ -1546,6 +1553,11 @@
           "reservedOutputTokens": {
             "type": "integer",
             "minimum": 1024
+          },
+          "retrievalBudgetTokens": {
+            "type": "integer",
+            "minimum": 4096,
+            "maximum": 24576
           },
           "toolDefinitionTokens": {
             "type": "integer",

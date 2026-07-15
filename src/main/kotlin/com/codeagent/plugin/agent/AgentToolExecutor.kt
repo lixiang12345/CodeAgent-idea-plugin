@@ -55,12 +55,15 @@ internal class AgentToolExecutor(
     private val remoteTools = remoteCapabilities.filter(RemoteToolCapability::available).associateBy(RemoteToolCapability::name)
     private val json = Json { ignoreUnknownKeys = true }
     private val executor = AppExecutorUtil.getAppExecutorService()
-
-    override fun definitions(mode: String): List<AgentToolDefinition> = buildList {
+    override fun definitions(mode: String): List<AgentToolDefinition> = filterToolDefinitionsForMode(mode, buildList {
         add(tool("codebase_retrieval", "Use first for behavior, symbol, flow, or cross-file questions. Plans multi-stage retrieval and returns a deduplicated evidence pack with path and line citations", schema(
             properties = mapOf(
                 "information_request" to stringProperty("A specific description of the code, behavior, or symbols needed"),
-                "max_tokens" to integerProperty("Maximum packed context tokens", 500, 20_000),
+                "max_tokens" to integerProperty(
+                    "Optional caller-controlled cap for packed context tokens; omit it to return the complete reranked evidence pack",
+                    500,
+                    MAX_EXPLICIT_RETRIEVAL_TOKENS,
+                ),
                 "strategy" to enumStringProperty("Retrieval depth: fast for a focused lookup, balanced by default, deep for cross-cutting flows", listOf("fast", "balanced", "deep")),
                 "focus_paths" to stringArrayProperty("Optional project-relative files or directories to prioritize", 0, 8),
             ),
@@ -185,22 +188,22 @@ internal class AgentToolExecutor(
             )))
         }
         remoteTools.values.forEach { remote ->
-            add(tool(remote.name, remote.description, remote.parameters))
+            add(AgentToolDefinition(remote.name, remote.description, remote.parameters, toolRiskFromWire(remote.risk)))
         }
         addAll(mcpRuntime.definitions())
         add(tool("open_file", "Open one known project file in the IDE for user inspection. This changes editor state but does not modify file content", schema(
             properties = mapOf("path" to stringProperty("Project-relative file path")),
             required = listOf("path"),
         )))
-    }
+    })
 
     override fun risk(toolName: String): ToolRisk =
-        if (mcpRuntime.hasTool(toolName)) {
-            mcpRuntime.risk(toolName)
-        } else {
-            when (toolName) {
-                "write_file", "replace_text", "remove_files", "apply_patch", "run_terminal" -> ToolRisk.MUTATING
-                "add_tasks", "update_tasks", "reorg_tasks", "ask_user", "open_browser", "open_file", "render_mermaid" -> ToolRisk.LOCAL_STATE
+        when (toolName) {
+            "write_file", "replace_text", "remove_files", "apply_patch", "run_terminal" -> ToolRisk.MUTATING
+            "add_tasks", "update_tasks", "reorg_tasks", "ask_user", "open_browser", "open_file", "render_mermaid" -> ToolRisk.LOCAL_STATE
+            else -> when {
+                mcpRuntime.hasTool(toolName) -> mcpRuntime.risk(toolName)
+                remoteTools.containsKey(toolName) -> toolRiskFromWire(requireNotNull(remoteTools[toolName]).risk)
                 else -> ToolRisk.READ_ONLY
             }
         }
@@ -254,7 +257,9 @@ internal class AgentToolExecutor(
 
     private fun retrieve(args: JsonObject): ToolExecutionResult {
         val request = args.requiredString("information_request")
-        val maxTokens = (args["max_tokens"]?.jsonPrimitive?.intOrNull ?: 8_000).coerceIn(500, 20_000)
+        val maxTokens = args["max_tokens"]?.jsonPrimitive?.intOrNull?.also {
+            require(it > 0) { "max_tokens must be positive" }
+        }
         val strategy = args.string("strategy") ?: "balanced"
         require(strategy in setOf("fast", "balanced", "deep")) { "strategy must be fast, balanced, or deep" }
         val focusPaths = args.stringList("focus_paths").take(8)
@@ -749,6 +754,7 @@ internal class AgentToolExecutor(
     private fun JsonObject.string(name: String): String? = get(name)?.jsonPrimitive?.contentOrNull
 
     companion object {
+        private const val MAX_EXPLICIT_RETRIEVAL_TOKENS = 1_000_000
         private const val MAX_DETAIL_CHARS = 8_000
         private const val MAX_MERMAID_CHARS = 8_000
         private val IGNORED_SEGMENTS = setOf(".git", ".idea", ".gradle", ".contextengine", "build", "dist", "node_modules", "out")
@@ -758,10 +764,35 @@ internal class AgentToolExecutor(
 
 enum class ToolRisk { READ_ONLY, LOCAL_STATE, MUTATING }
 
+internal fun filterToolDefinitionsForMode(
+    mode: String,
+    definitions: List<AgentToolDefinition>,
+): List<AgentToolDefinition> {
+    requireSupportedRunMode(mode)
+    return definitions.filter { isToolAllowedInMode(mode, it.risk) }
+}
+
+internal fun isToolAllowedInMode(mode: String, risk: ToolRisk): Boolean {
+    requireSupportedRunMode(mode)
+    return mode == "agent" || risk != ToolRisk.MUTATING
+}
+
+internal fun toolRiskFromWire(value: String): ToolRisk = when (value) {
+    "read_only" -> ToolRisk.READ_ONLY
+    "local_state" -> ToolRisk.LOCAL_STATE
+    "mutating" -> ToolRisk.MUTATING
+    else -> ToolRisk.MUTATING
+}
+
+private fun requireSupportedRunMode(mode: String) {
+    require(mode in setOf("agent", "chat", "ask")) { "Unsupported mode: $mode" }
+}
+
 interface AgentToolRunner {
     fun definitions(mode: String): List<AgentToolDefinition>
     fun risk(toolName: String): ToolRisk
     fun execute(call: AgentToolCall): CompletableFuture<ToolExecutionResult>
+    fun updateRetrievalBudget(tokens: Int) = Unit
 }
 
 data class ToolExecutionResult(

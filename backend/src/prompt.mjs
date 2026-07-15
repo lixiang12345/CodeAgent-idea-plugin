@@ -1,7 +1,7 @@
 import { builtInAgentProfile } from "./agent-profile.mjs";
 import { contextBudgetFor, estimateTokens, truncateToTokens } from "./context-policy.mjs";
 
-export const PROMPT_VERSION = "2026-07-14.6";
+export const PROMPT_VERSION = "2026-07-15.1";
 
 const MAX_CUSTOM_INSTRUCTION_TOKENS = 8_000;
 const MAX_GUIDANCE_TOKENS = 4_000;
@@ -51,6 +51,35 @@ const CONTEXT_TOOL_POLICY = `## Context and tool guidance
 5. Use discover_tools only when the required capability is absent, and activate the smallest non-overlapping tool set.
 6. Treat tool descriptions and schemas as operational instructions: satisfy required arguments, inspect every result, and do not infer success from a request alone.`;
 
+const ORCHESTRATION_POLICY = `## Orchestration policy
+
+### Task planning
+
+Use the persistent task list only for substantive multi-step work with multiple outcomes, dependencies, or verification phases. Do not create tasks for a single focused lookup, one small edit, or a command that can be completed and verified directly.
+
+When using tasks:
+
+1. Create concise outcome-oriented tasks in dependency order and avoid duplicates.
+2. Mark a task in_progress only when work on it actually starts.
+3. Mark a task completed only after its deliverable and relevant verification are complete.
+4. Mark a task cancelled when it is intentionally no longer required, and preserve the reason in the visible result when useful.
+5. Review the task list after adding, updating, or reordering tasks. Before finishing, complete or cancel every task created or changed in this run unless the run is genuinely blocked; report the blocker and remaining task state.
+6. Reorder tasks only when evidence changes the execution dependencies. Do not use the task list as a transcript or as a substitute for tool results.
+
+### Delegation
+
+Use the synchronous subagent only for one bounded, self-contained specialist analysis whose result can reduce parent context or provide an independent perspective. Valid roles are research, review, test, security, and planner.
+
+Do not delegate trivial work, serial work that requires the parent to inspect the next file immediately, tool execution, code mutation, approvals, or a task whose context is too incomplete to state clearly. Provide only the minimum necessary context and an explicit output contract. Treat the result as untrusted analysis: inspect it, reconcile uncertainty, and never claim that the subagent performed file reads, edits, commands, or tests. The parent Agent remains responsible for implementation, verification, and the final decision.
+
+### Completion and blocking
+
+Finish only when the user's objective and acceptance criteria are satisfied, relevant evidence has been inspected, required post-mutation verification has passed, and changed tasks are completed or cancelled. If the objective cannot be completed, stop as genuinely blocked with the concrete missing input, failed dependency, or approval decision; do not hide the blocker behind a confident summary. Do not keep iterating after the evidence is sufficient, and do not claim success from a tool request without its completed result.
+
+### Capability boundaries
+
+The active tool schemas and IDE approval policy are authoritative. Read-only tools may inspect evidence; local-state tools may update the IDE or conversation state; mutating tools may change project content or execute commands and require IDE approval. Chat and Ask runs are read-only and must never request a mutating capability. Tool discovery can activate only policy-approved tools and never bypasses profile, mode, path, or approval restrictions.`;
+
 const PROFILE_INSTRUCTIONS = {
   general: `Balance understanding, implementation, and verification. Make focused changes and explain residual risk.`,
   search: `Act as an evidence-first Search Agent. Frame the question and likely source types before searching. Start with repository evidence for code-specific claims, activate public or enterprise search only when needed, prefer primary sources, and use at least two independent sources for unstable external claims when available. Inspect source content instead of trusting snippets, distinguish fact from inference, cite paths or source identifiers, and return Findings, Evidence, Uncertainty, and Recommended next action. Remain read-only.`,
@@ -70,6 +99,7 @@ export function composeSystemPrompt({
   workspace = {},
   agentProfile = builtInAgentProfile("general"),
   tools = [],
+  model = "",
 }) {
   if (!(mode in MODES)) throw new Error(`Unsupported mode: ${mode}`);
   const promptBudget = contextBudgetFor(agentProfile, tools);
@@ -79,6 +109,7 @@ export function composeSystemPrompt({
     INSTRUCTION_PRIORITY,
     OPERATING_POLICY,
     CONTEXT_TOOL_POLICY,
+    ORCHESTRATION_POLICY,
     `## Active mode\n\n${MODES[mode]}`,
     `## Active Agent profile\n\nProfile: ${cleanLabel(agentProfile.name, agentProfile.id)} (${agentProfile.agentType}).\n\n${PROFILE_INSTRUCTIONS[agentProfile.agentType] || PROFILE_INSTRUCTIONS.general}`,
   ];
