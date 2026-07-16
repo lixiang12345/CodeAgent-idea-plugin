@@ -20,7 +20,7 @@
     class:empty={!markup}
     data-icon={name}
     title={title}
-    style={`width:${dim};height:${dim}`}
+    style={`width:${dim};height:${dim};flex:0 0 ${dim}`}
     aria-hidden={title ? undefined : "true"}
     role={title ? "img" : undefined}
     aria-label={title}
@@ -30,7 +30,7 @@
     class="i missing {className}"
     data-icon={name}
     title={title ?? name}
-    style={`width:${dim};height:${dim}`}
+    style={`width:${dim};height:${dim};flex:0 0 ${dim}`}
     aria-hidden="true"
   ></span>
 {/if}
@@ -40,7 +40,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    flex-shrink: 0;
+    flex: 0 0 auto;
     color: currentColor;
     line-height: 0;
   }

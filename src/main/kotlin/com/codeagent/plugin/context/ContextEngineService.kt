@@ -118,11 +118,13 @@ class ContextEngineService(project: Project) : Disposable {
 internal fun contextEngineRuntimeSettings(
     current: CodeAgentSettings,
     resolvedNodePath: String = NodeRuntimeLocator.find(current.nodePath),
+    processEnvironment: Map<String, String> = System.getenv(),
 ): ContextEngineRuntimeSettings {
     if (current.contextMode == "remote-http") {
+        val apiKey = resolvedContextHttpApiKey(current, processEnvironment)
         val environment = buildMap {
             put("CONTEXTENGINE_HTTP_URL", current.contextHttpBaseUrl)
-            current.contextHttpApiKey?.takeIf { it.isNotBlank() }?.let { put("CONTEXTENGINE_HTTP_API_KEY", it) }
+            apiKey?.let { put("CONTEXTENGINE_HTTP_API_KEY", it) }
         }
         return ContextEngineRuntimeSettings(nodePath = resolvedNodePath, environment = environment)
     }
@@ -148,6 +150,12 @@ internal fun contextEngineRuntimeSettings(
     }
     return ContextEngineRuntimeSettings(nodePath = resolvedNodePath, environment = environment)
 }
+
+internal fun resolvedContextHttpApiKey(
+    current: CodeAgentSettings,
+    processEnvironment: Map<String, String> = System.getenv(),
+): String? = current.contextHttpApiKey?.trim()?.takeIf { it.isNotEmpty() }
+    ?: processEnvironment["CONTEXTENGINE_HTTP_API_KEY"]?.trim()?.takeIf { it.isNotEmpty() }
 
 @Serializable
 data class ContextStatus(

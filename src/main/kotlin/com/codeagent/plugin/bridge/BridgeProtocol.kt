@@ -2,6 +2,7 @@ package com.codeagent.plugin.bridge
 
 import com.codeagent.plugin.settings.DEFAULT_BACKEND_URL
 import com.codeagent.plugin.settings.DEFAULT_CONTEXT_HTTP_URL
+import com.codeagent.plugin.settings.DEFAULT_CONTEXT_MODE
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -32,6 +33,7 @@ data class ChatMessageDto(
     val createdAt: Long,
     val turnIndex: Int? = null,
     val runId: String? = null,
+    val timelineSequence: Long? = null,
 )
 
 @Serializable
@@ -76,6 +78,7 @@ data class ToolRunDto(
     val runId: String? = null,
     val createdAt: Long = 0,
     val updatedAt: Long = createdAt,
+    val timelineSequence: Long? = null,
 )
 
 @Serializable
@@ -163,7 +166,7 @@ data class SettingsSnapshotDto(
     val showRunTelemetry: Boolean = true,
     val desktopNotifications: Boolean = false,
     val autoDismissNotifications: Boolean = true,
-    val contextMode: String = "remote-http",
+    val contextMode: String = DEFAULT_CONTEXT_MODE,
     val contextHttpBaseUrl: String = DEFAULT_CONTEXT_HTTP_URL,
     val contextHttpTokenConfigured: Boolean = false,
     val contextEmbeddingBaseUrl: String = "http://127.0.0.1:8000/v1",
@@ -172,6 +175,14 @@ data class SettingsSnapshotDto(
     val contextNeuralRerank: Boolean = false,
     val contextRerankBaseUrl: String = "",
     val contextRerankModel: String = "Qwen/Qwen3-Reranker-0.6B",
+)
+
+@Serializable
+data class SettingsSavedDto(
+    val requestId: String,
+    val backendTokenConfigured: Boolean,
+    val contextHttpTokenConfigured: Boolean,
+    val contextEmbeddingTokenConfigured: Boolean,
 )
 
 @Serializable

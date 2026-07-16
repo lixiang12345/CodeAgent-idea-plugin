@@ -153,7 +153,8 @@ export class PostgresProductStore {
          COALESCE((
            SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
              'id', message.id, 'role', message.role, 'content', message.content,
-             'createdAt', message.created_at_ms, 'runId', message.run_id, 'turnIndex', message.turn_index
+             'createdAt', message.created_at_ms, 'runId', message.run_id, 'turnIndex', message.turn_index,
+             'timelineSequence', NULLIF(message.timeline_sequence, 0)
            )) ORDER BY message.created_at_ms, message.id)
            FROM codeagent_messages message
            WHERE message.user_id = $1 AND message.conversation_id = codeagent_conversations.id
@@ -170,7 +171,7 @@ export class PostgresProductStore {
              'id', tool.id, 'name', tool.name, 'summary', tool.summary, 'status', tool.status,
              'detail', tool.detail, 'changePath', tool.change_path, 'canRevert', tool.can_revert,
              'runId', tool.run_id, 'turnIndex', tool.turn_index, 'createdAt', tool.created_at_ms,
-             'updatedAt', tool.updated_at_ms
+             'updatedAt', tool.updated_at_ms, 'timelineSequence', NULLIF(tool.timeline_sequence, 0)
            )) ORDER BY tool.created_at_ms, tool.id)
            FROM codeagent_tools tool
            WHERE tool.user_id = $1 AND tool.conversation_id = codeagent_conversations.id
@@ -232,10 +233,10 @@ export class PostgresProductStore {
       );
       await client.query(`DELETE FROM codeagent_messages WHERE user_id = $1 AND conversation_id = $2`, [userId, conversation.id]);
       await client.query(
-        `INSERT INTO codeagent_messages (user_id, conversation_id, id, role, content, created_at_ms, run_id, turn_index)
-         SELECT $1, $2, message.id, message.role, message.content, message."createdAt", message."runId", message."turnIndex"
+        `INSERT INTO codeagent_messages (user_id, conversation_id, id, role, content, created_at_ms, run_id, turn_index, timeline_sequence)
+         SELECT $1, $2, message.id, message.role, message.content, message."createdAt", message."runId", message."turnIndex", COALESCE(message."timelineSequence", 0)
          FROM jsonb_to_recordset($3::jsonb)
-           AS message(id text, role text, content text, "createdAt" bigint, "runId" text, "turnIndex" integer)`,
+           AS message(id text, role text, content text, "createdAt" bigint, "runId" text, "turnIndex" integer, "timelineSequence" bigint)`,
         [userId, conversation.id, JSON.stringify(conversation.messages)],
       );
       await client.query(`DELETE FROM codeagent_tasks WHERE user_id = $1 AND conversation_id = $2`, [userId, conversation.id]);
@@ -248,12 +249,12 @@ export class PostgresProductStore {
       await client.query(`DELETE FROM codeagent_tools WHERE user_id = $1 AND conversation_id = $2`, [userId, conversation.id]);
       await client.query(
         `INSERT INTO codeagent_tools
-           (user_id, conversation_id, id, name, summary, status, detail, change_path, can_revert, run_id, turn_index, created_at_ms, updated_at_ms)
+           (user_id, conversation_id, id, name, summary, status, detail, change_path, can_revert, run_id, turn_index, created_at_ms, updated_at_ms, timeline_sequence)
          SELECT $1, $2, tool.id, tool.name, tool.summary, tool.status, tool.detail, tool."changePath",
-           tool."canRevert", tool."runId", tool."turnIndex", tool."createdAt", tool."updatedAt"
+           tool."canRevert", tool."runId", tool."turnIndex", tool."createdAt", tool."updatedAt", COALESCE(tool."timelineSequence", 0)
          FROM jsonb_to_recordset($3::jsonb) AS tool(
            id text, name text, summary text, status text, detail text, "changePath" text, "canRevert" boolean,
-           "runId" text, "turnIndex" integer, "createdAt" bigint, "updatedAt" bigint
+           "runId" text, "turnIndex" integer, "createdAt" bigint, "updatedAt" bigint, "timelineSequence" bigint
          )`,
         [userId, conversation.id, JSON.stringify(conversation.tools)],
       );
@@ -646,11 +647,14 @@ CREATE TABLE IF NOT EXISTS codeagent_messages (
   created_at_ms bigint NOT NULL,
   run_id text,
   turn_index integer,
+  timeline_sequence bigint NOT NULL DEFAULT 0,
   PRIMARY KEY (user_id, conversation_id, id),
   FOREIGN KEY (user_id, conversation_id) REFERENCES codeagent_conversations(user_id, id) ON DELETE CASCADE
 );
 ALTER TABLE codeagent_messages ADD COLUMN IF NOT EXISTS run_id text;
 ALTER TABLE codeagent_messages ADD COLUMN IF NOT EXISTS turn_index integer;
+ALTER TABLE codeagent_messages ADD COLUMN IF NOT EXISTS timeline_sequence bigint NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS codeagent_messages_timeline_idx ON codeagent_messages(user_id, conversation_id, timeline_sequence, created_at_ms, id);
 CREATE INDEX IF NOT EXISTS codeagent_messages_order_idx ON codeagent_messages(user_id, conversation_id, created_at_ms, id);
 CREATE TABLE IF NOT EXISTS codeagent_tasks (
   user_id text NOT NULL,
@@ -677,12 +681,15 @@ CREATE TABLE IF NOT EXISTS codeagent_tools (
   turn_index integer,
   created_at_ms bigint NOT NULL,
   updated_at_ms bigint NOT NULL,
+  timeline_sequence bigint NOT NULL DEFAULT 0,
   PRIMARY KEY (user_id, conversation_id, id),
   FOREIGN KEY (user_id, conversation_id) REFERENCES codeagent_conversations(user_id, id) ON DELETE CASCADE
 );
 ALTER TABLE codeagent_tools ADD COLUMN IF NOT EXISTS updated_at_ms bigint;
+ALTER TABLE codeagent_tools ADD COLUMN IF NOT EXISTS timeline_sequence bigint NOT NULL DEFAULT 0;
 UPDATE codeagent_tools SET updated_at_ms = created_at_ms WHERE updated_at_ms IS NULL;
 ALTER TABLE codeagent_tools ALTER COLUMN updated_at_ms SET NOT NULL;
+CREATE INDEX IF NOT EXISTS codeagent_tools_timeline_idx ON codeagent_tools(user_id, conversation_id, timeline_sequence, created_at_ms, id);
 CREATE INDEX IF NOT EXISTS codeagent_tools_order_idx ON codeagent_tools(user_id, conversation_id, created_at_ms, id);
 CREATE TABLE IF NOT EXISTS codeagent_configurations (
   user_id text NOT NULL REFERENCES codeagent_users(id) ON DELETE CASCADE,

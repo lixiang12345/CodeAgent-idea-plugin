@@ -16,11 +16,44 @@ class ContextEngineRuntimeSettingsTest {
                 contextHttpApiKey = "http-secret",
             ),
             resolvedNodePath = "/opt/node",
+            processEnvironment = mapOf("CONTEXTENGINE_HTTP_API_KEY" to "environment-secret"),
         )
 
         assertEquals("http://127.0.0.1:8790", runtime.environment["CONTEXTENGINE_HTTP_URL"])
         assertEquals("http-secret", runtime.environment["CONTEXTENGINE_HTTP_API_KEY"])
         assertFalse(runtime.environment.containsKey("CONTEXTENGINE_EMBEDDING_API_KEY"))
+    }
+
+    @Test
+    fun `remote HTTP mode falls back to the process token`() {
+        val runtime = contextEngineRuntimeSettings(
+            settings(
+                contextMode = "remote-http",
+                contextEmbeddingApiKey = null,
+                contextHttpApiKey = null,
+            ),
+            resolvedNodePath = "/opt/node",
+            processEnvironment = mapOf("CONTEXTENGINE_HTTP_API_KEY" to "environment-secret"),
+        )
+
+        assertEquals("environment-secret", runtime.environment["CONTEXTENGINE_HTTP_API_KEY"])
+    }
+
+    @Test
+    fun `configured remote token takes precedence over the process token`() {
+        val current = settings(
+            contextMode = "remote-http",
+            contextEmbeddingApiKey = null,
+            contextHttpApiKey = "configured-secret",
+        )
+
+        assertEquals(
+            "configured-secret",
+            resolvedContextHttpApiKey(
+                current,
+                processEnvironment = mapOf("CONTEXTENGINE_HTTP_API_KEY" to "environment-secret"),
+            ),
+        )
     }
 
     @Test

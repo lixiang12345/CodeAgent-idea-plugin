@@ -21,8 +21,8 @@ test("persists normalized conversations, messages, tasks, and tools in PostgreSQ
     pinned: true,
     summary: null,
     messages: [
-      { id: "message-1", role: "user", content: "Inspect the change", createdAt: 900, runId: "run-1", turnIndex: 0 },
-      { id: "message-2", role: "assistant", content: "Inspection complete", createdAt: 950, runId: "run-1", turnIndex: 1 },
+      { id: "message-1", role: "user", content: "Inspect the change", createdAt: 900, runId: "run-1", turnIndex: 0, timelineSequence: 1 },
+      { id: "message-2", role: "assistant", content: "Inspection complete", createdAt: 950, runId: "run-1", turnIndex: 1, timelineSequence: 3 },
     ],
     tasks: [{ id: "task-1", name: "Review change", state: "in_progress" }],
     tools: [{
@@ -35,6 +35,7 @@ test("persists normalized conversations, messages, tasks, and tools in PostgreSQ
       runId: "run-1",
       turnIndex: 0,
       createdAt: 925,
+      timelineSequence: 2,
     }],
   };
 

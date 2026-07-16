@@ -18,6 +18,7 @@
     type MessageDelta,
     type Mode,
     type ProductJob,
+    type SettingsSaved,
     type ToolRun,
     type WorkspaceRule,
     type WorkspaceSkill,
@@ -132,6 +133,16 @@
   let contextNeuralRerank = false;
   let contextRerankBaseUrl = "";
   let contextRerankModel = "Qwen/Qwen3-Reranker-0.6B";
+  type SettingsSaveState = "idle" | "saving" | "saved";
+  type PendingSettingsSave = {
+    requestId: string;
+    backendToken: string;
+    contextHttpApiKey: string;
+    contextEmbeddingApiKey: string;
+  };
+  let settingsSaveState: SettingsSaveState = "idle";
+  let pendingSettingsSave: PendingSettingsSave | null = null;
+  let settingsDirtyWhileSaving = false;
   let error = "";
   let notice = "";
   let threadSearch = "";
@@ -237,8 +248,35 @@
       scrollConversationToBottom(forceFollow);
       return;
     }
+    if (event.type === "settingsSaved") {
+      const saved = event.payload as SettingsSaved;
+      if (!pendingSettingsSave || saved.requestId !== pendingSettingsSave.requestId) return;
+      if (backendToken === pendingSettingsSave.backendToken) backendToken = "";
+      if (contextHttpApiKey === pendingSettingsSave.contextHttpApiKey) contextHttpApiKey = "";
+      if (contextEmbeddingApiKey === pendingSettingsSave.contextEmbeddingApiKey) contextEmbeddingApiKey = "";
+      if (snapshot) {
+        snapshot = {
+          ...snapshot,
+          settings: {
+            ...snapshot.settings,
+            backendTokenConfigured: saved.backendTokenConfigured,
+            contextHttpTokenConfigured: saved.contextHttpTokenConfigured,
+            contextEmbeddingTokenConfigured: saved.contextEmbeddingTokenConfigured,
+          },
+        };
+      }
+      settingsSaveState = settingsDirtyWhileSaving ? "idle" : "saved";
+      settingsDirtyWhileSaving = false;
+      pendingSettingsSave = null;
+      return;
+    }
     if (event.type === "error") {
       enhancing = false;
+      if (pendingSettingsSave) {
+        pendingSettingsSave = null;
+        settingsSaveState = "idle";
+        settingsDirtyWhileSaving = false;
+      }
       error = String((event.payload as { message?: string })?.message ?? "Unexpected error");
       return;
     }
@@ -359,7 +397,7 @@
       prompt = "";
       return;
     }
-    const busy = isBusy();
+    const busy = isBusy(snapshot);
     const clientMessageId = crypto.randomUUID();
     if (!busy) {
       const optimisticMessage: ChatMessage = {
@@ -367,6 +405,7 @@
         role: "user",
         content: text,
         createdAt: Date.now(),
+        timelineSequence: nextConversationTimelineSequence(snapshot),
       };
       pendingUserMessages = [...pendingUserMessages, optimisticMessage];
     }
@@ -385,7 +424,7 @@
 
   function enhancePrompt() {
     const text = prompt.trim();
-    if (!text || !snapshot || enhancing || isBusy()) return;
+    if (!text || !snapshot || enhancing || isBusy(snapshot)) return;
     enhancing = true;
     error = "";
     sendCommand("enhancePrompt", { text, mode: snapshot.mode });
@@ -403,7 +442,11 @@
     const normalized = modelId.trim();
     if (!normalized) return;
     modelMenuOpen = false;
-    if (activeModelId() === normalized) return;
+    if (activeModelId(snapshot.models) === normalized) return;
+    snapshot = {
+      ...snapshot,
+      models: { ...snapshot.models, selectedModel: normalized },
+    };
     sendCommand("selectModel", { modelId: normalized });
   }
 
@@ -415,26 +458,25 @@
     modelMenuOpen = open;
   }
 
-  function availableModels() {
-    return snapshot?.models.options ?? [];
+  function availableModels(models: AppSnapshot["models"]) {
+    return models.options;
   }
 
-  function activeModelId() {
-    const models = availableModels();
-    const selected = snapshot?.models.selectedModel;
+  function activeModelId(modelSnapshot: AppSnapshot["models"]) {
+    const models = availableModels(modelSnapshot);
+    const selected = modelSnapshot.selectedModel;
     if (selected && models.some((model) => model.id === selected)) return selected;
-    const defaultModel = snapshot?.models.defaultModel;
+    const defaultModel = modelSnapshot.defaultModel;
     if (defaultModel && models.some((model) => model.id === defaultModel)) return defaultModel;
     return models[0]?.id ?? selected ?? defaultModel;
   }
 
-  function modelLabel() {
-    return activeModelId() ?? "Select model";
+  function modelLabel(models: AppSnapshot["models"]) {
+    return activeModelId(models) ?? "Select model";
   }
 
-  function modelTitle() {
-    if (!snapshot) return "Model selection";
-    const modelId = activeModelId();
+  function modelTitle(models: AppSnapshot["models"]) {
+    const modelId = activeModelId(models);
     return modelId ? `Model: ${modelId}` : "Select a model";
   }
 
@@ -488,7 +530,14 @@
   }
 
   function saveSettings() {
+    if (settingsSaveState === "saving") return;
+    const requestId = crypto.randomUUID();
+    pendingSettingsSave = { requestId, backendToken, contextHttpApiKey, contextEmbeddingApiKey };
+    settingsSaveState = "saving";
+    settingsDirtyWhileSaving = false;
+    error = "";
     sendCommand("saveSettings", {
+      requestId,
       backendUrl,
       nodePath,
       backendToken,
@@ -508,9 +557,14 @@
       contextRerankBaseUrl,
       contextRerankModel,
     });
-    backendToken = "";
-    contextHttpApiKey = "";
-    contextEmbeddingApiKey = "";
+  }
+
+  function markSettingsDirty() {
+    if (settingsSaveState === "saving") {
+      settingsDirtyWhileSaving = true;
+    } else {
+      settingsSaveState = "idle";
+    }
   }
 
   function saveUserExperience() {
@@ -688,16 +742,33 @@
     sendCommand(snapshot?.context.state === "indexing" ? "getContextStatus" : "indexWorkspace");
   }
 
+  function contextConnectionState() {
+    if (!snapshot) return "offline";
+    if (snapshot.context.state === "checking" || snapshot.context.state === "indexing") return "checking";
+    if (snapshot.context.state === "error" || snapshot.context.state === "unavailable") return "offline";
+    return "online";
+  }
+
+  function contextConnectionLabel() {
+    if (!snapshot) return "ContextEngine status unavailable";
+    if (snapshot.context.state === "not_indexed") return "Connected · Project not indexed";
+    if (snapshot.context.state === "ready" && snapshot.context.hasEmbeddings) {
+      return "Connected · Model embeddings and semantic search ready";
+    }
+    if (snapshot.context.state === "ready") return "Connected · Index ready, embeddings unavailable";
+    return snapshot.context.label;
+  }
+
   function toggleSkill(skill: WorkspaceSkill) {
-    if (!isBusy()) sendCommand("toggleSkill", { skillId: skill.id, selected: !skill.selected });
+    if (!isBusy(snapshot)) sendCommand("toggleSkill", { skillId: skill.id, selected: !skill.selected });
   }
 
   function selectedSkillCount() {
     return snapshot?.customization.skills.filter((skill) => skill.selected).length ?? 0;
   }
 
-  function isBusy() {
-    return snapshot?.runState === "starting" || snapshot?.runState === "running" || snapshot?.runState === "awaiting_approval";
+  function isBusy(currentSnapshot: AppSnapshot | null) {
+    return currentSnapshot?.runState === "starting" || currentSnapshot?.runState === "running" || currentSnapshot?.runState === "awaiting_approval";
   }
 
   function compactTokenCount(value: number) {
@@ -938,18 +1009,18 @@
     currentView = "chat";
   }
 
-  function filteredTasks() {
-    if (!snapshot || taskFilter === "all") return snapshot?.tasks ?? [];
-    if (taskFilter === "pending") return snapshot.tasks.filter((task) => task.state === "not_started");
-    if (taskFilter === "running") return snapshot.tasks.filter((task) => task.state === "in_progress");
-    return snapshot.tasks.filter((task) => task.state === "completed" || task.state === "cancelled");
+  function filteredTasks(currentSnapshot: AppSnapshot | null, filter: typeof taskFilter) {
+    if (!currentSnapshot || filter === "all") return currentSnapshot?.tasks ?? [];
+    if (filter === "pending") return currentSnapshot.tasks.filter((task) => task.state === "not_started");
+    if (filter === "running") return currentSnapshot.tasks.filter((task) => task.state === "in_progress");
+    return currentSnapshot.tasks.filter((task) => task.state === "completed" || task.state === "cancelled");
   }
 
-  function filteredJobs() {
-    if (!snapshot || jobFilter === "all") return snapshot?.jobs.items ?? [];
-    if (jobFilter === "active") return snapshot.jobs.items.filter((job) => job.status === "queued" || job.status === "running");
-    if (jobFilter === "completed") return snapshot.jobs.items.filter((job) => job.status === "completed");
-    return snapshot.jobs.items.filter((job) => job.status === "failed" || job.status === "cancelled");
+  function filteredJobs(currentSnapshot: AppSnapshot | null, filter: typeof jobFilter) {
+    if (!currentSnapshot || filter === "all") return currentSnapshot?.jobs.items ?? [];
+    if (filter === "active") return currentSnapshot.jobs.items.filter((job) => job.status === "queued" || job.status === "running");
+    if (filter === "completed") return currentSnapshot.jobs.items.filter((job) => job.status === "completed");
+    return currentSnapshot.jobs.items.filter((job) => job.status === "failed" || job.status === "cancelled");
   }
 
   function createJob() {
@@ -1090,7 +1161,7 @@
     return snapshot?.threads.find((thread) => thread.active);
   }
 
-  function modeLabel(mode: Mode | string = snapshot?.mode ?? "agent") {
+  function modeLabel(mode: Mode | string) {
     if (mode === "ask") return "Ask";
     if (mode === "chat") return "Chat";
     return "Agent";
@@ -1155,73 +1226,57 @@
     | { kind: "activity"; label: string }
     | { kind: "tasks" };
 
+  function nextConversationTimelineSequence(currentSnapshot: AppSnapshot) {
+    return Math.max(
+      0,
+      ...currentSnapshot.messages.map((message) => message.timelineSequence ?? 0),
+      ...currentSnapshot.tools.map((tool) => tool.timelineSequence ?? 0),
+    ) + 1;
+  }
+
   function conversationTimeline(currentSnapshot: AppSnapshot, optimisticMessages: ChatMessage[]): TimelineItem[] {
-    const items: TimelineItem[] = [];
     const persistedMessageIds = new Set(currentSnapshot.messages.map((message) => message.id));
     const messages = [
       ...currentSnapshot.messages,
       ...optimisticMessages.filter((message) => !persistedMessageIds.has(message.id)),
     ];
     const tools = currentSnapshot.tools;
-    const insertedToolTurns = new Set<string>();
-    const seenRunIds = new Set<string>();
-
-    function groupKey(runId: string | undefined, turnIndex: number) {
-      return `${runId ?? "legacy"}:${turnIndex}`;
-    }
-
-    function insertToolTurn(runId: string | undefined, turnIndex: number) {
-      const key = groupKey(runId, turnIndex);
-      if (insertedToolTurns.has(key)) return;
-      const turnTools = tools.filter((tool) => tool.runId === runId && (tool.turnIndex ?? 0) === turnIndex);
-      if (turnTools.length > 0) items.push({ kind: "tools", runId, turnIndex, tools: turnTools });
-      insertedToolTurns.add(key);
-    }
-
-    function insertEarlierToolTurns(message: TimelineMessage, messageIndex: number) {
-      if (messageIndex === 0) return;
-      [...tools]
-        .filter((tool) => {
-          const key = groupKey(tool.runId, tool.turnIndex ?? 0);
-          if (insertedToolTurns.has(key)) return false;
-          if (message.runId && tool.runId === message.runId) return false;
-          if (tool.runId) return seenRunIds.has(tool.runId);
-          return (tool.createdAt ?? 0) <= message.createdAt;
-        })
-        .sort((left, right) =>
-          (left.createdAt ?? 0) - (right.createdAt ?? 0) ||
-          (left.turnIndex ?? 0) - (right.turnIndex ?? 0)
-        )
-        .forEach((tool) => insertToolTurn(tool.runId, tool.turnIndex ?? 0));
-    }
-
-    for (let index = 0; index < messages.length; index += 1) {
-      const message = messages[index];
-      if (message.role === "user") {
-        insertEarlierToolTurns(message, index);
-        items.push({ kind: "user", message });
-        if (message.runId) seenRunIds.add(message.runId);
-        continue;
-      }
-      if (message.role !== "assistant") continue;
-      if (message.runId) seenRunIds.add(message.runId);
-      const turnIndex = message.turnIndex;
-      if (turnIndex !== undefined) {
-        tools
-          .filter((tool) => tool.runId === message.runId)
-          .map((tool) => tool.turnIndex ?? 0)
-          .filter((toolTurn) => toolTurn < turnIndex)
-          .sort((left, right) => left - right)
-          .forEach((toolTurn) => insertToolTurn(message.runId, toolTurn));
-      }
-
-      items.push({ kind: "assistant", message });
-      if (turnIndex !== undefined) insertToolTurn(message.runId, turnIndex);
-    }
-
-    [...tools]
-      .sort((left, right) => (left.createdAt ?? 0) - (right.createdAt ?? 0))
-      .forEach((tool) => insertToolTurn(tool.runId, tool.turnIndex ?? 0));
+    const toolGroups = new Map<string, { runId?: string; turnIndex: number; tools: ToolRun[] }>();
+    tools.forEach((tool) => {
+      const turnIndex = tool.turnIndex ?? 0;
+      const key = `${tool.runId ?? "legacy"}:${turnIndex}`;
+      const group = toolGroups.get(key) ?? { runId: tool.runId, turnIndex, tools: [] };
+      group.tools.push(tool);
+      toolGroups.set(key, group);
+    });
+    const ordered = [
+      ...messages
+        .filter((message) => message.role === "user" || message.role === "assistant")
+        .map((message, index) => ({
+          item: { kind: message.role, message } as TimelineItem,
+          sequence: message.timelineSequence ?? 0,
+          createdAt: message.createdAt,
+          fallback: index * 2,
+        })),
+      ...[...toolGroups.values()].map((group, index) => {
+        const sortedTools = [...group.tools].sort((left, right) =>
+          (left.timelineSequence ?? 0) - (right.timelineSequence ?? 0) ||
+          (left.createdAt ?? 0) - (right.createdAt ?? 0),
+        );
+        return {
+          item: { kind: "tools", runId: group.runId, turnIndex: group.turnIndex, tools: sortedTools } as TimelineItem,
+          sequence: Math.min(...sortedTools.map((tool) => tool.timelineSequence ?? Number.MAX_SAFE_INTEGER)),
+          createdAt: Math.min(...sortedTools.map((tool) => tool.createdAt ?? 0)),
+          fallback: messages.length * 2 + index,
+        };
+      }),
+    ].sort((left, right) => {
+      const leftHasSequence = left.sequence > 0 && left.sequence < Number.MAX_SAFE_INTEGER;
+      const rightHasSequence = right.sequence > 0 && right.sequence < Number.MAX_SAFE_INTEGER;
+      if (leftHasSequence && rightHasSequence) return left.sequence - right.sequence;
+      return left.createdAt - right.createdAt || left.fallback - right.fallback;
+    });
+    const items = ordered.map((entry) => entry.item);
 
     const hasRunningTool = tools.some((tool) => tool.status === "running");
     if ((currentSnapshot.runState === "starting" || currentSnapshot.runState === "running") && (tools.length === 0 || hasRunningTool)) {
@@ -1512,7 +1567,7 @@
               <button class="chip" onclick={() => sendCommand("pickContext")}><Icon name="plus" size={12} /> context</button>
             </div>
           {/if}
-          <div class="composer comp" class:busy={isBusy()}>
+          <div class="composer comp" class:busy={isBusy(snapshot)}>
             {#if snapshot.mode === "ask"}
               <div class="ask-badge"><Icon name="message-circle" size={12} /> Ask Mode (read-only)<button class="icon-button compact" title="Switch to Agent" onclick={() => setMode("agent")}><Icon name="x" size={11} /></button></div>
             {/if}
@@ -1536,11 +1591,11 @@
             {/if}
             {#if modelMenuOpen}
               <div class="composer-popup model-menu" role="listbox" aria-label="Available models">
-                {#each availableModels() as model}
-                  <button type="button" class:active={activeModelId() === model.id} role="option" aria-selected={activeModelId() === model.id} onclick={() => selectModel(model.id)}>
+                {#each availableModels(snapshot.models) as model}
+                  <button type="button" class:active={activeModelId(snapshot.models) === model.id} role="option" aria-selected={activeModelId(snapshot.models) === model.id} onclick={() => selectModel(model.id)}>
                     <span class="model-vendor-mark {model.ownedBy ?? "unknown"}"><Icon name={modelVendorIcon(model)} size={14} /></span>
                     <span class="model-option-copy"><strong>{model.id}</strong><small>{modelVendorName(model)} · Applies to this thread</small></span>
-                    {#if activeModelId() === model.id}<Icon name="check" size={13} />{/if}
+                    {#if activeModelId(snapshot.models) === model.id}<Icon name="check" size={13} />{/if}
                   </button>
                 {/each}
               </div>
@@ -1564,7 +1619,7 @@
             <div class="composer-toolbar abar">
               <div class="mode-control">
                 <button class="mode-button dd-btn" onclick={() => { modeMenuOpen = !modeMenuOpen; modelMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}>
-                  <span class="tag {snapshot.mode}">{modeLabel()}</span>
+                  <span class="tag {snapshot.mode}">{modeLabel(snapshot.mode)}</span>
                   <Icon name="chevron-down" size={12} />
                 </button>
                 {#if modeMenuOpen}
@@ -1588,7 +1643,7 @@
                   </div>
                 {/if}
               </div>
-              <div class="model-control" title={modelTitle()}>
+              <div class="model-control" title={modelTitle(snapshot.models)}>
                 <button
                   type="button"
                   class="model-select"
@@ -1600,14 +1655,14 @@
                   onclick={toggleModelMenu}
                 >
                   <Icon name="settings-2" size={12} />
-                  <span>{modelLabel()}</span>
+                  <span>{modelLabel(snapshot.models)}</span>
                 </button>
               </div>
               <button title="Context Canvas" onclick={() => openWorkspaceView("images")}><Icon name="layers-2" size={14} /></button>
               <button title="@ mention" onclick={seedMention}><Icon name="at-sign" size={14} /></button>
               <button title="Slash commands" onclick={seedSlash}><Icon name="square-terminal" size={14} /></button>
               <button title="Attach file/image" onclick={() => sendCommand("pickContext")}><Icon name="file-input" size={14} /></button>
-              <button title={enhancing ? "Enhancing…" : "Enhance prompt"} disabled={!prompt.trim() || enhancing || isBusy()} onclick={enhancePrompt}><Icon name="sparkles" size={14} /></button>
+              <button title={enhancing ? "Enhancing…" : "Enhance prompt"} disabled={!prompt.trim() || enhancing || isBusy(snapshot)} onclick={enhancePrompt}><Icon name="sparkles" size={14} /></button>
               <div class="skill-control">
                 <button class:active={skillsOpen} title="Skills" onclick={() => { skillsOpen = !skillsOpen; modeMenuOpen = false; modelMenuOpen = false; }}>
                   <Icon name="wand-sparkles" size={14} />
@@ -1621,7 +1676,7 @@
                     </header>
                     {#each snapshot.customization.skills as skill}
                       <label>
-                        <input type="checkbox" checked={skill.selected} disabled={isBusy() || (!skill.selected && selectedSkillCount() >= snapshot.customization.maxSelectedSkills)} onchange={() => toggleSkill(skill)} />
+                        <input type="checkbox" checked={skill.selected} disabled={isBusy(snapshot) || (!skill.selected && selectedSkillCount() >= snapshot.customization.maxSelectedSkills)} onchange={() => toggleSkill(skill)} />
                         <span><strong>{skill.name}</strong><small>{skill.description}</small></span>
                       </label>
                     {:else}
@@ -1632,7 +1687,7 @@
               </div>
               <span class="toolbar-spacer sp"></span>
               <button class="auto-toggle" class:active={autoApproveReadOnly} title={autoApproveReadOnly ? "Auto ON — read-only tools run without approval" : "Auto OFF — require approval for most commands"} onclick={toggleAutoRun}><span class="auto-label">Auto </span>{autoApproveReadOnly ? "ON" : "OFF"}</button>
-              {#if isBusy()}
+              {#if isBusy(snapshot)}
                 <button class="send-button queue-send" title="Queue message" disabled={!prompt.trim()} onclick={submit}><Icon name="send-horizontal" size={13} /></button>
                 <button class="send-button stop" title="Stop" onclick={() => sendCommand("cancelRun")}><Icon name="square" size={13} /></button>
               {:else}
@@ -1757,7 +1812,7 @@
                   Connect this IDE capability gateway to the deployed Agent backend.
                 {/if}
               </p>
-              <section class="settings-form settings-block">
+              <section class="settings-form settings-block" oninput={markSettingsDirty} onchange={markSettingsDirty}>
                 <label><span>Backend URL</span><input bind:value={backendUrl} /></label>
                 <label><span>Backend token</span><input type="password" bind:value={backendToken} placeholder={snapshot.settings.backendTokenConfigured ? "Configured" : "Not configured"} /></label>
                 <label><span>Node.js executable</span><input bind:value={nodePath} /></label>
@@ -1783,12 +1838,26 @@
                   <input type="checkbox" bind:checked={autoApproveReadOnly} />
                   <span><strong>Auto-run read-only tools</strong><small>Context retrieval, search, and file reads</small></span>
                 </label>
-                <div class="backend-health-row">
-                  <span class="service-status {snapshot.backendHealth.state}"></span>
-                  <span><strong>{snapshot.backendHealth.state}</strong><small>{snapshot.backendHealth.label}</small></span>
-                  <button onclick={() => sendCommand("checkBackend")}><Icon name="refresh-ccw" size={12} />Test connection</button>
+                <div class="service-health-stack">
+                  <div class="service-health-row">
+                    <span class="service-status {snapshot.backendHealth.state}"></span>
+                    <span><strong>Agent Backend</strong><small>{snapshot.backendHealth.label}</small></span>
+                    <button disabled={snapshot.backendHealth.state === "checking"} onclick={() => sendCommand("checkBackend")}><Icon name="refresh-ccw" size={12} />{snapshot.backendHealth.state === "checking" ? "Checking..." : "Test connection"}</button>
+                  </div>
+                  {#if contextMode !== "lexical"}
+                    <div class="service-health-row">
+                      <span class="service-status {contextConnectionState()}"></span>
+                      <span><strong>ContextEngine</strong><small>{contextConnectionLabel()}</small></span>
+                      <button disabled={snapshot.context.state === "checking" || snapshot.context.state === "indexing"} onclick={() => sendCommand("checkContextEngine")}><Icon name="refresh-ccw" size={12} />{snapshot.context.state === "checking" ? "Checking..." : "Test connection"}</button>
+                    </div>
+                  {/if}
                 </div>
-                <footer><button class="primary" onclick={saveSettings}>Save settings</button></footer>
+                <footer class="settings-save-footer">
+                  {#if settingsSaveState !== "idle"}
+                    <span class:saved={settingsSaveState === "saved"}><Icon name={settingsSaveState === "saving" ? "circle-dashed" : "circle-check"} size={12} />{settingsSaveState === "saving" ? "Saving securely..." : "Saved securely"}</span>
+                  {/if}
+                  <button class="primary" disabled={settingsSaveState === "saving"} onclick={saveSettings}>{settingsSaveState === "saving" ? "Saving..." : "Save settings"}</button>
+                </footer>
               </section>
               {#if settingsSection === "Services"}
                 <section class="settings-block list-block">
@@ -2077,7 +2146,7 @@
           <strong>Active Tasklist</strong>
           <span class="workspace-count">{snapshot.tasks.filter((task) => task.state === "completed").length}/{snapshot.tasks.length}</span>
           <button class="btn sm" onclick={() => { newTaskName = newTaskName || "New task"; addTask(); }}>Add</button>
-          <button class="btn sm primary" disabled={isBusy() || snapshot.tasks.every((task) => task.state === "completed" || task.state === "cancelled")} onclick={() => sendCommand("runAllTasks")}>Run All</button>
+          <button class="btn sm primary" disabled={isBusy(snapshot) || snapshot.tasks.every((task) => task.state === "completed" || task.state === "cancelled")} onclick={() => sendCommand("runAllTasks")}>Run All</button>
         </header>
         <div class="workspace-body task-workspace">
           <div class="workspace-actions">
@@ -2099,14 +2168,14 @@
             <button class="primary" disabled={!newTaskName.trim()}><Icon name="plus" size={13} />Add New</button>
           </form>
           <div class="task-workspace-list">
-            {#each filteredTasks() as task, index}
+            {#each filteredTasks(snapshot, taskFilter) as task, index}
               <div class="task-workspace-row" class:completed={task.state === "completed"} class:running={task.state === "in_progress"}>
                 <button class="task-state" title="Toggle complete" onclick={() => sendCommand("setTaskState", { taskId: task.id, state: task.state === "completed" ? "not_started" : "completed" })}>
                   {#if task.state === "completed"}<Icon name="circle-check" size={15} />{:else}<span></span>{/if}
                 </button>
                 <i>{index + 1}</i>
                 <span><strong>{task.name}</strong><small>{task.state.replaceAll("_", " ")}</small></span>
-                <button class="icon-button compact" title="Run task" disabled={isBusy() || task.state === "completed"} onclick={() => sendCommand("runTask", { taskId: task.id })}><Icon name="play" size={13} /></button>
+                <button class="icon-button compact" title="Run task" disabled={isBusy(snapshot) || task.state === "completed"} onclick={() => sendCommand("runTask", { taskId: task.id })}><Icon name="play" size={13} /></button>
                 <button class="icon-button compact danger" title="Delete task" onclick={() => sendCommand("deleteTask", { taskId: task.id })}><Icon name="trash-2" size={13} /></button>
               </div>
             {:else}
@@ -2152,7 +2221,7 @@
             <div class="workspace-empty"><Icon name="circle-alert" size={20} /><strong>Durable jobs unavailable</strong><p>{snapshot.jobs.label}</p></div>
           {:else}
             <div class="job-list">
-              {#each filteredJobs() as job (job.id)}
+              {#each filteredJobs(snapshot, jobFilter) as job (job.id)}
                 <article class="job-row {job.status}">
                   <header>
                     <span class="job-status-icon"><Icon name={job.status === "completed" ? "circle-check" : job.status === "failed" || job.status === "cancelled" ? "circle-alert" : "circle-dashed"} size={14} /></span>
@@ -2389,7 +2458,7 @@
         <header class="drawer-head">
           <strong>Threads</strong>
           <div class="new-thread-control">
-            <button class="new-thread" onclick={() => startNewThread()}><Icon name="plus" size={14} /> New {modeLabel()}</button>
+            <button class="new-thread" onclick={() => startNewThread()}><Icon name="plus" size={14} /> New {modeLabel(snapshot.mode)}</button>
           </div>
           <button class="icon-button" title="Close" onclick={() => threadDrawerOpen = false}><Icon name="x" size={15} /></button>
         </header>

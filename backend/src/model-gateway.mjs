@@ -599,13 +599,48 @@ async function requireSuccessfulResponse(response, operation) {
     const parsed = JSON.parse(body);
     message = parsed?.error?.message || parsed?.message;
   } catch {}
-  throw new Error(message || `${operation} failed with HTTP ${response.status}`);
+  const error = new Error(message || `${operation} failed with HTTP ${response.status}`);
+  error.statusCode = response.status;
+  error.retryable = TRANSIENT_HTTP_STATUS_CODES.has(response.status);
+  throw error;
 }
 
 async function readSuccessfulJson(response, operation) {
   await requireSuccessfulResponse(response, operation);
   return response.json();
 }
+
+export function isRetryableModelError(error) {
+  const seen = new Set();
+  let current = error;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (current.retryable === true) return true;
+    const code = String(current.code || current.cause?.code || "").toUpperCase();
+    if (TRANSIENT_TRANSPORT_CODES.has(code)) return true;
+    const message = String(current.message || current).toLowerCase();
+    if (TRANSIENT_MODEL_ERROR_PATTERN.test(message)) return true;
+    current = current.cause;
+  }
+  return false;
+}
+
+const TRANSIENT_HTTP_STATUS_CODES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
+const TRANSIENT_TRANSPORT_CODES = new Set([
+  "ECONNABORTED",
+  "ECONNRESET",
+  "EHOSTUNREACH",
+  "ENETDOWN",
+  "ENETRESET",
+  "ENETUNREACH",
+  "EPIPE",
+  "ETIMEDOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_RES_CONTENT_LENGTH_MISMATCH",
+  "UND_ERR_SOCKET",
+]);
+const TRANSIENT_MODEL_ERROR_PATTERN = /(?:stream disconnected before completion|error decoding response body|transport error|network error|fetch failed|socket hang up|premature close|connection (?:closed|reset)|unexpected eof|terminated|model stream stalled|http (?:408|409|425|429|500|502|503|504)\b)/i;
 
 function isEventStream(response) {
   return (response.headers.get("content-type") || "").toLowerCase().includes("text/event-stream");

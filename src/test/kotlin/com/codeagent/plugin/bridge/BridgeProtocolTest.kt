@@ -2,6 +2,7 @@ package com.codeagent.plugin.bridge
 
 import com.codeagent.plugin.settings.CodeAgentSettingsState
 import com.codeagent.plugin.settings.DEFAULT_BACKEND_URL
+import com.codeagent.plugin.settings.DEFAULT_CONTEXT_MODE
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -43,6 +44,23 @@ class BridgeProtocolTest {
     }
 
     @Test
+    fun `encodes a redacted settings save confirmation`() {
+        val encoded = json.encodeToString(
+            SettingsSavedDto(
+                requestId = "save-1",
+                backendTokenConfigured = true,
+                contextHttpTokenConfigured = false,
+                contextEmbeddingTokenConfigured = true,
+            ),
+        )
+
+        assertEquals(
+            """{"requestId":"save-1","backendTokenConfigured":true,"contextHttpTokenConfigured":false,"contextEmbeddingTokenConfigured":true}""",
+            encoded,
+        )
+    }
+
+    @Test
     fun `encodes turn identity on streaming bridge payloads`() {
         val delta = json.encodeToString(MessageDeltaDto("message-1", "Done", 2))
         val tool = json.encodeToString(
@@ -54,12 +72,14 @@ class BridgeProtocolTest {
                 turnIndex = 2,
                 createdAt = 1_000,
                 updatedAt = 1_250,
+                timelineSequence = 3,
             ),
         )
 
         assertEquals("""{"id":"message-1","delta":"Done","turnIndex":2}""", delta)
         assertEquals(true, tool.contains("\"turnIndex\":2"))
         assertEquals(true, tool.contains("\"updatedAt\":1250"))
+        assertEquals(true, tool.contains("\"timelineSequence\":3"))
     }
 
     @Test
@@ -97,6 +117,9 @@ class BridgeProtocolTest {
         assertEquals("http://127.0.0.1:8788", DEFAULT_BACKEND_URL)
         assertEquals(DEFAULT_BACKEND_URL, CodeAgentSettingsState().backendUrl)
         assertEquals(DEFAULT_BACKEND_URL, SettingsSnapshotDto().backendUrl)
+        assertEquals("remote-http", DEFAULT_CONTEXT_MODE)
+        assertEquals(DEFAULT_CONTEXT_MODE, CodeAgentSettingsState().contextMode)
+        assertEquals(DEFAULT_CONTEXT_MODE, SettingsSnapshotDto().contextMode)
         assertEquals(100, SettingsSnapshotDto().chatZoom)
         assertEquals(true, SettingsSnapshotDto().showTimestamps)
         assertEquals(false, SettingsSnapshotDto().desktopNotifications)

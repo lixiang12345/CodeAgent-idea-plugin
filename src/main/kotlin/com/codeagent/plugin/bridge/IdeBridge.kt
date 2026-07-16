@@ -28,8 +28,10 @@ import com.codeagent.plugin.conversation.ConversationTool
 import com.codeagent.plugin.conversation.ConversationSummaryService
 import com.codeagent.plugin.conversation.CloudConversationSyncService
 import com.codeagent.plugin.context.ContextEngineService
+import com.codeagent.plugin.context.resolvedContextHttpApiKey
 import com.codeagent.plugin.settings.CodeAgentSettingsService
 import com.codeagent.plugin.settings.CodeAgentSettingsUpdate
+import com.codeagent.plugin.settings.DEFAULT_CONTEXT_MODE
 import com.codeagent.plugin.settings.OidcLoginService
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
@@ -284,6 +286,7 @@ class IdeBridge(
             }
             "getContextStatus" -> refreshContextStatus()
             "checkBackend" -> checkBackendHealth()
+            "checkContextEngine" -> refreshContextStatus(showChecking = true)
             "indexWorkspace" -> indexWorkspace()
             "saveSettings" -> saveSettings(requireNotNull(command.payload) { "saveSettings requires payload" })
             "signIn" -> signIn()
@@ -941,9 +944,10 @@ class IdeBridge(
                         runId = presentationRunId,
                         createdAt = previous?.createdAt?.takeIf { it > 0 } ?: now,
                         updatedAt = now,
+                        timelineSequence = previous?.timelineSequence,
                     )
-                    tools[call.id] = tool
-                    conversations.upsertTool(tool.toConversationTool())
+                    val persisted = conversations.upsertTool(tool.toConversationTool())
+                    tools[call.id] = tool.copy(timelineSequence = persisted.timelineSequence.takeIf { it > 0 })
                     runState = if (status == "approval") "awaiting_approval" else "running"
                     approvalRequired = status == "approval" && previous?.status != "approval"
                 }) {
@@ -1050,6 +1054,19 @@ class IdeBridge(
             ),
         )
         val current = settingsService.snapshot()
+        request.requestId?.trim()?.takeIf { it.isNotEmpty() }?.let { requestId ->
+            emit(
+                "settingsSaved",
+                json.encodeToJsonElement(
+                    SettingsSavedDto(
+                        requestId = requestId,
+                        backendTokenConfigured = !current.backendToken.isNullOrBlank(),
+                        contextHttpTokenConfigured = resolvedContextHttpApiKey(current) != null,
+                        contextEmbeddingTokenConfigured = !current.contextEmbeddingApiKey.isNullOrBlank(),
+                    ),
+                ),
+            )
+        }
         if (previous.backendUrl != current.backendUrl || request.backendToken?.isNotBlank() == true) {
             resetCloudSync()
         }
@@ -1101,6 +1118,7 @@ class IdeBridge(
                         createdAt = message.createdAt,
                         turnIndex = message.turnIndex ?: messageTurns[message.id],
                         runId = message.runId,
+                        timelineSequence = message.timelineSequence.takeIf { it > 0 },
                     )
                 },
                 tools = tools.values.toList(),
@@ -1122,7 +1140,7 @@ class IdeBridge(
                     autoDismissNotifications = settings.autoDismissNotifications,
                     contextMode = settings.contextMode,
                     contextHttpBaseUrl = settings.contextHttpBaseUrl,
-                    contextHttpTokenConfigured = !settings.contextHttpApiKey.isNullOrBlank(),
+                    contextHttpTokenConfigured = resolvedContextHttpApiKey(settings) != null,
                     contextEmbeddingBaseUrl = settings.contextEmbeddingBaseUrl,
                     contextEmbeddingModel = settings.contextEmbeddingModel,
                     contextEmbeddingTokenConfigured = !settings.contextEmbeddingApiKey.isNullOrBlank(),
@@ -1175,7 +1193,12 @@ class IdeBridge(
             configuration.id == agentProfileId && configuration.value["enabled"]?.toString() != "false"
         }
 
-    private fun refreshContextStatus() {
+    private fun refreshContextStatus(showChecking: Boolean = false) {
+        if (showChecking) {
+            context = ContextSnapshotDto(state = "checking", label = "Checking ContextEngine connection")
+            emitSnapshot()
+        }
+
         contextEngine.status().whenComplete { status, error ->
             context = when {
                 error != null -> ContextSnapshotDto(state = "error", label = error.rootMessage())
@@ -1416,6 +1439,7 @@ class IdeBridge(
         runId = runId,
         createdAt = createdAt,
         updatedAt = updatedAt,
+        timelineSequence = timelineSequence.takeIf { it > 0 },
     )
 
     private fun ToolRunDto.toConversationTool() = ConversationTool(
@@ -1430,13 +1454,14 @@ class IdeBridge(
         runId = runId,
         createdAt = createdAt.takeIf { it > 0 } ?: System.currentTimeMillis(),
         updatedAt = updatedAt.takeIf { it > 0 } ?: createdAt.takeIf { it > 0 } ?: System.currentTimeMillis(),
+        timelineSequence = timelineSequence ?: 0,
     )
 
     private fun updateTool(toolId: String, update: (ToolRunDto) -> ToolRunDto): Boolean = synchronized(stateLock) {
         val current = tools[toolId] ?: return@synchronized false
         val updated = update(current).copy(updatedAt = System.currentTimeMillis())
-        tools[toolId] = updated
-        conversations.upsertTool(updated.toConversationTool())
+        val persisted = conversations.upsertTool(updated.toConversationTool())
+        tools[toolId] = updated.copy(timelineSequence = persisted.timelineSequence.takeIf { it > 0 })
         true
     }
 
@@ -2440,7 +2465,7 @@ class IdeBridge(
         val desktopNotifications: Boolean = false,
         val autoDismissNotifications: Boolean = true,
         val backendToken: String? = null,
-        val contextMode: String = "remote-http",
+        val contextMode: String = DEFAULT_CONTEXT_MODE,
         val contextHttpBaseUrl: String = "http://127.0.0.1:8790",
         val contextHttpApiKey: String? = null,
         val contextEmbeddingBaseUrl: String = "http://127.0.0.1:8000/v1",
@@ -2449,6 +2474,7 @@ class IdeBridge(
         val contextNeuralRerank: Boolean = false,
         val contextRerankBaseUrl: String = "",
         val contextRerankModel: String = "Qwen/Qwen3-Reranker-0.6B",
+        val requestId: String? = null,
     )
 
     @Serializable

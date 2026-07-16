@@ -125,6 +125,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
                     this.role = role
                     this.content = content.take(MAX_IMPORTED_MESSAGE_CHARS)
                     createdAt = now + index
+                    timelineSequence = index + 1L
                 }
             }
         }
@@ -211,6 +212,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
             createdAt = System.currentTimeMillis()
             this.runId = runId.orEmpty()
             this.turnIndex = turnIndex ?: -1
+            timelineSequence = nextTimelineSequence(thread)
         }
         thread.messages.add(message)
         if (role == "user" && thread.messages.count { it.role == "user" } == 1) {
@@ -254,6 +256,9 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         require(tool.detail.orEmpty().length <= MAX_TOOL_DETAIL_CHARS) { "Tool detail is too long" }
         val thread = mutableActive()
         val state = thread.tools.firstOrNull { it.id == tool.id } ?: ConversationToolState().also(thread.tools::add)
+        if (state.timelineSequence <= 0) {
+            state.timelineSequence = tool.timelineSequence.takeIf { it > 0 } ?: nextTimelineSequence(thread)
+        }
         state.id = tool.id
         state.name = tool.name
         state.summary = tool.summary
@@ -482,6 +487,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
                 it.createdAt = message.createdAt
                 it.runId = message.runId.orEmpty()
                 it.turnIndex = message.turnIndex ?: -1
+                it.timelineSequence = message.timelineSequence
             }
         }
         state.tasks = tasks.mapTo(mutableListOf()) { task ->
@@ -504,10 +510,12 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
                 it.turnIndex = tool.turnIndex ?: -1
                 it.createdAt = tool.createdAt
                 it.updatedAt = tool.updatedAt
+                it.timelineSequence = tool.timelineSequence
             }
         }
         state.pinned = pinned
         state.summary = summary.orEmpty()
+        normalizeTimelineSequences(state)
     }
 
     private fun ConversationThreadState.isPristine(): Boolean =
@@ -540,9 +548,57 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
                 .take(MAX_TASKS_PER_THREAD)
                 .toList()
                 .toMutableList()
+            normalizeTimelineSequences(thread)
         }
         trimHistory()
     }
+
+    private fun normalizeTimelineSequences(thread: ConversationThreadState) {
+        val used = buildList {
+            thread.messages.mapTo(this) { it.timelineSequence }
+            thread.tools.mapTo(this) { it.timelineSequence }
+        }.filterTo(mutableSetOf()) { it > 0 }
+        var next = used.maxOrNull() ?: 0L
+        val missing = mutableListOf<TimelineSequenceCandidate>()
+        thread.messages.forEachIndexed { index, message ->
+            if (message.timelineSequence <= 0) {
+                missing += TimelineSequenceCandidate(
+                    createdAt = message.createdAt,
+                    phase = when {
+                        message.role == "user" -> -1
+                        message.turnIndex >= 0 -> message.turnIndex * 2
+                        else -> 0
+                    },
+                    index = index,
+                    assign = { message.timelineSequence = it },
+                )
+            }
+        }
+        thread.tools.forEachIndexed { index, tool ->
+            if (tool.timelineSequence <= 0) {
+                missing += TimelineSequenceCandidate(
+                    createdAt = tool.createdAt,
+                    phase = if (tool.turnIndex >= 0) tool.turnIndex * 2 + 1 else 1,
+                    index = thread.messages.size + index,
+                    assign = { tool.timelineSequence = it },
+                )
+            }
+        }
+        missing.sortedWith(
+            compareBy<TimelineSequenceCandidate> { it.createdAt }
+                .thenBy { it.phase }
+                .thenBy { it.index },
+        ).forEach { candidate ->
+            next += 1
+            candidate.assign(next)
+        }
+    }
+
+    private fun nextTimelineSequence(thread: ConversationThreadState): Long =
+        maxOf(
+            thread.messages.maxOfOrNull { it.timelineSequence } ?: 0,
+            thread.tools.maxOfOrNull { it.timelineSequence } ?: 0,
+        ) + 1
 
     private fun trimHistory() {
         if (data.threads.size <= MAX_THREADS) return
@@ -574,6 +630,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         role = role,
         content = content,
         createdAt = createdAt,
+        timelineSequence = timelineSequence.takeIf { it > 0 } ?: 0,
         runId = runId.takeIf(String::isNotBlank),
         turnIndex = turnIndex.takeIf { it >= 0 },
     )
@@ -592,6 +649,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         turnIndex = turnIndex.takeIf { it >= 0 },
         createdAt = createdAt,
         updatedAt = updatedAt.takeIf { it > 0 } ?: createdAt,
+        timelineSequence = timelineSequence.takeIf { it > 0 } ?: 0,
     )
 
     companion object {
@@ -645,6 +703,7 @@ data class ConversationMessage(
     val createdAt: Long,
     val runId: String? = null,
     val turnIndex: Int? = null,
+    val timelineSequence: Long = 0,
 )
 
 data class ConversationTask(
@@ -665,6 +724,7 @@ data class ConversationTool(
     val turnIndex: Int? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = createdAt,
+    val timelineSequence: Long = 0,
 )
 
 class ConversationStoreState {
@@ -695,6 +755,7 @@ class ConversationMessageState {
     var role: String = "user"
     var content: String = ""
     var createdAt: Long = 0
+    var timelineSequence: Long = 0
     var runId: String = ""
     var turnIndex: Int = -1
 }
@@ -711,7 +772,15 @@ class ConversationToolState {
     var turnIndex: Int = -1
     var createdAt: Long = 0
     var updatedAt: Long = 0
+    var timelineSequence: Long = 0
 }
+
+private data class TimelineSequenceCandidate(
+    val createdAt: Long,
+    val phase: Int,
+    val index: Int,
+    val assign: (Long) -> Unit,
+)
 
 class ConversationTaskState {
     var id: String = ""

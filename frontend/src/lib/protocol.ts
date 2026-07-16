@@ -9,6 +9,7 @@ export interface ChatMessage {
   role: MessageRole;
   content: string;
   createdAt: number;
+  timelineSequence?: number;
   turnIndex?: number;
   runId?: string;
 }
@@ -25,6 +26,7 @@ export interface ToolRun {
   runId?: string;
   createdAt?: number;
   updatedAt?: number;
+  timelineSequence?: number;
 }
 
 export interface AgentRunTelemetry {
@@ -130,6 +132,13 @@ export interface SettingsSnapshot {
   contextNeuralRerank: boolean;
   contextRerankBaseUrl: string;
   contextRerankModel: string;
+}
+
+export interface SettingsSaved {
+  requestId: string;
+  backendTokenConfigured: boolean;
+  contextHttpTokenConfigured: boolean;
+  contextEmbeddingTokenConfigured: boolean;
 }
 
 export interface AccountUsage {
@@ -355,7 +364,7 @@ export interface AppSnapshot {
   settings: SettingsSnapshot;
   account: AccountSnapshot;
   context: {
-    state: "unavailable" | "not_indexed" | "indexing" | "ready" | "error";
+    state: "unavailable" | "not_indexed" | "indexing" | "checking" | "ready" | "error";
     label: string;
     files?: number;
     chunks?: number;
@@ -409,6 +418,159 @@ declare global {
 
 const listeners = new Set<(event: EventEnvelope) => void>();
 let lastHostEventSequence = 0;
+let developmentSnapshot: AppSnapshot | undefined;
+let developmentIndexGeneration = 0;
+let developmentJobSequence = 0;
+let developmentRunGeneration = 0;
+
+function emitDevelopmentEvent(type: string, payload?: unknown): void {
+  queueMicrotask(() => window.CodeAgent?.receive(JSON.stringify({ version: PROTOCOL_VERSION, type, payload })));
+}
+
+function emitDevelopmentSnapshot(): void {
+  if (developmentSnapshot) emitDevelopmentEvent("snapshot", developmentSnapshot);
+}
+
+function updateDevelopmentSnapshot(update: (snapshot: AppSnapshot) => AppSnapshot): void {
+  if (!developmentSnapshot) return;
+  developmentSnapshot = update(developmentSnapshot);
+  emitDevelopmentSnapshot();
+}
+
+function nextDevelopmentTimelineSequence(snapshot: AppSnapshot): number {
+  return Math.max(
+    0,
+    ...snapshot.messages.map((message) => message.timelineSequence ?? 0),
+    ...snapshot.tools.map((tool) => tool.timelineSequence ?? 0),
+  ) + 1;
+}
+
+type DevelopmentMessageRequest = {
+  text?: string;
+  mode?: Mode;
+  clientMessageId?: string;
+};
+
+function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
+  const text = String(request.text ?? "").trim();
+  if (!text || !developmentSnapshot) return;
+  const userMessageId = request.clientMessageId || crypto.randomUUID();
+  const toolId = crypto.randomUUID();
+  const assistantMessageId = crypto.randomUUID();
+  const sequence = nextDevelopmentTimelineSequence(developmentSnapshot);
+  const generation = ++developmentRunGeneration;
+  updateDevelopmentSnapshot((snapshot) => ({
+    ...snapshot,
+    runState: "running",
+    messages: [...snapshot.messages, {
+      id: userMessageId,
+      role: "user",
+      content: text,
+      createdAt: Date.now(),
+      timelineSequence: sequence,
+    }],
+    tools: [...snapshot.tools, {
+      id: toolId,
+      name: "codebase_retrieval",
+      summary: "Retrieving from: Codebase",
+      status: "running",
+      detail: `Query\n${text}`,
+      canRevert: false,
+      timelineSequence: sequence + 1,
+    }],
+    threads: snapshot.threads.map((thread) => thread.active
+      ? { ...thread, title: text.slice(0, 64), updatedAt: Date.now(), mode: request.mode ?? snapshot.mode }
+      : thread),
+  }));
+  window.setTimeout(() => {
+    if (generation !== developmentRunGeneration) return;
+    let queuedMessage: QueuedMessage | undefined;
+    updateDevelopmentSnapshot((snapshot) => {
+      queuedMessage = snapshot.messageQueue[0];
+      return {
+        ...snapshot,
+        runState: "idle",
+        messageQueue: queuedMessage ? snapshot.messageQueue.slice(1) : snapshot.messageQueue,
+        tools: snapshot.tools.map((tool) => tool.id === toolId
+          ? { ...tool, status: "completed", detail: `Query\n${text}\n\nSources\nfrontend/src/App.svelte\nfrontend/src/lib/protocol.ts` }
+          : tool),
+        messages: [...snapshot.messages, {
+          id: assistantMessageId,
+          role: "assistant",
+          content: `Development host completed the interaction for: ${text}`,
+          createdAt: Date.now(),
+          timelineSequence: sequence + 2,
+        }],
+      };
+    });
+    if (queuedMessage) {
+      startDevelopmentMessage({ text: queuedMessage.text, mode: queuedMessage.mode, clientMessageId: queuedMessage.id });
+    }
+  }, 2_000);
+}
+
+type DevelopmentJobRequest = {
+  prompt?: string;
+  role?: NonNullable<ProductJob["role"]>;
+  context?: string | null;
+  expectedOutput?: string | null;
+  maxOutputTokens?: number;
+  model?: string | null;
+};
+
+function developmentJobLabel(items: ProductJob[]): string {
+  return items.length === 0 ? "No durable jobs" : `${items.length} durable job${items.length === 1 ? "" : "s"}`;
+}
+
+function startDevelopmentJob(request: DevelopmentJobRequest): void {
+  const prompt = String(request.prompt ?? "").trim();
+  if (!prompt) {
+    emitDevelopmentEvent("error", { message: "Job task is required" });
+    return;
+  }
+  const role = request.role ?? "research";
+  const now = new Date().toISOString();
+  const jobId = `dev-job-${++developmentJobSequence}`;
+  const job: ProductJob = {
+    id: jobId,
+    type: "subagent",
+    status: "queued",
+    prompt,
+    role,
+    context: request.context?.trim() || undefined,
+    expectedOutput: request.expectedOutput?.trim() || undefined,
+    maxOutputTokens: request.maxOutputTokens ?? 4096,
+    model: request.model?.trim() || developmentSnapshot?.models.selectedModel || developmentSnapshot?.models.defaultModel,
+    createdAt: now,
+    updatedAt: now,
+  };
+  updateDevelopmentSnapshot((snapshot) => {
+    const items = [job, ...snapshot.jobs.items];
+    return { ...snapshot, jobs: { state: "ready", label: developmentJobLabel(items), items } };
+  });
+  window.setTimeout(() => updateDevelopmentSnapshot((snapshot) => ({
+    ...snapshot,
+    jobs: {
+      state: "ready",
+      label: snapshot.jobs.label,
+      items: snapshot.jobs.items.map((item) => item.id === jobId && item.status === "queued"
+        ? { ...item, status: "running", output: `Running ${role} analysis...`, outputPartial: true, updatedAt: new Date().toISOString() }
+        : item),
+    },
+  })), 180);
+  window.setTimeout(() => updateDevelopmentSnapshot((snapshot) => {
+    const items = snapshot.jobs.items.map((item) => item.id === jobId && item.status !== "cancelled"
+      ? {
+          ...item,
+          status: "completed" as const,
+          output: `${role[0].toUpperCase()}${role.slice(1)} subagent completed the delegated task.\n\nTask: ${prompt}\n\nResult: No blocking issue was found in the development-host simulation.`,
+          outputPartial: false,
+          updatedAt: new Date().toISOString(),
+        }
+      : item);
+    return { ...snapshot, jobs: { state: "ready", label: developmentJobLabel(items), items } };
+  }), 620);
+}
 
 export function onHostEvent(listener: (event: EventEnvelope) => void): () => void {
   listeners.add(listener);
@@ -476,6 +638,23 @@ function acknowledgeHostEvent(event: EventEnvelope): void {
 }
 
 function handleDevelopmentCommand(command: CommandEnvelope): void {
+  if (command.type === "saveSettings") {
+    const payload = command.payload as Partial<SettingsSaved> & {
+      backendToken?: string;
+      contextHttpApiKey?: string;
+      contextEmbeddingApiKey?: string;
+    };
+    if (payload.requestId) {
+      const saved: SettingsSaved = {
+        requestId: payload.requestId,
+        backendTokenConfigured: Boolean(payload.backendToken?.trim()),
+        contextHttpTokenConfigured: Boolean(payload.contextHttpApiKey?.trim()),
+        contextEmbeddingTokenConfigured: Boolean(payload.contextEmbeddingApiKey?.trim()),
+      };
+      queueMicrotask(() => window.CodeAgent?.receive(JSON.stringify({ version: 1, type: "settingsSaved", payload: saved })));
+    }
+    return;
+  }
   if (command.type === "refreshGit") {
     const payload: GitSnapshot = {
       available: true,
@@ -499,7 +678,438 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     queueMicrotask(() => window.CodeAgent?.receive(JSON.stringify({ version: 1, type: "imageCanvas", payload })));
     return;
   }
-  if (command.type !== "bootstrap") return;
+  if (command.type === "setMode") {
+    const mode = (command.payload as { mode?: Mode } | undefined)?.mode;
+    if (mode === "agent" || mode === "chat" || mode === "ask") {
+      updateDevelopmentSnapshot((snapshot) => ({
+        ...snapshot,
+        mode,
+        threads: snapshot.threads.map((thread) => thread.active ? { ...thread, mode } : thread),
+      }));
+    }
+    return;
+  }
+  if (command.type === "selectModel") {
+    const modelId = String((command.payload as { modelId?: string } | undefined)?.modelId ?? "").trim();
+    updateDevelopmentSnapshot((snapshot) => snapshot.models.options.some((model) => model.id === modelId)
+      ? { ...snapshot, models: { ...snapshot.models, selectedModel: modelId } }
+      : snapshot);
+    return;
+  }
+  if (command.type === "getContextStatus") {
+    emitDevelopmentSnapshot();
+    return;
+  }
+  if (command.type === "checkContextEngine") {
+    const previousContext = developmentSnapshot?.context;
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      context: { state: "checking", label: "Checking ContextEngine connection" },
+    }));
+    window.setTimeout(() => updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      context: previousContext?.state === "ready"
+        ? previousContext
+        : { state: "not_indexed", label: "Index project" },
+    })), 260);
+    return;
+  }
+  if (command.type === "indexWorkspace") {
+    const generation = ++developmentIndexGeneration;
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      context: { state: "indexing", label: "Starting index" },
+    }));
+    const progress = [
+      { delay: 120, label: "Indexing 48/248" },
+      { delay: 260, label: "Indexing 156/248" },
+      { delay: 400, label: "Indexing 248/248" },
+    ];
+    progress.forEach(({ delay, label }) => window.setTimeout(() => {
+      if (generation !== developmentIndexGeneration) return;
+      updateDevelopmentSnapshot((snapshot) => ({ ...snapshot, context: { state: "indexing", label } }));
+    }, delay));
+    window.setTimeout(() => {
+      if (generation !== developmentIndexGeneration) return;
+      updateDevelopmentSnapshot((snapshot) => ({
+        ...snapshot,
+        context: {
+          state: "ready",
+          label: "248 files indexed · Auto-sync on · Semantic search",
+          files: 248,
+          chunks: 1_376,
+          roots: 1,
+          watchedRoots: 1,
+          watching: true,
+          hasEmbeddings: true,
+          lastIndexedAt: new Date().toISOString(),
+        },
+      }));
+    }, 560);
+    return;
+  }
+  if (command.type === "checkBackend") {
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      backendHealth: { state: "checking", label: "Checking backend" },
+    }));
+    window.setTimeout(() => updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      backendHealth: { state: "online", label: "Connected to codeagent-backend", protocolVersion: 1 },
+    })), 220);
+    return;
+  }
+  if (command.type === "refreshJobs") {
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      jobs: { ...snapshot.jobs, state: "ready", label: developmentJobLabel(snapshot.jobs.items) },
+    }));
+    return;
+  }
+  if (command.type === "createJob") {
+    startDevelopmentJob((command.payload ?? {}) as DevelopmentJobRequest);
+    return;
+  }
+  if (command.type === "cancelJob") {
+    const jobId = String((command.payload as { jobId?: string } | undefined)?.jobId ?? "");
+    updateDevelopmentSnapshot((snapshot) => {
+      const items = snapshot.jobs.items.map((job) => job.id === jobId && (job.status === "queued" || job.status === "running")
+        ? { ...job, status: "cancelled" as const, outputPartial: false, error: "Cancelled by user", updatedAt: new Date().toISOString() }
+        : job);
+      return { ...snapshot, jobs: { state: "ready", label: developmentJobLabel(items), items } };
+    });
+    return;
+  }
+  if (command.type === "retryJob") {
+    const jobId = String((command.payload as { jobId?: string } | undefined)?.jobId ?? "");
+    const job = developmentSnapshot?.jobs.items.find((item) => item.id === jobId);
+    if (!job) {
+      emitDevelopmentEvent("error", { message: "Job no longer exists" });
+      return;
+    }
+    startDevelopmentJob({
+      prompt: job.prompt,
+      role: job.role,
+      context: job.context,
+      expectedOutput: job.expectedOutput,
+      maxOutputTokens: job.maxOutputTokens,
+      model: job.model,
+    });
+    return;
+  }
+  if (command.type === "openJobResult") {
+    const jobId = String((command.payload as { jobId?: string } | undefined)?.jobId ?? "");
+    const job = developmentSnapshot?.jobs.items.find((item) => item.id === jobId);
+    emitDevelopmentEvent(job?.output ? "notice" : "error", {
+      message: job?.output ? "Job result is available in the durable-jobs panel; the IDE build opens it in an editor tab" : "Job result is not available yet",
+    });
+    return;
+  }
+  if (command.type === "enhancePrompt") {
+    const text = String((command.payload as { text?: string } | undefined)?.text ?? "").trim();
+    emitDevelopmentEvent(text ? "promptEnhanced" : "error", text
+      ? { text: `${text}\n\nInclude concrete file evidence, implementation constraints, and verification steps.` }
+      : { message: "Prompt text is required" });
+    return;
+  }
+  if (command.type === "queueMessage") {
+    const request = command.payload as { text?: string; mode?: Mode; clientMessageId?: string } | undefined;
+    const text = String(request?.text ?? "").trim();
+    if (text) updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      messageQueue: [...snapshot.messageQueue, { id: request?.clientMessageId || crypto.randomUUID(), text, mode: request?.mode ?? snapshot.mode }],
+    }));
+    return;
+  }
+  if (command.type === "removeQueuedMessage") {
+    const messageId = String((command.payload as { messageId?: string } | undefined)?.messageId ?? "");
+    updateDevelopmentSnapshot((snapshot) => ({ ...snapshot, messageQueue: snapshot.messageQueue.filter((message) => message.id !== messageId) }));
+    return;
+  }
+  if (command.type === "cancelRun") {
+    developmentRunGeneration += 1;
+    let queuedMessage: QueuedMessage | undefined;
+    updateDevelopmentSnapshot((snapshot) => {
+      queuedMessage = snapshot.messageQueue[0];
+      return {
+        ...snapshot,
+        runState: "idle",
+        messageQueue: queuedMessage ? snapshot.messageQueue.slice(1) : snapshot.messageQueue,
+        tools: snapshot.tools.map((tool) => tool.status === "running" || tool.status === "approval" ? { ...tool, status: "rejected" } : tool),
+        tasks: snapshot.tasks.map((task) => task.state === "in_progress" ? { ...task, state: "cancelled" } : task),
+      };
+    });
+    if (queuedMessage) {
+      startDevelopmentMessage({ text: queuedMessage.text, mode: queuedMessage.mode, clientMessageId: queuedMessage.id });
+    }
+    return;
+  }
+  if (command.type === "attachActiveEditor") {
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      attachments: [...snapshot.attachments, { id: crypto.randomUUID(), label: "ActiveEditor.java", path: "src/main/java/com/example/ActiveEditor.java", kind: "ide_state" }],
+    }));
+    return;
+  }
+  if (command.type === "pickContext") {
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      attachments: [...snapshot.attachments, { id: crypto.randomUUID(), label: "SelectedContext.java", path: "src/main/java/com/example/SelectedContext.java", kind: "file" }],
+    }));
+    return;
+  }
+  if (command.type === "attachImage") {
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      attachments: [...snapshot.attachments, { id: crypto.randomUUID(), label: "architecture.png", path: "docs/screenshots/architecture.png", kind: "image" }],
+    }));
+    return;
+  }
+  if (command.type === "resolveApproval") {
+    const request = command.payload as { toolId?: string; approved?: boolean } | undefined;
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      runState: "idle",
+      tools: snapshot.tools.map((tool) => tool.id === request?.toolId
+        ? { ...tool, status: request.approved ? "completed" : "rejected", detail: `${tool.detail ?? ""}\n\n${request.approved ? "Approved" : "Rejected"} in the development host.`.trim() }
+        : tool),
+    }));
+    return;
+  }
+  if (command.type === "revertChange") {
+    const toolId = String((command.payload as { toolId?: string } | undefined)?.toolId ?? "");
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      tools: snapshot.tools.map((tool) => tool.id === toolId ? { ...tool, status: "rejected", canRevert: false } : tool),
+    }));
+    return;
+  }
+  if (command.type === "keepChanges" || command.type === "discardChanges") {
+    const toolIds = new Set((command.payload as { toolIds?: string[] } | undefined)?.toolIds ?? []);
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      tools: snapshot.tools.map((tool) => toolIds.has(tool.id)
+        ? { ...tool, status: command.type === "discardChanges" ? "rejected" : tool.status, canRevert: false }
+        : tool),
+    }));
+    return;
+  }
+  if (command.type === "signIn") {
+    updateDevelopmentSnapshot((snapshot) => ({ ...snapshot, account: { ...snapshot.account, state: "signing_in", label: "Waiting for browser sign-in" } }));
+    window.setTimeout(() => updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      account: { state: "signed_in", mode: "oidc", userId: "dev-user", displayName: "CodeAgent Developer", email: "developer@example.com", usage: snapshot.account.usage, label: "Signed in as CodeAgent Developer" },
+    })), 260);
+    return;
+  }
+  if (command.type === "signOut") {
+    updateDevelopmentSnapshot((snapshot) => ({ ...snapshot, account: { ...snapshot.account, state: "signing_out", label: "Signing out" } }));
+    window.setTimeout(() => updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      account: { state: "signed_out", mode: "oidc", usage: [], label: "Signed out" },
+    })), 180);
+    return;
+  }
+  if (command.type === "refreshConfigurations" || command.type === "refreshCustomization") {
+    emitDevelopmentSnapshot();
+    return;
+  }
+  if (command.type === "listCheckpoints") {
+    emitDevelopmentEvent("checkpoints", [{ id: "dev-checkpoint", label: "Development snapshot", createdAt: new Date().toISOString() }]);
+    return;
+  }
+  if (command.type === "createCheckpoint" || command.type === "restoreCheckpoint") {
+    emitDevelopmentEvent("notice", { message: command.type === "createCheckpoint" ? "Development checkpoint created" : "Development checkpoint restored" });
+    return;
+  }
+  if (command.type === "saveRule") {
+    emitDevelopmentEvent("notice", { message: "Rule saved in the development host; the JetBrains build writes the workspace rule file" });
+    emitDevelopmentSnapshot();
+    return;
+  }
+  if (
+    command.type === "browseImageDirectory"
+    || command.type === "commitGit"
+    || command.type === "copyText"
+    || command.type === "copyThread"
+    || command.type === "discardChanges"
+    || command.type === "exportTasks"
+    || command.type === "exportThread"
+    || command.type === "importTasks"
+    || command.type === "importThread"
+    || command.type === "openDiff"
+    || command.type === "openGitDiff"
+    || command.type === "openImage"
+    || command.type === "openMermaidEditor"
+    || command.type === "openTerminal"
+    || command.type === "reviewChanges"
+    || command.type === "stageGit"
+    || command.type === "unstageGit"
+  ) {
+    emitDevelopmentEvent("notice", { message: `${command.type} is implemented by the JetBrains host; the browser development host acknowledged the action without changing local IDE state` });
+    return;
+  }
+  if (command.type === "sendMessage") {
+    startDevelopmentMessage((command.payload ?? {}) as DevelopmentMessageRequest);
+    return;
+  }
+  if (command.type === "newThread") {
+    const mode = (command.payload as { mode?: Mode } | undefined)?.mode ?? "agent";
+    const threadId = crypto.randomUUID();
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      mode,
+      messages: [],
+      tools: [],
+      tasks: [],
+      messageQueue: [],
+      attachments: [],
+      threads: [
+        { id: threadId, title: "New thread", updatedAt: Date.now(), active: true, mode, pinned: false },
+        ...snapshot.threads.map((thread) => ({ ...thread, active: false })),
+      ],
+    }));
+    return;
+  }
+  if (command.type === "selectThread") {
+    const threadId = String((command.payload as { threadId?: string } | undefined)?.threadId ?? "");
+    updateDevelopmentSnapshot((snapshot) => {
+      const selected = snapshot.threads.find((thread) => thread.id === threadId);
+      return selected ? {
+        ...snapshot,
+        mode: selected.mode,
+        threads: snapshot.threads.map((thread) => ({ ...thread, active: thread.id === threadId })),
+      } : snapshot;
+    });
+    return;
+  }
+  if (command.type === "toggleThreadPinned") {
+    const threadId = String((command.payload as { threadId?: string } | undefined)?.threadId ?? "");
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      threads: snapshot.threads.map((thread) => thread.id === threadId ? { ...thread, pinned: !thread.pinned } : thread),
+    }));
+    return;
+  }
+  if (command.type === "renameThread") {
+    const request = command.payload as { threadId?: string; title?: string } | undefined;
+    const title = String(request?.title ?? "").trim();
+    if (title) updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      threads: snapshot.threads.map((thread) => thread.id === request?.threadId ? { ...thread, title, updatedAt: Date.now() } : thread),
+    }));
+    return;
+  }
+  if (command.type === "deleteThread") {
+    const threadId = String((command.payload as { threadId?: string } | undefined)?.threadId ?? "");
+    updateDevelopmentSnapshot((snapshot) => {
+      const remaining = snapshot.threads.filter((thread) => thread.id !== threadId);
+      if (remaining.length === 0) return snapshot;
+      const hadActive = snapshot.threads.some((thread) => thread.id === threadId && thread.active);
+      return { ...snapshot, threads: remaining.map((thread, index) => ({ ...thread, active: hadActive ? index === 0 : thread.active })) };
+    });
+    return;
+  }
+  if (command.type === "setTaskState") {
+    const request = command.payload as { taskId?: string; state?: TaskItem["state"] } | undefined;
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      tasks: snapshot.tasks.map((task) => task.id === request?.taskId && request.state
+        ? { ...task, state: request.state }
+        : task),
+    }));
+    return;
+  }
+  if (command.type === "addTask") {
+    const name = String((command.payload as { name?: string } | undefined)?.name ?? "").trim();
+    if (name) updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      tasks: [...snapshot.tasks, { id: crypto.randomUUID(), name, state: "not_started" }],
+    }));
+    return;
+  }
+  if (command.type === "deleteTask") {
+    const taskId = String((command.payload as { taskId?: string } | undefined)?.taskId ?? "");
+    updateDevelopmentSnapshot((snapshot) => ({ ...snapshot, tasks: snapshot.tasks.filter((task) => task.id !== taskId) }));
+    return;
+  }
+  if (command.type === "clearCompletedTasks") {
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      tasks: snapshot.tasks.filter((task) => task.state !== "completed" && task.state !== "cancelled"),
+    }));
+    return;
+  }
+  if (command.type === "clearTasks") {
+    updateDevelopmentSnapshot((snapshot) => ({ ...snapshot, tasks: [] }));
+    return;
+  }
+  if (command.type === "runTask") {
+    const taskId = String((command.payload as { taskId?: string } | undefined)?.taskId ?? "");
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      runState: "running",
+      tasks: snapshot.tasks.map((task) => task.id === taskId ? { ...task, state: "in_progress" } : task),
+    }));
+    window.setTimeout(() => updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      runState: "idle",
+      tasks: snapshot.tasks.map((task) => task.id === taskId && task.state === "in_progress" ? { ...task, state: "completed" } : task),
+    })), 360);
+    return;
+  }
+  if (command.type === "runAllTasks") {
+    const taskIds = new Set(developmentSnapshot?.tasks.filter((task) => task.state !== "completed" && task.state !== "cancelled").map((task) => task.id) ?? []);
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      runState: "running",
+      tasks: snapshot.tasks.map((task) => taskIds.has(task.id) ? { ...task, state: "in_progress" } : task),
+    }));
+    window.setTimeout(() => updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      runState: "idle",
+      tasks: snapshot.tasks.map((task) => taskIds.has(task.id) && task.state === "in_progress" ? { ...task, state: "completed" } : task),
+    })), 520);
+    return;
+  }
+  if (command.type === "removeContext") {
+    const id = String((command.payload as { id?: string } | undefined)?.id ?? "");
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      attachments: snapshot.attachments.filter((attachment) => attachment.id !== id),
+    }));
+    return;
+  }
+  if (command.type === "toggleSkill") {
+    const request = command.payload as { skillId?: string; selected?: boolean } | undefined;
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      customization: {
+        ...snapshot.customization,
+        skills: snapshot.customization.skills.map((skill) => skill.id === request?.skillId
+          ? { ...skill, selected: Boolean(request.selected) }
+          : skill),
+      },
+    }));
+    return;
+  }
+  if (command.type === "toggleRule") {
+    const request = command.payload as { ruleId?: string; selected?: boolean } | undefined;
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      customization: {
+        ...snapshot.customization,
+        rules: snapshot.customization.rules.map((rule) => rule.id === request?.ruleId
+          ? { ...rule, selected: Boolean(request.selected) }
+          : rule),
+      },
+    }));
+    return;
+  }
+  if (command.type !== "bootstrap") {
+    emitDevelopmentEvent("error", { message: `Development host has no handler for ${command.type}` });
+    return;
+  }
   const snapshot: AppSnapshot = {
     projectName: "sample-project",
     mode: "agent",
@@ -528,12 +1138,14 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
         role: "user",
         content: "Implement JWT login end-to-end, update the tests, and verify the integration.",
         createdAt: Date.now() - 42_000,
+        timelineSequence: 1,
       },
       {
         id: "assistant-1",
         role: "assistant",
         content: "JWT login is implemented and the focused tests pass. The edit remains available for native Diff review.",
         createdAt: Date.now() - 14_000,
+        timelineSequence: 10,
       },
     ],
     tools: [
@@ -544,6 +1156,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
         status: "completed",
         detail: "Query\nJWT login controller and security configuration\n\nSources\nAuthController.java\nSecurityConfig.java\nTokenService.java",
         canRevert: false,
+        timelineSequence: 2,
       },
       {
         id: "tool-read",
@@ -552,6 +1165,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
         status: "completed",
         detail: "src/main/java/com/example/auth/AuthController.java:1-94",
         canRevert: false,
+        timelineSequence: 3,
       },
       {
         id: "tool-search",
@@ -560,6 +1174,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
         status: "completed",
         detail: "TokenService.java:41: return jwtIssuer.issue(user);",
         canRevert: false,
+        timelineSequence: 4,
       },
       {
         id: "tool-edit",
@@ -569,6 +1184,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
         detail: "+ return tokenService.issue(request);\n- return null;",
         changePath: "src/main/java/com/example/auth/AuthController.java",
         canRevert: true,
+        timelineSequence: 5,
       },
       {
         id: "tool-create",
@@ -578,6 +1194,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
         detail: "Created focused login and invalid-credential tests.",
         changePath: "src/test/java/com/example/auth/AuthControllerTest.java",
         canRevert: true,
+        timelineSequence: 6,
       },
       {
         id: "tool-terminal",
@@ -586,6 +1203,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
         status: "completed",
         detail: "BUILD SUCCESSFUL in 4s\n14 tests completed",
         canRevert: false,
+        timelineSequence: 7,
       },
       {
         id: "tool-open",
@@ -594,6 +1212,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
         status: "completed",
         detail: "Opened in the active IDE editor.",
         canRevert: false,
+        timelineSequence: 8,
       },
       {
         id: "tool-mermaid",
@@ -602,6 +1221,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
         status: "completed",
         detail: "flowchart LR\n  Client[Client] --> Controller[AuthController]\n  Controller --> Service[TokenService]\n  Service --> JWT[Signed JWT]",
         canRevert: false,
+        timelineSequence: 9,
       },
     ],
     threads: [
@@ -960,5 +1580,8 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       maxSelectedSkills: 8,
     },
   };
-  queueMicrotask(() => window.CodeAgent?.receive(JSON.stringify({ version: 1, type: "snapshot", payload: snapshot })));
+  developmentSnapshot = snapshot;
+  developmentIndexGeneration += 1;
+  developmentJobSequence = 0;
+  emitDevelopmentSnapshot();
 }

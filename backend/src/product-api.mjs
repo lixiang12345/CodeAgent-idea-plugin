@@ -193,6 +193,7 @@ function normalizeMessages(value) {
     if (!["user", "assistant"].includes(message.role)) throw badRequest("Message role is invalid");
     const runId = optionalText(message.runId, "message.runId", 200);
     const turnIndex = optionalInteger(message.turnIndex, "message.turnIndex", 0, 10_000);
+    const timelineSequence = optionalInteger(message.timelineSequence, "message.timelineSequence", 0, 1_000_000);
     return {
       id,
       role: message.role,
@@ -200,6 +201,7 @@ function normalizeMessages(value) {
       createdAt: boundedTimestamp(message.createdAt),
       ...(runId ? { runId } : {}),
       ...(turnIndex === null ? {} : { turnIndex }),
+      ...(timelineSequence === null ? {} : { timelineSequence }),
     };
   });
 }
@@ -215,6 +217,7 @@ function normalizeConversationTools(value) {
     seen.add(id);
     const runId = optionalText(tool.runId, "tool.runId", 200);
     const turnIndex = optionalInteger(tool.turnIndex, "tool.turnIndex", 0, 10_000);
+    const timelineSequence = optionalInteger(tool.timelineSequence, "tool.timelineSequence", 0, 1_000_000);
     const createdAt = boundedTimestamp(tool.createdAt);
     const updatedAt = boundedTimestamp(tool.updatedAt ?? createdAt);
     if (updatedAt < createdAt) throw badRequest("tool.updatedAt must not be earlier than tool.createdAt");
@@ -228,6 +231,7 @@ function normalizeConversationTools(value) {
       canRevert: optionalBoolean(tool.canRevert, false),
       ...(runId ? { runId } : {}),
       ...(turnIndex === null ? {} : { turnIndex }),
+      ...(timelineSequence === null ? {} : { timelineSequence }),
       createdAt,
       updatedAt,
     };

@@ -235,7 +235,7 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
         pinned = pinned,
         summary = summary,
         messages = messages.takeLast(MAX_REMOTE_MESSAGES).map {
-            RemoteConversationMessage(it.id, it.role, it.content, it.createdAt, it.runId, it.turnIndex)
+            RemoteConversationMessage(it.id, it.role, it.content, it.createdAt, it.runId, it.turnIndex, it.timelineSequence)
         },
         tasks = tasks.take(MAX_REMOTE_TASKS).map { RemoteConversationTask(it.id, it.name, it.state) },
         tools = tools.takeLast(MAX_REMOTE_TOOLS).map { tool ->
@@ -251,6 +251,7 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
                 turnIndex = tool.turnIndex,
                 createdAt = tool.createdAt,
                 updatedAt = tool.updatedAt,
+                timelineSequence = tool.timelineSequence,
             )
         },
         version = version,
@@ -265,7 +266,7 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
         selectedModelId = selectedModelId,
         selectedSkillIds = selectedSkillIds,
         selectedRuleIds = selectedRuleIds,
-        messages = messages.map { ConversationMessage(it.id, it.role, it.content, it.createdAt, it.runId, it.turnIndex) },
+        messages = messages.map { ConversationMessage(it.id, it.role, it.content, it.createdAt, it.runId, it.turnIndex, it.timelineSequence) },
         tasks = tasks.map { ConversationTask(it.id, it.name, it.state) },
         active = false,
         pinned = pinned,
@@ -283,6 +284,7 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
                 turnIndex = tool.turnIndex,
                 createdAt = tool.createdAt,
                 updatedAt = tool.updatedAt,
+                timelineSequence = tool.timelineSequence,
             )
         },
     )

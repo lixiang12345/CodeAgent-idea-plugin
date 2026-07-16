@@ -9,6 +9,7 @@ import com.intellij.openapi.components.Storage
 import java.net.URI
 
 const val DEFAULT_BACKEND_URL = "http://127.0.0.1:8788"
+const val DEFAULT_CONTEXT_MODE = "remote-http"
 const val DEFAULT_CONTEXT_HTTP_URL = "http://127.0.0.1:8790"
 const val DEFAULT_CONTEXT_EMBEDDING_URL = "http://127.0.0.1:8000/v1"
 const val DEFAULT_CONTEXT_EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
@@ -147,7 +148,7 @@ data class CodeAgentSettings(
     val backendToken: String?,
     val refreshToken: String? = null,
     val tokenExpiresAtEpochSeconds: Long = 0,
-    val contextMode: String = "remote-http",
+    val contextMode: String = DEFAULT_CONTEXT_MODE,
     val contextHttpBaseUrl: String = DEFAULT_CONTEXT_HTTP_URL,
     val contextHttpApiKey: String? = null,
     val contextEmbeddingBaseUrl: String = DEFAULT_CONTEXT_EMBEDDING_URL,
@@ -168,7 +169,7 @@ data class CodeAgentSettingsUpdate(
     val desktopNotifications: Boolean = false,
     val autoDismissNotifications: Boolean = true,
     val backendToken: String?,
-    val contextMode: String = "remote-http",
+    val contextMode: String = DEFAULT_CONTEXT_MODE,
     val contextHttpBaseUrl: String = DEFAULT_CONTEXT_HTTP_URL,
     val contextHttpApiKey: String? = null,
     val contextEmbeddingBaseUrl: String = DEFAULT_CONTEXT_EMBEDDING_URL,
@@ -189,7 +190,7 @@ class CodeAgentSettingsState {
     var desktopNotifications: Boolean = false
     var autoDismissNotifications: Boolean = true
     var tokenExpiresAtEpochSeconds: Long = 0
-    var contextMode: String = "remote-http"
+    var contextMode: String = DEFAULT_CONTEXT_MODE
     var contextHttpBaseUrl: String = DEFAULT_CONTEXT_HTTP_URL
     var contextEmbeddingBaseUrl: String = DEFAULT_CONTEXT_EMBEDDING_URL
     var contextEmbeddingModel: String = DEFAULT_CONTEXT_EMBEDDING_MODEL

@@ -148,9 +148,9 @@ class ConversationStoreTest {
     fun `persists tool cards and message turn identity per thread`() {
         val store = ConversationStore()
         val first = store.active()
-        store.addMessage("user", "Inspect auth", runId = "run-1")
-        store.addMessage("assistant", "Done", runId = "run-1", turnIndex = 2)
-        store.upsertTool(
+        val user = store.addMessage("user", "Inspect auth", runId = "run-1")
+        val assistant = store.addMessage("assistant", "Done", runId = "run-1", turnIndex = 2)
+        val tool = store.upsertTool(
             ConversationTool(
                 id = "tool-1",
                 name = "read_file",
@@ -166,6 +166,8 @@ class ConversationStoreTest {
 
         assertEquals("run-1", store.active().messages.last().runId)
         assertEquals(2, store.active().messages.last().turnIndex)
+        assertTrue(user.timelineSequence < assistant.timelineSequence)
+        assertTrue(assistant.timelineSequence < tool.timelineSequence)
         assertEquals(listOf("tool-1"), store.active().tools.map { it.id })
         assertEquals(1_250, store.active().tools.single().updatedAt)
 
@@ -173,6 +175,63 @@ class ConversationStoreTest {
         assertTrue(store.active().tools.isEmpty())
         store.select(first.id)
         assertEquals("Read auth service", store.active().tools.single().summary)
+    }
+
+    @Test
+    fun `migrates legacy message and tool timestamps into one timeline`() {
+        val state = ConversationStoreState().apply {
+            val thread = ConversationThreadState().apply {
+                id = "legacy"
+                title = "Legacy"
+                updatedAt = 2_000
+                messages = mutableListOf(
+                    ConversationMessageState().apply {
+                        id = "user"
+                        role = "user"
+                        content = "Inspect"
+                        createdAt = 1_000
+                    },
+                    ConversationMessageState().apply {
+                        id = "assistant-1"
+                        role = "assistant"
+                        content = "I will inspect it"
+                        createdAt = 1_100
+                        runId = "run-1"
+                        turnIndex = 0
+                    },
+                    ConversationMessageState().apply {
+                        id = "assistant-2"
+                        role = "assistant"
+                        content = "Done"
+                        createdAt = 1_300
+                        runId = "run-1"
+                        turnIndex = 1
+                    },
+                )
+                tools = mutableListOf(
+                    ConversationToolState().apply {
+                        id = "tool"
+                        name = "read_file"
+                        summary = "Read file"
+                        status = "completed"
+                        runId = "run-1"
+                        turnIndex = 0
+                        createdAt = 1_200
+                        updatedAt = 1_250
+                    },
+                )
+            }
+            activeThreadId = thread.id
+            threads = mutableListOf(thread)
+        }
+        val store = ConversationStore()
+        store.loadState(state)
+
+        val timeline = buildList {
+            store.active().messages.mapTo(this) { it.timelineSequence to it.id }
+            store.active().tools.mapTo(this) { it.timelineSequence to it.id }
+        }.sortedBy { it.first }.map { it.second }
+        assertEquals(listOf("user", "assistant-1", "tool", "assistant-2"), timeline)
     }
 
     @Test

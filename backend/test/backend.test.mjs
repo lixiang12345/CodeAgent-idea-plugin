@@ -1605,22 +1605,24 @@ test("persists product conversations and exposes the local account", async () =>
     const createdResponse = await fetch(`${baseUrl}/v1/conversations`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: "thread-1", title: "Thread", mode: "agent", updatedAt: 1_000, selectedAgentProfileId: "context", selectedModelId: "model-a", selectedSkillIds: ["review"], selectedRuleIds: ["tests"], pinned: true, messages: [{ id: "message-1", role: "user", content: "Hi", createdAt: 900, runId: "run-1", turnIndex: 0 }], tasks: [{ id: "task-1", name: "Review change", state: "in_progress" }], tools: [{ id: "tool-1", name: "read_file", summary: "Read source", status: "completed", canRevert: false, runId: "run-1", turnIndex: 0, createdAt: 950, updatedAt: 980 }] }),
+      body: JSON.stringify({ id: "thread-1", title: "Thread", mode: "agent", updatedAt: 1_000, selectedAgentProfileId: "context", selectedModelId: "model-a", selectedSkillIds: ["review"], selectedRuleIds: ["tests"], pinned: true, messages: [{ id: "message-1", role: "user", content: "Hi", createdAt: 900, runId: "run-1", turnIndex: 0, timelineSequence: 1 }], tasks: [{ id: "task-1", name: "Review change", state: "in_progress" }], tools: [{ id: "tool-1", name: "read_file", summary: "Read source", status: "completed", canRevert: false, runId: "run-1", turnIndex: 0, createdAt: 950, updatedAt: 980, timelineSequence: 2 }] }),
     });
     assert.equal(createdResponse.status, 201);
     const created = await createdResponse.json();
     assert.equal(created.version, 1);
     assert.equal(created.messages[0].id, "message-1");
+    assert.equal(created.messages[0].timelineSequence, 1);
     assert.equal(created.tasks[0].state, "in_progress");
     assert.equal(created.tools[0].id, "tool-1");
     assert.equal(created.tools[0].updatedAt, 980);
+    assert.equal(created.tools[0].timelineSequence, 2);
     assert.equal(created.selectedAgentProfileId, "context");
     assert.equal(created.selectedModelId, "model-a");
 
     const updatedResponse = await fetch(`${baseUrl}/v1/conversations/thread-1`, {
       method: "PUT",
       headers: { "content-type": "application/json", "if-match": "1" },
-      body: JSON.stringify({ title: "Updated", mode: "chat", updatedAt: 2_000, selectedAgentProfileId: "loop", selectedModelId: "model-a", selectedSkillIds: [], selectedRuleIds: [], pinned: false, messages: [{ id: "message-1", role: "user", content: "Hi", createdAt: 900, runId: "run-1", turnIndex: 0 }, { id: "message-2", role: "assistant", content: "Hello", createdAt: 1_100, runId: "run-1", turnIndex: 1 }], tasks: [{ id: "task-1", name: "Review change", state: "completed" }], tools: [{ id: "tool-1", name: "read_file", summary: "Read source", status: "completed", canRevert: false, runId: "run-1", turnIndex: 0, createdAt: 950, updatedAt: 1_250 }] }),
+      body: JSON.stringify({ title: "Updated", mode: "chat", updatedAt: 2_000, selectedAgentProfileId: "loop", selectedModelId: "model-a", selectedSkillIds: [], selectedRuleIds: [], pinned: false, messages: [{ id: "message-1", role: "user", content: "Hi", createdAt: 900, runId: "run-1", turnIndex: 0, timelineSequence: 1 }, { id: "message-2", role: "assistant", content: "Hello", createdAt: 1_100, runId: "run-1", turnIndex: 1, timelineSequence: 3 }], tasks: [{ id: "task-1", name: "Review change", state: "completed" }], tools: [{ id: "tool-1", name: "read_file", summary: "Read source", status: "completed", canRevert: false, runId: "run-1", turnIndex: 0, createdAt: 950, updatedAt: 1_250, timelineSequence: 2 }] }),
     });
     assert.equal(updatedResponse.status, 200);
     assert.equal((await updatedResponse.json()).version, 2);
@@ -1638,6 +1640,8 @@ test("persists product conversations and exposes the local account", async () =>
     assert.equal(restoredResponse.status, 200);
     const restored = await restoredResponse.json();
     assert.equal(restored.version, 2);
+    assert.deepEqual(restored.messages.map((message) => message.timelineSequence), [1, 3]);
+    assert.equal(restored.tools[0].timelineSequence, 2);
     assert.equal(restored.selectedAgentProfileId, "loop");
     assert.deepEqual(restored.messages.map((message) => message.id), ["message-1", "message-2"]);
     assert.deepEqual(restored.tasks, [{ id: "task-1", name: "Review change", state: "completed" }]);
@@ -2003,6 +2007,48 @@ test("persists partial durable-job output before completion", async () => {
     const completed = await waitForJob(baseUrl, job.id);
     assert.equal(completed.output.content, "partial durable output finalized");
     assert.equal(completed.output.partial, false);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("retries a remote history-summary task after a transient stream disconnect", async () => {
+  let attempts = 0;
+  const server = createCodeAgentServer({
+    modelGateway: {
+      provider: "test",
+      defaultModel: "model-a",
+      async listModels() { return [{ id: "model-a" }]; },
+      async stream({ onTextDelta }) {
+        attempts += 1;
+        if (attempts === 1) {
+          onTextDelta("discarded partial summary");
+          const error = new TypeError(
+            "stream disconnected before completion: Transport error: network error: error decoding response body",
+          );
+          throw error;
+        }
+        onTextDelta("recovered conversation summary");
+        return { content: "recovered conversation summary", toolCalls: [] };
+      },
+    },
+    logger: { error() {}, warn() {} },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const response = await fetch(`${baseUrl}/v1/jobs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "history-summary", input: { prompt: "Summarize the conversation" } }),
+    });
+    assert.equal(response.status, 202);
+    const job = await waitForJob(baseUrl, (await response.json()).id);
+    assert.equal(job.status, "completed");
+    assert.equal(job.output.content, "recovered conversation summary");
+    assert.equal(attempts, 2);
   } finally {
     server.close();
     await once(server, "close");

@@ -339,11 +339,13 @@ button { color: inherit; }
 .service-status.offline, .service-status.incompatible { background: #dc6e74; box-shadow: 0 0 0 2px #523238; }
 .service-status.checking { background: #d0a05b; box-shadow: 0 0 0 2px #51432d; }
 .backend-state { color: var(--muted); font: normal 7px var(--mono); text-transform: capitalize; }
-.backend-health-row { min-height: 42px; margin-bottom: 10px; padding: 6px 7px; display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 4px; background: #1b1d20; }
-.backend-health-row > span:nth-child(2) { min-width: 0; flex: 1; display: flex; flex-direction: column; }
-.backend-health-row strong { font-size: 8.5px; text-transform: capitalize; }
-.backend-health-row small { overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 7.5px; white-space: nowrap; }
-.backend-health-row button { height: 24px; padding: 0 7px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line-strong); border-radius: 3px; background: #2d3035; font-size: 8px; cursor: pointer; }
+.service-health-stack { margin-bottom: 10px; display: grid; gap: 6px; }
+.service-health-row { min-height: 42px; padding: 6px 7px; display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 4px; background: #1b1d20; }
+.service-health-row > span:nth-child(2) { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.service-health-row strong { color: #d4d8dd; font-size: 8.5px; font-weight: 500; }
+.service-health-row small { overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 7.5px; white-space: nowrap; }
+.service-health-row button { height: 24px; padding: 0 7px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line-strong); border-radius: 3px; color: #c6cbd1; background: #2d3035; font-size: 8px; cursor: pointer; }
+.service-health-row button:disabled { opacity: .55; cursor: default; }
 .progress { height: 4px; margin-top: 9px; overflow: hidden; border-radius: 2px; background: #30343a; }
 .progress span { display: block; width: 35%; height: 100%; background: #546271; }
 .progress span.ready { width: 100%; background: linear-gradient(90deg, #5d83ed, #62b483); }
@@ -378,13 +380,19 @@ button { color: inherit; }
 .rule-editor footer button.primary { border-color: #416aa9; color: white; background: #3665ac; }
 .rule-editor footer button:disabled { opacity: .45; cursor: default; }
 .settings-form label { display: flex; flex-direction: column; gap: 5px; margin-bottom: 11px; color: #aeb3ba; font-size: 9px; }
-.settings-form input[type="text"], .settings-form input[type="password"], .settings-form label > input:not([type]) { width: 100%; height: 31px; padding: 0 8px; outline: 0; border: 1px solid var(--line); border-radius: 4px; color: var(--text); background: #181a1d; font-size: 9px; }
-.settings-form input:focus { border-color: #5478b0; }
+.settings-form input[type="text"], .settings-form input[type="password"], .settings-form label > input:not([type]), .settings-form select { width: 100%; height: 31px; padding: 0 8px; outline: 0; border: 1px solid var(--line); border-radius: 4px; color: var(--text); background-color: #181a1d; font-size: 9px; }
+.settings-form select { padding-right: 28px; color-scheme: dark; cursor: pointer; }
+.settings-form select option { color: var(--text); background: #202225; }
+.settings-form input:focus, .settings-form select:focus { border-color: #5478b0; box-shadow: 0 0 0 1px rgba(84,120,176,.18); }
 .settings-form .toggle-row { flex-direction: row; align-items: center; }
 .toggle-row > span { display: flex; flex-direction: column; }
 .toggle-row small { color: var(--muted); }
 .settings-form footer { display: flex; justify-content: flex-end; }
+.settings-save-footer { min-height: 26px; align-items: center; gap: 8px; }
+.settings-save-footer > span { min-width: 0; flex: 1; display: inline-flex; align-items: center; gap: 5px; color: #d0a05b; font: 8px var(--mono); }
+.settings-save-footer > span.saved { color: #7cbd8d; }
 .settings-form footer button.primary { border-color: #416aa9; color: white; background: #3665ac; }
+.settings-form footer button:disabled { opacity: .55; cursor: default; }
 .capability-list > div { min-height: 48px; display: flex; align-items: center; gap: 8px; }
 .capability-list > div + div { border-top: 1px solid var(--line); }
 .capability-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }

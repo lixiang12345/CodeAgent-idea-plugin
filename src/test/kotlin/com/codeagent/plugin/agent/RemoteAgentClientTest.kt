@@ -60,6 +60,9 @@ class RemoteAgentClientTest {
                 event: assistant.completed
                 data: {"content":"Working","turnIndex":0}
 
+                event: run.completed
+                data: {"runId":"run-1"}
+
             """.trimIndent().replace("\n", "\r\n")
             exchange.responseHeaders.add("Content-Type", "text/event-stream")
             exchange.sendResponseHeaders(200, 0)
@@ -225,7 +228,7 @@ class RemoteAgentClientTest {
             assertEquals("Bearer backend-secret", accountAuthorization)
             assertEquals("Bearer backend-secret", jobsAuthorization)
             assertEquals("Bearer backend-secret", configurationAuthorization)
-            assertEquals(listOf("run.started", "message.delta", "assistant.completed"), eventTypes)
+            assertEquals(listOf("run.started", "message.delta", "assistant.completed", "run.completed"), eventTypes)
             assertTrue(eventPayloads[1].contains("\"turnIndex\":0"))
             assertTrue(eventPayloads[2].contains("\"turnIndex\":0"))
             assertTrue(runBody.contains("\"model\":\"claude-fable-5\""))
@@ -338,6 +341,47 @@ class RemoteAgentClientTest {
 
             assertTrue(error.message.orEmpty().endsWith("Unsupported run mode"))
             assertFalse(requestBody.get().contains("\"model\""))
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun `fails when backend stream closes without a terminal event`() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/v1/runs") { exchange ->
+            exchange.requestBody.close()
+            val events =
+                "event: run.started\r\n" +
+                    "data: {\"runId\":\"run-disconnected\"}\r\n\r\n" +
+                    "event: message.delta\r\n" +
+                    "data: {\"delta\":\"Partial\",\"turnIndex\":0}\r\n\r\n"
+            exchange.responseHeaders.add("Content-Type", "text/event-stream")
+            exchange.sendResponseHeaders(200, 0)
+            exchange.responseBody.bufferedWriter().use { it.write(events) }
+        }
+        server.start()
+
+        try {
+            val client = RemoteAgentClient(
+                settings = CodeAgentSettings(
+                    backendUrl = "http://127.0.0.1:${server.address.port}",
+                    nodePath = "node",
+                    autoApproveReadOnly = true,
+                    backendToken = null,
+                ),
+                httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build(),
+            )
+
+            val error = assertFailsWith<RemoteStreamDisconnectedException> {
+                client.stream(
+                    request = RemoteRunRequest("agent", messages = emptyList(), tools = emptyList(), workspace = RemoteWorkspace()),
+                    onStreamChanged = {},
+                    onEvent = { _, _ -> },
+                )
+            }
+
+            assertTrue(error.message.orEmpty().contains("disconnected before completion"))
         } finally {
             server.stop(0)
         }

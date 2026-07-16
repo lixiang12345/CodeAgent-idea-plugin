@@ -1,4 +1,5 @@
 import { productJobMessages } from "./prompt.mjs";
+import { isRetryableModelError } from "./model-gateway.mjs";
 
 export class ProductJobRunner {
   constructor({ store, modelGateway, concurrency = 4, logger = console }) {
@@ -78,44 +79,61 @@ export class ProductJobRunner {
   async #run(job, signal, onProgress) {
     if (!["subagent", "history-summary"].includes(job.type)) throw new Error(`Unsupported job type: ${job.type}`);
     const prompt = requiredText(job.input?.prompt, "Job prompt");
-    let content = "";
-    let lastPersistedLength = 0;
-    let lastPersistedAt = 0;
     let progressTail = Promise.resolve();
     const model = job.input?.model || this.modelGateway.defaultModel || "";
     const role = job.type === "subagent" ? normalizeSubagentRole(job.input?.role) : undefined;
-    const persistProgress = (force = false) => {
-      if (!content.trim()) return;
-      const now = Date.now();
-      if (!force && content.length - lastPersistedLength < 256 && now - lastPersistedAt < 750) return;
-      lastPersistedLength = content.length;
-      lastPersistedAt = now;
-      const snapshot = { content, model, role, partial: true };
-      progressTail = progressTail.then(() => onProgress(snapshot));
-    };
-    const turn = await this.modelGateway.stream({
-      model: typeof job.input?.model === "string" ? job.input.model : undefined,
-      messages: productJobMessages({
-        type: job.type,
-        prompt,
-        system: job.input?.system,
-        role: job.input?.role,
-        context: job.input?.context,
-        expectedOutput: job.input?.expectedOutput,
-      }),
-      maxOutputTokens: boundedJobInteger(job.input?.maxOutputTokens, 1_024, 16_000, 4_096),
-      tools: [],
-      signal,
-      onTextDelta: (delta) => {
-        content += delta || "";
-        persistProgress();
-      },
+    const messages = productJobMessages({
+      type: job.type,
+      prompt,
+      system: job.input?.system,
+      role: job.input?.role,
+      context: job.input?.context,
+      expectedOutput: job.input?.expectedOutput,
     });
-    if (!content && typeof turn?.content === "string") content = turn.content;
-    if (!content.trim()) throw new Error("Job model returned empty content");
-    persistProgress(true);
-    await progressTail;
-    return { content, model, role, partial: false };
+
+    for (let attempt = 1; attempt <= MODEL_JOB_MAX_ATTEMPTS; attempt += 1) {
+      let content = "";
+      let lastPersistedLength = 0;
+      let lastPersistedAt = 0;
+      const persistProgress = (force = false) => {
+        if (!content.trim()) return;
+        const now = Date.now();
+        if (!force && content.length - lastPersistedLength < 256 && now - lastPersistedAt < 750) return;
+        lastPersistedLength = content.length;
+        lastPersistedAt = now;
+        const snapshot = { content, model, role, partial: true };
+        progressTail = progressTail.then(() => onProgress(snapshot));
+      };
+
+      try {
+        const turn = await this.modelGateway.stream({
+          model: typeof job.input?.model === "string" ? job.input.model : undefined,
+          messages,
+          maxOutputTokens: boundedJobInteger(job.input?.maxOutputTokens, 1_024, 16_000, 4_096),
+          tools: [],
+          signal,
+          onTextDelta: (delta) => {
+            content += delta || "";
+            persistProgress();
+          },
+        });
+        if (!content && typeof turn?.content === "string") content = turn.content;
+        if (!content.trim()) throw new Error("Job model returned empty content");
+        persistProgress(true);
+        await progressTail;
+        return { content, model, role, partial: false };
+      } catch (error) {
+        await progressTail;
+        if (signal.aborted || attempt >= MODEL_JOB_MAX_ATTEMPTS || !isRetryableModelError(error)) throw error;
+        this.logger.warn?.(
+          `Retrying ${job.type} model task after a transient stream failure ` +
+            `(${attempt}/${MODEL_JOB_MAX_ATTEMPTS}): ${rootMessage(error)}`,
+        );
+        await waitForRetry(signal, MODEL_JOB_RETRY_BASE_DELAY_MS * (2 ** (attempt - 1)));
+      }
+    }
+
+    throw new Error("Job model retry budget exhausted");
   }
 
   #key(userId, id) {
@@ -171,3 +189,21 @@ function rootMessage(error) {
   while (current?.cause) current = current.cause;
   return current instanceof Error ? current.message : String(current);
 }
+
+function waitForRetry(signal, delayMs) {
+  if (signal.aborted) return Promise.reject(signal.reason || new Error("Job cancelled"));
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(signal.reason || new Error("Job cancelled"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+const MODEL_JOB_MAX_ATTEMPTS = 3;
+const MODEL_JOB_RETRY_BASE_DELAY_MS = 250;

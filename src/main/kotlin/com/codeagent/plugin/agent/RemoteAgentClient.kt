@@ -399,7 +399,8 @@ internal class RemoteAgentClient(
                 }
             }
         }
-        dispatch()
+        if (dispatch()) return
+        throw RemoteStreamDisconnectedException("Backend run stream disconnected before completion")
     }
 
     companion object {
@@ -562,6 +563,8 @@ internal class RemoteRunExpiredException(
     message: String,
  ) : IllegalStateException(message)
 
+internal class RemoteStreamDisconnectedException(message: String) : IllegalStateException(message)
+
 
 @Serializable
 internal data class RemoteBackendHealth(
@@ -644,6 +647,7 @@ internal data class RemoteConversationMessage(
     val createdAt: Long,
     val runId: String? = null,
     val turnIndex: Int? = null,
+    val timelineSequence: Long = 0,
 )
 
 @Serializable
@@ -659,6 +663,7 @@ internal data class RemoteConversationTool(
     val turnIndex: Int? = null,
     val createdAt: Long,
     val updatedAt: Long = createdAt,
+    val timelineSequence: Long = 0,
 )
 
 @Serializable
