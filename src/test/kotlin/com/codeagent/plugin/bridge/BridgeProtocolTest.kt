@@ -10,6 +10,8 @@ import kotlinx.serialization.encodeToString
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class BridgeProtocolTest {
     private val json = Json { ignoreUnknownKeys = true }
@@ -29,6 +31,25 @@ class BridgeProtocolTest {
         assertFailsWith<Exception> {
             json.decodeFromString<CommandEnvelope>("""{"version":1}""")
         }
+    }
+
+    @Test
+    fun `dispatches IDE UI bridge commands to the event thread`() {
+        listOf(
+            "attachActiveEditor",
+            "browseImageDirectory",
+            "copyText",
+            "copyThread",
+            "exportTasks",
+            "exportThread",
+            "importTasks",
+            "importThread",
+            "pickContext",
+        ).forEach { command ->
+            assertTrue(bridgeCommandRequiresEdt(command), command)
+        }
+        assertFalse(bridgeCommandRequiresEdt("sendMessage"))
+        assertFalse(bridgeCommandRequiresEdt("refreshImageCanvas"))
     }
 
     @Test
@@ -58,6 +79,32 @@ class BridgeProtocolTest {
             """{"requestId":"save-1","backendTokenConfigured":true,"contextHttpTokenConfigured":false,"contextEmbeddingTokenConfigured":true}""",
             encoded,
         )
+    }
+
+    @Test
+    fun `encodes explicit ContextEngine connection results and incremental sync state`() {
+        val checked = json.encodeToString(
+            ContextConnectionCheckedDto(
+                ok = false,
+                label = "ContextEngine token is invalid",
+            ),
+        )
+        val context = json.encodeToString(
+            ContextSnapshotDto(
+                state = "ready",
+                label = "68 files indexed",
+                watching = true,
+                pendingChanges = 2,
+                automaticIndexRuns = 4,
+                lastAutomaticIndexAt = "2026-07-16T10:00:00Z",
+                watchError = "watcher unavailable",
+            ),
+        )
+
+        assertEquals("""{"ok":false,"label":"ContextEngine token is invalid"}""", checked)
+        assertTrue(context.contains("\"pendingChanges\":2"))
+        assertTrue(context.contains("\"automaticIndexRuns\":4"))
+        assertTrue(context.contains("\"watchError\":\"watcher unavailable\""))
     }
 
     @Test

@@ -14,6 +14,10 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.put
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import java.nio.file.Path
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
@@ -25,6 +29,9 @@ class ContextEngineService(project: Project) : Disposable {
         .toAbsolutePath()
         .normalize()
     private val settings = service<CodeAgentSettingsService>()
+    private val httpClient = HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(10))
+        .build()
     private val client = ContextEngineClient(root, projectContextRoots(project, root)) {
         contextEngineRuntimeSettings(settings.snapshot())
     }
@@ -32,12 +39,10 @@ class ContextEngineService(project: Project) : Disposable {
     fun status(): CompletableFuture<ContextStatus> =
         client.request("status").thenCompose { payload ->
             val status = json.decodeFromJsonElement<ContextStatus>(payload)
-            if (!status.indexed) {
+            if (!status.indexed || status.watching) {
                 CompletableFuture.completedFuture(status)
             } else {
-                ensureWatching().thenCompose {
-                    client.request("status").thenApply { current -> json.decodeFromJsonElement(current) }
-                }
+                ensureWatching()
             }
         }
 
@@ -99,6 +104,12 @@ class ContextEngineService(project: Project) : Disposable {
     ).thenApply { json.decodeFromJsonElement(it) }
 
     fun restart() = client.restart()
+
+    internal fun checkRemoteConnection(
+        baseUrl: String,
+        apiKey: String?,
+    ): CompletableFuture<ContextConnectionCheck> =
+        validateContextEngineConnection(httpClient, baseUrl, apiKey)
 
     internal fun sidecarRequest(
         type: String,
@@ -236,3 +247,50 @@ data class PackedContext(
     val estimatedTokens: Int,
     val truncated: Boolean,
 )
+
+internal data class ContextConnectionCheck(
+    val ok: Boolean,
+    val label: String,
+)
+
+internal fun validateContextEngineConnection(
+    httpClient: HttpClient,
+    baseUrl: String,
+    apiKey: String?,
+): CompletableFuture<ContextConnectionCheck> {
+    val normalizedBaseUrl = normalizeContextEngineHttpUrl(baseUrl)
+    val request = HttpRequest.newBuilder(URI.create("$normalizedBaseUrl/v1/workspaces"))
+        .timeout(Duration.ofSeconds(15))
+        .GET()
+        .apply {
+            apiKey?.trim()?.takeIf { it.isNotEmpty() }?.let { header("Authorization", "Bearer $it") }
+        }
+        .build()
+    return httpClient.sendAsync(request, HttpResponse.BodyHandlers.discarding()).thenApply { response ->
+        when (response.statusCode()) {
+            in 200..299 -> ContextConnectionCheck(
+                ok = true,
+                label = "Connection and token verified. Save settings to apply.",
+            )
+            401 -> ContextConnectionCheck(ok = false, label = "ContextEngine token is invalid")
+            403 -> ContextConnectionCheck(ok = false, label = "ContextEngine token is not authorized")
+            else -> ContextConnectionCheck(
+                ok = false,
+                label = "ContextEngine returned HTTP ${response.statusCode()}",
+            )
+        }
+    }
+}
+
+private fun normalizeContextEngineHttpUrl(value: String): String {
+    val normalized = value.trim().trimEnd('/')
+    val uri = URI.create(normalized)
+    require(uri.scheme == "http" || uri.scheme == "https") { "ContextEngine URL must use http or https" }
+    require(uri.host != null) { "ContextEngine URL must include a host" }
+    val loopback = uri.host in setOf("localhost", "127.0.0.1", "::1")
+    require(uri.scheme == "https" || loopback) {
+        "ContextEngine URL must use https unless it targets the local machine"
+    }
+    require(uri.userInfo == null) { "ContextEngine URL must not contain credentials" }
+    return normalized
+}

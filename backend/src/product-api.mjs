@@ -341,7 +341,7 @@ function normalizeConfiguration(kind, value) {
     case "agents": {
       const agentType = enumValue(value.agentType, "agentType", ["general", "search", "context", "prompt", "loop"], "general");
       const runtimeDefaults = AGENT_CONFIGURATION_DEFAULTS[agentType];
-      const contextWindowTokens = boundedInteger(value.contextWindowTokens, 32_768, 2_000_000, 64_000);
+      const contextWindowTokens = boundedInteger(value.contextWindowTokens, 32_768, 2_000_000, 256_000);
       const reservedOutputTokens = boundedInteger(value.reservedOutputTokens, 1_024, 65_536, 8_192);
       if (reservedOutputTokens >= contextWindowTokens) {
         throw badRequest("reservedOutputTokens must be smaller than contextWindowTokens");

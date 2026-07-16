@@ -49,15 +49,33 @@ test("uses Agent profile context settings without a model registry", () => {
   assert.equal(retrievalBudgetForContextWindow(500_000), 24_064);
 
   const defaults = contextBudgetFor(builtInAgentProfile("general"), []);
-  assert.equal(defaults.contextWindowTokens, 64_000);
-  assert.equal(defaults.retrievalBudgetTokens, 8_192);
+  assert.equal(defaults.contextWindowTokens, 256_000);
+  assert.equal(defaults.inputBudgetTokens, 247_808);
+  assert.equal(defaults.compactionTriggerTokens, 204_800);
+  assert.equal(defaults.retrievalBudgetTokens, 17_408);
 
   const configured = contextBudgetFor(
     { ...builtInAgentProfile("general"), contextWindowTokens: 128_000 },
     [],
   );
   assert.equal(configured.contextWindowTokens, 128_000);
+  assert.equal(configured.compactionTriggerTokens, 102_400);
   assert.equal(configured.retrievalBudgetTokens, 11_776);
+});
+
+test("automatically compacts conversation input at 80 percent of model context", () => {
+  const budget = contextBudgetFor(builtInAgentProfile("general"), []);
+  const prepared = prepareModelMessages([
+    { role: "system", content: "System policy" },
+    ...Array.from({ length: 18 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `${index}: ${"x".repeat(68_000)}`,
+    })),
+  ], budget);
+
+  assert.equal(prepared.stats.targetInputTokens + prepared.stats.toolDefinitionTokens, 204_800);
+  assert.ok(prepared.stats.truncatedMessages > 0);
+  assert.equal(prepared.stats.overBudget, false);
 });
 
 test("anchors Agent profile policy before lower-priority customization", () => {
@@ -880,7 +898,7 @@ test("serves the public OpenAPI contract", async () => {
     assert.equal(contract.components.schemas.ToolCatalogUpdatedEvent.required.includes("activeToolNames"), true);
     assert.equal(contract.components.schemas.VerificationUpdatedEvent.required.includes("status"), true);
     assert.equal(contract.components.schemas.Workspace.properties.historySummary.type.includes("null"), true);
-    assert.equal(contract.components.schemas.ConfigurationValue.properties.contextWindowTokens.default, 64_000);
+    assert.equal(contract.components.schemas.ConfigurationValue.properties.contextWindowTokens.default, 256_000);
     assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["context.updated"].$ref, "#/components/schemas/ContextUpdatedEvent");
     assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["tool.catalog.updated"].$ref, "#/components/schemas/ToolCatalogUpdatedEvent");
     assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["verification.updated"].$ref, "#/components/schemas/VerificationUpdatedEvent");

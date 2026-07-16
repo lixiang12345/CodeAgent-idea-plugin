@@ -74,6 +74,20 @@ import java.util.concurrent.atomic.AtomicLong
 
 private const val BROWSER_EVENT_RETRY_MS = 750L
 
+internal fun bridgeCommandRequiresEdt(type: String): Boolean = type in EDT_BRIDGE_COMMANDS
+
+private val EDT_BRIDGE_COMMANDS = setOf(
+    "attachActiveEditor",
+    "browseImageDirectory",
+    "copyText",
+    "copyThread",
+    "exportTasks",
+    "exportThread",
+    "importTasks",
+    "importThread",
+    "pickContext",
+)
+
 class IdeBridge(
     private val project: Project,
     private val browser: JBCefBrowser,
@@ -104,9 +118,11 @@ class IdeBridge(
     private val oidcLogin = service<OidcLoginService>()
     private val stateLock = Any()
     private val runs = RunGeneration()
+    private val contextIndexRuns = RunGeneration()
     private val browserEvents = BrowserEventQueue()
     private val browserEventSequence = AtomicLong()
     private val browserDispatchScheduled = AtomicBoolean()
+    private val contextIndexing = AtomicBoolean()
     private val disposed = AtomicBoolean()
     private var runState = "idle"
     private var agentRun = AgentRunTelemetryDto()
@@ -176,11 +192,7 @@ class IdeBridge(
             emitSnapshot()
         }
         query.addHandler { raw ->
-            runCatching { handle(raw) }
-                .onFailure { error ->
-                    LOG.warn("Failed to handle web command", error)
-                    emit("error", mapOf("message" to (error.message ?: "Bridge command failed")))
-                }
+            handleSafely(raw)
             null
         }
     }
@@ -203,6 +215,8 @@ class IdeBridge(
             runs.invalidate()
             interruptActiveToolsLocked("IDE view closed")
         }
+        contextIndexRuns.invalidate()
+        contextIndexing.set(false)
         agent.cancel()
         cloudSync.setChangeListener(null)
         mcpRuntimeService.setChangeListener(null)
@@ -216,10 +230,24 @@ class IdeBridge(
         query.dispose()
     }
 
+    private fun handleSafely(raw: String) {
+        runCatching { handle(raw) }
+            .onFailure { error ->
+                LOG.warn("Failed to handle web command", error)
+                emit("error", mapOf("message" to (error.message ?: "Bridge command failed")))
+            }
+    }
+
     private fun handle(raw: String) {
         val command = json.decodeFromString<CommandEnvelope>(raw)
         require(command.version == BRIDGE_PROTOCOL_VERSION) {
             "Unsupported bridge protocol ${command.version}"
+        }
+        if (bridgeCommandRequiresEdt(command.type) && !ApplicationManager.getApplication().isDispatchThread) {
+            ApplicationManager.getApplication().invokeLater {
+                if (!disposed.get() && !project.isDisposed) handleSafely(raw)
+            }
+            return
         }
 
         when (command.type) {
@@ -286,7 +314,7 @@ class IdeBridge(
             }
             "getContextStatus" -> refreshContextStatus()
             "checkBackend" -> checkBackendHealth()
-            "checkContextEngine" -> refreshContextStatus(showChecking = true)
+            "checkContextEngine" -> checkContextEngine(command.payload)
             "indexWorkspace" -> indexWorkspace()
             "saveSettings" -> saveSettings(requireNotNull(command.payload) { "saveSettings requires payload" })
             "signIn" -> signIn()
@@ -1080,6 +1108,8 @@ class IdeBridge(
             previous.contextNeuralRerank != current.contextNeuralRerank ||
             previous.contextRerankBaseUrl != current.contextRerankBaseUrl ||
             previous.contextRerankModel != current.contextRerankModel) {
+            contextIndexRuns.invalidate()
+            contextIndexing.set(false)
             contextEngine.restart()
             refreshContextStatus()
         } else {
@@ -1193,35 +1223,82 @@ class IdeBridge(
             configuration.id == agentProfileId && configuration.value["enabled"]?.toString() != "false"
         }
 
-    private fun refreshContextStatus(showChecking: Boolean = false) {
-        if (showChecking) {
-            context = ContextSnapshotDto(state = "checking", label = "Checking ContextEngine connection")
+    private fun refreshContextStatus() {
+        contextEngine.status().whenComplete { status, error ->
+            if (error != null) {
+                context = ContextSnapshotDto(state = "error", label = error.rootMessage())
+                emitSnapshot()
+                return@whenComplete
+            }
+            if (!status.indexed) {
+                startContextIndex(automatic = true)
+                return@whenComplete
+            }
+            context = ContextSnapshotDto(
+                state = "ready",
+                label = buildString {
+                    append("${status.fileCount} files indexed")
+                    if (status.roots.size > 1) append(" across ${status.roots.size} roots")
+                    append(if (status.watching) " · Auto-sync on" else " · Manual refresh")
+                    if (status.hasEmbeddings) append(" · Semantic search")
+                    status.watchError?.let { append(" · Watch error: $it") }
+                },
+                files = status.fileCount,
+                chunks = status.chunkCount,
+                roots = status.roots.size.coerceAtLeast(1),
+                watchedRoots = status.watchedRootCount,
+                watching = status.watching,
+                hasEmbeddings = status.hasEmbeddings,
+                lastIndexedAt = status.lastIndexedAt,
+                pendingChanges = status.pendingChanges,
+                automaticIndexRuns = status.automaticIndexRuns,
+                lastAutomaticIndexAt = status.lastAutomaticIndexAt,
+                watchError = status.watchError,
+            )
             emitSnapshot()
         }
+    }
 
-        contextEngine.status().whenComplete { status, error ->
-            context = when {
-                error != null -> ContextSnapshotDto(state = "error", label = error.rootMessage())
-                status.indexed -> ContextSnapshotDto(
-                    state = "ready",
-                    label = buildString {
-                        append("${status.fileCount} files indexed")
-                        if (status.roots.size > 1) append(" across ${status.roots.size} roots")
-                        append(if (status.watching) " · Auto-sync on" else " · Manual refresh")
-                        if (status.hasEmbeddings) append(" · Semantic search")
-                        status.watchError?.let { append(" · Watch error: $it") }
-                    },
-                    files = status.fileCount,
-                    chunks = status.chunkCount,
-                    roots = status.roots.size.coerceAtLeast(1),
-                    watchedRoots = status.watchedRootCount,
-                    watching = status.watching,
-                    hasEmbeddings = status.hasEmbeddings,
-                    lastIndexedAt = status.lastIndexedAt,
+    private fun checkContextEngine(payload: JsonElement?) {
+        val request = payload?.let { json.decodeFromJsonElement<CheckContextEnginePayload>(it) }
+            ?: CheckContextEnginePayload()
+        val current = settingsService.snapshot()
+        val mode = request.contextMode?.trim()?.takeIf { it.isNotEmpty() } ?: current.contextMode
+        if (mode != "remote-http") {
+            contextEngine.status().whenComplete { status, error ->
+                emit(
+                    "contextConnectionChecked",
+                    json.encodeToJsonElement(
+                        ContextConnectionCheckedDto(
+                            ok = error == null,
+                            label = when {
+                                error != null -> error.rootMessage()
+                                status?.indexed == true -> "ContextEngine runtime verified"
+                                else -> "ContextEngine runtime verified. Project is not indexed."
+                            },
+                        ),
+                    ),
                 )
-                else -> ContextSnapshotDto(state = "not_indexed", label = "Index project")
             }
-            emitSnapshot()
+            return
+        }
+
+        val baseUrl = request.contextHttpBaseUrl
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: current.contextHttpBaseUrl
+        val inputToken = request.contextHttpApiKey?.trim()?.takeIf { it.isNotEmpty() }
+        val apiKey = inputToken ?: resolvedContextHttpApiKey(current)
+        contextEngine.checkRemoteConnection(baseUrl, apiKey).whenComplete { result, error ->
+            emit(
+                "contextConnectionChecked",
+                json.encodeToJsonElement(
+                    ContextConnectionCheckedDto(
+                        ok = error == null && result?.ok == true,
+                        label = error?.rootMessage() ?: result?.label ?: "ContextEngine connection check failed",
+                    ),
+                ),
+            )
         }
     }
 
@@ -2039,14 +2116,24 @@ class IdeBridge(
         }
     }
 
-    private fun indexWorkspace() {
-        context = ContextSnapshotDto(state = "indexing", label = "Starting index")
+    private fun indexWorkspace() = startContextIndex(automatic = false)
+
+    private fun startContextIndex(automatic: Boolean) {
+        if (!contextIndexing.compareAndSet(false, true)) return
+        val generation = contextIndexRuns.next()
+        context = ContextSnapshotDto(
+            state = "indexing",
+            label = if (automatic) "Preparing automatic project index" else "Starting project index",
+        )
         emitSnapshot()
         contextEngine.index { progress ->
+            if (!contextIndexRuns.isCurrent(generation)) return@index
             val count = if (progress.filesTotal > 0) "${progress.filesDone}/${progress.filesTotal}" else progress.phase
             context = ContextSnapshotDto(state = "indexing", label = "Indexing $count")
             emitSnapshot()
         }.whenComplete { _, error ->
+            if (!contextIndexRuns.isCurrent(generation)) return@whenComplete
+            contextIndexing.set(false)
             if (error != null) {
                 context = ContextSnapshotDto(state = "error", label = error.rootMessage())
                 emitSnapshot()
@@ -2475,6 +2562,13 @@ class IdeBridge(
         val contextRerankBaseUrl: String = "",
         val contextRerankModel: String = "Qwen/Qwen3-Reranker-0.6B",
         val requestId: String? = null,
+    )
+
+    @Serializable
+    private data class CheckContextEnginePayload(
+        val contextMode: String? = null,
+        val contextHttpBaseUrl: String? = null,
+        val contextHttpApiKey: String? = null,
     )
 
     @Serializable

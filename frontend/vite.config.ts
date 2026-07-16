@@ -6,6 +6,15 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [svelte()],
   base: "./",
+  server: {
+    proxy: {
+      "/__contextengine": {
+        target: "http://127.0.0.1:8790",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/__contextengine/, ""),
+      },
+    },
+  },
   build: {
     target: "chrome120",
     cssCodeSplit: true,

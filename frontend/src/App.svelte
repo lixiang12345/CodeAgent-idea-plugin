@@ -133,6 +133,9 @@
   let contextNeuralRerank = false;
   let contextRerankBaseUrl = "";
   let contextRerankModel = "Qwen/Qwen3-Reranker-0.6B";
+  type ContextTestState = "idle" | "checking" | "success" | "error";
+  let contextTestState: ContextTestState = "idle";
+  let contextTestLabel = "";
   type SettingsSaveState = "idle" | "saving" | "saved";
   type PendingSettingsSave = {
     requestId: string;
@@ -185,6 +188,15 @@
   let checkpoints: Array<{ id: string; label: string; createdAt: number; changeCount: number; paths: string[] }> = [];
   let noticeTimer: number | undefined;
   let errorTimer: number | undefined;
+  type ContextCompactionState = "idle" | "running" | "complete";
+  let contextCompactionState: ContextCompactionState = "idle";
+  let contextCompactionProgress = 0;
+  let contextCompactionMessages = 0;
+  let contextCompactionTools = 0;
+  let contextCompactionSignature = "";
+  let contextCompactionAdvanceTimer: number | undefined;
+  let contextCompactionCompleteTimer: number | undefined;
+  let contextCompactionHideTimer: number | undefined;
   let scheduledNotice = "";
   let scheduledError = "";
   let conversationElement: HTMLDivElement | undefined;
@@ -200,10 +212,15 @@
       const hasActiveJobs = snapshot?.jobs.items.some((job) => job.status === "queued" || job.status === "running");
       if (currentView === "jobs" && hasActiveJobs) sendCommand("refreshJobs");
     }, 2000);
+    const contextPoller = window.setInterval(() => {
+      if (currentView === "chat" && snapshot?.context.state === "ready") sendCommand("getContextStatus");
+    }, 5000);
     return () => {
       window.clearInterval(jobPoller);
+      window.clearInterval(contextPoller);
       if (noticeTimer !== undefined) window.clearTimeout(noticeTimer);
       if (errorTimer !== undefined) window.clearTimeout(errorTimer);
+      clearContextCompactionTimers();
       unsubscribe();
     };
   });
@@ -218,10 +235,12 @@
       const forceFollow = forceConversationFollow || nextThreadId !== visibleThreadId;
       if (threadChanged) {
         pendingUserMessages = [];
+        hideContextCompaction();
       } else {
         reconcilePendingUserMessages(nextSnapshot.messages);
       }
       snapshot = nextSnapshot;
+      reconcileContextCompaction(nextSnapshot, nextThreadId);
       visibleThreadId = nextThreadId;
       forceConversationFollow = false;
       resolvingApprovalIds = new Set(
@@ -268,6 +287,12 @@
       settingsSaveState = settingsDirtyWhileSaving ? "idle" : "saved";
       settingsDirtyWhileSaving = false;
       pendingSettingsSave = null;
+      return;
+    }
+    if (event.type === "contextConnectionChecked") {
+      const checked = event.payload as { ok?: boolean; label?: string };
+      contextTestState = checked.ok ? "success" : "error";
+      contextTestLabel = String(checked.label ?? (checked.ok ? "ContextEngine connection verified" : "ContextEngine connection failed"));
       return;
     }
     if (event.type === "error") {
@@ -494,29 +519,86 @@
     return "settings-2";
   }
 
-  function modelContextUsage() {
-    if (!snapshot) return null;
-    const windowTokens = snapshot.agentRun.contextWindowTokens;
-    const reservedTokens = snapshot.agentRun.reservedOutputTokens;
-    const usedTokens = snapshot.agentRun.estimatedInputTokens;
+  function modelContextUsage(currentSnapshot: AppSnapshot | null) {
+    if (!currentSnapshot) return null;
+    const windowTokens = currentSnapshot.agentRun.contextWindowTokens;
+    const usedTokens = currentSnapshot.agentRun.estimatedInputTokens + currentSnapshot.agentRun.toolDefinitionTokens;
     if (windowTokens <= 0 || usedTokens <= 0) return null;
-    const inputCapacity = Math.max(1, windowTokens - reservedTokens);
     return {
       usedTokens,
-      inputCapacity,
-      percent: Math.min(100, Math.max(0, Math.round((usedTokens / inputCapacity) * 100))),
+      contextWindowTokens: windowTokens,
+      compactionTokens: currentSnapshot.agentRun.targetInputTokens + currentSnapshot.agentRun.toolDefinitionTokens,
+      percent: Math.min(100, Math.max(0, Math.round((usedTokens / windowTokens) * 100))),
     };
   }
 
-  function contextMeterText() {
-    const usage = modelContextUsage();
+  function contextMeterText(currentSnapshot: AppSnapshot | null) {
+    const usage = modelContextUsage(currentSnapshot);
     return usage ? `${usage.percent}%` : "--";
   }
 
-  function contextMeterTitle() {
-    const usage = modelContextUsage();
+  function contextMeterTitle(currentSnapshot: AppSnapshot | null) {
+    const usage = modelContextUsage(currentSnapshot);
     if (!usage) return "Model context usage appears after the first model turn";
-    return `${usage.usedTokens.toLocaleString()} of ${usage.inputCapacity.toLocaleString()} input-context tokens used`;
+    return `${usage.usedTokens.toLocaleString()} of ${usage.contextWindowTokens.toLocaleString()} model-context tokens used · automatic compaction at ${usage.compactionTokens.toLocaleString()} (80%)`;
+  }
+
+  function clearContextCompactionTimers() {
+    if (contextCompactionAdvanceTimer !== undefined) window.clearTimeout(contextCompactionAdvanceTimer);
+    if (contextCompactionCompleteTimer !== undefined) window.clearTimeout(contextCompactionCompleteTimer);
+    if (contextCompactionHideTimer !== undefined) window.clearTimeout(contextCompactionHideTimer);
+    contextCompactionAdvanceTimer = undefined;
+    contextCompactionCompleteTimer = undefined;
+    contextCompactionHideTimer = undefined;
+  }
+
+  function hideContextCompaction() {
+    clearContextCompactionTimers();
+    contextCompactionState = "idle";
+    contextCompactionProgress = 0;
+  }
+
+  function reconcileContextCompaction(nextSnapshot: AppSnapshot, threadId?: string) {
+    const compactedMessages = nextSnapshot.agentRun.truncatedMessages;
+    const compactedTools = nextSnapshot.agentRun.compactedToolResults;
+    if (compactedMessages <= 0 && compactedTools <= 0) return;
+    const signature = [
+      threadId ?? "",
+      nextSnapshot.agentRun.turnIndex,
+      nextSnapshot.agentRun.estimatedInputTokens,
+      compactedMessages,
+      compactedTools,
+    ].join(":");
+    if (signature === contextCompactionSignature) return;
+
+    clearContextCompactionTimers();
+    contextCompactionSignature = signature;
+    contextCompactionMessages = compactedMessages;
+    contextCompactionTools = compactedTools;
+    contextCompactionState = "running";
+    contextCompactionProgress = 14;
+    contextCompactionAdvanceTimer = window.setTimeout(() => {
+      contextCompactionProgress = 72;
+    }, 40);
+    contextCompactionCompleteTimer = window.setTimeout(() => {
+      contextCompactionState = "complete";
+      contextCompactionProgress = 100;
+    }, 680);
+    contextCompactionHideTimer = window.setTimeout(() => {
+      contextCompactionState = "idle";
+      contextCompactionProgress = 0;
+    }, 2_700);
+  }
+
+  function contextCompactionDetail() {
+    const details: string[] = [];
+    if (contextCompactionMessages > 0) {
+      details.push(`${contextCompactionMessages} message${contextCompactionMessages === 1 ? "" : "s"}`);
+    }
+    if (contextCompactionTools > 0) {
+      details.push(`${contextCompactionTools} tool output${contextCompactionTools === 1 ? "" : "s"}`);
+    }
+    return details.length > 0 ? details.join(" · ") : "Conversation history";
   }
 
   function toggleTool(id: string) {
@@ -565,6 +647,16 @@
     } else {
       settingsSaveState = "idle";
     }
+  }
+
+  function testContextEngine() {
+    contextTestState = "checking";
+    contextTestLabel = "Checking the current URL and token";
+    sendCommand("checkContextEngine", {
+      contextMode,
+      contextHttpBaseUrl,
+      contextHttpApiKey,
+    });
   }
 
   function saveUserExperience() {
@@ -739,24 +831,60 @@
   }
 
   function updateContext() {
-    sendCommand(snapshot?.context.state === "indexing" ? "getContextStatus" : "indexWorkspace");
+    const state = snapshot?.context.state;
+    sendCommand(state === "not_indexed" || state === "error" || state === "unavailable" ? "indexWorkspace" : "getContextStatus");
   }
 
-  function contextConnectionState() {
-    if (!snapshot) return "offline";
-    if (snapshot.context.state === "checking" || snapshot.context.state === "indexing") return "checking";
-    if (snapshot.context.state === "error" || snapshot.context.state === "unavailable") return "offline";
+  function contextIndexState(currentSnapshot: AppSnapshot | null) {
+    if (!currentSnapshot) return "unavailable";
+    if (currentSnapshot.context.watchError) return "error";
+    if ((currentSnapshot.context.pendingChanges ?? 0) > 0) return "indexing";
+    return currentSnapshot.context.state;
+  }
+
+  function contextIndexLabel(currentSnapshot: AppSnapshot | null) {
+    if (!currentSnapshot) return "Context unavailable";
+    if (currentSnapshot.context.watchError) return "Sync error";
+    const pending = currentSnapshot.context.pendingChanges ?? 0;
+    if (pending > 0) return pending === 1 ? "Syncing 1 change" : `Syncing ${pending} changes`;
+    if (currentSnapshot.context.state === "ready") return currentSnapshot.context.watching ? "Auto-synced" : "Indexed";
+    return currentSnapshot.context.label;
+  }
+
+  function contextIndexTitle(currentSnapshot: AppSnapshot | null) {
+    if (!currentSnapshot) return "Context unavailable";
+    const details = [currentSnapshot.context.label];
+    if (currentSnapshot.context.lastAutomaticIndexAt) {
+      const timestamp = Date.parse(currentSnapshot.context.lastAutomaticIndexAt);
+      if (Number.isFinite(timestamp)) details.push(`Last automatic sync ${formatTime(timestamp)}`);
+    }
+    if ((currentSnapshot.context.automaticIndexRuns ?? 0) > 0) {
+      details.push(`${currentSnapshot.context.automaticIndexRuns} automatic sync runs`);
+    }
+    return details.join(" · ");
+  }
+
+  function contextConnectionState(currentSnapshot: AppSnapshot | null, testState: ContextTestState) {
+    if (testState === "checking") return "checking";
+    if (testState === "success") return "online";
+    if (testState === "error") return "offline";
+    if (!currentSnapshot) return "offline";
+    if (currentSnapshot.context.watchError) return "offline";
+    if (currentSnapshot.context.state === "checking" || currentSnapshot.context.state === "indexing") return "checking";
+    if (currentSnapshot.context.state === "error" || currentSnapshot.context.state === "unavailable") return "offline";
     return "online";
   }
 
-  function contextConnectionLabel() {
-    if (!snapshot) return "ContextEngine status unavailable";
-    if (snapshot.context.state === "not_indexed") return "Connected · Project not indexed";
-    if (snapshot.context.state === "ready" && snapshot.context.hasEmbeddings) {
+  function contextConnectionLabel(currentSnapshot: AppSnapshot | null, testState: ContextTestState, testLabel: string) {
+    if (testState !== "idle") return testLabel;
+    if (!currentSnapshot) return "ContextEngine status unavailable";
+    if (currentSnapshot.context.watchError) return `Sync error · ${currentSnapshot.context.watchError}`;
+    if (currentSnapshot.context.state === "not_indexed") return "Connected · Project not indexed";
+    if (currentSnapshot.context.state === "ready" && currentSnapshot.context.hasEmbeddings) {
       return "Connected · Model embeddings and semantic search ready";
     }
-    if (snapshot.context.state === "ready") return "Connected · Index ready, embeddings unavailable";
-    return snapshot.context.label;
+    if (currentSnapshot.context.state === "ready") return "Connected · Index ready, embeddings unavailable";
+    return currentSnapshot.context.label;
   }
 
   function toggleSkill(skill: WorkspaceSkill) {
@@ -791,7 +919,7 @@
       details.push(`${snapshot.agentRun.activeToolCount}/${snapshot.agentRun.catalogToolCount} tools`);
     }
     if (snapshot.agentRun.targetInputTokens > 0) {
-      details.push(`${compactTokenCount(snapshot.agentRun.estimatedInputTokens)}/${compactTokenCount(snapshot.agentRun.targetInputTokens)} context`);
+      details.push(`${compactTokenCount(snapshot.agentRun.estimatedInputTokens + snapshot.agentRun.toolDefinitionTokens)}/${compactTokenCount(snapshot.agentRun.contextWindowTokens)} context`);
     }
     return details.length > 0 ? `${phase} · ${details.join(" · ")}` : phase;
   }
@@ -835,9 +963,33 @@
     ].filter(Boolean).join(" · ");
   }
 
-  function hasRunTelemetry() {
-    if (!snapshot) return false;
-    const telemetry = snapshot.agentRun;
+  function toolPassStats(tools: ToolRun[]) {
+    const passed = tools.filter((tool) => tool.status === "completed").length;
+    const failed = tools.filter((tool) => tool.status === "failed" || tool.status === "rejected").length;
+    return {
+      passed,
+      failed,
+      active: Math.max(0, tools.length - passed - failed),
+      total: tools.length,
+    };
+  }
+
+  function toolPassStatus(tools: ToolRun[]) {
+    const stats = toolPassStats(tools);
+    if (stats.failed > 0) return `${stats.passed}/${stats.total} passed · ${stats.failed} failed`;
+    if (stats.active > 0) return `${stats.passed}/${stats.total} passed · ${stats.active} active`;
+    return `${stats.passed}/${stats.total} passed`;
+  }
+
+  function setToolPassExpanded(tools: ToolRun[], expanded: boolean) {
+    const next = new Set(toolsExpanded);
+    tools.forEach((tool) => expanded ? next.add(tool.id) : next.delete(tool.id));
+    toolsExpanded = next;
+  }
+
+  function hasRunTelemetry(currentSnapshot: AppSnapshot | null) {
+    if (!currentSnapshot) return false;
+    const telemetry = currentSnapshot.agentRun;
     return telemetry.turnIndex > 0
       || telemetry.estimatedInputTokens > 0
       || telemetry.catalogToolCount > 0
@@ -1359,7 +1511,7 @@
             <strong class="thread-title" title="Double-click to rename" ondblclick={beginRename}>{activeThread()?.title ?? "New thread"}</strong>
           {/if}
           <div class="ch-actions">
-            <span class="context-meter" title={contextMeterTitle()}><Icon name="gauge" size={12} /> Context <b>{contextMeterText()}</b></span>
+            <span class="context-meter" title={contextMeterTitle(snapshot)}><Icon name="gauge" size={12} /> Context <b>{contextMeterText(snapshot)}</b></span>
             <div class="chat-zoom-controls" role="group" aria-label="Chat zoom">
               <button class="icon-button compact" title="Decrease chat zoom (Cmd/Ctrl -)" aria-label="Decrease chat zoom" disabled={chatZoom <= CHAT_ZOOM_MIN} onclick={() => adjustChatZoom(-CHAT_ZOOM_STEP)}><Icon name="minus" size={13} /></button>
               <button class="chat-zoom-value" title="Reset chat zoom (Cmd/Ctrl 0)" aria-label={`Reset chat zoom, currently ${chatZoom}%`} onclick={resetChatZoom}>{chatZoom}%</button>
@@ -1391,17 +1543,29 @@
           <button class="chip" title="Open Git workspace" onclick={() => openWorkspaceView("git")}><Icon name="git-branch" size={12} /><span>{snapshot.projectName}</span></button>
           <button class="chip accent" title="Repository guidelines" onclick={() => openSettings("Rules & Guidelines")}><Icon name="book-open" size={12} /><span>Guidelines</span></button>
           <span class="repository-spacer"></span>
-          <button class="chip index-state {snapshot.context.state}" title={snapshot.context.label} onclick={updateContext}>
-            <Icon name={snapshot.context.watching ? "refresh-cw" : "database"} size={12} /><span>{snapshot.context.state === "ready" ? snapshot.context.watching ? "Auto-synced" : "Indexed" : snapshot.context.label}</span>
+          <button class="chip index-state {contextIndexState(snapshot)}" title={contextIndexTitle(snapshot)} disabled={contextIndexState(snapshot) === "indexing"} onclick={updateContext}>
+            <Icon name={snapshot.context.watching ? "refresh-cw" : "database"} size={12} /><span>{contextIndexLabel(snapshot)}</span>
           </button>
         </div>
 
-        {#if showRunTelemetry && hasRunTelemetry()}
+        {#if showRunTelemetry && hasRunTelemetry(snapshot)}
           <div class="run-telemetry" title={snapshot.agentRun.verificationMessage ?? snapshot.agentRun.activeToolNames.join(", ")}>
             <span><Icon name="activity" size={11} />Turn {snapshot.agentRun.turnIndex + 1}</span>
-            {#if snapshot.agentRun.targetInputTokens > 0}<span>{compactTokenCount(snapshot.agentRun.estimatedInputTokens)} / {compactTokenCount(snapshot.agentRun.targetInputTokens)} context</span>{/if}
+            {#if snapshot.agentRun.targetInputTokens > 0}<span>{compactTokenCount(snapshot.agentRun.estimatedInputTokens + snapshot.agentRun.toolDefinitionTokens)} / {compactTokenCount(snapshot.agentRun.contextWindowTokens)} context · compact at {compactTokenCount(snapshot.agentRun.targetInputTokens + snapshot.agentRun.toolDefinitionTokens)}</span>{/if}
             {#if snapshot.agentRun.catalogToolCount > 0}<span>{snapshot.agentRun.activeToolCount} / {snapshot.agentRun.catalogToolCount} tools</span>{/if}
             {#if snapshot.agentRun.verificationState !== "idle"}<i class={snapshot.agentRun.verificationState}>{snapshot.agentRun.verificationState}</i>{/if}
+          </div>
+        {/if}
+
+        {#if contextCompactionState !== "idle"}
+          <div class="context-compaction-strip {contextCompactionState}" role="status" aria-live="polite">
+            <Icon name={contextCompactionState === "complete" ? "circle-check" : "refresh-cw"} size={12} />
+            <span>
+              <strong>{contextCompactionState === "complete" ? "Context compacted" : "Compacting context"}</strong>
+              <small>{contextCompactionDetail()}</small>
+            </span>
+            <b>{contextCompactionProgress}%</b>
+            <i class="context-compaction-track" aria-hidden="true"><i style={`width: ${contextCompactionProgress}%`}></i></i>
           </div>
         {/if}
 
@@ -1448,6 +1612,17 @@
                   <div class="generation-status" role="status" aria-live="polite" title={snapshot.agentRun.activeToolNames.join(", ")}><Icon name="circle-dashed" size={13} /><span>{item.label}</span></div>
                 {:else if item.kind === "tools"}
                   <section class="agent-turn tools-turn">
+                    <header class="tool-pass-header">
+                      <span class="tool-pass-title"><Icon name="wrench" size={12} /><strong>Agent tool pass</strong></span>
+                      <span class="tool-pass-copy">
+                        <b class:failed={toolPassStats(item.tools).failed > 0}>{toolPassStatus(item.tools)}</b>
+                        <small>{toolPassMeta(item.turnIndex, item.tools)}</small>
+                      </span>
+                      <span class="tool-pass-actions">
+                        <button title="Expand this tool pass" aria-label="Expand this tool pass" onclick={() => setToolPassExpanded(item.tools, true)}><Icon name="chevrons-down" size={12} /></button>
+                        <button title="Collapse this tool pass" aria-label="Collapse this tool pass" onclick={() => setToolPassExpanded(item.tools, false)}><Icon name="chevrons-down-up" size={12} /></button>
+                      </span>
+                    </header>
                     <div class="tool-list">
                       {#each item.tools as tool (tool.id)}
                         <section class="tool-card {tool.status}">
@@ -1812,7 +1987,7 @@
                   Connect this IDE capability gateway to the deployed Agent backend.
                 {/if}
               </p>
-              <section class="settings-form settings-block" oninput={markSettingsDirty} onchange={markSettingsDirty}>
+              <section class="settings-form settings-block" oninput={markSettingsDirty}>
                 <label><span>Backend URL</span><input bind:value={backendUrl} /></label>
                 <label><span>Backend token</span><input type="password" bind:value={backendToken} placeholder={snapshot.settings.backendTokenConfigured ? "Configured" : "Not configured"} /></label>
                 <label><span>Node.js executable</span><input bind:value={nodePath} /></label>
@@ -1846,9 +2021,9 @@
                   </div>
                   {#if contextMode !== "lexical"}
                     <div class="service-health-row">
-                      <span class="service-status {contextConnectionState()}"></span>
-                      <span><strong>ContextEngine</strong><small>{contextConnectionLabel()}</small></span>
-                      <button disabled={snapshot.context.state === "checking" || snapshot.context.state === "indexing"} onclick={() => sendCommand("checkContextEngine")}><Icon name="refresh-ccw" size={12} />{snapshot.context.state === "checking" ? "Checking..." : "Test connection"}</button>
+                      <span class="service-status {contextConnectionState(snapshot, contextTestState)}"></span>
+                      <span><strong>ContextEngine</strong><small>{contextConnectionLabel(snapshot, contextTestState, contextTestLabel)}</small></span>
+                      <button disabled={contextTestState === "checking" || snapshot.context.state === "indexing"} onclick={testContextEngine}><Icon name="refresh-ccw" size={12} />{contextTestState === "checking" ? "Checking..." : "Test connection"}</button>
                     </div>
                   {/if}
                 </div>

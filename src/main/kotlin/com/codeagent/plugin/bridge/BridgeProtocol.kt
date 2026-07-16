@@ -186,6 +186,12 @@ data class SettingsSavedDto(
 )
 
 @Serializable
+data class ContextConnectionCheckedDto(
+    val ok: Boolean,
+    val label: String,
+)
+
+@Serializable
 data class AccountUsageDto(
     val kind: String,
     val units: Long,
@@ -213,6 +219,10 @@ data class ContextSnapshotDto(
     val watching: Boolean = false,
     val hasEmbeddings: Boolean = false,
     val lastIndexedAt: String? = null,
+    val pendingChanges: Int = 0,
+    val automaticIndexRuns: Int = 0,
+    val lastAutomaticIndexAt: String? = null,
+    val watchError: String? = null,
 )
 
 @Serializable

@@ -373,6 +373,10 @@ export interface AppSnapshot {
     watching?: boolean;
     hasEmbeddings?: boolean;
     lastIndexedAt?: string;
+    pendingChanges?: number;
+    automaticIndexRuns?: number;
+    lastAutomaticIndexAt?: string;
+    watchError?: string;
   };
   backendHealth: {
     state: "unknown" | "checking" | "online" | "offline" | "incompatible";
@@ -419,7 +423,6 @@ declare global {
 const listeners = new Set<(event: EventEnvelope) => void>();
 let lastHostEventSequence = 0;
 let developmentSnapshot: AppSnapshot | undefined;
-let developmentIndexGeneration = 0;
 let developmentJobSequence = 0;
 let developmentRunGeneration = 0;
 
@@ -435,6 +438,27 @@ function updateDevelopmentSnapshot(update: (snapshot: AppSnapshot) => AppSnapsho
   if (!developmentSnapshot) return;
   developmentSnapshot = update(developmentSnapshot);
   emitDevelopmentSnapshot();
+}
+
+function startDevelopmentIndex(): void {
+  const indexedAt = new Date().toISOString();
+  updateDevelopmentSnapshot((snapshot) => ({
+    ...snapshot,
+    context: {
+      state: "ready",
+      label: "248 files indexed · Auto-sync on · Semantic search",
+      files: 248,
+      chunks: 1_376,
+      roots: 1,
+      watchedRoots: 1,
+      watching: true,
+      hasEmbeddings: true,
+      pendingChanges: 0,
+      automaticIndexRuns: 1,
+      lastIndexedAt: indexedAt,
+      lastAutomaticIndexAt: indexedAt,
+    },
+  }));
 }
 
 function nextDevelopmentTimelineSequence(snapshot: AppSnapshot): number {
@@ -454,6 +478,7 @@ type DevelopmentMessageRequest = {
 function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
   const text = String(request.text ?? "").trim();
   if (!text || !developmentSnapshot) return;
+  const simulateCompaction = /compact|context window|compaction|压缩|上下文/i.test(text);
   const userMessageId = request.clientMessageId || crypto.randomUUID();
   const toolId = crypto.randomUUID();
   const assistantMessageId = crypto.randomUUID();
@@ -462,6 +487,27 @@ function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
   updateDevelopmentSnapshot((snapshot) => ({
     ...snapshot,
     runState: "running",
+    agentRun: {
+      ...snapshot.agentRun,
+      turnIndex: snapshot.agentRun.turnIndex + 1,
+      estimatedInputTokens: simulateCompaction
+        ? 196_000
+        : Math.min(200_000, 12_288 + snapshot.messages.length * 384 + Math.ceil(text.length / 4)),
+      targetInputTokens: 203_776,
+      contextWindowTokens: 256_000,
+      reservedOutputTokens: 8_192,
+      retrievalBudgetTokens: 17_408,
+      toolDefinitionTokens: 1_024,
+      compactedToolResults: simulateCompaction ? 3 : 0,
+      truncatedMessages: simulateCompaction ? 6 : 0,
+      overBudget: false,
+      activeToolNames: ["codebase_retrieval"],
+      activeToolCount: 1,
+      catalogToolCount: 12,
+      discoverableToolCount: 11,
+      activatedToolNames: ["codebase_retrieval"],
+      verificationState: "idle",
+    },
     messages: [...snapshot.messages, {
       id: userMessageId,
       role: "user",
@@ -490,6 +536,11 @@ function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
       return {
         ...snapshot,
         runState: "idle",
+        agentRun: {
+          ...snapshot.agentRun,
+          activeToolNames: [],
+          activeToolCount: 0,
+        },
         messageQueue: queuedMessage ? snapshot.messageQueue.slice(1) : snapshot.messageQueue,
         tools: snapshot.tools.map((tool) => tool.id === toolId
           ? { ...tool, status: "completed", detail: `Query\n${text}\n\nSources\nfrontend/src/App.svelte\nfrontend/src/lib/protocol.ts` }
@@ -701,51 +752,45 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     return;
   }
   if (command.type === "checkContextEngine") {
-    const previousContext = developmentSnapshot?.context;
-    updateDevelopmentSnapshot((snapshot) => ({
-      ...snapshot,
-      context: { state: "checking", label: "Checking ContextEngine connection" },
-    }));
-    window.setTimeout(() => updateDevelopmentSnapshot((snapshot) => ({
-      ...snapshot,
-      context: previousContext?.state === "ready"
-        ? previousContext
-        : { state: "not_indexed", label: "Index project" },
-    })), 260);
+    const payload = command.payload as {
+      contextMode?: string;
+      contextHttpBaseUrl?: string;
+      contextHttpApiKey?: string;
+    } | undefined;
+    if (payload?.contextMode !== "remote-http") {
+      queueMicrotask(() => window.CodeAgent?.receive(JSON.stringify({
+        version: 1,
+        type: "contextConnectionChecked",
+        payload: { ok: true, label: "ContextEngine runtime verified" },
+      })));
+      return;
+    }
+    const baseUrl = String(payload.contextHttpBaseUrl ?? "").trim().replace(/\/+$/, "");
+    const token = String(payload.contextHttpApiKey ?? "").trim();
+    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+    const endpoint = baseUrl === "http://127.0.0.1:8790"
+      ? "/__contextengine/v1/workspaces"
+      : `${baseUrl}/v1/workspaces`;
+    void fetch(endpoint, { headers, signal: AbortSignal.timeout(10_000) })
+      .then((response) => {
+        const checked = response.ok
+          ? { ok: true, label: "Connection and token verified. Save settings to apply." }
+          : response.status === 401
+            ? { ok: false, label: "ContextEngine token is invalid" }
+            : response.status === 403
+              ? { ok: false, label: "ContextEngine token is not authorized" }
+              : { ok: false, label: `ContextEngine returned HTTP ${response.status}` };
+        window.CodeAgent?.receive(JSON.stringify({ version: 1, type: "contextConnectionChecked", payload: checked }));
+      })
+      .catch((error) => window.CodeAgent?.receive(JSON.stringify({
+        version: 1,
+        type: "contextConnectionChecked",
+        payload: { ok: false, label: error instanceof Error ? error.message : "ContextEngine connection failed" },
+      })));
     return;
   }
   if (command.type === "indexWorkspace") {
-    const generation = ++developmentIndexGeneration;
-    updateDevelopmentSnapshot((snapshot) => ({
-      ...snapshot,
-      context: { state: "indexing", label: "Starting index" },
-    }));
-    const progress = [
-      { delay: 120, label: "Indexing 48/248" },
-      { delay: 260, label: "Indexing 156/248" },
-      { delay: 400, label: "Indexing 248/248" },
-    ];
-    progress.forEach(({ delay, label }) => window.setTimeout(() => {
-      if (generation !== developmentIndexGeneration) return;
-      updateDevelopmentSnapshot((snapshot) => ({ ...snapshot, context: { state: "indexing", label } }));
-    }, delay));
-    window.setTimeout(() => {
-      if (generation !== developmentIndexGeneration) return;
-      updateDevelopmentSnapshot((snapshot) => ({
-        ...snapshot,
-        context: {
-          state: "ready",
-          label: "248 files indexed · Auto-sync on · Semantic search",
-          files: 248,
-          chunks: 1_376,
-          roots: 1,
-          watchedRoots: 1,
-          watching: true,
-          hasEmbeddings: true,
-          lastIndexedAt: new Date().toISOString(),
-        },
-      }));
-    }, 560);
+    startDevelopmentIndex();
     return;
   }
   if (command.type === "checkBackend") {
@@ -1270,7 +1315,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       label: "Signed in as CodeAgent Developer",
     },
 
-    context: { state: "not_indexed", label: "Index project" },
+    context: { state: "not_indexed", label: "Preparing automatic project index" },
     backendHealth: { state: "online", label: "Connected to codeagent-backend", protocolVersion: 1 },
     models: {
       state: "ready",
@@ -1363,7 +1408,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
               model: "gpt-5.6-sol",
               allowedTools: ["codebase_retrieval", "read_file", "search_text"],
               maxTurns: 10,
-              contextWindowTokens: 400000,
+              contextWindowTokens: 256000,
               reservedOutputTokens: 8192,
             },
           },
@@ -1581,7 +1626,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     },
   };
   developmentSnapshot = snapshot;
-  developmentIndexGeneration += 1;
   developmentJobSequence = 0;
   emitDevelopmentSnapshot();
+  startDevelopmentIndex();
 }

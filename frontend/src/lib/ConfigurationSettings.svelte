@@ -155,7 +155,7 @@ $: if (section !== previousSection) {
       maxToolCalls: 48,
       maxSubagentCalls: 4,
       verificationPolicy: "after-mutation",
-      contextWindowTokens: 64000,
+      contextWindowTokens: 256000,
       reservedOutputTokens: 8192,
       source: "",
       version: "",
@@ -219,7 +219,7 @@ $: if (section !== previousSection) {
       maxToolCalls: numberValue(value.maxToolCalls, 48),
       maxSubagentCalls: numberValue(value.maxSubagentCalls, 4),
       verificationPolicy: text(value.verificationPolicy) || "after-mutation",
-      contextWindowTokens: numberValue(value.contextWindowTokens, 64000),
+      contextWindowTokens: numberValue(value.contextWindowTokens, 256000),
       reservedOutputTokens: numberValue(value.reservedOutputTokens, 8192),
       source: text(value.source),
       version: text(value.version),
@@ -383,7 +383,7 @@ $: if (section !== previousSection) {
         `${numberValue(value.timeoutSeconds, 60)}s`,
       ].join(" · ");
     }
-    if (kind === "agents") return `${text(value.agentType) || "general"} · ${numberValue(value.maxTurns, 12)} turns · ${numberValue(value.maxToolCalls, 48)} tools · ${Math.round(numberValue(value.contextWindowTokens, 64000) / 1000)}k context`;
+    if (kind === "agents") return `${text(value.agentType) || "general"} · ${numberValue(value.maxTurns, 12)} turns · ${numberValue(value.maxToolCalls, 48)} tools · ${Math.round(numberValue(value.contextWindowTokens, 256000) / 1000)}k context`;
     if (kind === "plugins") {
       const runtime = pluginRuntimeFor(item.id);
       return runtime
@@ -502,7 +502,7 @@ $: if (section !== previousSection) {
       <label><span>Maximum tool calls</span><input type="number" min="1" max="256" bind:value={draft.maxToolCalls} /><small>Hard per-run budget across local, backend, discovery, and delegated calls.</small></label>
       <label><span>Maximum subagents</span><input type="number" min="0" max="16" bind:value={draft.maxSubagentCalls} /><small>Limits bounded specialist delegations within one run.</small></label>
       <label><span>Verification policy</span><select bind:value={draft.verificationPolicy}><option value="none">No runtime gate</option><option value="after-mutation">Require verification after mutation</option></select></label>
-      <label><span>Context window tokens</span><input type="number" min="32768" max="2000000" step="1024" bind:value={draft.contextWindowTokens} /><small>Total model context available to this Agent profile.</small></label>
+      <label><span>Context window tokens</span><input type="number" min="32768" max="2000000" step="1024" bind:value={draft.contextWindowTokens} /><small>Total model context available to this Agent profile. Default: 256K; automatic compaction starts at 80%.</small></label>
       <label><span>Reserved output tokens</span><input type="number" min="1024" max="65536" step="1024" bind:value={draft.reservedOutputTokens} /><small>Held back from input so the model can finish its response and tool plan.</small></label>
       <label><span>Custom instructions</span><textarea bind:value={draft.systemPrompt} spellcheck="true"></textarea><small>Account-scoped guidance. The current user request, runtime safety, approvals, and tool policy take priority.</small></label>
     {:else if kind === "plugins"}

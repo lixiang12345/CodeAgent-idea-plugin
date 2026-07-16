@@ -9,7 +9,7 @@ CodeAgent vendors the upstream `lixiang12345/ContextEngine-plugin` commit as a p
 - The SQLite index, source scan, file watcher, searcher, and retrieval packing run on the developer machine.
 - The deployed Agent backend never receives the complete index or direct filesystem access.
 - Only context selected by the user or returned by an approved retrieval tool is sent to the model gateway.
-- A project is indexed once manually. The sidecar then watches the primary project root and any external IntelliJ content roots recursively, and runs one 800 ms debounced incremental pass across the complete root set.
+- The plugin initializes an unindexed project automatically. The sidecar then watches the primary project root and any external IntelliJ content roots recursively, and runs one 800 ms debounced incremental pass across the complete root set.
 - Incremental passes compare content hashes, rewrite only changed files, and remove deleted files. Reads wait for an active index pass so the Agent does not use a half-updated searcher.
 
 ## Model-neutral retrieval output

@@ -492,7 +492,7 @@ internal data class RemoteToolResult(
 @Serializable
 internal data class RemoteRunStarted(
     val runId: String,
-    val contextWindowTokens: Int = 64_000,
+    val contextWindowTokens: Int = 256_000,
     val retrievalBudgetTokens: Int = 8_192,
 )
 

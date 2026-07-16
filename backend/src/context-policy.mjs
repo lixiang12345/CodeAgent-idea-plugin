@@ -1,5 +1,6 @@
-export const DEFAULT_CONTEXT_WINDOW_TOKENS = 64_000;
+export const DEFAULT_CONTEXT_WINDOW_TOKENS = 256_000;
 export const DEFAULT_RESERVED_OUTPUT_TOKENS = 8_192;
+export const DEFAULT_COMPACTION_TRIGGER_RATIO = 0.8;
 export const MIN_CONTEXT_WINDOW_TOKENS = 32_768;
 export const MAX_CONTEXT_WINDOW_TOKENS = 2_000_000;
 export const MIN_RESERVED_OUTPUT_TOKENS = 1_024;
@@ -9,7 +10,8 @@ const COMPACTED_TOOL_EXCERPT_TOKENS = 256;
 const COMPACTED_MESSAGE_TOKENS = 192;
 const RECENT_TOOL_RESULTS = 3;
 const RECENT_MESSAGES = 6;
-const BASE_INPUT_TOKENS = DEFAULT_CONTEXT_WINDOW_TOKENS - DEFAULT_RESERVED_OUTPUT_TOKENS;
+const BASE_RETRIEVAL_CONTEXT_WINDOW_TOKENS = 64_000;
+const BASE_INPUT_TOKENS = BASE_RETRIEVAL_CONTEXT_WINDOW_TOKENS - DEFAULT_RESERVED_OUTPUT_TOKENS;
 const BASE_RETRIEVAL_TOKENS = 8_192;
 const MIN_RETRIEVAL_TOKENS = 4_096;
 const MAX_RETRIEVAL_TOKENS = 24_576;
@@ -39,11 +41,16 @@ export function contextBudgetFor(agentProfile = {}, tools = []) {
     contextWindowTokens,
     reservedOutputTokens,
   );
+  const compactionTriggerTokens = Math.min(
+    inputBudgetTokens,
+    Math.floor(contextWindowTokens * DEFAULT_COMPACTION_TRIGGER_RATIO),
+  );
 
   return {
     contextWindowTokens,
     reservedOutputTokens,
     inputBudgetTokens,
+    compactionTriggerTokens,
     systemPromptTokens: Math.max(4_096, Math.min(24_000, Math.floor(inputBudgetTokens * 0.36))),
     maxMessageTokens: Math.max(2_048, Math.min(16_000, Math.floor(inputBudgetTokens * 0.24))),
     maxToolResultTokens: retrievalBudgetTokens,
@@ -104,7 +111,7 @@ export function prepareModelMessages(messages, budget) {
 
   const targetInputTokens = Math.max(
     4_096,
-    budget.inputBudgetTokens - budget.toolDefinitionTokens,
+    budget.compactionTriggerTokens - budget.toolDefinitionTokens,
   );
   let estimatedInputTokens = estimateMessages(prepared);
   const recentStart = Math.max(0, prepared.length - RECENT_MESSAGES);
