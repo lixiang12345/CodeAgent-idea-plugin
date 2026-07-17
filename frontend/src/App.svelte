@@ -133,9 +133,13 @@
   let contextNeuralRerank = false;
   let contextRerankBaseUrl = "";
   let contextRerankModel = "Qwen/Qwen3-Reranker-0.6B";
-  type ContextTestState = "idle" | "checking" | "success" | "error";
-  let contextTestState: ContextTestState = "idle";
+  type ServiceTestState = "idle" | "checking" | "success" | "error";
+  let backendTestState: ServiceTestState = "idle";
+  let backendTestLabel = "";
+  let backendTestRequestId: string | null = null;
+  let contextTestState: ServiceTestState = "idle";
   let contextTestLabel = "";
+  let contextTestRequestId: string | null = null;
   type SettingsSaveState = "idle" | "saving" | "saved";
   type PendingSettingsSave = {
     requestId: string;
@@ -146,6 +150,7 @@
   let settingsSaveState: SettingsSaveState = "idle";
   let pendingSettingsSave: PendingSettingsSave | null = null;
   let settingsDirtyWhileSaving = false;
+  let settingsHydrated = false;
   let error = "";
   let notice = "";
   let threadSearch = "";
@@ -248,21 +253,10 @@
           nextSnapshot.tools.some((tool) => tool.id === toolId && tool.status === "approval")
         )
       );
-      backendUrl = snapshot.settings.backendUrl;
-      nodePath = snapshot.settings.nodePath;
-      autoApproveReadOnly = snapshot.settings.autoApproveReadOnly;
-      chatZoom = snapshot.settings.chatZoom;
-      showTimestamps = snapshot.settings.showTimestamps;
-      showRunTelemetry = snapshot.settings.showRunTelemetry;
-      desktopNotifications = snapshot.settings.desktopNotifications;
-      autoDismissNotifications = snapshot.settings.autoDismissNotifications;
-      contextMode = snapshot.settings.contextMode;
-      contextHttpBaseUrl = snapshot.settings.contextHttpBaseUrl;
-      contextEmbeddingBaseUrl = snapshot.settings.contextEmbeddingBaseUrl;
-      contextEmbeddingModel = snapshot.settings.contextEmbeddingModel;
-      contextNeuralRerank = snapshot.settings.contextNeuralRerank;
-      contextRerankBaseUrl = snapshot.settings.contextRerankBaseUrl;
-      contextRerankModel = snapshot.settings.contextRerankModel;
+      if (!settingsHydrated) {
+        hydrateSettings(nextSnapshot);
+        settingsHydrated = true;
+      }
       if (snapshot.jobs.state !== "loading") creatingJob = false;
       scrollConversationToBottom(forceFollow);
       return;
@@ -289,8 +283,18 @@
       pendingSettingsSave = null;
       return;
     }
+    if (event.type === "backendConnectionChecked") {
+      const checked = event.payload as { requestId?: string; ok?: boolean; label?: string };
+      if (!backendTestRequestId || checked.requestId !== backendTestRequestId) return;
+      backendTestRequestId = null;
+      backendTestState = checked.ok ? "success" : "error";
+      backendTestLabel = String(checked.label ?? (checked.ok ? "Backend connection verified" : "Backend connection failed"));
+      return;
+    }
     if (event.type === "contextConnectionChecked") {
-      const checked = event.payload as { ok?: boolean; label?: string };
+      const checked = event.payload as { requestId?: string; ok?: boolean; label?: string };
+      if (!contextTestRequestId || checked.requestId !== contextTestRequestId) return;
+      contextTestRequestId = null;
       contextTestState = checked.ok ? "success" : "error";
       contextTestLabel = String(checked.label ?? (checked.ok ? "ContextEngine connection verified" : "ContextEngine connection failed"));
       return;
@@ -642,6 +646,12 @@
   }
 
   function markSettingsDirty() {
+    backendTestRequestId = null;
+    backendTestState = "idle";
+    backendTestLabel = "";
+    contextTestRequestId = null;
+    contextTestState = "idle";
+    contextTestLabel = "";
     if (settingsSaveState === "saving") {
       settingsDirtyWhileSaving = true;
     } else {
@@ -649,10 +659,39 @@
     }
   }
 
+  function hydrateSettings(currentSnapshot: AppSnapshot) {
+    backendUrl = currentSnapshot.settings.backendUrl;
+    nodePath = currentSnapshot.settings.nodePath;
+    autoApproveReadOnly = currentSnapshot.settings.autoApproveReadOnly;
+    chatZoom = currentSnapshot.settings.chatZoom;
+    showTimestamps = currentSnapshot.settings.showTimestamps;
+    showRunTelemetry = currentSnapshot.settings.showRunTelemetry;
+    desktopNotifications = currentSnapshot.settings.desktopNotifications;
+    autoDismissNotifications = currentSnapshot.settings.autoDismissNotifications;
+    contextMode = currentSnapshot.settings.contextMode;
+    contextHttpBaseUrl = currentSnapshot.settings.contextHttpBaseUrl;
+    contextEmbeddingBaseUrl = currentSnapshot.settings.contextEmbeddingBaseUrl;
+    contextEmbeddingModel = currentSnapshot.settings.contextEmbeddingModel;
+    contextNeuralRerank = currentSnapshot.settings.contextNeuralRerank;
+    contextRerankBaseUrl = currentSnapshot.settings.contextRerankBaseUrl;
+    contextRerankModel = currentSnapshot.settings.contextRerankModel;
+  }
+
+  function testBackend() {
+    const requestId = crypto.randomUUID();
+    backendTestRequestId = requestId;
+    backendTestState = "checking";
+    backendTestLabel = "Checking the current URL and token";
+    sendCommand("checkBackend", { requestId, backendUrl, backendToken });
+  }
+
   function testContextEngine() {
+    const requestId = crypto.randomUUID();
+    contextTestRequestId = requestId;
     contextTestState = "checking";
     contextTestLabel = "Checking the current URL and token";
     sendCommand("checkContextEngine", {
+      requestId,
       contextMode,
       contextHttpBaseUrl,
       contextHttpApiKey,
@@ -832,7 +871,7 @@
 
   function updateContext() {
     const state = snapshot?.context.state;
-    sendCommand(state === "not_indexed" || state === "error" || state === "unavailable" ? "indexWorkspace" : "getContextStatus");
+    sendCommand(state === "not_indexed" || state === "error" || state === "unavailable" ? "indexWorkspace" : "refreshContextIndex");
   }
 
   function contextIndexState(currentSnapshot: AppSnapshot | null) {
@@ -864,7 +903,19 @@
     return details.join(" · ");
   }
 
-  function contextConnectionState(currentSnapshot: AppSnapshot | null, testState: ContextTestState) {
+  function backendConnectionState(currentSnapshot: AppSnapshot | null, testState: ServiceTestState) {
+    if (testState === "checking") return "checking";
+    if (testState === "success") return "online";
+    if (testState === "error") return "offline";
+    return currentSnapshot?.backendHealth.state ?? "unknown";
+  }
+
+  function backendConnectionLabel(currentSnapshot: AppSnapshot | null, testState: ServiceTestState, testLabel: string) {
+    if (testState !== "idle") return testLabel;
+    return currentSnapshot ? `Runtime · ${currentSnapshot.backendHealth.label}` : "Backend status unavailable";
+  }
+
+  function contextConnectionState(currentSnapshot: AppSnapshot | null, testState: ServiceTestState) {
     if (testState === "checking") return "checking";
     if (testState === "success") return "online";
     if (testState === "error") return "offline";
@@ -875,16 +926,16 @@
     return "online";
   }
 
-  function contextConnectionLabel(currentSnapshot: AppSnapshot | null, testState: ContextTestState, testLabel: string) {
+  function contextConnectionLabel(currentSnapshot: AppSnapshot | null, testState: ServiceTestState, testLabel: string) {
     if (testState !== "idle") return testLabel;
     if (!currentSnapshot) return "ContextEngine status unavailable";
     if (currentSnapshot.context.watchError) return `Sync error · ${currentSnapshot.context.watchError}`;
-    if (currentSnapshot.context.state === "not_indexed") return "Connected · Project not indexed";
+    if (currentSnapshot.context.state === "not_indexed") return "Runtime · Connected · Project not indexed";
     if (currentSnapshot.context.state === "ready" && currentSnapshot.context.hasEmbeddings) {
-      return "Connected · Model embeddings and semantic search ready";
+      return "Runtime · Connected · Model embeddings and semantic search ready";
     }
-    if (currentSnapshot.context.state === "ready") return "Connected · Index ready, embeddings unavailable";
-    return currentSnapshot.context.label;
+    if (currentSnapshot.context.state === "ready") return "Runtime · Connected · Index ready, embeddings unavailable";
+    return `Runtime · ${currentSnapshot.context.label}`;
   }
 
   function toggleSkill(skill: WorkspaceSkill) {
@@ -916,7 +967,7 @@
           : "Generating response";
     const details: string[] = [];
     if (snapshot.agentRun.catalogToolCount > 0) {
-      details.push(`${snapshot.agentRun.activeToolCount}/${snapshot.agentRun.catalogToolCount} tools`);
+      details.push(`${snapshot.agentRun.activeToolCount} tools ready · ${snapshot.agentRun.catalogToolCount} catalog`);
     }
     if (snapshot.agentRun.targetInputTokens > 0) {
       details.push(`${compactTokenCount(snapshot.agentRun.estimatedInputTokens + snapshot.agentRun.toolDefinitionTokens)}/${compactTokenCount(snapshot.agentRun.contextWindowTokens)} context`);
@@ -1543,7 +1594,7 @@
           <button class="chip" title="Open Git workspace" onclick={() => openWorkspaceView("git")}><Icon name="git-branch" size={12} /><span>{snapshot.projectName}</span></button>
           <button class="chip accent" title="Repository guidelines" onclick={() => openSettings("Rules & Guidelines")}><Icon name="book-open" size={12} /><span>Guidelines</span></button>
           <span class="repository-spacer"></span>
-          <button class="chip index-state {contextIndexState(snapshot)}" title={contextIndexTitle(snapshot)} disabled={contextIndexState(snapshot) === "indexing"} onclick={updateContext}>
+          <button class="chip index-state {contextIndexState(snapshot)}" title={`${contextIndexTitle(snapshot)} · Click to check sync now`} disabled={contextIndexState(snapshot) === "indexing" || contextIndexState(snapshot) === "checking"} onclick={updateContext}>
             <Icon name={snapshot.context.watching ? "refresh-cw" : "database"} size={12} /><span>{contextIndexLabel(snapshot)}</span>
           </button>
         </div>
@@ -1552,7 +1603,7 @@
           <div class="run-telemetry" title={snapshot.agentRun.verificationMessage ?? snapshot.agentRun.activeToolNames.join(", ")}>
             <span><Icon name="activity" size={11} />Turn {snapshot.agentRun.turnIndex + 1}</span>
             {#if snapshot.agentRun.targetInputTokens > 0}<span>{compactTokenCount(snapshot.agentRun.estimatedInputTokens + snapshot.agentRun.toolDefinitionTokens)} / {compactTokenCount(snapshot.agentRun.contextWindowTokens)} context · compact at {compactTokenCount(snapshot.agentRun.targetInputTokens + snapshot.agentRun.toolDefinitionTokens)}</span>{/if}
-            {#if snapshot.agentRun.catalogToolCount > 0}<span>{snapshot.agentRun.activeToolCount} / {snapshot.agentRun.catalogToolCount} tools</span>{/if}
+            {#if snapshot.agentRun.catalogToolCount > 0}<span title="Tool definitions available to the model, not executed calls">{snapshot.agentRun.activeToolCount} tools ready · {snapshot.agentRun.catalogToolCount} catalog</span>{/if}
             {#if snapshot.agentRun.verificationState !== "idle"}<i class={snapshot.agentRun.verificationState}>{snapshot.agentRun.verificationState}</i>{/if}
           </div>
         {/if}
@@ -2015,9 +2066,9 @@
                 </label>
                 <div class="service-health-stack">
                   <div class="service-health-row">
-                    <span class="service-status {snapshot.backendHealth.state}"></span>
-                    <span><strong>Agent Backend</strong><small>{snapshot.backendHealth.label}</small></span>
-                    <button disabled={snapshot.backendHealth.state === "checking"} onclick={() => sendCommand("checkBackend")}><Icon name="refresh-ccw" size={12} />{snapshot.backendHealth.state === "checking" ? "Checking..." : "Test connection"}</button>
+                    <span class="service-status {backendConnectionState(snapshot, backendTestState)}"></span>
+                    <span><strong>Agent Backend</strong><small>{backendConnectionLabel(snapshot, backendTestState, backendTestLabel)}</small></span>
+                    <button disabled={backendTestState === "checking"} onclick={testBackend}><Icon name="refresh-ccw" size={12} />{backendTestState === "checking" ? "Checking..." : "Test connection"}</button>
                   </div>
                   {#if contextMode !== "lexical"}
                     <div class="service-health-row">

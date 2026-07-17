@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added an official release build command that increments and synchronizes version metadata before full-stack verification and plugin packaging.
+
 ## 0.7.0 - 2026-07-14
 
 ### Agent, Context, and collaboration

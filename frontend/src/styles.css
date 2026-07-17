@@ -106,6 +106,8 @@ button { color: inherit; }
 .repository-strip button span, .multi-repo .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .repository-strip .repository-spacer { flex: 1; }
 .repository-strip .index-state, .chip.index-state { max-width: 110px; border-color: #385143; color: #8ec69d; }
+.repository-strip .index-state.checking, .chip.index-state.checking { border-color: #5f5338; color: #d5bb7d; }
+.repository-strip .index-state.checking svg, .chip.index-state.checking svg { animation: status-spin .9s linear infinite; }
 .repository-strip .index-state.indexing, .chip.index-state.indexing { border-color: #5f5338; color: #d5bb7d; }
 .repository-strip .index-state.indexing svg, .chip.index-state.indexing svg { animation: status-spin .9s linear infinite; }
 .repository-strip .index-state.error, .chip.index-state.error { border-color: #6f3c42; color: #e7898e; }

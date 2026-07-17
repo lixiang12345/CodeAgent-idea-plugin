@@ -15,6 +15,8 @@ import com.codeagent.plugin.agent.McpRuntimeSnapshot
 import com.codeagent.plugin.agent.PluginRuntimeService
 import com.codeagent.plugin.agent.PluginRuntimeSnapshot
 import com.codeagent.plugin.agent.RemoteContextUpdated
+import com.codeagent.plugin.agent.RemoteAgentClient
+import com.codeagent.plugin.agent.RemoteBackendHealth
 import com.codeagent.plugin.agent.RemoteJob
 import com.codeagent.plugin.agent.RemoteJobInput
 import com.codeagent.plugin.agent.RemoteJobRequest
@@ -313,7 +315,8 @@ class IdeBridge(
                 emitSnapshot()
             }
             "getContextStatus" -> refreshContextStatus()
-            "checkBackend" -> checkBackendHealth()
+            "refreshContextIndex" -> refreshContextStatus(manual = true)
+            "checkBackend" -> checkBackendHealth(command.payload)
             "checkContextEngine" -> checkContextEngine(command.payload)
             "indexWorkspace" -> indexWorkspace()
             "saveSettings" -> saveSettings(requireNotNull(command.payload) { "saveSettings requires payload" })
@@ -1223,7 +1226,15 @@ class IdeBridge(
             configuration.id == agentProfileId && configuration.value["enabled"]?.toString() != "false"
         }
 
-    private fun refreshContextStatus() {
+    private fun refreshContextStatus(manual: Boolean = false) {
+        if (manual) {
+            context = context.copy(
+                state = "checking",
+                label = "Checking automatic sync",
+                watchError = null,
+            )
+            emitSnapshot()
+        }
         contextEngine.status().whenComplete { status, error ->
             if (error != null) {
                 context = ContextSnapshotDto(state = "error", label = error.rootMessage())
@@ -1256,6 +1267,14 @@ class IdeBridge(
                 watchError = status.watchError,
             )
             emitSnapshot()
+            if (manual) {
+                val message = when {
+                    status.pendingChanges > 0 -> "${status.pendingChanges} context changes are synchronizing"
+                    status.watching -> "Automatic sync is active; the index is current"
+                    else -> "Index status refreshed; automatic sync is unavailable"
+                }
+                emit("notice", mapOf("message" to message))
+            }
         }
     }
 
@@ -1270,6 +1289,7 @@ class IdeBridge(
                     "contextConnectionChecked",
                     json.encodeToJsonElement(
                         ContextConnectionCheckedDto(
+                            requestId = request.requestId,
                             ok = error == null,
                             label = when {
                                 error != null -> error.rootMessage()
@@ -1294,6 +1314,7 @@ class IdeBridge(
                 "contextConnectionChecked",
                 json.encodeToJsonElement(
                     ContextConnectionCheckedDto(
+                        requestId = request.requestId,
                         ok = error == null && result?.ok == true,
                         label = error?.rootMessage() ?: result?.label ?: "ContextEngine connection check failed",
                     ),
@@ -1302,26 +1323,15 @@ class IdeBridge(
         }
     }
 
-    private fun checkBackendHealth() {
+    private fun checkBackendHealth(payload: JsonElement? = null) {
+        if (payload != null) {
+            checkBackendConnection(payload)
+            return
+        }
         backendHealth = BackendHealthDto(state = "checking", label = "Checking backend")
         emitSnapshot()
         agent.health().whenComplete { health, error ->
-            backendHealth = when {
-                error != null -> BackendHealthDto(state = "offline", label = error.rootMessage())
-                !health.ok -> BackendHealthDto(state = "offline", label = "Backend reported unavailable")
-                health.protocolVersion != BRIDGE_PROTOCOL_VERSION -> BackendHealthDto(
-                    state = "incompatible",
-                    label = "Protocol ${health.protocolVersion} is incompatible",
-                    protocolVersion = health.protocolVersion,
-                )
-                else -> BackendHealthDto(
-                    state = "online",
-                    label = "Connected to ${health.service}",
-                    protocolVersion = health.protocolVersion,
-                    provider = health.provider,
-                    defaultModel = health.defaultModel,
-                )
-            }
+            backendHealth = backendHealthResult(health, error)
             if (backendHealth.state != "online") {
                 backendTools = emptyList()
                 modelRegistry = ModelRegistryDto(state = "error", label = backendHealth.label)
@@ -1333,6 +1343,62 @@ class IdeBridge(
                 refreshAccount()
             }
         }
+    }
+
+    private fun checkBackendConnection(payload: JsonElement) {
+        val request = json.decodeFromJsonElement<CheckBackendPayload>(payload)
+        val current = settingsService.snapshot()
+        val candidate = current.copy(
+            backendUrl = request.backendUrl.trim().ifEmpty { current.backendUrl },
+            backendToken = request.backendToken?.trim()?.takeIf { it.isNotEmpty() } ?: current.backendToken,
+        )
+        val healthCheck = runCatching { RemoteAgentClient(candidate).health() }.getOrElse { error ->
+            emit(
+                "backendConnectionChecked",
+                json.encodeToJsonElement(
+                    BackendConnectionCheckedDto(
+                        requestId = request.requestId,
+                        ok = false,
+                        label = error.rootMessage(),
+                    ),
+                ),
+            )
+            return
+        }
+        healthCheck.whenComplete { health, error ->
+            val result = backendHealthResult(health, error)
+            emit(
+                "backendConnectionChecked",
+                json.encodeToJsonElement(
+                    BackendConnectionCheckedDto(
+                        requestId = request.requestId,
+                        ok = result.state == "online",
+                        label = if (result.state == "online") {
+                            "Connection verified: ${result.label.removePrefix("Connected to ")}"
+                        } else {
+                            result.label
+                        },
+                    ),
+                ),
+            )
+        }
+    }
+
+    private fun backendHealthResult(health: RemoteBackendHealth?, error: Throwable?): BackendHealthDto = when {
+        error != null -> BackendHealthDto(state = "offline", label = error.rootMessage())
+        health == null || !health.ok -> BackendHealthDto(state = "offline", label = "Backend reported unavailable")
+        health.protocolVersion != BRIDGE_PROTOCOL_VERSION -> BackendHealthDto(
+            state = "incompatible",
+            label = "Protocol ${health.protocolVersion} is incompatible",
+            protocolVersion = health.protocolVersion,
+        )
+        else -> BackendHealthDto(
+            state = "online",
+            label = "Connected to ${health.service}",
+            protocolVersion = health.protocolVersion,
+            provider = health.provider,
+            defaultModel = health.defaultModel,
+        )
     }
 
     private fun signIn() {
@@ -2172,7 +2238,10 @@ class IdeBridge(
     }
 
     private fun deleteThread(threadId: String) {
-        require(conversations.threads().any { it.id == threadId }) { "Unknown conversation: $threadId" }
+        if (conversations.threads().none { it.id == threadId }) {
+            emitSnapshot()
+            return
+        }
         com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
             val answer = Messages.showYesNoDialog(
                 project,
@@ -2183,9 +2252,10 @@ class IdeBridge(
                 Messages.getWarningIcon(),
             )
             if (answer != Messages.YES) return@invokeLater
-            val wasActive = conversations.active().id == threadId
-            synchronized(stateLock) {
-                if (wasActive) {
+            val wasActive = synchronized(stateLock) {
+                if (conversations.threads().none { it.id == threadId }) return@synchronized null
+                val active = conversations.active().id == threadId
+                if (active) {
                     runs.invalidate()
                     tools.clear()
                     messageTurns.clear()
@@ -2194,8 +2264,13 @@ class IdeBridge(
                     messageQueue.clear()
                     runState = "idle"
                 }
-                conversations.deleteThread(threadId)
-                if (wasActive) restoreConversationPresentation()
+                conversations.deleteThreadIfPresent(threadId)
+                if (active) restoreConversationPresentation()
+                active
+            }
+            if (wasActive == null) {
+                emitSnapshot()
+                return@invokeLater
             }
             if (wasActive) agent.cancel()
             conversationSummaries.forget(threadId)
@@ -2566,9 +2641,17 @@ class IdeBridge(
 
     @Serializable
     private data class CheckContextEnginePayload(
+        val requestId: String = "",
         val contextMode: String? = null,
         val contextHttpBaseUrl: String? = null,
         val contextHttpApiKey: String? = null,
+    )
+
+    @Serializable
+    private data class CheckBackendPayload(
+        val requestId: String = "",
+        val backendUrl: String,
+        val backendToken: String? = null,
     )
 
     @Serializable

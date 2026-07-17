@@ -187,6 +187,14 @@ data class SettingsSavedDto(
 
 @Serializable
 data class ContextConnectionCheckedDto(
+    val requestId: String = "",
+    val ok: Boolean,
+    val label: String,
+)
+
+@Serializable
+data class BackendConnectionCheckedDto(
+    val requestId: String = "",
     val ok: Boolean,
     val label: String,
 )

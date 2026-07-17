@@ -34,7 +34,7 @@ intellijPlatform {
         }
         changeNotes.set(
             """
-            <h2>0.7.0</h2>
+            <h2>${project.version}</h2>
             <ul>
               <li>Added durable tool cards, cloud conversation recovery, and live subagent output.</li>
               <li>Added managed MCP tools, slash commands, lifecycle hooks, and declarative plugin contributions.</li>

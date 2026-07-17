@@ -52,6 +52,7 @@ jobs:
         env:
           REF_NAME: ${{ github.ref_name }}
         run: |
+          node scripts/bump-version.mjs --check
           VERSION="$(sed -n 's/^version=//p' gradle.properties)"
           test "${REF_NAME}" = "v${VERSION}"
 

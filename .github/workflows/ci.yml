@@ -50,6 +50,9 @@ jobs:
         run: npm ci
         working-directory: vendor/context-engine
 
+      - name: Validate version metadata
+        run: node scripts/bump-version.mjs --check
+
       - name: Check frontend
         run: npm run check
         working-directory: frontend

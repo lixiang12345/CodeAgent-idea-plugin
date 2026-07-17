@@ -37,6 +37,8 @@ OIDC access and refresh tokens (or the local shared backend token) are stored in
 
 ## Build
 
+Development builds keep the current version unchanged:
+
 ```bash
 git submodule update --init --recursive
 cd frontend && npm ci && cd ..
@@ -53,6 +55,14 @@ cd vendor/context-engine && npm ci && cd ../..
 ```
 
 The installable ZIP is written to `build/distributions/`.
+
+For an official local release build, use:
+
+```bash
+node scripts/build-release.mjs
+```
+
+That command requires a clean worktree, increments the patch version across the plugin, frontend, sidecar, backend, OpenAPI contract, Docker image, and MCP client metadata, then runs the complete verification suite and creates the versioned ZIP. Use `--minor` or `--major` when preparing those release types. `--allow-dirty` is available only for local verification while release-tooling changes are still uncommitted.
 
 ContextEngine is pinned as a Git submodule and bundled into the local Node sidecar. Its SQLite index and file watcher run on each developer machine. Lexical, symbol, path, graph, and Git-lineage retrieval need no model. CodeAgent does not install or start a local embedding or reranker model; semantic retrieval is an explicit opt-in to an operator- or organization-hosted OpenAI-compatible endpoint and requires an explicit index rebuild. Its MIT license is included in the plugin distribution; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
@@ -72,7 +82,7 @@ The first Gradle verification run downloads the target IntelliJ IDEA distributio
 
 ## Release
 
-Release tags must exactly match the version in `gradle.properties`, for example `v0.7.0`. The `Publish plugin` workflow checks that relationship, installs and tests every JavaScript workspace, verifies the signed ZIP, publishes it to JetBrains Marketplace, and uploads the exact distribution as a workflow artifact.
+Release tags must exactly equal `v` followed by the version in `gradle.properties`; a `1.2.3` build therefore uses tag `v1.2.3`. The `Publish plugin` workflow checks that relationship and all synchronized version metadata, installs and tests every JavaScript workspace, verifies the signed ZIP, publishes it to JetBrains Marketplace, and uploads the exact distribution as a workflow artifact.
 
 Configure the protected `release` environment with these GitHub Actions secrets:
 

@@ -3,6 +3,7 @@ package com.codeagent.plugin.conversation
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class ConversationStoreTest {
@@ -329,6 +330,16 @@ class ConversationStoreTest {
 
         store.deleteThread(imported.id)
         assertEquals(original.id, store.active().id)
+    }
+
+    @Test
+    fun `ignores repeated deletion of an already removed thread`() {
+        val store = ConversationStore()
+        val deleted = store.active()
+
+        assertNotNull(store.deleteThreadIfPresent(deleted.id))
+        assertEquals(null, store.deleteThreadIfPresent(deleted.id))
+        assertEquals(listOf(deleted.id), store.pendingCloudDeletions())
     }
 
     @Test

@@ -753,6 +753,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
   }
   if (command.type === "checkContextEngine") {
     const payload = command.payload as {
+      requestId?: string;
       contextMode?: string;
       contextHttpBaseUrl?: string;
       contextHttpApiKey?: string;
@@ -761,7 +762,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       queueMicrotask(() => window.CodeAgent?.receive(JSON.stringify({
         version: 1,
         type: "contextConnectionChecked",
-        payload: { ok: true, label: "ContextEngine runtime verified" },
+        payload: { requestId: payload?.requestId, ok: true, label: "ContextEngine runtime verified" },
       })));
       return;
     }
@@ -780,13 +781,32 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
             : response.status === 403
               ? { ok: false, label: "ContextEngine token is not authorized" }
               : { ok: false, label: `ContextEngine returned HTTP ${response.status}` };
-        window.CodeAgent?.receive(JSON.stringify({ version: 1, type: "contextConnectionChecked", payload: checked }));
+        window.CodeAgent?.receive(JSON.stringify({
+          version: 1,
+          type: "contextConnectionChecked",
+          payload: { requestId: payload?.requestId, ...checked },
+        }));
       })
       .catch((error) => window.CodeAgent?.receive(JSON.stringify({
         version: 1,
         type: "contextConnectionChecked",
-        payload: { ok: false, label: error instanceof Error ? error.message : "ContextEngine connection failed" },
+        payload: {
+          requestId: payload?.requestId,
+          ok: false,
+          label: error instanceof Error ? error.message : "ContextEngine connection failed",
+        },
       })));
+    return;
+  }
+  if (command.type === "refreshContextIndex") {
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      context: { ...snapshot.context, state: "checking", label: "Checking automatic sync" },
+    }));
+    window.setTimeout(() => {
+      startDevelopmentIndex();
+      emitDevelopmentEvent("notice", { message: "Automatic sync is active; the index is current" });
+    }, 260);
     return;
   }
   if (command.type === "indexWorkspace") {
@@ -794,6 +814,15 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     return;
   }
   if (command.type === "checkBackend") {
+    const payload = command.payload as { requestId?: string; backendUrl?: string; backendToken?: string } | undefined;
+    if (payload?.requestId) {
+      window.setTimeout(() => emitDevelopmentEvent("backendConnectionChecked", {
+        requestId: payload.requestId,
+        ok: true,
+        label: `Connection verified: ${payload.backendUrl || "codeagent-backend"}`,
+      }), 220);
+      return;
+    }
     updateDevelopmentSnapshot((snapshot) => ({
       ...snapshot,
       backendHealth: { state: "checking", label: "Checking backend" },

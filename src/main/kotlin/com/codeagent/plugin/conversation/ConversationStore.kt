@@ -86,7 +86,12 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
 
     @Synchronized
     fun deleteThread(threadId: String): ConversationSnapshot {
-        require(data.threads.removeIf { it.id == threadId }) { "Unknown conversation: $threadId" }
+        return requireNotNull(deleteThreadIfPresent(threadId)) { "Unknown conversation: $threadId" }
+    }
+
+    @Synchronized
+    fun deleteThreadIfPresent(threadId: String): ConversationSnapshot? {
+        if (!data.threads.removeIf { it.id == threadId }) return null
         if (threadId !in data.deletedCloudThreadIds) {
             data.deletedCloudThreadIds.add(threadId)
             if (data.deletedCloudThreadIds.size > MAX_CLOUD_TOMBSTONES) {
