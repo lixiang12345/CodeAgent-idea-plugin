@@ -3,6 +3,18 @@ export const PROTOCOL_VERSION = 1;
 export type Mode = "agent" | "chat" | "ask";
 export type MessageRole = "user" | "assistant" | "system";
 export type RunState = "idle" | "starting" | "running" | "awaiting_approval" | "failed";
+export type AgentRunPhase =
+  | "idle"
+  | "starting"
+  | "thinking"
+  | "streaming"
+  | "tools"
+  | "processing"
+  | "retrying"
+  | "verifying"
+  | "approval"
+  | "compacting"
+  | "failed";
 
 export interface ChatMessage {
   id: string;
@@ -30,6 +42,7 @@ export interface ToolRun {
 }
 
 export interface AgentRunTelemetry {
+  phase: AgentRunPhase;
   turnIndex: number;
   estimatedInputTokens: number;
   targetInputTokens: number;
@@ -46,6 +59,12 @@ export interface AgentRunTelemetry {
   catalogToolCount: number;
   discoverableToolCount: number;
   activatedToolNames: string[];
+  toolBatchTotal: number;
+  toolBatchCompleted: number;
+  toolBatchExecution?: "sequential" | "parallel";
+  retryAttempt: number;
+  retryMaxAttempts: number;
+  retryMessage?: string;
   verificationState: "idle" | "required" | "verified";
   verificationMessage?: string;
   verificationToolName?: string;
@@ -491,6 +510,7 @@ function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
     runState: "running",
     agentRun: {
       ...snapshot.agentRun,
+      phase: "tools",
       turnIndex: snapshot.agentRun.turnIndex + 1,
       estimatedInputTokens: simulateCompaction
         ? 196_000
@@ -509,6 +529,12 @@ function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
       catalogToolCount: 12,
       discoverableToolCount: 11,
       activatedToolNames: ["codebase_retrieval"],
+      toolBatchTotal: 1,
+      toolBatchCompleted: 0,
+      toolBatchExecution: "sequential",
+      retryAttempt: 0,
+      retryMaxAttempts: 0,
+      retryMessage: undefined,
       verificationState: "idle",
     },
     messages: [...snapshot.messages, {
@@ -528,12 +554,33 @@ function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
       canRevert: false,
       runId: presentationRunId,
       turnIndex: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
       timelineSequence: sequence + 1,
     }],
     threads: snapshot.threads.map((thread) => thread.active
       ? { ...thread, title: text.slice(0, 64), updatedAt: Date.now(), mode: request.mode ?? snapshot.mode }
       : thread),
   }));
+  window.setTimeout(() => {
+    if (generation !== developmentRunGeneration) return;
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      agentRun: {
+        ...snapshot.agentRun,
+        phase: "processing",
+        toolBatchCompleted: 1,
+      },
+      tools: snapshot.tools.map((tool) => tool.id === toolId
+        ? {
+            ...tool,
+            status: "completed",
+            updatedAt: Date.now(),
+            detail: `Query\n${text}\n\nSources\nfrontend/src/App.svelte\nfrontend/src/lib/protocol.ts`,
+          }
+        : tool),
+    }));
+  }, 850);
   window.setTimeout(() => {
     if (generation !== developmentRunGeneration) return;
     let queuedMessage: QueuedMessage | undefined;
@@ -544,13 +591,12 @@ function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
         runState: "idle",
         agentRun: {
           ...snapshot.agentRun,
+          phase: "idle",
           activeToolNames: [],
           activeToolCount: 0,
         },
         messageQueue: queuedMessage ? snapshot.messageQueue.slice(1) : snapshot.messageQueue,
-        tools: snapshot.tools.map((tool) => tool.id === toolId
-          ? { ...tool, status: "completed", detail: `Query\n${text}\n\nSources\nfrontend/src/App.svelte\nfrontend/src/lib/protocol.ts` }
-          : tool),
+        tools: snapshot.tools,
         messages: [...snapshot.messages, {
           id: assistantMessageId,
           role: "assistant",
@@ -565,7 +611,7 @@ function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
     if (queuedMessage) {
       startDevelopmentMessage({ text: queuedMessage.text, mode: queuedMessage.mode, clientMessageId: queuedMessage.id });
     }
-  }, 2_000);
+  }, 5_000);
 }
 
 type DevelopmentJobRequest = {
@@ -1203,6 +1249,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     mode: "agent",
     runState: "idle",
     agentRun: {
+      phase: "idle",
       turnIndex: 0,
       estimatedInputTokens: 0,
       targetInputTokens: 0,
@@ -1219,6 +1266,10 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       catalogToolCount: 0,
       discoverableToolCount: 0,
       activatedToolNames: [],
+      toolBatchTotal: 0,
+      toolBatchCompleted: 0,
+      retryAttempt: 0,
+      retryMaxAttempts: 0,
       verificationState: "idle",
     },
     messages: [

@@ -485,6 +485,126 @@ test("requires Loop Agent verification after a successful mutation", async () =>
   assert.equal(events.at(-1).type, "run.completed");
 });
 
+test("does not require post-mutation verification for read-only terminal inspection", async () => {
+  const turns = [
+    {
+      content: "Inspecting repository state",
+      toolCalls: [{
+        id: "terminal-1",
+        name: "run_terminal",
+        arguments: JSON.stringify({ command: "git status --short && git diff --check" }),
+      }],
+    },
+    { content: "No changes found", toolCalls: [] },
+  ];
+  const events = [];
+  const runner = new AgentRunner({ modelGateway: { async stream() { return turns.shift(); } } });
+
+  await runner.run({
+    request: {
+      mode: "agent",
+      messages: [{ role: "user", content: "Inspect the current project" }],
+      tools: [{ name: "run_terminal", description: "Run command", parameters: {}, risk: "mutating" }],
+      workspace: {},
+    },
+    agentProfile: { ...builtInAgentProfile("general"), maxTurns: 4 },
+    emit: (type, data) => events.push({ type, data }),
+    awaitToolResult: async () => ({ status: "completed", output: "", summary: "clean" }),
+    signal: new AbortController().signal,
+  });
+
+  assert.equal(events.some((event) => event.type === "verification.updated"), false);
+  assert.equal(events.find((event) => event.type === "tool.batch.started").data.total, 1);
+  assert.equal(events.at(-1).type, "run.completed");
+});
+
+test("still requires verification after a terminal command that can mutate files", async () => {
+  const turns = [
+    {
+      content: "Generating a file",
+      toolCalls: [{
+        id: "terminal-1",
+        name: "run_terminal",
+        arguments: JSON.stringify({ command: "node scripts/generate.mjs" }),
+      }],
+    },
+    { content: "Done", toolCalls: [] },
+    { content: "Still done", toolCalls: [] },
+  ];
+  const runner = new AgentRunner({ modelGateway: { async stream() { return turns.shift(); } } });
+
+  await assert.rejects(() => runner.run({
+    request: {
+      mode: "agent",
+      messages: [{ role: "user", content: "Generate the file" }],
+      tools: [{ name: "run_terminal", description: "Run command", parameters: {}, risk: "mutating" }],
+      workspace: {},
+    },
+    agentProfile: { ...builtInAgentProfile("general"), maxTurns: 4 },
+    emit() {},
+    awaitToolResult: async () => ({ status: "completed", output: "generated", summary: "generated" }),
+    signal: new AbortController().signal,
+  }), /without required post-mutation verification/);
+});
+
+test("retries a transient model disconnect before the first text delta", async () => {
+  let calls = 0;
+  const events = [];
+  const runner = new AgentRunner({
+    modelTurnRetryDelayMs: 1,
+    modelGateway: {
+      async stream() {
+        calls += 1;
+        if (calls === 1) throw new Error("other side closed");
+        return { content: "Recovered", toolCalls: [] };
+      },
+    },
+  });
+
+  await runner.run({
+    request: {
+      mode: "agent",
+      messages: [{ role: "user", content: "Continue" }],
+      tools: [],
+      workspace: {},
+    },
+    emit: (type, data) => events.push({ type, data }),
+    awaitToolResult: async () => ({ status: "completed" }),
+    signal: new AbortController().signal,
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(events.find((event) => event.type === "model.retrying").data.attempt, 2);
+  assert.equal(events.at(-1).type, "run.completed");
+});
+
+test("does not retry a transient disconnect after text was already streamed", async () => {
+  let calls = 0;
+  const runner = new AgentRunner({
+    modelTurnRetryDelayMs: 1,
+    modelGateway: {
+      async stream({ onTextDelta }) {
+        calls += 1;
+        onTextDelta("partial");
+        throw new Error("other side closed");
+      },
+    },
+  });
+
+  await assert.rejects(() => runner.run({
+    request: {
+      mode: "agent",
+      messages: [{ role: "user", content: "Continue" }],
+      tools: [],
+      workspace: {},
+    },
+    emit() {},
+    awaitToolResult: async () => ({ status: "completed" }),
+    signal: new AbortController().signal,
+  }), /other side closed/);
+  assert.equal(calls, 1);
+});
+
 test("requires verification reads to cover the changed path", async () => {
   const turns = [
     { content: "Editing", toolCalls: [{ id: "edit-1", name: "apply_patch", arguments: JSON.stringify({ patch: "--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1 +1 @@\n-old\n+new" }) }] },
@@ -920,12 +1040,16 @@ test("serves the public OpenAPI contract", async () => {
     assert.equal(contract.components.schemas.RunStartedEvent.required.includes("retrievalBudgetTokens"), true);
     assert.equal(contract.components.schemas.ContextUpdatedEvent.required.includes("retrievalBudgetTokens"), true);
     assert.equal(contract.components.schemas.ContextUpdatedEvent.required.includes("overBudget"), true);
+    assert.equal(contract.components.schemas.ModelRetryingEvent.required.includes("maxAttempts"), true);
     assert.equal(contract.components.schemas.ToolCatalogUpdatedEvent.required.includes("activeToolNames"), true);
+    assert.equal(contract.components.schemas.ToolBatchStartedEvent.properties.execution.enum.includes("sequential"), true);
     assert.equal(contract.components.schemas.VerificationUpdatedEvent.required.includes("status"), true);
     assert.equal(contract.components.schemas.Workspace.properties.historySummary.type.includes("null"), true);
     assert.equal(contract.components.schemas.ConfigurationValue.properties.contextWindowTokens.default, 256_000);
     assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["context.updated"].$ref, "#/components/schemas/ContextUpdatedEvent");
+    assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["model.retrying"].$ref, "#/components/schemas/ModelRetryingEvent");
     assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["tool.catalog.updated"].$ref, "#/components/schemas/ToolCatalogUpdatedEvent");
+    assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["tool.batch.started"].$ref, "#/components/schemas/ToolBatchStartedEvent");
     assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["verification.updated"].$ref, "#/components/schemas/VerificationUpdatedEvent");
     assert.equal(contract.paths["/v1/runs"].post["x-codeagent-sse-events"]["run.error"].$ref, "#/components/schemas/RunErrorEvent");
 

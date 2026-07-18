@@ -289,12 +289,14 @@ class AgentOrchestrator(private val project: Project) : Disposable {
             "context.updated" -> listener.onContextUpdated(json.decodeFromJsonElement(payload))
             "tool.catalog.updated" -> listener.onToolCatalogUpdated(json.decodeFromJsonElement(payload))
             "verification.updated" -> listener.onVerificationUpdated(json.decodeFromJsonElement(payload))
+            "model.retrying" -> listener.onModelRetrying(json.decodeFromJsonElement(payload))
             "message.delta" -> json.decodeFromJsonElement<RemoteMessageDelta>(payload).let {
                 listener.onAssistantDelta(it.delta, it.turnIndex)
             }
             "assistant.completed" -> json.decodeFromJsonElement<RemoteAssistantCompleted>(payload).let {
                 listener.onAssistantMessage(it.content, it.turnIndex)
             }
+            "tool.batch.started" -> listener.onToolBatchStarted(json.decodeFromJsonElement(payload))
             "tool.request" -> executeToolRequest(
                 request = json.decodeFromJsonElement(payload),
                 context = context,
@@ -457,6 +459,8 @@ interface AgentRunListener {
     fun onContextUpdated(update: RemoteContextUpdated) = Unit
     fun onToolCatalogUpdated(update: RemoteToolCatalogUpdated) = Unit
     fun onVerificationUpdated(update: RemoteVerificationUpdated) = Unit
+    fun onModelRetrying(update: RemoteModelRetrying) = Unit
+    fun onToolBatchStarted(update: RemoteToolBatchStarted) = Unit
     fun onAssistantMessage(content: String?, turnIndex: Int)
     fun onFileChanged(call: AgentToolCall, change: FileChange) = Unit
     fun onToolChanged(call: AgentToolCall, summary: String, status: String, detail: String?, turnIndex: Int)

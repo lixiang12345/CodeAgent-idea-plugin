@@ -4,48 +4,30 @@
     <vendor url="https://github.com/lixiang12345">CodeAgent</vendor>
 
     <description><![CDATA[
-        <table border="0" cellpadding="14" cellspacing="0" width="100%">
+        <table border="0" cellpadding="16" cellspacing="0" width="100%">
             <tr>
-                <td bgcolor="#3574F0">
+                <td bgcolor="#2F67D8">
                     <font color="#FFFFFF" size="5"><b>CodeAgent</b></font><br/>
-                    <font color="#E7EEFF">IDE-native AI coding agent for JetBrains</font>
+                    <font color="#EAF1FF">Project-aware AI engineering inside JetBrains</font>
                 </td>
             </tr>
         </table>
         <br/>
-        <p><font color="#3574F0" size="4"><b>Build with context. Review with control.</b></font></p>
-        <p>CodeAgent brings a focused AI workspace into IntelliJ IDEA and other JetBrains IDEs. It understands your project, streams the work as it happens, and keeps every meaningful change visible and reviewable.</p>
-        <table border="0" cellpadding="10" cellspacing="6" width="100%">
-            <tr>
-                <td bgcolor="#EAF1FF" width="50%">
-                    <font color="#2457C5"><b>ContextEngine</b></font><br/>
-                    Local project indexing, symbol-aware retrieval, and automatic incremental synchronization.
-                </td>
-                <td bgcolor="#EEF7F1" width="50%">
-                    <font color="#2F7D45"><b>Agent workflow</b></font><br/>
-                    Streaming model turns, tool passes, subagents, tasks, and durable jobs in one timeline.
-                </td>
-            </tr>
-            <tr>
-                <td bgcolor="#FFF4E5" width="50%">
-                    <font color="#A76512"><b>IDE capabilities</b></font><br/>
-                    Read, edit, search, terminal, Git, editor navigation, image attachments, and Mermaid diagrams.
-                </td>
-                <td bgcolor="#F3EEFF" width="50%">
-                    <font color="#6941A5"><b>Review and safety</b></font><br/>
-                    Approval-controlled mutations, verification gates, native Diff review, and auditable history.
-                </td>
-            </tr>
-        </table>
-        <br/>
-        <p><font color="#3574F0"><b>Designed for real projects</b></font></p>
+        <p><font color="#4C8DFF" size="4"><b>Understand the code. Run the work. Review every change.</b></font></p>
+        <p>CodeAgent is a complete agent workspace for IntelliJ IDEA and other JetBrains IDEs. It combines model-driven coding with live project context, visible tool execution, and IDE-native review.</p>
+
+        <p><font color="#4C8DFF"><b>One continuous engineering timeline</b></font></p>
         <ul>
-            <li>Local-first repository context with watcher-based incremental indexing.</li>
-            <li>Model context budgeting with automatic compaction before the configured limit.</li>
-            <li>Lazy tool discovery so each run starts focused and expands only when needed.</li>
-            <li>Backend model and tool health checks surfaced directly in Settings.</li>
+            <li><b>Live Agent runs</b> with streamed responses, tool-pass progress, approvals, verification, tasks, and durable subagents.</li>
+            <li><b>ContextEngine</b> with semantic project retrieval and automatic watcher-based incremental indexing.</li>
+            <li><b>IDE tools</b> for reading, editing, search, terminal, Git, diagnostics, navigation, images, and Mermaid diagrams.</li>
+            <li><b>Controlled changes</b> with approval policies, post-mutation verification, checkpoints, and native Diff review.</li>
         </ul>
-        <p><font color="#3574F0"><b>CodeAgent keeps the IDE in the loop while AI does the work.</b></font></p>
+
+        <p><font color="#4C8DFF"><b>Built for long-running work</b></font></p>
+        <p>Use a 256K model context budget with automatic compaction at 80%, switch models per conversation, keep multiple threads, and inspect backend, model, and ContextEngine connectivity directly from Settings.</p>
+
+        <p><font color="#4C8DFF"><b>Stay in control while CodeAgent does the work.</b></font></p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>

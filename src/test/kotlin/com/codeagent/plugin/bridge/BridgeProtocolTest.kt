@@ -132,6 +132,7 @@ class BridgeProtocolTest {
     @Test
     fun `encodes context and lazy tool telemetry`() {
         val telemetry = AgentRunTelemetryDto(
+            phase = "tools",
             turnIndex = 3,
             estimatedInputTokens = 12_000,
             targetInputTokens = 48_000,
@@ -148,6 +149,12 @@ class BridgeProtocolTest {
             catalogToolCount = 14,
             discoverableToolCount = 12,
             activatedToolNames = listOf("git_history"),
+            toolBatchTotal = 3,
+            toolBatchCompleted = 2,
+            toolBatchExecution = "sequential",
+            retryAttempt = 2,
+            retryMaxAttempts = 3,
+            retryMessage = "other side closed",
             verificationState = "verified",
             verificationMessage = "Verified with diagnostics",
             verificationToolName = "diagnostics",
@@ -155,6 +162,9 @@ class BridgeProtocolTest {
 
         val encoded = json.encodeToString(telemetry)
         assertEquals(true, encoded.contains("\"estimatedInputTokens\":12000"))
+        assertEquals(true, encoded.contains("\"phase\":\"tools\""))
+        assertEquals(true, encoded.contains("\"toolBatchTotal\":3"))
+        assertEquals(true, encoded.contains("\"retryAttempt\":2"))
         assertEquals(true, encoded.contains("\"retrievalBudgetTokens\":8192"))
         assertEquals(true, encoded.contains("\"activatedToolNames\":[\"git_history\"]"))
         assertEquals(true, encoded.contains("\"verificationState\":\"verified\""))

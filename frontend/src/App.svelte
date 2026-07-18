@@ -11,6 +11,7 @@
     onHostEvent,
     sendCommand,
     type AppSnapshot,
+    type AgentRunPhase,
     type ChatMessage,
     type EventEnvelope,
     type GitFile,
@@ -967,24 +968,58 @@
     return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}k`;
   }
 
-  function runActivityLabel(hasRunningTool: boolean) {
-    if (!snapshot) return "Generating response…";
-    if (snapshot.runState === "starting") return "Starting queued message…";
-    const phase = snapshot.agentRun.verificationState === "required"
-      ? "Verifying changes"
-      : snapshot.agentRun.overBudget
-        ? "Compacting context"
-        : hasRunningTool
-          ? "Resolving tools"
-          : "Generating response";
+  function runActivityLabel(currentSnapshot: AppSnapshot) {
+    const telemetry = currentSnapshot.agentRun;
+    const phase = currentSnapshot.runState === "starting"
+      ? "Starting queued message"
+      : telemetry.verificationState === "required" || telemetry.phase === "verifying"
+        ? "Verifying changes"
+        : telemetry.overBudget || telemetry.phase === "compacting"
+          ? "Compacting context"
+          : telemetry.phase === "retrying"
+            ? `Connection interrupted · retrying ${telemetry.retryAttempt}/${telemetry.retryMaxAttempts}`
+            : telemetry.phase === "tools"
+              ? telemetry.toolBatchTotal > 0
+                ? `Running tool ${Math.min(telemetry.toolBatchCompleted + 1, telemetry.toolBatchTotal)}/${telemetry.toolBatchTotal}`
+                : "Running tools"
+              : telemetry.phase === "processing"
+                ? telemetry.toolBatchTotal > 0 && telemetry.toolBatchCompleted >= telemetry.toolBatchTotal
+                  ? "Tools complete · waiting for model"
+                  : "Processing results"
+                : telemetry.phase === "approval" || currentSnapshot.runState === "awaiting_approval"
+                  ? "Waiting for approval"
+                  : telemetry.phase === "thinking"
+                    ? "Thinking"
+                    : telemetry.phase === "starting"
+                      ? "Starting agent"
+                      : "Generating response";
     const details: string[] = [];
-    if (snapshot.agentRun.catalogToolCount > 0) {
-      details.push(`${snapshot.agentRun.activeToolCount} tools ready · ${snapshot.agentRun.catalogToolCount} catalog`);
+    if (telemetry.phase === "tools" && telemetry.toolBatchExecution === "sequential") {
+      details.push("sequential execution");
+    } else if (telemetry.catalogToolCount > 0) {
+      details.push(`${telemetry.activeToolCount} tools ready · ${telemetry.catalogToolCount} catalog`);
     }
-    if (snapshot.agentRun.targetInputTokens > 0) {
-      details.push(`${compactTokenCount(snapshot.agentRun.estimatedInputTokens + snapshot.agentRun.toolDefinitionTokens)}/${compactTokenCount(snapshot.agentRun.contextWindowTokens)} context`);
+    if (telemetry.targetInputTokens > 0) {
+      details.push(`${compactTokenCount(telemetry.estimatedInputTokens + telemetry.toolDefinitionTokens)}/${compactTokenCount(telemetry.contextWindowTokens)} context`);
     }
     return details.length > 0 ? `${phase} · ${details.join(" · ")}` : phase;
+  }
+
+  function runPhaseLabel(phase: AgentRunPhase) {
+    const labels: Record<AgentRunPhase, string> = {
+      idle: "idle",
+      starting: "starting",
+      thinking: "thinking",
+      streaming: "streaming",
+      tools: "tools",
+      processing: "processing",
+      retrying: "retrying",
+      verifying: "verifying",
+      approval: "approval",
+      compacting: "compacting",
+      failed: "failed",
+    };
+    return labels[phase];
   }
 
   function visibleThreads(
@@ -1075,8 +1110,11 @@
     if (!currentSnapshot) return false;
     const telemetry = currentSnapshot.agentRun;
     return telemetry.turnIndex > 0
+      || telemetry.phase !== "idle"
       || telemetry.estimatedInputTokens > 0
       || telemetry.catalogToolCount > 0
+      || telemetry.toolBatchTotal > 0
+      || telemetry.retryAttempt > 0
       || telemetry.verificationState !== "idle";
   }
 
@@ -1463,7 +1501,7 @@
     | { kind: "assistant"; message: TimelineMessage }
     | { kind: "queued"; message: AppSnapshot["messageQueue"][number]; position: number }
     | { kind: "tools"; runId?: string; turnIndex: number; tools: ToolRun[] }
-    | { kind: "activity"; label: string }
+    | { kind: "activity"; label: string; phase: AgentRunPhase }
     | { kind: "tasks" };
 
   function nextConversationTimelineSequence(currentSnapshot: AppSnapshot) {
@@ -1518,9 +1556,12 @@
     });
     const items = ordered.map((entry) => entry.item);
 
-    const hasRunningTool = tools.some((tool) => tool.status === "running");
-    if ((currentSnapshot.runState === "starting" || currentSnapshot.runState === "running") && (tools.length === 0 || hasRunningTool)) {
-      items.push({ kind: "activity", label: runActivityLabel(hasRunningTool) });
+    if (isBusy(currentSnapshot)) {
+      items.push({
+        kind: "activity",
+        label: runActivityLabel(currentSnapshot),
+        phase: currentSnapshot.agentRun.phase,
+      });
     }
     currentSnapshot.messageQueue.forEach((message, index) => items.push({ kind: "queued", message, position: index + 1 }));
     if (currentSnapshot.tasks.length > 0) items.push({ kind: "tasks" });
@@ -1548,7 +1589,7 @@
   >
     <header class="app-header tw-head">
       <div class="app-title">
-        <span class="app-logo"><Icon name="plugin-icon" size={14} /></span>
+        <span class="app-logo"><Icon name="plugin-icon" size={18} /></span>
         <strong>CodeAgent</strong>
       </div>
       <div class="header-actions">
@@ -1637,10 +1678,13 @@
         </div>
 
         {#if showRunTelemetry && hasRunTelemetry(snapshot)}
-          <div class="run-telemetry" title={snapshot.agentRun.verificationMessage ?? snapshot.agentRun.activeToolNames.join(", ")}>
+          <div class="run-telemetry" title={snapshot.agentRun.retryMessage ?? snapshot.agentRun.verificationMessage ?? snapshot.agentRun.activeToolNames.join(", ")}>
             <span><Icon name="activity" size={11} />Turn {snapshot.agentRun.turnIndex + 1}</span>
+            {#if isBusy(snapshot)}<span class="run-phase {snapshot.agentRun.phase}">{runPhaseLabel(snapshot.agentRun.phase)}</span>{/if}
             {#if snapshot.agentRun.targetInputTokens > 0}<span>{compactTokenCount(snapshot.agentRun.estimatedInputTokens + snapshot.agentRun.toolDefinitionTokens)} / {compactTokenCount(snapshot.agentRun.contextWindowTokens)} context · compact at {compactTokenCount(snapshot.agentRun.targetInputTokens + snapshot.agentRun.toolDefinitionTokens)}</span>{/if}
             {#if snapshot.agentRun.catalogToolCount > 0}<span title="Tool definitions available to the model, not executed calls">{snapshot.agentRun.activeToolCount} tools ready · {snapshot.agentRun.catalogToolCount} catalog</span>{/if}
+            {#if snapshot.agentRun.toolBatchTotal > 0}<span>{snapshot.agentRun.toolBatchCompleted}/{snapshot.agentRun.toolBatchTotal} tools · {snapshot.agentRun.toolBatchExecution ?? "sequential"}</span>{/if}
+            {#if snapshot.agentRun.retryAttempt > 0}<i class="retrying">retry {snapshot.agentRun.retryAttempt}/{snapshot.agentRun.retryMaxAttempts}</i>{/if}
             {#if snapshot.agentRun.verificationState !== "idle"}<i class={snapshot.agentRun.verificationState}>{snapshot.agentRun.verificationState}</i>{/if}
           </div>
         {/if}
@@ -1702,7 +1746,7 @@
                     <footer><button title="Remove queued message" onclick={() => sendCommand("removeQueuedMessage", { messageId: item.message.id })}><Icon name="x" size={12} />Remove</button></footer>
                   </article>
                 {:else if item.kind === "activity"}
-                  <div class="generation-status" role="status" aria-live="polite" title={snapshot.agentRun.activeToolNames.join(", ")}><Icon name="circle-dashed" size={13} /><span>{item.label}</span></div>
+                  <div class="generation-status {item.phase}" role="status" aria-live="polite" title={snapshot.agentRun.retryMessage ?? snapshot.agentRun.activeToolNames.join(", ")}><Icon name="circle-dashed" size={13} /><span>{item.label}</span></div>
                 {:else if item.kind === "tools"}
                   <section class="agent-turn tools-turn">
                     <header class="tool-pass-header">
@@ -1722,7 +1766,7 @@
                           <button class="tool-header" onclick={() => toggleTool(tool.id)} aria-expanded={toolsExpanded.has(tool.id)}>
                             <span class="tool-icon"><Icon name={toolIcon(tool)} size={14} /></span>
                             <span class="tool-copy"><strong>{toolTitle(tool)}</strong><small>{tool.summary}</small></span>
-                            <span class="tool-state-copy"><span class="tool-status">{statusLabel(tool.status)}</span>{#if showTimestamps && toolTimeline(tool)}<time>{toolTimeline(tool)}</time>{/if}</span>
+                            <span class="tool-state-copy"><span class="tool-status">{#if tool.status === "running"}<Icon name="circle-dashed" size={10} />{/if}{statusLabel(tool.status)}</span>{#if showTimestamps && toolTimeline(tool)}<time>{toolTimeline(tool)}</time>{/if}</span>
                             {#if toolsExpanded.has(tool.id)}<Icon name="chevron-down" size={14} />{:else}<Icon name="chevron-right" size={14} />{/if}
                           </button>
                           {#if toolsExpanded.has(tool.id)}

@@ -53,22 +53,25 @@ Each event is an SSE block with an `event` name and one JSON `data` line. Lines 
 | `run.started` | `runId`, `protocolVersion`, `provider`, `model`, Agent profile and token budgets | Run accepted and stream established |
 | `turn.started` | `turnIndex` | A provider model turn started |
 | `context.updated` | `turnIndex`, estimated and target input tokens, compaction counters, `overBudget` | Context budgeting and compaction state for the model turn |
+| `model.retrying` | `turnIndex`, `attempt`, `maxAttempts`, `message` | A transient provider failure occurred before the first output token and the turn is being retried |
 | `tool.catalog.updated` | `turnIndex`, active and catalog tool counts, active names, newly activated names | Lazy tool discovery state for the model turn |
 | `verification.updated` | `turnIndex`, `status`, `message`, optional `toolName` | Post-mutation verification gate state |
 | `message.delta` | `delta`, `turnIndex` | Append text to the current assistant message |
 | `assistant.completed` | `content`, `turnIndex` | Canonical assistant content for that turn; `content` may be null for a tool-only turn |
+| `tool.batch.started` | `turnIndex`, `total`, `names`, `execution` | The model requested a tool batch; current execution is sequential and each request is emitted only when it starts |
 | `tool.request` | `call.id`, `call.name`, `call.arguments`, `turnIndex` | Execute one local tool; `arguments` is a JSON string |
 | `tool.completed` | `toolCallId`, `status`, optional `summary` | Backend accepted the local result and resumed orchestration |
 | `run.completed` | `turnCount` | Terminal success event |
 | `run.error` | `message` | Terminal run failure event |
 
-The backend can emit multiple tool requests in one model turn. Submit exactly one result for every `call.id`; duplicate or unknown IDs are rejected.
+The backend can emit multiple tool requests in one model turn. It currently executes them sequentially, so the model receives the complete batch of tool results before its next turn. Submit exactly one result for every `call.id`; duplicate or unknown IDs are rejected.
 
 ## Error handling
 
 - HTTP errors use `{ "error": "message" }`; request validation fails before SSE headers are sent.
 - Backend tool execution returns `503` when the tool exists but required environment configuration is missing.
 - Once an SSE response has started, run failures arrive as `run.error`, not as a new HTTP status.
+- Transient provider disconnects before the first output token are retried twice. Disconnects after visible output are not retried because replaying the turn could duplicate content or tool calls.
 - A tool result returns `202 { "accepted": true }`.
 - Cancellation returns `202 { "cancelled": true }` and closes the stream.
 - Clients should treat unknown future SSE event names as ignorable for forward compatibility.

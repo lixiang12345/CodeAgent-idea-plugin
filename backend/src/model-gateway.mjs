@@ -640,7 +640,7 @@ const TRANSIENT_TRANSPORT_CODES = new Set([
   "UND_ERR_RES_CONTENT_LENGTH_MISMATCH",
   "UND_ERR_SOCKET",
 ]);
-const TRANSIENT_MODEL_ERROR_PATTERN = /(?:stream disconnected before completion|error decoding response body|transport error|network error|fetch failed|socket hang up|premature close|connection (?:closed|reset)|unexpected eof|terminated|model stream stalled|http (?:408|409|425|429|500|502|503|504)\b)/i;
+const TRANSIENT_MODEL_ERROR_PATTERN = /(?:stream disconnected before completion|error decoding response body|transport error|network error|fetch failed|socket hang up|premature close|other side closed|connection (?:closed|reset)|unexpected eof|terminated|model stream stalled|http (?:408|409|425|429|500|502|503|504)\b)/i;
 
 function isEventStream(response) {
   return (response.headers.get("content-type") || "").toLowerCase().includes("text/event-stream");

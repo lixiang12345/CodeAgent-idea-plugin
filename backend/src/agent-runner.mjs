@@ -1,6 +1,7 @@
 import { composeSystemPrompt } from "./prompt.mjs";
 import { builtInAgentProfile } from "./agent-profile.mjs";
 import { contextBudgetFor, prepareModelMessages } from "./context-policy.mjs";
+import { isRetryableModelError } from "./model-gateway.mjs";
 import { createToolCatalog, DISCOVER_TOOLS_NAME } from "./tool-catalog.mjs";
 
 export class AgentRunner {
@@ -9,12 +10,16 @@ export class AgentRunner {
     maxTurns = 64,
     maxToolCalls = 128,
     modelTurnTimeoutMs = 120_000,
+    modelTurnRetryCount = 2,
+    modelTurnRetryDelayMs = 500,
     contextQueryTimeoutMs = 10_000,
   }) {
     this.modelGateway = modelGateway;
     this.maxTurns = maxTurns;
     this.maxToolCalls = maxToolCalls;
     this.modelTurnTimeoutMs = modelTurnTimeoutMs;
+    this.modelTurnRetryCount = modelTurnRetryCount;
+    this.modelTurnRetryDelayMs = modelTurnRetryDelayMs;
     this.contextQueryTimeoutMs = contextQueryTimeoutMs;
   }
 
@@ -65,6 +70,12 @@ export class AgentRunner {
         maxOutputTokens: contextBudget.reservedOutputTokens,
         signal,
         turnIndex,
+        onRetry: (attempt, error) => emit("model.retrying", {
+          turnIndex,
+          attempt,
+          maxAttempts: this.modelTurnRetryCount + 1,
+          message: rootMessage(error),
+        }),
         onTextDelta: (delta) => emit("message.delta", { delta, turnIndex }),
       });
       turn.toolCalls = await this.#rewriteContextQueries(turn.toolCalls, latestUserRequest, signal);
@@ -104,6 +115,12 @@ export class AgentRunner {
         return;
       }
       if (turn.toolCalls.length > 32) throw new Error("Model requested too many tools in one turn");
+      emit("tool.batch.started", {
+        turnIndex,
+        total: turn.toolCalls.length,
+        names: turn.toolCalls.map((call) => call.name),
+        execution: "sequential",
+      });
 
       for (const call of turn.toolCalls) {
         throwIfAborted(signal);
@@ -191,7 +208,33 @@ export class AgentRunner {
     throw new Error(`Agent exceeded ${maxTurns} model turns`);
   }
 
-  async #streamTurn({ signal, turnIndex, ...request }) {
+  async #streamTurn({ signal, turnIndex, onRetry = () => {}, onTextDelta = () => {}, ...request }) {
+    for (let attempt = 0; attempt <= this.modelTurnRetryCount; attempt += 1) {
+      let emittedText = false;
+      try {
+        return await this.#streamTurnAttempt({
+          ...request,
+          signal,
+          turnIndex,
+          onTextDelta: (delta) => {
+            if (delta) emittedText = true;
+            onTextDelta(delta);
+          },
+        });
+      } catch (error) {
+        const canRetry = !emittedText
+          && !signal.aborted
+          && attempt < this.modelTurnRetryCount
+          && isRetryableModelError(error);
+        if (!canRetry) throw error;
+        onRetry(attempt + 2, error);
+        await abortableDelay(this.modelTurnRetryDelayMs * (attempt + 1), signal);
+      }
+    }
+    throw new Error(`Model turn ${turnIndex + 1} failed after retries`);
+  }
+
+  async #streamTurnAttempt({ signal, turnIndex, ...request }) {
     const controller = new AbortController();
     const abortFromRun = () => controller.abort(signal.reason || new Error("Run cancelled"));
     const timeout = setTimeout(
@@ -319,7 +362,75 @@ function sortJson(value) {
 }
 
 function isMutationCall(call, risk) {
-  return risk === "mutating" && !isGlobalVerificationCall(call);
+  if (risk !== "mutating" || isGlobalVerificationCall(call)) return false;
+  if (call.name === "run_terminal" && isReadOnlyTerminalCall(call)) return false;
+  return true;
+}
+
+function isReadOnlyTerminalCall(call) {
+  const command = String(parseArguments(call)?.command || "").trim();
+  if (!command || /[\r\n`]|(?:^|[^>])>>?|<<|\$\(/.test(stripDevNullRedirects(command))) return false;
+  const segments = command.split(/\s*(?:&&|\|\||;|\|)\s*/).filter(Boolean);
+  return segments.length > 0 && segments.every(isReadOnlyShellSegment);
+}
+
+function stripDevNullRedirects(command) {
+  return command.replace(/(?:\d?>|&>)\s*\/dev\/null\b/g, "");
+}
+
+function isReadOnlyShellSegment(segment) {
+  const normalized = segment
+    .trim()
+    .replace(/^(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*/, "")
+    .replace(/^(?:command|time)\s+/, "")
+    .replace(/^timeout\s+\S+\s+/, "");
+  if (!normalized) return false;
+  const [commandName = "", ...args] = normalized.split(/\s+/);
+  const executable = commandName.replace(/^.*\//, "");
+  if (["pwd", "ls", "rg", "grep", "cat", "head", "tail", "wc", "sort", "uniq", "cut", "tr", "stat", "file", "realpath", "dirname", "basename", "which"].includes(executable)) {
+    return executable !== "grep" || !args.includes("--include-dir");
+  }
+  if (executable === "sed") return !args.some((argument) => /^-.*i/.test(argument));
+  if (executable === "find") return !args.some((argument) => ["-delete", "-exec", "-execdir", "-ok", "-okdir"].includes(argument));
+  if (executable === "git") return isReadOnlyGitCommand(args);
+  if (["gradle", "gradlew"].includes(executable)) return isReadOnlyGradleCommand(args);
+  if (["mvn", "mvnw"].includes(executable)) return isReadOnlyMavenCommand(args);
+  if (["npm", "pnpm", "yarn", "bun"].includes(executable)) {
+    return ["list", "ls", "why", "outdated", "view", "info"].includes(args.find((argument) => !argument.startsWith("-")) || "");
+  }
+  return false;
+}
+
+function isReadOnlyGitCommand(args) {
+  const subcommandIndex = args.findIndex((argument) => !argument.startsWith("-") && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(argument));
+  const subcommand = subcommandIndex >= 0 ? args[subcommandIndex] : "";
+  const rest = subcommandIndex >= 0 ? args.slice(subcommandIndex + 1) : [];
+  if (["status", "diff", "log", "show", "rev-parse", "ls-files", "grep", "blame", "describe", "shortlog"].includes(subcommand)) return true;
+  if (subcommand === "branch") return rest.length === 0 || rest.every((argument) => ["--list", "-l", "--show-current", "-a", "--all", "-r", "--remotes", "-v", "-vv", "--contains", "--no-contains"].includes(argument));
+  if (subcommand === "tag") return rest.length === 0 || rest.includes("--list") || rest.includes("-l");
+  if (subcommand === "remote") return rest.length === 0 || rest[0] === "-v" || rest[0] === "get-url";
+  if (subcommand === "config") return rest.some((argument) => ["--get", "--get-all", "--get-regexp", "--list", "-l", "--show-origin"].includes(argument));
+  return false;
+}
+
+function isReadOnlyGradleCommand(args) {
+  const tasks = args.filter((argument) => !argument.startsWith("-"));
+  return tasks.length === 0 || tasks.every((task) => [
+    "tasks",
+    "properties",
+    "projects",
+    "dependencies",
+    "dependencyInsight",
+    "buildEnvironment",
+    "components",
+    "model",
+    "help",
+  ].includes(task));
+}
+
+function isReadOnlyMavenCommand(args) {
+  const goals = args.filter((argument) => !argument.startsWith("-"));
+  return goals.length === 0 || goals.every((goal) => goal === "help" || goal.startsWith("help:") || goal === "dependency:tree");
 }
 
 function consumeVerificationCall(call, pendingPaths, unknownPending) {
@@ -530,6 +641,31 @@ function validateWorkspaceEntries(value, field) {
     validateOptionalString(entry.content, `${field}.content`, 200_000);
     if (typeof entry.content !== "string") throw new Error(`${field}.content is required`);
   }
+}
+
+function rootMessage(error) {
+  let current = error;
+  const seen = new Set();
+  while (current?.cause && !seen.has(current.cause)) {
+    seen.add(current);
+    current = current.cause;
+  }
+  return String(current?.message || error?.message || error || "Unknown model error");
+}
+
+function abortableDelay(delayMs, signal) {
+  if (delayMs <= 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(signal.reason || new Error("Run cancelled"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function throwIfAborted(signal) {

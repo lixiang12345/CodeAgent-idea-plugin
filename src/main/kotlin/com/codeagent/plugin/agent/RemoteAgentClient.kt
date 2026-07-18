@@ -536,6 +536,22 @@ internal data class RemoteMessageDelta(val delta: String, val turnIndex: Int)
 internal data class RemoteAssistantCompleted(val content: String? = null, val turnIndex: Int)
 
 @Serializable
+data class RemoteModelRetrying(
+    val turnIndex: Int,
+    val attempt: Int,
+    val maxAttempts: Int,
+    val message: String,
+)
+
+@Serializable
+data class RemoteToolBatchStarted(
+    val turnIndex: Int,
+    val total: Int,
+    val names: List<String> = emptyList(),
+    val execution: String = "sequential",
+)
+
+@Serializable
 internal data class RemoteToolRequest(val call: RemoteToolCall, val turnIndex: Int)
 
 @Serializable

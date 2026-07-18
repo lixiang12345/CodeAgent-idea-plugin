@@ -45,6 +45,7 @@ data class MessageDeltaDto(
 
 @Serializable
 data class AgentRunTelemetryDto(
+    val phase: String = "idle",
     val turnIndex: Int = 0,
     val estimatedInputTokens: Int = 0,
     val targetInputTokens: Int = 0,
@@ -61,6 +62,12 @@ data class AgentRunTelemetryDto(
     val catalogToolCount: Int = 0,
     val discoverableToolCount: Int = 0,
     val activatedToolNames: List<String> = emptyList(),
+    val toolBatchTotal: Int = 0,
+    val toolBatchCompleted: Int = 0,
+    val toolBatchExecution: String? = null,
+    val retryAttempt: Int = 0,
+    val retryMaxAttempts: Int = 0,
+    val retryMessage: String? = null,
     val verificationState: String = "idle",
     val verificationMessage: String? = null,
     val verificationToolName: String? = null,

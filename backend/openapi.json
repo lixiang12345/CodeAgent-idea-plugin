@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CodeAgent Backend API",
-    "version": "0.7.10",
+    "version": "0.7.12",
     "description": "Protocol version 1 API used by the CodeAgent IDEA capability gateway."
   },
   "servers": [
@@ -582,6 +582,9 @@
           "context.updated": {
             "$ref": "#/components/schemas/ContextUpdatedEvent"
           },
+          "model.retrying": {
+            "$ref": "#/components/schemas/ModelRetryingEvent"
+          },
           "tool.catalog.updated": {
             "$ref": "#/components/schemas/ToolCatalogUpdatedEvent"
           },
@@ -593,6 +596,9 @@
           },
           "assistant.completed": {
             "$ref": "#/components/schemas/AssistantCompletedEvent"
+          },
+          "tool.batch.started": {
+            "$ref": "#/components/schemas/ToolBatchStartedEvent"
           },
           "tool.request": {
             "$ref": "#/components/schemas/ToolRequestEvent"
@@ -624,7 +630,7 @@
         },
         "responses": {
           "200": {
-            "description": "SSE stream. Events: run.started, turn.started, context.updated, tool.catalog.updated, verification.updated, message.delta, assistant.completed, tool.request, tool.completed, run.completed, run.error.",
+            "description": "SSE stream. Events: run.started, turn.started, context.updated, model.retrying, tool.catalog.updated, verification.updated, message.delta, assistant.completed, tool.batch.started, tool.request, tool.completed, run.completed, run.error.",
             "headers": {
               "X-CodeAgent-Run-Id": {
                 "schema": {
@@ -1619,6 +1625,33 @@
         },
         "additionalProperties": false
       },
+      "ModelRetryingEvent": {
+        "type": "object",
+        "required": [
+          "turnIndex",
+          "attempt",
+          "maxAttempts",
+          "message"
+        ],
+        "properties": {
+          "turnIndex": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 2
+          },
+          "maxAttempts": {
+            "type": "integer",
+            "minimum": 2
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "VerificationUpdatedEvent": {
         "type": "object",
         "required": [
@@ -1717,6 +1750,39 @@
         },
         "additionalProperties": false
       },
+      "ToolBatchStartedEvent": {
+        "type": "object",
+        "required": [
+          "turnIndex",
+          "total",
+          "names",
+          "execution"
+        ],
+        "properties": {
+          "turnIndex": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32
+          },
+          "names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "execution": {
+            "type": "string",
+            "enum": [
+              "sequential"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "ToolRequestEvent": {
         "type": "object",
         "required": [
@@ -1795,6 +1861,9 @@
             "$ref": "#/components/schemas/ContextUpdatedEvent"
           },
           {
+            "$ref": "#/components/schemas/ModelRetryingEvent"
+          },
+          {
             "$ref": "#/components/schemas/ToolCatalogUpdatedEvent"
           },
           {
@@ -1805,6 +1874,9 @@
           },
           {
             "$ref": "#/components/schemas/AssistantCompletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ToolBatchStartedEvent"
           },
           {
             "$ref": "#/components/schemas/ToolRequestEvent"

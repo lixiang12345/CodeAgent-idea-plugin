@@ -321,6 +321,9 @@ export function resolveIconName(name: string): string {
 
 export function iconSvg(name: string): string {
   const resolved = resolveIconName(name);
+  if (resolved === "plugin-icon") {
+    return ICONS["augment-logo"];
+  }
   return ICONS[resolved] ?? ICONS[name] ?? "";
 }
 

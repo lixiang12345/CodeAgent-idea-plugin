@@ -115,7 +115,13 @@ button { color: inherit; }
 .run-telemetry { min-height: 23px; padding: 3px 8px; display: flex; align-items: center; gap: 7px; overflow: hidden; border-bottom: 1px solid var(--border); color: #8f99a6; background: #202225; font: 8.5px var(--mono); }
 .run-telemetry span { min-width: 0; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
 .run-telemetry span:first-child { color: #b5bdc8; }
+.run-telemetry .run-phase { padding: 1px 4px; border-radius: 3px; color: #aeb8c4; background: #2b3036; }
+.run-telemetry .run-phase.retrying { color: #e0bd7b; background: #433821; }
+.run-telemetry .run-phase.streaming { color: #9cc1e4; background: #273849; }
+.run-telemetry .run-phase.tools { color: #b7c6d8; background: #303640; }
 .run-telemetry i { margin-left: auto; padding: 2px 5px; border-radius: 3px; color: #d0b171; background: #443821; font-style: normal; }
+.run-telemetry i + i { margin-left: 0; }
+.run-telemetry i.retrying { color: #e2bf7c; background: #443821; }
 .run-telemetry i.verified { color: #a8d7b4; background: #294331; }
 .context-compaction-strip { position: relative; min-height: 32px; flex: 0 0 32px; padding: 4px 8px 6px; display: grid; grid-template-columns: 14px minmax(0,1fr) auto; align-items: center; gap: 6px; overflow: hidden; border-bottom: 1px solid #30343a; color: #a9b3bf; background: #1d2024; }
 .context-compaction-strip > svg { color: #6fa4d7; animation: status-spin .9s linear infinite; }
@@ -167,10 +173,13 @@ button { color: inherit; }
 .generation-status { min-height: 26px; margin: 6px 8px 8px; display: flex; align-items: center; gap: 8px; color: #858b94; font-size: 10px; }
 .generation-status svg { flex: 0 0 auto; color: #79818c; animation: status-spin .9s linear infinite; }
 .generation-status span { background: linear-gradient(90deg,#858b94 0%,#c5cad1 20%,#858b94 40%,#c5cad1 60%,#858b94 80%,#c5cad1 100%); background-size: 400% 100%; background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: response-shimmer 8s linear infinite; }
+.generation-status.retrying svg { color: #d0a05b; }
+.generation-status.approval svg { color: #d0a05b; animation: none; }
 @keyframes response-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-@media (prefers-reduced-motion: reduce) { .generation-status svg, .generation-status span, .context-compaction-strip > svg, .approval button.approve { animation: none; } .context-compaction-track > i { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .generation-status svg, .generation-status span, .context-compaction-strip > svg, .approval button.approve, .tool-card, .tool-card.running .tool-status svg { animation: none; } .context-compaction-track > i { transition: none; } }
 .tool-list { display: flex; flex-direction: column; gap: 2px; }
-.tool-card { border: 0; border-radius: 4px; overflow: visible; background: transparent; }
+.tool-card { border: 0; border-radius: 4px; overflow: visible; background: transparent; animation: tool-card-enter .18s ease-out both; }
+@keyframes tool-card-enter { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 .tool-card.approval { background: rgba(117,93,54,.08); }
 .tool-card.failed, .tool-card.rejected { background: rgba(103,59,64,.08); }
 .tool-header { width: 100%; min-height: 28px; padding: 2px 4px; display: flex; align-items: center; gap: 5px; border: 0; border-radius: 4px; background: transparent; text-align: left; cursor: pointer; }
@@ -179,7 +188,9 @@ button { color: inherit; }
 .tool-copy { min-width: 0; flex: 1; display: flex; align-items: baseline; gap: 6px; }
 .chat-view .tool-copy strong { flex: 0 0 auto; max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(11px * var(--chat-zoom)); font-weight: 500; text-transform: capitalize; }
 .chat-view .tool-copy small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: calc(9.5px * var(--chat-zoom)) var(--mono); }
-.chat-view .tool-status { flex: 0 0 auto; color: #73b986; font: calc(9px * var(--chat-zoom)) var(--mono); }
+.chat-view .tool-status { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 3px; color: #73b986; font: calc(9px * var(--chat-zoom)) var(--mono); }
+.tool-card.running .tool-status { color: #9db7d2; }
+.tool-card.running .tool-status svg { animation: status-spin .9s linear infinite; }
 .tool-state-copy { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
 .tool-state-copy time { color: #727b86; font: 8px var(--mono); white-space: nowrap; }
 .approval .tool-status { color: var(--amber); }

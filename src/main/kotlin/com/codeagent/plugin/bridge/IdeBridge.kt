@@ -20,6 +20,8 @@ import com.codeagent.plugin.agent.RemoteBackendHealth
 import com.codeagent.plugin.agent.RemoteJob
 import com.codeagent.plugin.agent.RemoteJobInput
 import com.codeagent.plugin.agent.RemoteJobRequest
+import com.codeagent.plugin.agent.RemoteModelRetrying
+import com.codeagent.plugin.agent.RemoteToolBatchStarted
 import com.codeagent.plugin.agent.RemoteToolCatalogUpdated
 import com.codeagent.plugin.agent.RemoteVerificationUpdated
 import com.codeagent.plugin.agent.WorkspaceCustomization
@@ -46,7 +48,6 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ide.CopyPasteManager
-import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.ToolWindowManager
@@ -833,7 +834,7 @@ class IdeBridge(
                 runId = presentationRunId,
                 messageId = request.clientMessageId,
             )
-            agentRun = AgentRunTelemetryDto()
+            agentRun = AgentRunTelemetryDto(phase = "starting")
             runState = "running"
             runs.next()
         }
@@ -867,6 +868,7 @@ class IdeBridge(
             override fun onContextUpdated(update: RemoteContextUpdated) {
                 if (withCurrentRun(runId) {
                     agentRun = agentRun.copy(
+                        phase = if (update.compactionApplied) "compacting" else "thinking",
                         turnIndex = update.turnIndex,
                         estimatedInputTokens = update.estimatedInputTokens,
                         targetInputTokens = update.targetInputTokens,
@@ -878,6 +880,12 @@ class IdeBridge(
                         truncatedMessages = update.truncatedMessages,
                         compactionApplied = update.compactionApplied,
                         overBudget = update.overBudget,
+                        toolBatchTotal = 0,
+                        toolBatchCompleted = 0,
+                        toolBatchExecution = null,
+                        retryAttempt = 0,
+                        retryMaxAttempts = 0,
+                        retryMessage = null,
                     )
                 }) emitRunSnapshot()
             }
@@ -885,6 +893,7 @@ class IdeBridge(
             override fun onToolCatalogUpdated(update: RemoteToolCatalogUpdated) {
                 if (withCurrentRun(runId) {
                     agentRun = agentRun.copy(
+                        phase = if (agentRun.phase == "starting" || agentRun.phase == "idle") "thinking" else agentRun.phase,
                         turnIndex = update.turnIndex,
                         activeToolNames = update.activeToolNames,
                         activeToolCount = update.activeToolCount,
@@ -898,6 +907,7 @@ class IdeBridge(
             override fun onVerificationUpdated(update: RemoteVerificationUpdated) {
                 if (withCurrentRun(runId) {
                     agentRun = agentRun.copy(
+                        phase = if (update.status == "required") "verifying" else "processing",
                         turnIndex = update.turnIndex,
                         verificationState = update.status,
                         verificationMessage = update.message,
@@ -906,10 +916,35 @@ class IdeBridge(
                 }) emitRunSnapshot()
             }
 
+            override fun onModelRetrying(update: RemoteModelRetrying) {
+                if (withCurrentRun(runId) {
+                    agentRun = agentRun.copy(
+                        phase = "retrying",
+                        turnIndex = update.turnIndex,
+                        retryAttempt = update.attempt,
+                        retryMaxAttempts = update.maxAttempts,
+                        retryMessage = update.message,
+                    )
+                }) emitRunSnapshot()
+            }
+
+            override fun onToolBatchStarted(update: RemoteToolBatchStarted) {
+                if (withCurrentRun(runId) {
+                    agentRun = agentRun.copy(
+                        phase = "tools",
+                        turnIndex = update.turnIndex,
+                        toolBatchTotal = update.total,
+                        toolBatchCompleted = 0,
+                        toolBatchExecution = update.execution,
+                    )
+                }) emitRunSnapshot()
+            }
+
             override fun onAssistantDelta(delta: String, turnIndex: Int) {
                 var messageId = ""
                 var firstDelta = false
                 if (withCurrentRun(runId) {
+                    agentRun = agentRun.copy(phase = "streaming", turnIndex = turnIndex)
                     if (streamingTurnIndex != turnIndex) streamingMessageId = null
                     messageId = streamingMessageId ?: conversations.addMessage(
                         role = "assistant",
@@ -945,6 +980,7 @@ class IdeBridge(
                     }
                     streamingMessageId = null
                     streamingTurnIndex = null
+                    agentRun = agentRun.copy(phase = "processing", turnIndex = turnIndex)
                 }) {
                     syncActiveConversation()
                     emitRunSnapshot()
@@ -965,6 +1001,7 @@ class IdeBridge(
                 var approvalRequired = false
                 if (withCurrentRun(runId) {
                     val previous = tools[call.id]
+                    val terminalStatuses = setOf("completed", "failed", "rejected")
                     val now = System.currentTimeMillis()
                     val tool = ToolRunDto(
                         id = call.id,
@@ -983,6 +1020,28 @@ class IdeBridge(
                     val persisted = conversations.upsertTool(tool.toConversationTool())
                     tools[call.id] = tool.copy(timelineSequence = persisted.timelineSequence.takeIf { it > 0 })
                     runState = if (status == "approval") "awaiting_approval" else "running"
+                    val completedIncrement = if (
+                        turnIndex == agentRun.turnIndex &&
+                        status in terminalStatuses &&
+                        previous?.status !in terminalStatuses
+                    ) 1 else 0
+                    val completedTools = if (agentRun.toolBatchTotal > 0) {
+                        (agentRun.toolBatchCompleted + completedIncrement).coerceAtMost(agentRun.toolBatchTotal)
+                    } else {
+                        agentRun.toolBatchCompleted
+                    }
+                    agentRun = agentRun.copy(
+                        phase = when (status) {
+                            "approval" -> "approval"
+                            "running" -> "tools"
+                            else -> if (
+                                agentRun.toolBatchTotal > 0 &&
+                                completedTools < agentRun.toolBatchTotal
+                            ) "tools" else "processing"
+                        },
+                        turnIndex = turnIndex,
+                        toolBatchCompleted = completedTools,
+                    )
                     approvalRequired = status == "approval" && previous?.status != "approval"
                 }) {
                     if (approvalRequired) {
@@ -1006,6 +1065,7 @@ class IdeBridge(
                         )
                     }
                     runState = state
+                    agentRun = agentRun.copy(phase = if (state == "failed") "failed" else if (state == "idle") "idle" else agentRun.phase)
                     startQueued = (state == "idle" || state == "failed") && messageQueue.isNotEmpty()
                     if (startQueued) runState = "idle"
                 }) {
@@ -1028,11 +1088,12 @@ class IdeBridge(
 
             override fun onError(message: String) {
                 runFailed = true
+                val displayMessage = userFacingAgentError(message)
                 withCurrentRun(runId) {
-                    emit("error", mapOf("message" to message))
+                    emit("error", mapOf("message" to displayMessage))
                     notifyUser(
                         title = "CodeAgent run failed",
-                        content = message,
+                        content = displayMessage,
                         type = NotificationType.ERROR,
                     )
                 }
@@ -2245,48 +2306,34 @@ class IdeBridge(
             emitSnapshot()
             return
         }
-        com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
-            val answer = Messages.showYesNoDialog(
-                project,
-                "Delete this CodeAgent thread? This cannot be undone.",
-                "Delete CodeAgent Thread",
-                "Delete",
-                "Cancel",
-                Messages.getWarningIcon(),
-            )
-            if (answer != Messages.YES) {
-                emitSnapshot()
-                return@invokeLater
+        val wasActive = synchronized(stateLock) {
+            if (conversations.threads().none { it.id == threadId }) return@synchronized null
+            val active = conversations.active().id == threadId
+            if (active) {
+                runs.invalidate()
+                tools.clear()
+                messageTurns.clear()
+                agentRun = AgentRunTelemetryDto()
+                attachments.clear()
+                messageQueue.clear()
+                runState = "idle"
             }
-            val wasActive = synchronized(stateLock) {
-                if (conversations.threads().none { it.id == threadId }) return@synchronized null
-                val active = conversations.active().id == threadId
-                if (active) {
-                    runs.invalidate()
-                    tools.clear()
-                    messageTurns.clear()
-                    agentRun = AgentRunTelemetryDto()
-                    attachments.clear()
-                    messageQueue.clear()
-                    runState = "idle"
-                }
-                conversations.deleteThreadIfPresent(threadId)
-                if (active) restoreConversationPresentation()
-                active
-            }
-            if (wasActive == null) {
-                emitSnapshot()
-                return@invokeLater
-            }
-            if (wasActive) agent.cancel()
-            conversationSummaries.forget(threadId)
-            if (cloudServicesActive()) {
-                cloudSync.delete(threadId).whenComplete { _, error ->
-                    if (error != null) emit("error", mapOf("message" to "Cloud thread deletion failed: ${error.rootMessage()}"))
-                }
-            }
-            emitSnapshot()
+            conversations.deleteThreadIfPresent(threadId)
+            if (active) restoreConversationPresentation()
+            active
         }
+        if (wasActive == null) {
+            emitSnapshot()
+            return
+        }
+        if (wasActive) agent.cancel()
+        conversationSummaries.forget(threadId)
+        if (cloudServicesActive()) {
+            cloudSync.delete(threadId).whenComplete { _, error ->
+                if (error != null) emit("error", mapOf("message" to "Cloud thread deletion failed: ${error.rootMessage()}"))
+            }
+        }
+        emitSnapshot()
     }
 
     private fun threadMarkdown(active: com.codeagent.plugin.conversation.ConversationSnapshot): String = buildString {
@@ -2297,6 +2344,18 @@ class IdeBridge(
             append(message.content).append("\n\n")
         }
     }.trim()
+
+    private fun userFacingAgentError(message: String): String {
+        return if (
+            message.contains("other side closed", ignoreCase = true) ||
+            message.contains("stream disconnected before completion", ignoreCase = true) ||
+            message.contains("HTTP 502", ignoreCase = true)
+        ) {
+            "The model connection closed before the response completed. CodeAgent retried automatically, but the upstream service is still unavailable. Please retry this message."
+        } else {
+            message
+        }
+    }
 
     private fun exportThread() {
         val active = conversations.active()
