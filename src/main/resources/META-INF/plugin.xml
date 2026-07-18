@@ -4,30 +4,21 @@
     <vendor url="https://github.com/lixiang12345">CodeAgent</vendor>
 
     <description><![CDATA[
-        <table border="0" cellpadding="16" cellspacing="0" width="100%">
-            <tr>
-                <td bgcolor="#2F67D8">
-                    <font color="#FFFFFF" size="5"><b>CodeAgent</b></font><br/>
-                    <font color="#EAF1FF">Project-aware AI engineering inside JetBrains</font>
-                </td>
-            </tr>
-        </table>
-        <br/>
-        <p><font color="#4C8DFF" size="4"><b>Understand the code. Run the work. Review every change.</b></font></p>
-        <p>CodeAgent is a complete agent workspace for IntelliJ IDEA and other JetBrains IDEs. It combines model-driven coding with live project context, visible tool execution, and IDE-native review.</p>
+        <p><img src="https://raw.githubusercontent.com/lixiang12345/CodeAgent-idea-plugin/main/docs/images/codeagent-overview.png" alt="CodeAgent running inside IntelliJ IDEA" /></p>
 
-        <p><font color="#4C8DFF"><b>One continuous engineering timeline</b></font></p>
-        <ul>
-            <li><b>Live Agent runs</b> with streamed responses, tool-pass progress, approvals, verification, tasks, and durable subagents.</li>
-            <li><b>ContextEngine</b> with semantic project retrieval and automatic watcher-based incremental indexing.</li>
-            <li><b>IDE tools</b> for reading, editing, search, terminal, Git, diagnostics, navigation, images, and Mermaid diagrams.</li>
-            <li><b>Controlled changes</b> with approval policies, post-mutation verification, checkpoints, and native Diff review.</li>
-        </ul>
+        <h2>Ship real work without leaving the IDE.</h2>
+        <p>CodeAgent is a project-aware coding agent for JetBrains IDEs. It combines a model-driven engineering loop with repository context, visible tool execution, and native review so you can move from request to verified change in one workspace.</p>
 
-        <p><font color="#4C8DFF"><b>Built for long-running work</b></font></p>
-        <p>Use a 256K model context budget with automatic compaction at 80%, switch models per conversation, keep multiple threads, and inspect backend, model, and ContextEngine connectivity directly from Settings.</p>
+        <h3>Agent runs you can follow</h3>
+        <p>Watch streamed responses, tool progress, approvals, tasks, subagents, checkpoints, and changed files in one continuous conversation.</p>
 
-        <p><font color="#4C8DFF"><b>Stay in control while CodeAgent does the work.</b></font></p>
+        <h3>Context that stays current</h3>
+        <p>ContextEngine indexes the project, synchronizes incremental changes automatically, and retrieves the files and symbols each task actually needs.</p>
+
+        <h3>Changes that stay under your control</h3>
+        <p>Read, search, edit, run terminals, inspect diagnostics, work with Git, attach images, and render Mermaid diagrams with approval policies and JetBrains-native Diff review.</p>
+
+        <p><strong>Built for long-running engineering:</strong> per-conversation model selection, a 256K context budget, automatic compaction at 80%, durable threads, and live backend, model, and ContextEngine health checks.</p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
