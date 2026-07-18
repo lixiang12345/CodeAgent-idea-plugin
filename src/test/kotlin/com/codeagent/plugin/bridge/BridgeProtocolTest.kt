@@ -141,6 +141,7 @@ class BridgeProtocolTest {
             toolDefinitionTokens = 800,
             compactedToolResults = 1,
             truncatedMessages = 2,
+            compactionApplied = true,
             overBudget = false,
             activeToolNames = listOf("read_file", "git_history"),
             activeToolCount = 2,

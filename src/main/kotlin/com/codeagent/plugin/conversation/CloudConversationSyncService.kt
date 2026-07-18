@@ -36,6 +36,7 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
     private val inFlightGeneration = AtomicLong(NO_GENERATION)
     private val disposed = AtomicBoolean(false)
     private val lifecycleGeneration = AtomicLong()
+    private val restoreGeneration = AtomicLong()
     private val scheduleLock = Any()
 
     @Volatile
@@ -48,7 +49,8 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
     }
 
     fun restore(): CompletableFuture<CloudSyncResult> {
-        val generation = lifecycleGeneration.get()
+        val lifecycle = lifecycleGeneration.get()
+        val restore = restoreGeneration.incrementAndGet()
         return oidcLogin.ensureFreshToken().thenCompose {
             val client = RemoteAgentClient(settings.snapshot())
             val deletions = conversations.pendingCloudDeletions()
@@ -56,7 +58,7 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
                 client.deleteConversation(conversationId).thenApply { conversationId }
             }
             CompletableFuture.allOf(*deleteRequests.toTypedArray()).thenCompose {
-                if (isCurrent(generation)) {
+                if (isRestoreCurrent(lifecycle, restore)) {
                     deleteRequests.map(CompletableFuture<String>::join).forEach(conversations::acknowledgeCloudDeletion)
                 }
                 client.conversations()
@@ -67,7 +69,7 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
                 }
             }
         }.thenApply { remote ->
-            if (!isCurrent(generation)) return@thenApply CloudSyncResult()
+            if (!isRestoreCurrent(lifecycle, restore)) return@thenApply CloudSyncResult()
             versions.clear()
             syncedFingerprints.clear()
             remote.forEach { conversation ->
@@ -90,6 +92,7 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
     }
 
     fun delete(conversationId: String): CompletableFuture<Boolean> {
+        restoreGeneration.incrementAndGet()
         pending.remove(conversationId)
         versions.remove(conversationId)
         syncedFingerprints.remove(conversationId)
@@ -103,6 +106,7 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
 
     fun reset() {
         lifecycleGeneration.incrementAndGet()
+        restoreGeneration.incrementAndGet()
         inFlightGeneration.set(NO_GENERATION)
         synchronized(scheduleLock) {
             scheduledFlush?.cancel(false)
@@ -219,6 +223,9 @@ class CloudConversationSyncService(private val project: Project) : Disposable {
 
     private fun isCurrent(generation: Long): Boolean =
         !disposed.get() && lifecycleGeneration.get() == generation
+
+    private fun isRestoreCurrent(lifecycle: Long, restore: Long): Boolean =
+        isCurrent(lifecycle) && restoreGeneration.get() == restore
 
     private fun fingerprint(conversation: RemoteConversation): String =
         json.encodeToString(conversation.copy(version = 0))

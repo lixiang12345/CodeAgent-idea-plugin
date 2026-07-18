@@ -211,7 +211,7 @@ button { color: inherit; }
 .approval button:disabled { opacity: .55; cursor: default; }
 @keyframes approval-pulse { 100% { box-shadow: 0 0 0 6px transparent; } }
 .assistant-turn { margin: 8px 0 10px; }
-.chat-view .assistant-message { color: #d4d7dc; font-size: calc(12px * var(--chat-zoom)); line-height: 1.52; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-view .assistant-message { min-width: 0; color: #d4d7dc; font-size: calc(12px * var(--chat-zoom)); line-height: 1.52; overflow-wrap: anywhere; }
 .chat-view .assistant-meta { min-height: 16px; display: flex; align-items: center; gap: 6px; color: #737b85; font: calc(8.5px * var(--chat-zoom)) var(--mono); }
 .assistant-actions { min-height: 22px; display: flex; justify-content: flex-end; opacity: 0; transition: opacity .15s ease; }
 .assistant-turn:hover .assistant-actions, .assistant-actions:focus-within { opacity: 1; }
@@ -685,4 +685,793 @@ button { color: inherit; }
   .composer-toolbar .model-select { max-width: 72px; }
   .composer-toolbar > .auto-toggle { width: auto; min-width: 23px; padding-inline: 4px; }
   .composer-toolbar > .send-button { width: 24px; flex-basis: 24px; }
+}
+
+/*
+ * Prototype parity
+ *
+ * The IDE prototype renders the tool window at 420px and uses a readable
+ * 10/11/12px type scale. Keep the standalone web preview at the same width
+ * and use the same scale across chat, settings, and workspace surfaces.
+ */
+:root {
+  --ds-font-size-0: 10px;
+  --ds-font-size-1: 12px;
+  --ds-font-size-2: 14px;
+}
+
+.shell,
+.shell.settings-active,
+.shell.canvas-active {
+  width: min(100%, var(--tw));
+  max-width: var(--tw);
+  margin-left: auto;
+  margin-right: 0;
+}
+
+.thread-header {
+  height: 41px;
+  flex-basis: 41px;
+  padding: 6px 8px;
+}
+
+.thread-title {
+  font-size: 12px;
+}
+
+.message-list {
+  padding: 10px 10px 20px;
+}
+
+.user-message:not(.queued-message) {
+  margin-bottom: 16px;
+}
+
+.chat-view .user-message-content {
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: calc(12px * var(--chat-zoom));
+  line-height: 1.5;
+}
+
+.tools-turn {
+  margin: 6px 0 10px;
+}
+
+.tool-pass-header {
+  min-height: 32px;
+  margin: 0 0 5px;
+  padding: 2px 2px 5px;
+}
+
+.tool-pass-title strong {
+  font-size: calc(11px * var(--chat-zoom));
+}
+
+.tool-pass-copy b {
+  font-size: calc(10px * var(--chat-zoom));
+}
+
+.tool-pass-copy small {
+  font-size: calc(9.5px * var(--chat-zoom));
+}
+
+.tool-card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #222;
+}
+
+.tool-card + .tool-card {
+  margin-top: 6px;
+}
+
+.tool-header {
+  min-height: 31px;
+  padding: 4px 8px;
+  border-radius: 0;
+  background: #222;
+}
+
+.tool-header:hover {
+  background: rgba(255,255,255,.06);
+}
+
+.tool-icon {
+  width: 16px;
+  height: 16px;
+  flex-basis: 16px;
+}
+
+.chat-view .tool-copy strong {
+  font-size: calc(11px * var(--chat-zoom));
+}
+
+.chat-view .tool-copy small {
+  font-size: calc(10px * var(--chat-zoom));
+  font-family: var(--mono);
+}
+
+.chat-view .tool-status {
+  font-size: calc(9.5px * var(--chat-zoom));
+  font-family: var(--mono);
+}
+
+.tool-detail {
+  margin: 0;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+  border-left: 0;
+  border-radius: 0 0 4px 4px;
+  background: #181818;
+}
+
+.chat-view .detail-label {
+  margin: 6px 0 4px;
+  font-size: calc(10px * var(--chat-zoom));
+}
+
+.chat-view .tool-detail pre {
+  padding: 8px;
+  font-size: calc(10px * var(--chat-zoom));
+  font-family: var(--mono);
+  line-height: 1.5;
+}
+
+.chat-view .tool-detail p {
+  font-size: calc(10.5px * var(--chat-zoom));
+  line-height: 1.45;
+}
+
+.approval {
+  min-height: 39px;
+  padding: 6px 8px;
+  font-size: calc(10.5px * var(--chat-zoom));
+}
+
+.approval button {
+  height: 25px;
+  font-size: calc(10px * var(--chat-zoom));
+}
+
+.chat-view .assistant-message {
+  font-size: calc(12px * var(--chat-zoom));
+  line-height: 1.55;
+}
+
+.chat-view .assistant-meta {
+  font-size: calc(9.5px * var(--chat-zoom));
+  font-family: var(--mono);
+}
+
+.task-panel {
+  margin: 10px 0 8px;
+  border-radius: 6px;
+}
+
+.task-panel-header {
+  height: 36px;
+  padding: 0 8px;
+}
+
+.task-panel-header strong {
+  font-size: 12px;
+}
+
+.task-panel-header span {
+  font-size: 10px;
+}
+
+.task-items label {
+  min-height: 31px;
+  font-size: 11px;
+}
+
+.task-items label i {
+  font-size: 10px;
+}
+
+.task-items label b {
+  font-size: 9px;
+}
+
+.task-panel footer {
+  height: 31px;
+}
+
+.task-panel footer button {
+  font-size: 10px;
+}
+
+.composer-toolbar .mode-button,
+.dd-btn {
+  font-size: 11.5px;
+}
+
+.composer-toolbar .model-select,
+.model-btn {
+  font-size: 11px;
+}
+
+.settings-header {
+  height: 41px;
+  padding: 0 8px;
+}
+
+.settings-header strong {
+  font-size: 12px;
+}
+
+.audit-button {
+  font-size: 10.5px;
+}
+
+.settings-layout {
+  grid-template-columns: 200px minmax(0, 1fr);
+}
+
+.settings-navigation {
+  padding: 10px 6px 14px;
+}
+
+.settings-group-label {
+  margin: 12px 8px 5px;
+  font-size: 10px;
+}
+
+.settings-navigation button {
+  height: 30px;
+  padding: 0 10px;
+  gap: 8px;
+  font-size: 11.5px;
+}
+
+.settings-navigation button i {
+  font-size: 9px;
+}
+
+.settings-content {
+  padding: 16px 18px 32px;
+}
+
+.settings-nav-toggle {
+  height: 30px;
+  margin-bottom: 10px;
+  font-size: 11px;
+}
+
+.breadcrumb {
+  font-size: 11.5px;
+}
+
+.settings-content h1 {
+  margin: 8px 0 4px;
+  font-size: 16px;
+}
+
+.settings-content h1 em {
+  font-size: 9px;
+}
+
+.settings-lead {
+  margin-bottom: 16px;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.settings-stats {
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.settings-stats article {
+  min-height: 64px;
+  padding: 10px;
+  border-radius: 6px;
+}
+
+.settings-stats span {
+  font-size: 11px;
+}
+
+.settings-block {
+  margin-bottom: 12px;
+  padding: 12px;
+  border-radius: 6px;
+}
+
+.settings-block > header {
+  gap: 8px;
+}
+
+.settings-block > header strong {
+  font-size: 12.5px;
+}
+
+.settings-block > header button,
+.settings-form footer button {
+  height: 27px;
+  font-size: 10.5px;
+}
+
+.settings-block > p {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.context-signals {
+  margin-top: 8px;
+  gap: 6px 12px;
+  font-size: 10.5px;
+}
+
+.service-health-stack {
+  min-width: 0;
+  margin-bottom: 12px;
+  gap: 8px;
+}
+
+.service-health-row {
+  width: 100%;
+  min-width: 0;
+  min-height: 50px;
+  padding: 8px;
+  gap: 8px;
+  border-radius: 5px;
+}
+
+.service-health-row strong {
+  font-size: 11.5px;
+}
+
+.service-health-row small {
+  font-size: 10px;
+}
+
+.service-health-row button {
+  height: 27px;
+  padding: 0 8px;
+  font-size: 10.5px;
+}
+
+.backend-state {
+  font-size: 9px;
+}
+
+.workspace-row,
+.list-block > div {
+  min-height: 40px;
+  gap: 8px;
+}
+
+.workspace-row span,
+.list-block > div > span {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.workspace-row i,
+.list-block i {
+  font-size: 9.5px;
+}
+
+.list-block small {
+  font-size: 10.5px;
+}
+
+.section-title > button {
+  height: 29px;
+  margin-top: 7px;
+  padding: 0 9px;
+  font-size: 10.5px;
+}
+
+.rule-list > div {
+  min-height: 50px;
+  gap: 8px;
+}
+
+.rule-copy strong {
+  font-size: 11.5px;
+}
+
+.rule-copy small {
+  font-size: 10.5px;
+}
+
+.rule-list i {
+  font-size: 9px;
+}
+
+.rule-editor > label,
+.settings-form label {
+  gap: 6px;
+  margin-bottom: 13px;
+  font-size: 12px;
+}
+
+.rule-editor input,
+.settings-form input[type="text"],
+.settings-form input[type="password"],
+.settings-form label > input:not([type]),
+.settings-form select {
+  height: 34px;
+  font-size: 11.5px;
+}
+
+.rule-editor legend {
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.trigger-control {
+  height: 31px;
+}
+
+.trigger-control button {
+  min-width: 74px;
+  font-size: 10.5px;
+}
+
+.rule-editor footer button {
+  height: 28px;
+  font-size: 10.5px;
+}
+
+.capability-list strong {
+  font-size: 12px;
+}
+
+.capability-list small {
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.audit-report footer button {
+  height: 27px;
+  font-size: 10.5px;
+}
+
+.subscription-summary > header strong {
+  font-size: 12px;
+}
+
+.subscription-summary > header small {
+  font-size: 10px;
+}
+
+.usage-grid article span,
+.usage-grid > p {
+  font-size: 10.5px;
+}
+
+.unavailable strong {
+  font-size: 12px;
+}
+
+.unavailable > button {
+  height: 28px;
+  font-size: 10.5px;
+}
+
+.job-output-label {
+  font-size: 10.5px;
+}
+
+.account-copy strong {
+  font-size: 12px;
+}
+
+.account-copy small {
+  font-size: 10px;
+}
+
+.account-session strong {
+  font-size: 11px;
+}
+
+.account-session small,
+.account-usage article span,
+.account-actions span {
+  font-size: 10px;
+}
+
+.account-usage > p {
+  font-size: 10.5px;
+}
+
+.account-actions button,
+.account-empty-card button {
+  height: 28px;
+  font-size: 10.5px;
+}
+
+.account-empty-card > strong {
+  font-size: 12px;
+}
+
+.account-empty-card > p {
+  font-size: 10.5px;
+}
+
+.workspace-body {
+  padding: 10px;
+}
+
+.workspace-context {
+  min-height: 34px;
+  margin-bottom: 10px;
+}
+
+.workspace-context > span {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 10px;
+}
+
+.workspace-context small {
+  font-size: 10px;
+}
+
+.workspace-section {
+  margin-bottom: 12px;
+  border-radius: 6px;
+}
+
+.workspace-section > header {
+  min-height: 42px;
+  padding: 7px 9px;
+}
+
+.workspace-section > header strong {
+  font-size: 12px;
+}
+
+.workspace-section > header small {
+  font-size: 10px;
+}
+
+.workspace-section button,
+.workspace-actions > button,
+.task-import-actions button,
+.task-add button,
+.image-toolbar button,
+.workspace-empty button,
+.image-meta button {
+  height: 27px;
+  padding: 0 8px;
+  font-size: 10.5px;
+}
+
+.workspace-file {
+  min-height: 48px;
+  padding: 6px 8px;
+  gap: 8px;
+}
+
+.workspace-file strong {
+  font-size: 10.5px;
+}
+
+.workspace-file small {
+  font-size: 10px;
+}
+
+.workspace-list-empty {
+  min-height: 62px;
+  font-size: 10.5px;
+}
+
+.workspace-empty {
+  min-height: 230px;
+  padding: 26px;
+}
+
+.workspace-empty strong {
+  margin-top: 9px;
+  font-size: 13px;
+}
+
+.workspace-empty p {
+  font-size: 11px;
+}
+
+.commit-section textarea {
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.workspace-count {
+  font-size: 9px;
+}
+
+.workspace-actions {
+  min-height: 38px;
+  margin-bottom: 8px;
+}
+
+.segmented-control {
+  height: 30px;
+}
+
+.segmented-control button {
+  font-size: 10.5px;
+}
+
+.task-import-actions {
+  min-height: 34px;
+  margin-bottom: 8px;
+}
+
+.task-add {
+  min-height: 38px;
+  margin-bottom: 9px;
+}
+
+.task-add input {
+  font-size: 11.5px;
+}
+
+.task-workspace-list {
+  border-radius: 6px;
+}
+
+.task-workspace-row {
+  min-height: 52px;
+  padding: 7px 8px;
+  gap: 8px;
+}
+
+.task-workspace-row > i {
+  font-size: 9.5px;
+}
+
+.task-workspace-row strong {
+  font-size: 11.5px;
+}
+
+.task-workspace-row small {
+  font-size: 10px;
+}
+
+.job-compose {
+  flex: 0 0 auto;
+}
+
+.job-compose form {
+  padding: 10px;
+}
+
+.job-form-grid {
+  gap: 10px;
+}
+
+.job-form-grid label {
+  gap: 5px;
+  font-size: 10.5px;
+}
+
+.job-form-grid input,
+.job-form-grid select,
+.job-form-grid textarea {
+  font-size: 11.5px;
+}
+
+.job-form-grid input,
+.job-form-grid select {
+  height: 32px;
+}
+
+.job-form-grid textarea {
+  min-height: 76px;
+  font-size: 10.5px;
+}
+
+.job-compose form > footer {
+  min-height: 35px;
+  padding-top: 10px;
+}
+
+.jobs-actions {
+  gap: 8px;
+}
+
+.jobs-actions > span {
+  font-size: 10px;
+}
+
+.job-list {
+  gap: 8px;
+}
+
+.job-row {
+  border-radius: 6px;
+}
+
+.job-row > header {
+  min-height: 40px;
+  padding: 7px 9px;
+  gap: 8px;
+}
+
+.job-status-icon {
+  width: 20px;
+  height: 20px;
+  flex-basis: 20px;
+}
+
+.job-row > header strong {
+  font-size: 11.5px;
+}
+
+.job-row > header i {
+  font-size: 9px;
+}
+
+.job-row > header time {
+  font-size: 9px;
+}
+
+.job-row > p {
+  padding: 10px 10px 6px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.job-meta span {
+  font-size: 9px;
+}
+
+.job-row details {
+  font-size: 10.5px;
+}
+
+.job-row details strong {
+  font-size: 10px;
+}
+
+.job-row details p {
+  font-size: 10.5px;
+}
+
+.job-row > pre {
+  font-size: 10px;
+}
+
+.job-error {
+  font-size: 10.5px;
+}
+
+.job-row > footer {
+  min-height: 36px;
+  padding: 6px 9px;
+}
+
+.job-row > footer button {
+  height: 26px;
+  font-size: 10px;
+}
+
+.image-settings label,
+.image-limit {
+  font-size: 10.5px;
+}
+
+.image-meta > strong {
+  font-size: 10.5px;
+}
+
+.image-meta > small {
+  font-size: 10px;
+}
+
+@media (max-width: 460px) {
+  .shell,
+  .shell.settings-active,
+  .shell.canvas-active {
+    width: 100%;
+    max-width: none;
+  }
 }

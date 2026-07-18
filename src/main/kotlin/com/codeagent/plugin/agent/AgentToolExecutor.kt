@@ -65,7 +65,13 @@ internal class AgentToolExecutor(
                     MAX_EXPLICIT_RETRIEVAL_TOKENS,
                 ),
                 "strategy" to enumStringProperty("Retrieval depth: fast for a focused lookup, balanced by default, deep for cross-cutting flows", listOf("fast", "balanced", "deep")),
-                "focus_paths" to stringArrayProperty("Optional project-relative files or directories to prioritize", 0, 8),
+                "focus_paths" to stringArrayProperty(
+                    description = "Optional concrete project-relative files or directories to prioritize. Omit this field or use [] when no path is known; never send blank strings, absolute paths, or invented placeholders",
+                    minItems = 0,
+                    maxItems = 8,
+                    itemDescription = "One real project-relative file or directory path",
+                    minItemLength = 1,
+                ),
             ),
             required = listOf("information_request"),
         )))
@@ -262,7 +268,7 @@ internal class AgentToolExecutor(
         }
         val strategy = args.string("strategy") ?: "balanced"
         require(strategy in setOf("fast", "balanced", "deep")) { "strategy must be fast, balanced, or deep" }
-        val focusPaths = args.stringList("focus_paths").take(8)
+        val focusPaths = args.optionalStringListArgument("focus_paths").take(8)
         val packed = contextEngine.retrievePlanned(
             informationRequest = request,
             strategy = strategy,
@@ -737,10 +743,20 @@ internal class AgentToolExecutor(
         put("enum", buildJsonArray { values.forEach { add(JsonPrimitive(it)) } })
     }
 
-    private fun stringArrayProperty(description: String, minItems: Int, maxItems: Int) = buildJsonObject {
+    private fun stringArrayProperty(
+        description: String,
+        minItems: Int,
+        maxItems: Int,
+        itemDescription: String? = null,
+        minItemLength: Int? = null,
+    ) = buildJsonObject {
         put("type", "array")
         put("description", description)
-        put("items", buildJsonObject { put("type", "string") })
+        put("items", buildJsonObject {
+            put("type", "string")
+            itemDescription?.let { put("description", it) }
+            minItemLength?.let { put("minLength", it) }
+        })
         put("minItems", minItems)
         put("maxItems", maxItems)
     }
@@ -786,6 +802,15 @@ internal fun toolRiskFromWire(value: String): ToolRisk = when (value) {
 
 private fun requireSupportedRunMode(mode: String) {
     require(mode in setOf("agent", "chat", "ask")) { "Unsupported mode: $mode" }
+}
+
+internal fun JsonObject.optionalStringListArgument(name: String): List<String> {
+    val element = get(name) ?: return emptyList()
+    return element.jsonArray.mapIndexedNotNull { index, value ->
+        val primitive = value.jsonPrimitive
+        require(primitive.isString) { "$name[$index] must be a string" }
+        primitive.contentOrNull?.trim()?.takeIf(String::isNotBlank)
+    }
 }
 
 interface AgentToolRunner {

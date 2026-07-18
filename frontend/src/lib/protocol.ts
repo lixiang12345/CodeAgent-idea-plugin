@@ -39,6 +39,7 @@ export interface AgentRunTelemetry {
   toolDefinitionTokens: number;
   compactedToolResults: number;
   truncatedMessages: number;
+  compactionApplied: boolean;
   overBudget: boolean;
   activeToolNames: string[];
   activeToolCount: number;
@@ -427,7 +428,7 @@ let developmentJobSequence = 0;
 let developmentRunGeneration = 0;
 
 function emitDevelopmentEvent(type: string, payload?: unknown): void {
-  queueMicrotask(() => window.CodeAgent?.receive(JSON.stringify({ version: PROTOCOL_VERSION, type, payload })));
+  queueMicrotask(() => dispatchHostEvent({ version: PROTOCOL_VERSION, type, payload }));
 }
 
 function emitDevelopmentSnapshot(): void {
@@ -478,10 +479,11 @@ type DevelopmentMessageRequest = {
 function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
   const text = String(request.text ?? "").trim();
   if (!text || !developmentSnapshot) return;
-  const simulateCompaction = /compact|context window|compaction|压缩|上下文/i.test(text);
+  const simulateCompaction = /\b(?:simulate[- ]compaction|compact context)\b|模拟上下文压缩/i.test(text);
   const userMessageId = request.clientMessageId || crypto.randomUUID();
   const toolId = crypto.randomUUID();
   const assistantMessageId = crypto.randomUUID();
+  const presentationRunId = crypto.randomUUID();
   const sequence = nextDevelopmentTimelineSequence(developmentSnapshot);
   const generation = ++developmentRunGeneration;
   updateDevelopmentSnapshot((snapshot) => ({
@@ -500,6 +502,7 @@ function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
       toolDefinitionTokens: 1_024,
       compactedToolResults: simulateCompaction ? 3 : 0,
       truncatedMessages: simulateCompaction ? 6 : 0,
+      compactionApplied: simulateCompaction,
       overBudget: false,
       activeToolNames: ["codebase_retrieval"],
       activeToolCount: 1,
@@ -514,6 +517,7 @@ function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
       content: text,
       createdAt: Date.now(),
       timelineSequence: sequence,
+      runId: presentationRunId,
     }],
     tools: [...snapshot.tools, {
       id: toolId,
@@ -522,6 +526,8 @@ function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
       status: "running",
       detail: `Query\n${text}`,
       canRevert: false,
+      runId: presentationRunId,
+      turnIndex: 0,
       timelineSequence: sequence + 1,
     }],
     threads: snapshot.threads.map((thread) => thread.active
@@ -550,6 +556,8 @@ function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
           role: "assistant",
           content: `Development host completed the interaction for: ${text}`,
           createdAt: Date.now(),
+          runId: presentationRunId,
+          turnIndex: 1,
           timelineSequence: sequence + 2,
         }],
       };
@@ -644,24 +652,27 @@ export function sendCommand(type: string, payload?: unknown): void {
   handleDevelopmentCommand(command);
 }
 
+function dispatchHostEvent(event: EventEnvelope): void {
+  const sequence = Number(event.sequence ?? 0);
+  if (sequence > 0 && sequence <= lastHostEventSequence) {
+    acknowledgeHostEvent(event);
+    return;
+  }
+  if (listeners.size === 0) return;
+  try {
+    listeners.forEach((listener) => listener(event));
+    if (sequence > 0) {
+      lastHostEventSequence = sequence;
+      acknowledgeHostEvent(event);
+    }
+  } catch (error) {
+    console.error("CodeAgent host event failed", error);
+  }
+}
+
 window.CodeAgent = {
   receive(json: string) {
-    const event = JSON.parse(json) as EventEnvelope;
-    const sequence = Number(event.sequence ?? 0);
-    if (sequence > 0 && sequence <= lastHostEventSequence) {
-      acknowledgeHostEvent(event);
-      return;
-    }
-    if (listeners.size === 0) return;
-    try {
-      listeners.forEach((listener) => listener(event));
-      if (sequence > 0) {
-        lastHostEventSequence = sequence;
-        acknowledgeHostEvent(event);
-      }
-    } catch (error) {
-      console.error("CodeAgent host event failed", error);
-    }
+    dispatchHostEvent(JSON.parse(json) as EventEnvelope);
   },
 };
 
@@ -1058,10 +1069,13 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     return;
   }
   if (command.type === "toggleThreadPinned") {
-    const threadId = String((command.payload as { threadId?: string } | undefined)?.threadId ?? "");
+    const request = command.payload as { threadId?: string; pinned?: boolean } | undefined;
+    const threadId = String(request?.threadId ?? "");
     updateDevelopmentSnapshot((snapshot) => ({
       ...snapshot,
-      threads: snapshot.threads.map((thread) => thread.id === threadId ? { ...thread, pinned: !thread.pinned } : thread),
+      threads: snapshot.threads.map((thread) => thread.id === threadId
+        ? { ...thread, pinned: request?.pinned ?? !thread.pinned }
+        : thread),
     }));
     return;
   }
@@ -1198,6 +1212,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       toolDefinitionTokens: 0,
       compactedToolResults: 0,
       truncatedMessages: 0,
+      compactionApplied: false,
       overBudget: false,
       activeToolNames: [],
       activeToolCount: 0,

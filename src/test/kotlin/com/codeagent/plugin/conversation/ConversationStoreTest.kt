@@ -325,6 +325,8 @@ class ConversationStoreTest {
         store.togglePinned(original.id)
         assertEquals(original.id, store.threads().first().id)
         assertTrue(store.threads().first().pinned)
+        store.setPinnedIfPresent(original.id, true)
+        assertTrue(store.threads().first().pinned)
         assertEquals("ask", imported.mode)
         assertEquals(2, imported.messages.size)
 
@@ -339,6 +341,7 @@ class ConversationStoreTest {
 
         assertNotNull(store.deleteThreadIfPresent(deleted.id))
         assertEquals(null, store.deleteThreadIfPresent(deleted.id))
+        assertEquals(null, store.togglePinnedIfPresent(deleted.id))
         assertEquals(listOf(deleted.id), store.pendingCloudDeletions())
     }
 

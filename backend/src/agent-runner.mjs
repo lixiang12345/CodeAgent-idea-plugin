@@ -37,7 +37,7 @@ export class AgentRunner {
     let previousToolSignature = null;
     let repeatedToolCallCount = 0;
     const messages = [
-      { role: "system", content: composeSystemPrompt({ ...request, tools: toolCatalog.activeDefinitions(), agentProfile }) },
+      { role: "system", content: "" },
       ...request.messages.map(normalizeMessage),
     ];
     const latestUserRequest = [...request.messages].reverse()
@@ -48,6 +48,10 @@ export class AgentRunner {
       throwIfAborted(signal);
       emit("turn.started", { turnIndex });
       const activeTools = toolCatalog.activeDefinitions();
+      messages[0] = {
+        role: "system",
+        content: composeSystemPrompt({ ...request, tools: activeTools, agentProfile }),
+      };
       const contextBudget = contextBudgetFor(
         agentProfile,
         activeTools,

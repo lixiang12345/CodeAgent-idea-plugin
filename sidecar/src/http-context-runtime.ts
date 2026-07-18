@@ -178,14 +178,19 @@ export class HttpContextRuntime {
     );
     return arrayValue(response.results).map((value) => {
       const hit = objectValue(value) ?? {};
+      const hitPath = String(hit.path ?? "");
+      const startLine = numberValue(hit.start_line, 1);
+      const endLine = numberValue(hit.end_line, 1);
+      const content = String(hit.content ?? "");
       return {
         chunk: {
-          path: String(hit.path ?? ""),
-          startLine: numberValue(hit.start_line, 1),
-          endLine: numberValue(hit.end_line, 1),
+          id: remoteChunkId(hit, hitPath, startLine, endLine, content),
+          path: hitPath,
+          startLine,
+          endLine,
           symbol: typeof hit.symbol === "string" ? hit.symbol : undefined,
           language: String(hit.language ?? "text"),
-          content: String(hit.content ?? ""),
+          content,
         },
         preview: String(hit.preview ?? ""),
         score: numberValue(hit.score, 0),
@@ -379,6 +384,20 @@ export class HttpContextRuntime {
     const body = await response.text();
     throw new ContextHttpError(response.status, httpErrorMessage(body));
   }
+}
+
+function remoteChunkId(
+  hit: Record<string, unknown>,
+  hitPath: string,
+  startLine: number,
+  endLine: number,
+  content: string,
+): string {
+  const provided = hit.id ?? hit.chunk_id;
+  if (typeof provided === "string" && provided.trim()) return provided.trim();
+  return createHash("sha256")
+    .update(`${hitPath}\0${startLine}\0${endLine}\0${content}`)
+    .digest("hex");
 }
 
 class ContextHttpError extends Error {

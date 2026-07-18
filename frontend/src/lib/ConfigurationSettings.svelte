@@ -842,4 +842,60 @@ $: if (section !== previousSection) {
   .configuration-editor footer button { height: 26px; padding: 0 9px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line-strong); border-radius: 3px; background: #2d3035; font-size: 8px; cursor: pointer; }
   .configuration-editor footer button.primary { border-color: #416aa9; color: white; background: #3665ac; }
   .configuration-editor footer button:disabled { opacity: .45; cursor: default; }
+
+  /* Match the final prototype's readable settings and card scale. */
+  .configuration-title h1 em { font-size: 9px; }
+  .configuration-lead { margin-bottom: 16px; font-size: 11.5px; }
+  .new-configuration { height: 29px; padding: 0 9px; font-size: 10.5px; }
+  .configuration-status { min-height: 50px; margin-bottom: 10px; padding: 8px; gap: 8px; border-radius: 6px; }
+  .configuration-status strong { font-size: 11.5px; }
+  .configuration-status small { font-size: 10px; }
+  .hook-runtime-status > i, .plugin-runtime-status > i { font-size: 9px; }
+  .configuration-list { border-radius: 6px; }
+  .configuration-list article { min-height: 68px; padding: 8px; gap: 8px; }
+  .configuration-icon { width: 32px; height: 32px; flex-basis: 32px; border-radius: 6px; }
+  .configuration-copy strong { font-size: 11.5px; }
+  .configuration-copy small { font-size: 10px; line-height: 1.4; }
+  .configuration-copy i { font-size: 9px; }
+  .mcp-runtime-row, .plugin-runtime-row { width: calc(100% - 40px); margin-left: 40px; padding-top: 8px; gap: 7px; }
+  .mcp-runtime-copy small, .plugin-runtime-copy small { font-size: 9.5px; }
+  .runtime-state { font-size: 9px; }
+  .mcp-tool-list, .plugin-runtime-details { font-size: 10px; }
+  .mcp-tool-list summary, .plugin-runtime-details summary { padding: 7px 0; }
+  .mcp-tool-list > div { padding: 7px 0; }
+  .mcp-tool-list strong { font-size: 10.5px; }
+  .mcp-tool-list small { font-size: 10px; }
+  .mcp-tool-list i { font-size: 9px; }
+  .plugin-runtime-metadata { padding: 8px 0; gap: 8px 10px; }
+  .plugin-runtime-metadata strong { font-size: 9.5px; }
+  .plugin-runtime-metadata code { font-size: 9px; }
+  .plugin-capability-badges i { font-size: 9px; }
+  .plugin-runtime-error { font-size: 9.5px; }
+  .configuration-empty strong { font-size: 12px; }
+  .configuration-empty p { font-size: 10.5px; line-height: 1.45; }
+  .configuration-empty button { height: 28px; font-size: 10.5px; }
+  .configuration-editor { margin-bottom: 12px; padding: 12px; border-radius: 6px; }
+  .configuration-editor > label { gap: 6px; margin-bottom: 13px; font-size: 12px; }
+  .configuration-editor input:not([type="checkbox"]), .configuration-editor select, .configuration-editor textarea { font-size: 11.5px; }
+  .configuration-editor input:not([type="checkbox"]), .configuration-editor select { height: 34px; }
+  .configuration-editor textarea { padding: 10px; font-size: 10.5px; line-height: 1.5; }
+  .configuration-editor label > small { font-size: 10px; line-height: 1.4; }
+  .configuration-editor legend { margin-bottom: 6px; font-size: 12px; }
+  .plugin-capability-list label { min-height: 48px; padding: 7px 8px; }
+  .plugin-capability-list strong { font-size: 10.5px; }
+  .plugin-capability-list small { font-size: 9.5px; }
+  .configuration-segments { height: 31px; }
+  .configuration-segments button { font-size: 10.5px; }
+  .runtime-note { margin-bottom: 13px; padding: 9px; gap: 7px; font-size: 10.5px; }
+  .hook-audit { margin-top: 10px; border-radius: 6px; }
+  .hook-audit > header { min-height: 48px; padding: 8px; }
+  .hook-audit > header strong { font-size: 11px; }
+  .hook-audit > header small { font-size: 10px; }
+  .hook-audit > header > i { font-size: 9px; }
+  .hook-execution summary { min-height: 52px; padding: 7px 8px; }
+  .hook-execution-copy strong { font-size: 10.5px; }
+  .hook-execution-copy small, .hook-execution summary > i { font-size: 9.5px; }
+  .hook-execution-detail { padding: 0 8px 9px 37px; font-size: 9.5px; line-height: 1.5; }
+  .hook-audit-empty { min-height: 82px; font-size: 10.5px; }
+  .configuration-editor footer button { height: 28px; font-size: 10.5px; }
 </style>

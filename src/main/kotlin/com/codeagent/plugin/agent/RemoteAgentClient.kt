@@ -507,6 +507,7 @@ data class RemoteContextUpdated(
     val toolDefinitionTokens: Int,
     val compactedToolResults: Int,
     val truncatedMessages: Int,
+    val compactionApplied: Boolean = false,
     val overBudget: Boolean,
 )
 

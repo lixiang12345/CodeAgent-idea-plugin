@@ -87,6 +87,7 @@ export function prepareModelMessages(messages, budget) {
   const recentToolIndexes = new Set(toolIndexes.slice(-RECENT_TOOL_RESULTS));
   let compactedToolResults = 0;
   let truncatedMessages = 0;
+  let compactionApplied = false;
 
   for (let index = 0; index < prepared.length; index += 1) {
     const message = prepared[index];
@@ -125,6 +126,7 @@ export function prepareModelMessages(messages, budget) {
     for (let index = 1; index < prepared.length && estimatedInputTokens > targetInputTokens; index += 1) {
       if (protectedIndexes.has(index)) continue;
       if (compactMessageContent(prepared[index], COMPACTED_MESSAGE_TOKENS)) {
+        compactionApplied = true;
         truncatedMessages += 1;
         estimatedInputTokens = estimateMessages(prepared);
       }
@@ -135,6 +137,7 @@ export function prepareModelMessages(messages, budget) {
     for (let index = 1; index < prepared.length && estimatedInputTokens > targetInputTokens; index += 1) {
       if (index === latestUserIndex) continue;
       if (compactMessageContent(prepared[index], 96)) {
+        compactionApplied = true;
         truncatedMessages += 1;
         estimatedInputTokens = estimateMessages(prepared);
       }
@@ -143,6 +146,7 @@ export function prepareModelMessages(messages, budget) {
 
   if (estimatedInputTokens > targetInputTokens && latestUserIndex >= 0) {
     if (compactMessageContent(prepared[latestUserIndex], Math.max(1_024, Math.floor(targetInputTokens * 0.3)))) {
+      compactionApplied = true;
       truncatedMessages += 1;
       estimatedInputTokens = estimateMessages(prepared);
     }
@@ -159,6 +163,7 @@ export function prepareModelMessages(messages, budget) {
       toolDefinitionTokens: budget.toolDefinitionTokens,
       compactedToolResults,
       truncatedMessages,
+      compactionApplied,
       overBudget: estimatedInputTokens > targetInputTokens,
     },
   };

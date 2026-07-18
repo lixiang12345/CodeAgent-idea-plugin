@@ -56,9 +56,20 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
 
     @Synchronized
     fun togglePinned(threadId: String): ConversationSnapshot {
-        val thread = requireNotNull(data.threads.firstOrNull { it.id == threadId }) { "Unknown conversation: $threadId" }
-        thread.pinned = !thread.pinned
-        thread.updatedAt = System.currentTimeMillis()
+        return requireNotNull(togglePinnedIfPresent(threadId)) { "Unknown conversation: $threadId" }
+    }
+
+    @Synchronized
+    fun togglePinnedIfPresent(threadId: String): ConversationSnapshot? {
+        val thread = data.threads.firstOrNull { it.id == threadId } ?: return null
+        updatePinned(thread, !thread.pinned)
+        return thread.toSnapshot()
+    }
+
+    @Synchronized
+    fun setPinnedIfPresent(threadId: String, pinned: Boolean): ConversationSnapshot? {
+        val thread = data.threads.firstOrNull { it.id == threadId } ?: return null
+        updatePinned(thread, pinned)
         return thread.toSnapshot()
     }
 
@@ -529,6 +540,12 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     private fun mutableActive(): ConversationThreadState {
         ensureActive()
         return requireNotNull(data.threads.firstOrNull { it.id == data.activeThreadId })
+    }
+
+    private fun updatePinned(thread: ConversationThreadState, pinned: Boolean) {
+        if (thread.pinned == pinned) return
+        thread.pinned = pinned
+        thread.updatedAt = System.currentTimeMillis()
     }
 
     private fun ensureActive() {

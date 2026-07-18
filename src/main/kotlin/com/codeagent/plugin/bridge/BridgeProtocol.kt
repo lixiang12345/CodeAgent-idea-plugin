@@ -54,6 +54,7 @@ data class AgentRunTelemetryDto(
     val toolDefinitionTokens: Int = 0,
     val compactedToolResults: Int = 0,
     val truncatedMessages: Int = 0,
+    val compactionApplied: Boolean = false,
     val overBudget: Boolean = false,
     val activeToolNames: List<String> = emptyList(),
     val activeToolCount: Int = 0,

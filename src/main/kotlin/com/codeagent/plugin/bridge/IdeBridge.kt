@@ -557,8 +557,10 @@ class IdeBridge(
                 }
             }
             "toggleThreadPinned" -> {
-                val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPayload>(it) }
-                syncConversation(conversations.togglePinned(selection.threadId))
+                val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPinPayload>(it) }
+                val updated = selection.pinned?.let { conversations.setPinnedIfPresent(selection.threadId, it) }
+                    ?: conversations.togglePinnedIfPresent(selection.threadId)
+                updated?.let(::syncConversation)
                 emitSnapshot()
             }
             "deleteThread" -> {
@@ -874,6 +876,7 @@ class IdeBridge(
                         toolDefinitionTokens = update.toolDefinitionTokens,
                         compactedToolResults = update.compactedToolResults,
                         truncatedMessages = update.truncatedMessages,
+                        compactionApplied = update.compactionApplied,
                         overBudget = update.overBudget,
                     )
                 }) emitRunSnapshot()
@@ -2251,7 +2254,10 @@ class IdeBridge(
                 "Cancel",
                 Messages.getWarningIcon(),
             )
-            if (answer != Messages.YES) return@invokeLater
+            if (answer != Messages.YES) {
+                emitSnapshot()
+                return@invokeLater
+            }
             val wasActive = synchronized(stateLock) {
                 if (conversations.threads().none { it.id == threadId }) return@synchronized null
                 val active = conversations.active().id == threadId
@@ -2547,6 +2553,9 @@ class IdeBridge(
 
     @Serializable
     private data class ThreadPayload(val threadId: String)
+
+    @Serializable
+    private data class ThreadPinPayload(val threadId: String, val pinned: Boolean? = null)
 
     @Serializable
     private data class RenameThreadPayload(val threadId: String, val title: String)

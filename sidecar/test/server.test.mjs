@@ -233,6 +233,7 @@ test("syncs and retrieves project context through a remote HTTP deployment", asy
     responses,
     (item) => item.id === "remote-search" && item.type === "result",
   );
+  assert.match(searched.payload[0].chunk.id, /^[0-9a-f]{64}$/);
   assert.equal(searched.payload[0].chunk.path, "src/auth.ts");
   assert.match(searched.payload[0].chunk.content, /v2-incremental/);
 

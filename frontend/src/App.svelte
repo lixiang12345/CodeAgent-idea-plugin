@@ -2,6 +2,7 @@
   import { onMount, tick } from "svelte";
   import Icon from "./lib/Icon.svelte";
   import ConfigurationSettings from "./lib/ConfigurationSettings.svelte";
+  import MarkdownMessage from "./lib/MarkdownMessage.svelte";
   import MermaidCanvas from "./lib/MermaidCanvas.svelte";
   import { ICON_NAMES } from "./lib/icons";
   import { MENTION_KINDS, SLASH_COMMANDS, TOOL_CATALOG } from "./lib/tools-catalog";
@@ -209,6 +210,8 @@
   let forceConversationFollow = true;
   let visibleThreadId: string | undefined;
   let pendingUserMessages: ChatMessage[] = [];
+  let pendingThreadDeletes = new Set<string>();
+  let pendingThreadPins: Record<string, boolean> = {};
 
   onMount(() => {
     const unsubscribe = onHostEvent(handleEvent);
@@ -245,6 +248,13 @@
         reconcilePendingUserMessages(nextSnapshot.messages);
       }
       snapshot = nextSnapshot;
+      pendingThreadDeletes = new Set();
+      pendingThreadPins = Object.fromEntries(
+        Object.entries(pendingThreadPins).filter(([threadId, pinned]) => {
+          const thread = nextSnapshot.threads.find((item) => item.id === threadId);
+          return thread !== undefined && thread.pinned !== pinned;
+        }),
+      );
       reconcileContextCompaction(nextSnapshot, nextThreadId);
       visibleThreadId = nextThreadId;
       forceConversationFollow = false;
@@ -301,6 +311,8 @@
     }
     if (event.type === "error") {
       enhancing = false;
+      pendingThreadDeletes = new Set();
+      pendingThreadPins = {};
       if (pendingSettingsSave) {
         pendingSettingsSave = null;
         settingsSaveState = "idle";
@@ -975,9 +987,30 @@
     return details.length > 0 ? `${phase} · ${details.join(" · ")}` : phase;
   }
 
-  function visibleThreads() {
-    const query = threadSearch.trim().toLowerCase();
-    return query ? snapshot?.threads.filter((thread) => thread.title.toLowerCase().includes(query)) ?? [] : snapshot?.threads ?? [];
+  function visibleThreads(
+    threads: AppSnapshot["threads"],
+    queryValue: string,
+    pinOverrides: Record<string, boolean>,
+  ) {
+    const query = queryValue.trim().toLowerCase();
+    const filtered = query
+      ? threads.filter((thread) => thread.title.toLowerCase().includes(query))
+      : threads;
+    return filtered.map((thread) => pinOverrides[thread.id] === undefined
+      ? thread
+      : { ...thread, pinned: pinOverrides[thread.id] });
+  }
+
+  function toggleThreadPinned(threadId: string, pinned: boolean) {
+    if (pendingThreadPins[threadId] !== undefined) return;
+    pendingThreadPins = { ...pendingThreadPins, [threadId]: !pinned };
+    sendCommand("toggleThreadPinned", { threadId, pinned: !pinned });
+  }
+
+  function deleteThread(threadId: string) {
+    if (pendingThreadDeletes.has(threadId)) return;
+    pendingThreadDeletes = new Set(pendingThreadDeletes).add(threadId);
+    sendCommand("deleteThread", { threadId });
   }
 
   function formatTime(timestamp: number) {
@@ -1338,8 +1371,12 @@
 
   function openMermaid(tool: ToolRun) {
     if (!tool.detail) return;
-    mermaidSource = tool.detail;
-    mermaidTitle = tool.summary || "Mermaid diagram";
+    openMermaidSource(tool.detail, tool.summary || "Mermaid diagram");
+  }
+
+  function openMermaidSource(source: string, title = "Mermaid diagram") {
+    mermaidSource = source;
+    mermaidTitle = title;
     mermaidMode = "diagram";
     mermaidScale = 1;
     currentView = "mermaid";
@@ -1526,8 +1563,8 @@
                 <button onclick={() => { beginRename(); }}><Icon name="square-pen" size={14} /><span>Rename</span></button>
                 <button onclick={() => { exportThread(); closeMenus(); }}><Icon name="upload" size={14} /><span>Export conversation</span></button>
                 <button onclick={() => { sendCommand("importThread"); closeMenus(); }}><Icon name="download" size={14} /><span>Import conversation</span></button>
-                <button onclick={() => { const id = activeThread()?.id; if (id) sendCommand("toggleThreadPinned", { threadId: id }); closeMenus(); }}><Icon name="pin" size={14} /><span>Pin / Unpin</span></button>
-                <button class="danger" onclick={() => { const id = activeThread()?.id; if (id) sendCommand("deleteThread", { threadId: id }); closeMenus(); }}><Icon name="trash" size={14} /><span>Delete</span></button>
+                <button onclick={() => { const thread = activeThread(); if (thread) toggleThreadPinned(thread.id, thread.pinned); closeMenus(); }}><Icon name="pin" size={14} /><span>Pin / Unpin</span></button>
+                <button class="danger" onclick={() => { const id = activeThread()?.id; if (id) deleteThread(id); closeMenus(); }}><Icon name="trash" size={14} /><span>Delete</span></button>
                 <div class="menu-sep"></div>
                 <button onclick={() => openWorkspaceView("tasks")}><Icon name="list-checks" size={14} /><span>Agent Tasklist</span></button>
                 <button onclick={() => openWorkspaceView("jobs")}><Icon name="bot" size={14} /><span>Durable Jobs</span></button>
@@ -1574,7 +1611,7 @@
               {#if threadOptOpen}
                 <div class="workspace-menu menu thread-opt-menu">
                   <button onclick={() => beginRename()}><Icon name="square-pen" size={13} /><span>Rename thread</span></button>
-                  <button onclick={() => { const id = activeThread()?.id; if (id) sendCommand("toggleThreadPinned", { threadId: id }); closeMenus(); }}><Icon name="pin" size={13} /><span>Pin / Unpin</span></button>
+                  <button onclick={() => { const thread = activeThread(); if (thread) toggleThreadPinned(thread.id, thread.pinned); closeMenus(); }}><Icon name="pin" size={13} /><span>Pin / Unpin</span></button>
                   <button onclick={() => { copyThread(); closeMenus(); }}><Icon name="share-2" size={13} /><span>Share link to session</span></button>
                   <button onclick={() => { exportThread(); closeMenus(); }}><Icon name="upload" size={13} /><span>Export conversation</span></button>
                   <button onclick={() => { sendCommand("importThread"); closeMenus(); }}><Icon name="file-input" size={13} /><span>Import conversation</span></button>
@@ -1582,7 +1619,7 @@
                   <div class="menu-sep"></div>
                   <button onclick={() => openWorkspaceView("feedback")}><Icon name="flag" size={13} /><span>Report an Issue</span></button>
                   <div class="menu-sep"></div>
-                  <button class="danger" onclick={() => { const id = activeThread()?.id; if (id) sendCommand("deleteThread", { threadId: id }); closeMenus(); }}><Icon name="trash-2" size={13} /><span>Delete thread</span></button>
+                  <button class="danger" onclick={() => { const id = activeThread()?.id; if (id) deleteThread(id); closeMenus(); }}><Icon name="trash-2" size={13} /><span>Delete thread</span></button>
                 </div>
               {/if}
             </div>
@@ -1641,7 +1678,12 @@
                 {:else if item.kind === "assistant"}
                   {#if item.message.content}
                     <section class="assistant-turn">
-                      <div class="assistant-message">{item.message.content}</div>
+                      <div class="assistant-message">
+                        <MarkdownMessage
+                          content={item.message.content}
+                          onOpenMermaid={(source) => openMermaidSource(source)}
+                        />
+                      </div>
                       {#if showTimestamps || (showRunTelemetry && item.message.turnIndex !== undefined)}
                         <div class="assistant-meta">
                           {#if showTimestamps}<time>{formatTime(item.message.createdAt)}</time>{/if}
@@ -2695,14 +2737,14 @@
         </div>
         <label class="thread-search"><Icon name="search" size={13} /><input bind:value={threadSearch} placeholder="Search threads…" /></label>
         <div class="thread-list">
-          {#each visibleThreads() as thread}
+          {#each visibleThreads(snapshot?.threads ?? [], threadSearch, pendingThreadPins) as thread (thread.id)}
             <div class="thread-row" class:active={thread.active}>
               <button class="thread-select" onclick={() => selectThread(thread.id)}>
                 <span><strong>{thread.title}</strong><small>{formatTime(thread.updatedAt)}</small></span>
                 <i class="tag {thread.mode}">{modeLabel(thread.mode)}</i>
               </button>
-              <button class="icon-button compact" class:pinned={thread.pinned} title={thread.pinned ? "Unpin thread" : "Pin thread"} onclick={() => sendCommand("toggleThreadPinned", { threadId: thread.id })}><Icon name="pin" size={12} /></button>
-              <button class="icon-button compact delete-thread" title="Delete thread" onclick={() => sendCommand("deleteThread", { threadId: thread.id })}><Icon name="trash-2" size={12} /></button>
+              <button class="icon-button compact" class:pinned={thread.pinned} title={pendingThreadPins[thread.id] !== undefined ? "Updating pin" : thread.pinned ? "Unpin thread" : "Pin thread"} disabled={pendingThreadPins[thread.id] !== undefined} onclick={() => toggleThreadPinned(thread.id, thread.pinned)}><Icon name="pin" size={12} /></button>
+              <button class="icon-button compact delete-thread" title={pendingThreadDeletes.has(thread.id) ? "Deleting thread" : "Delete thread"} disabled={pendingThreadDeletes.has(thread.id)} onclick={() => deleteThread(thread.id)}><Icon name="trash-2" size={12} /></button>
             </div>
           {/each}
         </div>
