@@ -55,6 +55,7 @@
         <toolWindow id="CodeAgent"
                     anchor="right"
                     secondary="true"
+                    icon="/icons/plugin.svg"
                     factoryClass="com.codeagent.plugin.ui.CodeAgentToolWindowFactory"/>
         <notificationGroup id="CodeAgent"
                            displayType="BALLOON"

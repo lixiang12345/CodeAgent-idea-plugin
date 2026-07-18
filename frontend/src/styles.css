@@ -690,9 +690,8 @@ button { color: inherit; }
 /*
  * Prototype parity
  *
- * The IDE prototype renders the tool window at 420px and uses a readable
- * 10/11/12px type scale. Keep the standalone web preview at the same width
- * and use the same scale across chat, settings, and workspace surfaces.
+ * Keep the prototype type scale, but let the shell fill the width supplied by
+ * the IDE. A fixed 420px shell leaves a blank rail in wider tool windows.
  */
 :root {
   --ds-font-size-0: 10px;
@@ -703,10 +702,9 @@ button { color: inherit; }
 .shell,
 .shell.settings-active,
 .shell.canvas-active {
-  width: min(100%, var(--tw));
-  max-width: var(--tw);
-  margin-left: auto;
-  margin-right: 0;
+  width: 100%;
+  max-width: none;
+  margin: 0;
 }
 
 .thread-header {
