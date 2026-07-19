@@ -148,6 +148,19 @@
     backendToken: string;
     contextHttpApiKey: string;
     contextEmbeddingApiKey: string;
+    sentBackendToken: boolean;
+    sentContextHttpApiKey: boolean;
+    sentContextEmbeddingApiKey: boolean;
+    clearBackendToken: boolean;
+    clearContextHttpApiKey: boolean;
+    clearContextEmbeddingApiKey: boolean;
+  };
+  type SettingsUpdateOptions = {
+    requestId?: string;
+    includeSecrets?: boolean;
+    clearBackendToken?: boolean;
+    clearContextHttpApiKey?: boolean;
+    clearContextEmbeddingApiKey?: boolean;
   };
   let settingsSaveState: SettingsSaveState = "idle";
   let pendingSettingsSave: PendingSettingsSave | null = null;
@@ -275,9 +288,9 @@
     if (event.type === "settingsSaved") {
       const saved = event.payload as SettingsSaved;
       if (!pendingSettingsSave || saved.requestId !== pendingSettingsSave.requestId) return;
-      if (backendToken === pendingSettingsSave.backendToken) backendToken = "";
-      if (contextHttpApiKey === pendingSettingsSave.contextHttpApiKey) contextHttpApiKey = "";
-      if (contextEmbeddingApiKey === pendingSettingsSave.contextEmbeddingApiKey) contextEmbeddingApiKey = "";
+      if ((pendingSettingsSave.sentBackendToken || pendingSettingsSave.clearBackendToken) && backendToken === pendingSettingsSave.backendToken) backendToken = "";
+      if ((pendingSettingsSave.sentContextHttpApiKey || pendingSettingsSave.clearContextHttpApiKey) && contextHttpApiKey === pendingSettingsSave.contextHttpApiKey) contextHttpApiKey = "";
+      if ((pendingSettingsSave.sentContextEmbeddingApiKey || pendingSettingsSave.clearContextEmbeddingApiKey) && contextEmbeddingApiKey === pendingSettingsSave.contextEmbeddingApiKey) contextEmbeddingApiKey = "";
       if (snapshot) {
         snapshot = {
           ...snapshot,
@@ -628,18 +641,14 @@
     toolsExpanded = expanded && snapshot ? new Set(snapshot.tools.map((tool) => tool.id)) : new Set();
   }
 
-  function saveSettings() {
-    if (settingsSaveState === "saving") return;
-    const requestId = crypto.randomUUID();
-    pendingSettingsSave = { requestId, backendToken, contextHttpApiKey, contextEmbeddingApiKey };
-    settingsSaveState = "saving";
-    settingsDirtyWhileSaving = false;
-    error = "";
+  function sendSettingsUpdate(options: SettingsUpdateOptions = {}) {
+    const includeSecrets = options.includeSecrets ?? false;
     sendCommand("saveSettings", {
-      requestId,
+      requestId: options.requestId,
       backendUrl,
       nodePath,
-      backendToken,
+      backendToken: includeSecrets ? backendToken : "",
+      clearBackendToken: options.clearBackendToken ?? false,
       autoApproveReadOnly,
       chatZoom,
       showTimestamps,
@@ -648,14 +657,60 @@
       autoDismissNotifications,
       contextMode,
       contextHttpBaseUrl,
-      contextHttpApiKey,
+      contextHttpApiKey: includeSecrets ? contextHttpApiKey : "",
+      clearContextHttpApiKey: options.clearContextHttpApiKey ?? false,
       contextEmbeddingBaseUrl,
       contextEmbeddingModel,
-      contextEmbeddingApiKey,
+      contextEmbeddingApiKey: includeSecrets ? contextEmbeddingApiKey : "",
+      clearContextEmbeddingApiKey: options.clearContextEmbeddingApiKey ?? false,
       contextNeuralRerank,
       contextRerankBaseUrl,
       contextRerankModel,
     });
+  }
+
+  function beginSettingsSave(options: SettingsUpdateOptions = {}) {
+    if (settingsSaveState === "saving") return;
+    const requestId = crypto.randomUUID();
+    const includeSecrets = options.includeSecrets ?? false;
+    pendingSettingsSave = {
+      requestId,
+      backendToken,
+      contextHttpApiKey,
+      contextEmbeddingApiKey,
+      sentBackendToken: includeSecrets,
+      sentContextHttpApiKey: includeSecrets,
+      sentContextEmbeddingApiKey: includeSecrets,
+      clearBackendToken: options.clearBackendToken ?? false,
+      clearContextHttpApiKey: options.clearContextHttpApiKey ?? false,
+      clearContextEmbeddingApiKey: options.clearContextEmbeddingApiKey ?? false,
+    };
+    settingsSaveState = "saving";
+    settingsDirtyWhileSaving = false;
+    error = "";
+    sendSettingsUpdate({ ...options, requestId });
+  }
+
+  function saveSettings() {
+    beginSettingsSave({ includeSecrets: true });
+  }
+
+  function clearBackendTokenSetting() {
+    if (settingsSaveState === "saving") return;
+    backendToken = "";
+    beginSettingsSave({ clearBackendToken: true });
+  }
+
+  function clearContextHttpApiKeySetting() {
+    if (settingsSaveState === "saving") return;
+    contextHttpApiKey = "";
+    beginSettingsSave({ clearContextHttpApiKey: true });
+  }
+
+  function clearContextEmbeddingApiKeySetting() {
+    if (settingsSaveState === "saving") return;
+    contextEmbeddingApiKey = "";
+    beginSettingsSave({ clearContextEmbeddingApiKey: true });
   }
 
   function markSettingsDirty() {
@@ -712,26 +767,7 @@
   }
 
   function saveUserExperience() {
-    sendCommand("saveSettings", {
-      backendUrl,
-      nodePath,
-      backendToken: "",
-      autoApproveReadOnly,
-      chatZoom,
-      showTimestamps,
-      showRunTelemetry,
-      desktopNotifications,
-      autoDismissNotifications,
-      contextMode,
-      contextHttpBaseUrl,
-      contextHttpApiKey: "",
-      contextEmbeddingBaseUrl,
-      contextEmbeddingModel,
-      contextEmbeddingApiKey: "",
-      contextNeuralRerank,
-      contextRerankBaseUrl,
-      contextRerankModel,
-    });
+    sendSettingsUpdate();
   }
 
   function signIn() {
@@ -860,26 +896,7 @@
 
   function toggleAutoRun() {
     autoApproveReadOnly = !autoApproveReadOnly;
-    sendCommand("saveSettings", {
-      backendUrl,
-      nodePath,
-      backendToken: "",
-      autoApproveReadOnly,
-      chatZoom,
-      showTimestamps,
-      showRunTelemetry,
-      desktopNotifications,
-      autoDismissNotifications,
-      contextMode,
-      contextHttpBaseUrl,
-      contextHttpApiKey: "",
-      contextEmbeddingBaseUrl,
-      contextEmbeddingModel,
-      contextEmbeddingApiKey: "",
-      contextNeuralRerank,
-      contextRerankBaseUrl,
-      contextRerankModel,
-    });
+    sendSettingsUpdate();
   }
 
   function updateContext() {
@@ -2126,17 +2143,41 @@
               </p>
               <section class="settings-form settings-block" oninput={markSettingsDirty}>
                 <label><span>Backend URL</span><input bind:value={backendUrl} /></label>
-                <label><span>Backend token</span><input type="password" bind:value={backendToken} placeholder={snapshot.settings.backendTokenConfigured ? "Configured" : "Not configured"} /></label>
+                <label class="secret-field">
+                  <span>Backend token</span>
+                  <div class="secret-input-row">
+                    <input type="password" bind:value={backendToken} placeholder={snapshot.settings.backendTokenConfigured ? "Configured" : "Not configured"} />
+                    {#if snapshot.settings.backendTokenConfigured}
+                      <button type="button" title="Clear backend token" disabled={settingsSaveState === "saving"} onclick={clearBackendTokenSetting}><Icon name="trash-2" size={12} />Clear</button>
+                    {/if}
+                  </div>
+                </label>
                 <label><span>Node.js executable</span><input bind:value={nodePath} /></label>
                 <label><span>Context retrieval</span><select bind:value={contextMode}><option value="remote-http">ContextEngine HTTP deployment</option><option value="lexical">Local lexical and symbol index</option><option value="private-semantic">Local index with private embeddings</option></select></label>
                 {#if contextMode === "remote-http"}
                   <label><span>ContextEngine URL</span><input bind:value={contextHttpBaseUrl} placeholder="http://127.0.0.1:8790" /></label>
-                  <label><span>ContextEngine token</span><input type="password" bind:value={contextHttpApiKey} placeholder={snapshot.settings.contextHttpTokenConfigured ? "Configured" : "Required unless unauthenticated mode is enabled"} /></label>
+                  <label class="secret-field">
+                    <span>ContextEngine token</span>
+                    <div class="secret-input-row">
+                      <input type="password" bind:value={contextHttpApiKey} placeholder={snapshot.settings.contextHttpTokenConfigured ? "Configured" : "Required unless unauthenticated mode is enabled"} />
+                      {#if snapshot.settings.contextHttpTokenConfigured}
+                        <button type="button" title="Clear ContextEngine token" disabled={settingsSaveState === "saving"} onclick={clearContextHttpApiKeySetting}><Icon name="trash-2" size={12} />Clear</button>
+                      {/if}
+                    </div>
+                  </label>
                 {/if}
                 {#if contextMode === "private-semantic"}
                   <label><span>Embedding API URL</span><input bind:value={contextEmbeddingBaseUrl} /></label>
                   <label><span>Embedding model</span><input bind:value={contextEmbeddingModel} /></label>
-                  <label><span>Embedding token</span><input type="password" bind:value={contextEmbeddingApiKey} placeholder={snapshot.settings.contextEmbeddingTokenConfigured ? "Configured" : "Optional for local endpoints"} /></label>
+                  <label class="secret-field">
+                    <span>Embedding token</span>
+                    <div class="secret-input-row">
+                      <input type="password" bind:value={contextEmbeddingApiKey} placeholder={snapshot.settings.contextEmbeddingTokenConfigured ? "Configured" : "Optional for local endpoints"} />
+                      {#if snapshot.settings.contextEmbeddingTokenConfigured}
+                        <button type="button" title="Clear embedding token" disabled={settingsSaveState === "saving"} onclick={clearContextEmbeddingApiKeySetting}><Icon name="trash-2" size={12} />Clear</button>
+                      {/if}
+                    </div>
+                  </label>
                   <label class="toggle-row">
                     <input type="checkbox" bind:checked={contextNeuralRerank} />
                     <span><strong>Neural rerank</strong><small>Apply an optional cross-encoder to the top retrieval candidates</small></span>

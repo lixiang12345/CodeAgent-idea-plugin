@@ -224,6 +224,8 @@ async function handle(request: RequestEnvelope): Promise<void> {
       await closeAll();
       send({ id: request.id, type: "result", payload: { ok: true } });
       process.exit(0);
+    default:
+      throw new Error(`Unknown request type: ${String((request as { type?: unknown }).type)}`);
   }
 }
 

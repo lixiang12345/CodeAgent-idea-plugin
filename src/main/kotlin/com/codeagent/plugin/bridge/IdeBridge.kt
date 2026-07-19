@@ -1137,12 +1137,15 @@ class IdeBridge(
                 desktopNotifications = request.desktopNotifications,
                 autoDismissNotifications = request.autoDismissNotifications,
                 backendToken = request.backendToken,
+                clearBackendToken = request.clearBackendToken,
                 contextMode = request.contextMode,
                 contextHttpBaseUrl = request.contextHttpBaseUrl,
                 contextHttpApiKey = request.contextHttpApiKey,
+                clearContextHttpApiKey = request.clearContextHttpApiKey,
                 contextEmbeddingBaseUrl = request.contextEmbeddingBaseUrl,
                 contextEmbeddingModel = request.contextEmbeddingModel,
                 contextEmbeddingApiKey = request.contextEmbeddingApiKey,
+                clearContextEmbeddingApiKey = request.clearContextEmbeddingApiKey,
                 contextNeuralRerank = request.contextNeuralRerank,
                 contextRerankBaseUrl = request.contextRerankBaseUrl,
                 contextRerankModel = request.contextRerankModel,
@@ -1162,7 +1165,7 @@ class IdeBridge(
                 ),
             )
         }
-        if (previous.backendUrl != current.backendUrl || request.backendToken?.isNotBlank() == true) {
+        if (previous.backendUrl != current.backendUrl || previous.backendToken != current.backendToken) {
             resetCloudSync()
         }
         if (previous.nodePath != current.nodePath ||
@@ -2695,12 +2698,15 @@ class IdeBridge(
         val desktopNotifications: Boolean = false,
         val autoDismissNotifications: Boolean = true,
         val backendToken: String? = null,
+        val clearBackendToken: Boolean = false,
         val contextMode: String = DEFAULT_CONTEXT_MODE,
         val contextHttpBaseUrl: String = "http://127.0.0.1:8790",
         val contextHttpApiKey: String? = null,
+        val clearContextHttpApiKey: Boolean = false,
         val contextEmbeddingBaseUrl: String = "http://127.0.0.1:8000/v1",
         val contextEmbeddingModel: String = "Qwen/Qwen3-Embedding-0.6B",
         val contextEmbeddingApiKey: String? = null,
+        val clearContextEmbeddingApiKey: Boolean = false,
         val contextNeuralRerank: Boolean = false,
         val contextRerankBaseUrl: String = "",
         val contextRerankModel: String = "Qwen/Qwen3-Reranker-0.6B",

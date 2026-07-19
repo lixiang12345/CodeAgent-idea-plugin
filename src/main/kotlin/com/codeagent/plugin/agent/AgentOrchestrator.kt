@@ -364,7 +364,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         try {
             val result = future.join()
             ensureActive(context)
-            result.fileChange?.let { listener.onFileChanged(call, it) }
+            result.trackedFileChanges().forEach { listener.onFileChanged(call, it) }
             hookRuntime.runLifecycle(
                 "after-tool",
                 HookExecutionContext(

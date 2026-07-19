@@ -91,14 +91,28 @@ class CodeAgentSettingsService : PersistentStateComponent<CodeAgentSettingsState
         settings.contextNeuralRerank = update.contextNeuralRerank
         settings.contextRerankBaseUrl = contextRerankBaseUrl
         settings.contextRerankModel = contextRerankModel
-        update.backendToken?.takeIf { it.isNotBlank() }?.let {
-            PasswordSafe.instance.setPassword(BACKEND_TOKEN_ATTRIBUTES, it)
+        if (update.clearBackendToken) {
+            PasswordSafe.instance.setPassword(BACKEND_TOKEN_ATTRIBUTES, null)
+            PasswordSafe.instance.setPassword(REFRESH_TOKEN_ATTRIBUTES, null)
+            settings.tokenExpiresAtEpochSeconds = 0
+        } else {
+            update.backendToken?.takeIf { it.isNotBlank() }?.let {
+                PasswordSafe.instance.setPassword(BACKEND_TOKEN_ATTRIBUTES, it)
+            }
         }
-        update.contextHttpApiKey?.takeIf { it.isNotBlank() }?.let {
-            PasswordSafe.instance.setPassword(CONTEXT_HTTP_TOKEN_ATTRIBUTES, it)
+        if (update.clearContextHttpApiKey) {
+            PasswordSafe.instance.setPassword(CONTEXT_HTTP_TOKEN_ATTRIBUTES, null)
+        } else {
+            update.contextHttpApiKey?.takeIf { it.isNotBlank() }?.let {
+                PasswordSafe.instance.setPassword(CONTEXT_HTTP_TOKEN_ATTRIBUTES, it)
+            }
         }
-        update.contextEmbeddingApiKey?.takeIf { it.isNotBlank() }?.let {
-            PasswordSafe.instance.setPassword(CONTEXT_EMBEDDING_TOKEN_ATTRIBUTES, it)
+        if (update.clearContextEmbeddingApiKey) {
+            PasswordSafe.instance.setPassword(CONTEXT_EMBEDDING_TOKEN_ATTRIBUTES, null)
+        } else {
+            update.contextEmbeddingApiKey?.takeIf { it.isNotBlank() }?.let {
+                PasswordSafe.instance.setPassword(CONTEXT_EMBEDDING_TOKEN_ATTRIBUTES, it)
+            }
         }
     }
 
@@ -169,12 +183,15 @@ data class CodeAgentSettingsUpdate(
     val desktopNotifications: Boolean = false,
     val autoDismissNotifications: Boolean = true,
     val backendToken: String?,
+    val clearBackendToken: Boolean = false,
     val contextMode: String = DEFAULT_CONTEXT_MODE,
     val contextHttpBaseUrl: String = DEFAULT_CONTEXT_HTTP_URL,
     val contextHttpApiKey: String? = null,
+    val clearContextHttpApiKey: Boolean = false,
     val contextEmbeddingBaseUrl: String = DEFAULT_CONTEXT_EMBEDDING_URL,
     val contextEmbeddingModel: String = DEFAULT_CONTEXT_EMBEDDING_MODEL,
     val contextEmbeddingApiKey: String? = null,
+    val clearContextEmbeddingApiKey: Boolean = false,
     val contextNeuralRerank: Boolean = false,
     val contextRerankBaseUrl: String = "",
     val contextRerankModel: String = DEFAULT_CONTEXT_RERANK_MODEL,

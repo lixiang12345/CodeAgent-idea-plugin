@@ -419,6 +419,10 @@ button { color: inherit; }
 .rule-editor footer button:disabled { opacity: .45; cursor: default; }
 .settings-form label { display: flex; flex-direction: column; gap: 5px; margin-bottom: 11px; color: #aeb3ba; font-size: 9px; }
 .settings-form input[type="text"], .settings-form input[type="password"], .settings-form label > input:not([type]), .settings-form select { width: 100%; height: 31px; padding: 0 8px; outline: 0; border: 1px solid var(--line); border-radius: 4px; color: var(--text); background-color: #181a1d; font-size: 9px; }
+.secret-input-row { display: flex; align-items: center; gap: 6px; }
+.secret-input-row input { min-width: 0; flex: 1; }
+.settings-form .secret-input-row button { flex: 0 0 auto; height: 31px; padding: 0 8px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid #4c4f54; border-radius: 4px; color: #c7ccd3; background: #282b30; font-size: 8px; cursor: pointer; }
+.settings-form .secret-input-row button:disabled { opacity: .55; cursor: default; }
 .settings-form select { padding-right: 28px; color-scheme: dark; cursor: pointer; }
 .settings-form select option { color: var(--text); background: #202225; }
 .settings-form input:focus, .settings-form select:focus { border-color: #5478b0; box-shadow: 0 0 0 1px rgba(84,120,176,.18); }
@@ -1108,6 +1112,11 @@ button { color: inherit; }
 .settings-form select {
   height: 34px;
   font-size: 11.5px;
+}
+
+.settings-form .secret-input-row button {
+  height: 34px;
+  font-size: 10.5px;
 }
 
 .rule-editor legend {

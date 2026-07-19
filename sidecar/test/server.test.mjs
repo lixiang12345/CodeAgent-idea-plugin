@@ -8,6 +8,29 @@ import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
 import test from "node:test";
 
+test("returns an error for unknown JSON Lines request types", async (t) => {
+  const child = spawn(process.execPath, ["dist/server.mjs"], {
+    cwd: path.resolve(import.meta.dirname, ".."),
+    stdio: ["pipe", "pipe", "inherit"],
+  });
+  t.after(() => child.kill());
+
+  const lines = createInterface({ input: child.stdout });
+  const responses = [];
+  lines.on("line", (line) => responses.push(JSON.parse(line)));
+
+  child.stdin.write(`${JSON.stringify({ id: "unknown-command", type: "does.not.exist" })}\n`);
+  const response = await waitFor(
+    responses,
+    (item) => item.id === "unknown-command" && item.type === "error",
+  );
+
+  assert.match(response.payload.message, /Unknown request type: does\.not\.exist/);
+
+  child.stdin.write(`${JSON.stringify({ id: "shutdown", type: "shutdown" })}\n`);
+  await once(child, "exit");
+});
+
 test("indexes and retrieves project context over JSON Lines", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "codeagent-context-"));
   await mkdir(path.join(root, "src"));

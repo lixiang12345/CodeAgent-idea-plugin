@@ -749,16 +749,40 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
   if (command.type === "saveSettings") {
     const payload = command.payload as Partial<SettingsSaved> & {
       backendToken?: string;
+      clearBackendToken?: boolean;
       contextHttpApiKey?: string;
+      clearContextHttpApiKey?: boolean;
       contextEmbeddingApiKey?: string;
+      clearContextEmbeddingApiKey?: boolean;
     };
     if (payload.requestId) {
+      const current = developmentSnapshot?.settings;
+      const backendTokenConfigured = payload.clearBackendToken
+        ? false
+        : Boolean(payload.backendToken?.trim()) || current?.backendTokenConfigured || false;
+      const contextHttpTokenConfigured = payload.clearContextHttpApiKey
+        ? false
+        : Boolean(payload.contextHttpApiKey?.trim()) || current?.contextHttpTokenConfigured || false;
+      const contextEmbeddingTokenConfigured = payload.clearContextEmbeddingApiKey
+        ? false
+        : Boolean(payload.contextEmbeddingApiKey?.trim()) || current?.contextEmbeddingTokenConfigured || false;
       const saved: SettingsSaved = {
         requestId: payload.requestId,
-        backendTokenConfigured: Boolean(payload.backendToken?.trim()),
-        contextHttpTokenConfigured: Boolean(payload.contextHttpApiKey?.trim()),
-        contextEmbeddingTokenConfigured: Boolean(payload.contextEmbeddingApiKey?.trim()),
+        backendTokenConfigured,
+        contextHttpTokenConfigured,
+        contextEmbeddingTokenConfigured,
       };
+      if (developmentSnapshot) {
+        developmentSnapshot = {
+          ...developmentSnapshot,
+          settings: {
+            ...developmentSnapshot.settings,
+            backendTokenConfigured,
+            contextHttpTokenConfigured,
+            contextEmbeddingTokenConfigured,
+          },
+        };
+      }
       queueMicrotask(() => window.CodeAgent?.receive(JSON.stringify({ version: 1, type: "settingsSaved", payload: saved })));
     }
     return;

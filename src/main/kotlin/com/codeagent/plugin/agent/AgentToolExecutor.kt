@@ -545,22 +545,21 @@ internal class AgentToolExecutor(
     private fun removeFiles(args: JsonObject): ToolExecutionResult {
         val paths = args.stringList("paths")
         require(paths.isNotEmpty()) { "paths must not be empty" }
-        val deleted = mutableListOf<String>()
         val changes = mutableListOf<FileChange>()
         for (relative in paths) {
             val file = guard.existingFile(relative)
             val before = Files.readString(file, StandardCharsets.UTF_8)
             Files.delete(file)
             refresh(file)
-            deleted += relative
             changes += FileChange(relative, before, "")
         }
-        val output = "Deleted ${deleted.size} file(s):\n" + deleted.joinToString("\n")
+        val output = "Deleted ${changes.size} file(s):\n" + changes.joinToString("\n") { it.path }
         return ToolExecutionResult(
             output = output,
-            summary = "Deleted ${deleted.size} file(s)",
+            summary = "Deleted ${changes.size} file(s)",
             detail = output.take(MAX_DETAIL_CHARS),
             fileChange = changes.firstOrNull(),
+            fileChanges = changes,
         )
     }
 
@@ -569,7 +568,7 @@ internal class AgentToolExecutor(
         val files = parseUnifiedDiff(patch)
         require(files.isNotEmpty()) { "patch did not contain any file hunks" }
         val summaries = mutableListOf<String>()
-        var firstChange: FileChange? = null
+        val changes = mutableListOf<FileChange>()
         for ((relative, hunks) in files) {
             val file = guard.existingFile(relative)
             val before = Files.readString(file, StandardCharsets.UTF_8).replace("\r\n", "\n")
@@ -577,10 +576,16 @@ internal class AgentToolExecutor(
             Files.writeString(file, after, StandardCharsets.UTF_8, StandardOpenOption.TRUNCATE_EXISTING)
             refresh(file)
             summaries += relative
-            if (firstChange == null && before != after) firstChange = FileChange(relative, before, after)
+            if (before != after) changes += FileChange(relative, before, after)
         }
         val output = "Applied patch to ${summaries.size} file(s):\n" + summaries.joinToString("\n")
-        return ToolExecutionResult(output, "Patched ${summaries.size} file(s)", output.take(MAX_DETAIL_CHARS), firstChange)
+        return ToolExecutionResult(
+            output = output,
+            summary = "Patched ${summaries.size} file(s)",
+            detail = output.take(MAX_DETAIL_CHARS),
+            fileChange = changes.firstOrNull(),
+            fileChanges = changes,
+        )
     }
 
     private fun askUser(args: JsonObject): ToolExecutionResult {
@@ -825,7 +830,12 @@ data class ToolExecutionResult(
     val summary: String,
     val detail: String? = null,
     val fileChange: FileChange? = null,
-)
+    val fileChanges: List<FileChange> = emptyList(),
+) {
+    fun trackedFileChanges(): List<FileChange> = fileChanges.ifEmpty {
+        fileChange?.let(::listOf).orEmpty()
+    }
+}
 
 class ProjectPathGuard(private val root: Path) {
     private val normalizedRoot = root.toAbsolutePath().normalize()
