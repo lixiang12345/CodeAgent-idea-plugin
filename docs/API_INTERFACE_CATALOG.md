@@ -513,7 +513,7 @@ Conversation is a **node stream**, not a single assistant string:
 
 ### 5.5 Local Protobuf/gRPC transport
 
-CodeAgent's local sidecar boundary is defined by `src/main/proto/com/codeagent/plugin/context/context_engine.proto` and loaded by the Node bundle as `context-engine.proto`. The single server-streaming `Execute` RPC preserves the existing operation names while adding typed framing, ordered progress, deadlines, cancellation of the client stream, and bearer authentication. This is an intentional protocol-level alignment with the original plugin; it is not a claim of wire compatibility with Augment's private generated services.
+CodeAgent's local sidecar boundary is defined by `src/main/proto/com/codeagent/plugin/context/context_engine.proto` and loaded by the Node bundle as `context-engine.proto`. The current JVM client routes known operations through the server-streaming `ContextRuntimeRpc`, `McpRuntimeRpc`, and `AcpRuntimeRpc` services, with ordered progress, deadlines, cancellation of the client stream, and bearer authentication. `ContextEngineRpc.Execute` remains as a compatibility entry point for `0.7.18` clients and unknown operation names. MCP/ACP configuration and argument bodies use JSON bytes inside their typed methods while those schemas evolve. This is an intentional protocol-level alignment with the original plugin; it is not a claim of wire compatibility with Augment's private generated services.
 
 ---
 

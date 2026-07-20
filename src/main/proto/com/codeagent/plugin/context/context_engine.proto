@@ -37,6 +37,120 @@ message ContextEvent {
   string error_message = 4;
 }
 
+message HealthRequest {
+  string id = 1;
+}
+
+message ProjectRequest {
+  string id = 1;
+  string root = 2;
+  repeated IndexRoot extra_roots = 3;
+}
+
+message WatchRequest {
+  string id = 1;
+  string root = 2;
+  repeated IndexRoot extra_roots = 3;
+  int32 debounce_ms = 4;
+}
+
+message RetrieveRequest {
+  string id = 1;
+  string root = 2;
+  repeated IndexRoot extra_roots = 3;
+  string information_request = 4;
+  optional int32 top_k = 5;
+  optional int32 max_tokens = 6;
+}
+
+message SearchRequest {
+  string id = 1;
+  string root = 2;
+  repeated IndexRoot extra_roots = 3;
+  string query = 4;
+  int32 top_k = 5;
+  string path_prefix = 6;
+  string mode = 7;
+}
+
+message McpReconcileRequest {
+  string id = 1;
+  bytes configurations_json = 2;
+}
+
+message McpStatusRequest {
+  string id = 1;
+}
+
+message McpServerRequest {
+  string id = 1;
+  string server_id = 2;
+}
+
+message McpCallRequest {
+  string id = 1;
+  string tool_id = 2;
+  bytes arguments_json = 3;
+}
+
+message AcpReconcileRequest {
+  string id = 1;
+  bytes configurations_json = 2;
+}
+
+message AcpStatusRequest {
+  string id = 1;
+}
+
+message AcpAgentRequest {
+  string id = 1;
+  string agent_id = 2;
+}
+
+message AcpPromptRequest {
+  string id = 1;
+  string agent_id = 2;
+  string prompt = 3;
+  string session_id = 4;
+}
+
+message AcpCancelRequest {
+  string id = 1;
+  string agent_id = 2;
+  string session_id = 3;
+}
+
+service ContextRuntimeRpc {
+  rpc Health(HealthRequest) returns (stream ContextEvent);
+  rpc Status(ProjectRequest) returns (stream ContextEvent);
+  rpc Index(ProjectRequest) returns (stream ContextEvent);
+  rpc Watch(WatchRequest) returns (stream ContextEvent);
+  rpc Unwatch(ProjectRequest) returns (stream ContextEvent);
+  rpc Retrieve(RetrieveRequest) returns (stream ContextEvent);
+  rpc Search(SearchRequest) returns (stream ContextEvent);
+}
+
+service McpRuntimeRpc {
+  rpc Reconcile(McpReconcileRequest) returns (stream ContextEvent);
+  rpc Status(McpStatusRequest) returns (stream ContextEvent);
+  rpc Start(McpServerRequest) returns (stream ContextEvent);
+  rpc Stop(McpServerRequest) returns (stream ContextEvent);
+  rpc Restart(McpServerRequest) returns (stream ContextEvent);
+  rpc Test(McpServerRequest) returns (stream ContextEvent);
+  rpc Call(McpCallRequest) returns (stream ContextEvent);
+}
+
+service AcpRuntimeRpc {
+  rpc Reconcile(AcpReconcileRequest) returns (stream ContextEvent);
+  rpc Status(AcpStatusRequest) returns (stream ContextEvent);
+  rpc Start(AcpAgentRequest) returns (stream ContextEvent);
+  rpc Stop(AcpAgentRequest) returns (stream ContextEvent);
+  rpc Restart(AcpAgentRequest) returns (stream ContextEvent);
+  rpc Prompt(AcpPromptRequest) returns (stream ContextEvent);
+  rpc Cancel(AcpCancelRequest) returns (stream ContextEvent);
+}
+
+// Compatibility service for 0.7.18 clients. New clients use the typed services.
 service ContextEngineRpc {
   rpc Execute(ContextRequest) returns (stream ContextEvent);
 }

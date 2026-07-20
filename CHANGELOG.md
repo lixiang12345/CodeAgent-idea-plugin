@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Added the versioned `codeagent.context.v1` Protobuf/gRPC sidecar transport with loopback bearer authentication, streaming progress events, deadline handling, and an explicit JSON Lines rollback mode.
+- Split the local RPC surface into typed Context, MCP, and ACP services while retaining `ContextEngineRpc.Execute` for `0.7.18` clients; evolving MCP/ACP configuration and tool arguments remain versioned JSON bytes inside their typed envelopes.
 - Added an official release build command that increments and synchronizes version metadata before full-stack verification and plugin packaging.
 
 ## 0.7.18 - 2026-07-20

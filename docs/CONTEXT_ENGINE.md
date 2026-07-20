@@ -4,7 +4,9 @@ CodeAgent vendors the upstream `lixiang12345/ContextEngine-plugin` commit as a p
 
 ## JVM/sidecar transport
 
-The default JVM-to-sidecar transport is `codeagent.context.v1.ContextEngineRpc` over loopback gRPC. `context_engine.proto` is compiled into JVM stubs and loaded by the Node sidecar, so both ends share field numbering and streaming event semantics. The sidecar emits a random bearer token in its private readiness pipe; the token is attached to every RPC and is never exposed to the WebView or backend.
+The default JVM-to-sidecar transport is the typed `codeagent.context.v1.ContextRuntimeRpc`, `McpRuntimeRpc`, and `AcpRuntimeRpc` services over loopback gRPC. `context_engine.proto` is compiled into JVM stubs and loaded by the Node sidecar, so both ends share field numbering and streaming event semantics. The sidecar emits a random bearer token in its private readiness pipe; the token is attached to every RPC and is never exposed to the WebView or backend. The legacy `ContextEngineRpc.Execute` service remains available for `0.7.18` clients and for unknown operation names.
+
+Context operations use dedicated protobuf fields for roots, search, retrieval, and watcher controls. MCP/ACP lifecycle and prompt/call routing also use dedicated method and identifier fields; configuration arrays and tool arguments intentionally remain `bytes *_json` until those public schemas stabilize. They are parsed and validated at the sidecar boundary, rather than being opaque transport strings.
 
 The RPC stream carries ordered `RESULT`, `PROGRESS`, and `ERROR` events, with gRPC deadlines enforcing the request timeout. Set `CODEAGENT_CONTEXT_RPC=jsonl` only when diagnosing an installation that cannot start the gRPC runtime; JSON Lines is a compatibility fallback, not the release path.
 

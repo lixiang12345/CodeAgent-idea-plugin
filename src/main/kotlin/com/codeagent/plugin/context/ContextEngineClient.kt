@@ -1,8 +1,26 @@
 package com.codeagent.plugin.context
 
+import com.codeagent.plugin.context.rpc.AcpAgentRequest
+import com.codeagent.plugin.context.rpc.AcpCancelRequest
+import com.codeagent.plugin.context.rpc.AcpPromptRequest
+import com.codeagent.plugin.context.rpc.AcpReconcileRequest
+import com.codeagent.plugin.context.rpc.AcpRuntimeRpcGrpc
+import com.codeagent.plugin.context.rpc.AcpStatusRequest
 import com.codeagent.plugin.context.rpc.ContextEngineRpcGrpc
 import com.codeagent.plugin.context.rpc.ContextEvent
 import com.codeagent.plugin.context.rpc.ContextRequest
+import com.codeagent.plugin.context.rpc.ContextRuntimeRpcGrpc
+import com.codeagent.plugin.context.rpc.HealthRequest
+import com.codeagent.plugin.context.rpc.IndexRoot
+import com.codeagent.plugin.context.rpc.McpCallRequest
+import com.codeagent.plugin.context.rpc.McpReconcileRequest
+import com.codeagent.plugin.context.rpc.McpRuntimeRpcGrpc
+import com.codeagent.plugin.context.rpc.McpServerRequest
+import com.codeagent.plugin.context.rpc.McpStatusRequest
+import com.codeagent.plugin.context.rpc.ProjectRequest
+import com.codeagent.plugin.context.rpc.RetrieveRequest
+import com.codeagent.plugin.context.rpc.SearchRequest
+import com.codeagent.plugin.context.rpc.WatchRequest
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.util.concurrency.AppExecutorUtil
@@ -16,8 +34,11 @@ import io.grpc.stub.StreamObserver
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.BufferedWriter
@@ -47,7 +68,10 @@ class ContextEngineClient(
     private var process: Process? = null
     private var writer: BufferedWriter? = null
     private var grpcChannel: ManagedChannel? = null
-    private var grpcStub: ContextEngineRpcGrpc.ContextEngineRpcStub? = null
+    private var compatibilityGrpcStub: ContextEngineRpcGrpc.ContextEngineRpcStub? = null
+    private var contextGrpcStub: ContextRuntimeRpcGrpc.ContextRuntimeRpcStub? = null
+    private var mcpGrpcStub: McpRuntimeRpcGrpc.McpRuntimeRpcStub? = null
+    private var acpGrpcStub: AcpRuntimeRpcGrpc.AcpRuntimeRpcStub? = null
     private var extractedRuntimeDirectory: Path? = null
     private var activeRuntime: ContextEngineRuntimeSettings? = null
 
@@ -111,7 +135,10 @@ class ContextEngineClient(
             val current = process
             process = null
             writer = null
-            grpcStub = null
+            compatibilityGrpcStub = null
+            contextGrpcStub = null
+            mcpGrpcStub = null
+            acpGrpcStub = null
             grpcChannel?.shutdownNow()
             grpcChannel = null
             activeRuntime = null
@@ -188,10 +215,15 @@ class ContextEngineClient(
         val metadata = Metadata().apply {
             put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer ${ready.token}")
         }
-        grpcChannel = channel
-        grpcStub = ContextEngineRpcGrpc.newStub(
-            ClientInterceptors.intercept(channel, MetadataUtils.newAttachHeadersInterceptor(metadata)),
+        val authenticatedChannel = ClientInterceptors.intercept(
+            channel,
+            MetadataUtils.newAttachHeadersInterceptor(metadata),
         )
+        grpcChannel = channel
+        compatibilityGrpcStub = ContextEngineRpcGrpc.newStub(authenticatedChannel)
+        contextGrpcStub = ContextRuntimeRpcGrpc.newStub(authenticatedChannel)
+        mcpGrpcStub = McpRuntimeRpcGrpc.newStub(authenticatedChannel)
+        acpGrpcStub = AcpRuntimeRpcGrpc.newStub(authenticatedChannel)
     }
 
     private fun readStdout(owner: Process) {
@@ -242,54 +274,200 @@ class ContextEngineClient(
         payload: JsonObject?,
         timeout: Duration,
     ) {
-        val stub = grpcStub ?: error("ContextEngine gRPC transport is not ready")
-        val request = ContextRequest.newBuilder()
+        val deadlineMillis = timeout.toMillis()
+        val observer = responseObserver(id)
+        when (type) {
+            "health" -> contextStub(deadlineMillis).health(
+                HealthRequest.newBuilder().setId(id).build(),
+                observer,
+            )
+            "status" -> contextStub(deadlineMillis).status(projectRequest(id), observer)
+            "index" -> contextStub(deadlineMillis).index(projectRequest(id), observer)
+            "unwatch" -> contextStub(deadlineMillis).unwatch(projectRequest(id), observer)
+            "watch" -> contextStub(deadlineMillis).watch(
+                WatchRequest.newBuilder()
+                    .setId(id)
+                    .setRoot(root.toString())
+                    .addAllExtraRoots(rpcExtraRoots())
+                    .setDebounceMs(payload.int("debounceMs") ?: 800)
+                    .build(),
+                observer,
+            )
+            "retrieve" -> {
+                val request = RetrieveRequest.newBuilder()
+                    .setId(id)
+                    .setRoot(root.toString())
+                    .addAllExtraRoots(rpcExtraRoots())
+                    .setInformationRequest(payload.text("informationRequest"))
+                    .also { builder -> payload.int("topK")?.let(builder::setTopK) }
+                    .also { builder -> payload.int("maxTokens")?.let(builder::setMaxTokens) }
+                    .build()
+                contextStub(deadlineMillis).retrieve(request, observer)
+            }
+            "search" -> contextStub(deadlineMillis).search(
+                SearchRequest.newBuilder()
+                    .setId(id)
+                    .setRoot(root.toString())
+                    .addAllExtraRoots(rpcExtraRoots())
+                    .setQuery(payload.text("query"))
+                    .setTopK(payload.int("topK") ?: 10)
+                    .setPathPrefix(payload.text("pathPrefix"))
+                    .setMode(payload.text("mode").ifBlank { "auto" })
+                    .build(),
+                observer,
+            )
+            "mcp.reconcile" -> mcpStub(deadlineMillis).reconcile(
+                McpReconcileRequest.newBuilder()
+                    .setId(id)
+                    .setConfigurationsJson(payload.jsonBytes("configurations", JsonArray(emptyList())))
+                    .build(),
+                observer,
+            )
+            "mcp.status" -> mcpStub(deadlineMillis).status(
+                McpStatusRequest.newBuilder().setId(id).build(),
+                observer,
+            )
+            "mcp.start", "mcp.stop", "mcp.restart", "mcp.test" -> {
+                val request = McpServerRequest.newBuilder()
+                    .setId(id)
+                    .setServerId(payload.text("serverId"))
+                    .build()
+                when (type) {
+                    "mcp.start" -> mcpStub(deadlineMillis).start(request, observer)
+                    "mcp.stop" -> mcpStub(deadlineMillis).stop(request, observer)
+                    "mcp.restart" -> mcpStub(deadlineMillis).restart(request, observer)
+                    else -> mcpStub(deadlineMillis).test(request, observer)
+                }
+            }
+            "mcp.call" -> mcpStub(deadlineMillis).call(
+                McpCallRequest.newBuilder()
+                    .setId(id)
+                    .setToolId(payload.text("toolId"))
+                    .setArgumentsJson(payload.jsonBytes("arguments", JsonObject(emptyMap())))
+                    .build(),
+                observer,
+            )
+            "acp.reconcile" -> acpStub(deadlineMillis).reconcile(
+                AcpReconcileRequest.newBuilder()
+                    .setId(id)
+                    .setConfigurationsJson(payload.jsonBytes("configurations", JsonArray(emptyList())))
+                    .build(),
+                observer,
+            )
+            "acp.status" -> acpStub(deadlineMillis).status(
+                AcpStatusRequest.newBuilder().setId(id).build(),
+                observer,
+            )
+            "acp.start", "acp.stop", "acp.restart" -> {
+                val request = AcpAgentRequest.newBuilder()
+                    .setId(id)
+                    .setAgentId(payload.text("agentId"))
+                    .build()
+                when (type) {
+                    "acp.start" -> acpStub(deadlineMillis).start(request, observer)
+                    "acp.stop" -> acpStub(deadlineMillis).stop(request, observer)
+                    else -> acpStub(deadlineMillis).restart(request, observer)
+                }
+            }
+            "acp.prompt" -> acpStub(deadlineMillis).prompt(
+                AcpPromptRequest.newBuilder()
+                    .setId(id)
+                    .setAgentId(payload.text("agentId"))
+                    .setPrompt(payload.text("prompt"))
+                    .setSessionId(payload.text("sessionId"))
+                    .build(),
+                observer,
+            )
+            "acp.cancel" -> acpStub(deadlineMillis).cancel(
+                AcpCancelRequest.newBuilder()
+                    .setId(id)
+                    .setAgentId(payload.text("agentId"))
+                    .setSessionId(payload.text("sessionId"))
+                    .build(),
+                observer,
+            )
+            else -> compatibilityStub(deadlineMillis).execute(compatibilityRequest(id, type, payload), observer)
+        }
+    }
+
+    private fun responseObserver(id: String): StreamObserver<ContextEvent> = object : StreamObserver<ContextEvent> {
+        override fun onNext(event: ContextEvent) {
+            val requestState = pending[event.id] ?: return
+            when (event.type) {
+                ContextEvent.Type.PROGRESS -> requestState.onProgress(parsePayload(event.payloadJson))
+                ContextEvent.Type.RESULT -> {
+                    pending.remove(event.id)
+                    requestState.cancelTimeout()
+                    requestState.future.complete(parsePayload(event.payloadJson))
+                }
+                ContextEvent.Type.ERROR -> {
+                    pending.remove(event.id)
+                    requestState.cancelTimeout()
+                    requestState.future.completeExceptionally(
+                        IllegalStateException(event.errorMessage.ifBlank { "ContextEngine request failed" }),
+                    )
+                }
+                else -> Unit
+            }
+        }
+
+        override fun onError(error: Throwable) {
+            pending.remove(id)?.let { requestState ->
+                requestState.cancelTimeout()
+                requestState.future.completeExceptionally(error)
+            }
+        }
+
+        override fun onCompleted() = Unit
+    }
+
+    private fun projectRequest(id: String): ProjectRequest = ProjectRequest.newBuilder()
+        .setId(id)
+        .setRoot(root.toString())
+        .addAllExtraRoots(rpcExtraRoots())
+        .build()
+
+    private fun compatibilityRequest(id: String, type: String, payload: JsonObject?): ContextRequest =
+        ContextRequest.newBuilder()
             .setId(id)
             .setType(type)
             .setRoot(root.toString())
-            .addAllExtraRoots(extraRoots.map { entry ->
-                com.codeagent.plugin.context.rpc.IndexRoot.newBuilder()
-                    .setName(entry.name)
-                    .setPath(entry.path)
-                    .setKind(entry.kind)
-                    .build()
-            })
-            .setPayloadJson(ByteString.copyFrom(json.encodeToString(payload ?: JsonObject(emptyMap())).toByteArray()))
+            .addAllExtraRoots(rpcExtraRoots())
+            .setPayloadJson(ByteString.copyFromUtf8(json.encodeToString(payload ?: JsonObject(emptyMap()))))
             .build()
-        stub.withDeadlineAfter(timeout.toMillis(), TimeUnit.MILLISECONDS).execute(
-            request,
-            object : StreamObserver<ContextEvent> {
-                override fun onNext(event: ContextEvent) {
-                    val requestState = pending[event.id] ?: return
-                    when (event.type) {
-                        ContextEvent.Type.PROGRESS -> requestState.onProgress(parsePayload(event.payloadJson))
-                        ContextEvent.Type.RESULT -> {
-                            pending.remove(event.id)
-                            requestState.cancelTimeout()
-                            requestState.future.complete(parsePayload(event.payloadJson))
-                        }
-                        ContextEvent.Type.ERROR -> {
-                            pending.remove(event.id)
-                            requestState.cancelTimeout()
-                            requestState.future.completeExceptionally(
-                                IllegalStateException(event.errorMessage.ifBlank { "ContextEngine request failed" }),
-                            )
-                        }
-                        else -> Unit
-                    }
-                }
 
-                override fun onError(error: Throwable) {
-                    pending.remove(id)?.let { requestState ->
-                        requestState.cancelTimeout()
-                        requestState.future.completeExceptionally(error)
-                    }
-                }
-
-                override fun onCompleted() = Unit
-            },
-        )
+    private fun rpcExtraRoots(): List<IndexRoot> = extraRoots.map { entry ->
+        IndexRoot.newBuilder()
+            .setName(entry.name)
+            .setPath(entry.path)
+            .setKind(entry.kind)
+            .build()
     }
+
+    private fun contextStub(deadlineMillis: Long): ContextRuntimeRpcGrpc.ContextRuntimeRpcStub =
+        (contextGrpcStub ?: error("Context gRPC transport is not ready"))
+            .withDeadlineAfter(deadlineMillis, TimeUnit.MILLISECONDS)
+
+    private fun mcpStub(deadlineMillis: Long): McpRuntimeRpcGrpc.McpRuntimeRpcStub =
+        (mcpGrpcStub ?: error("MCP gRPC transport is not ready"))
+            .withDeadlineAfter(deadlineMillis, TimeUnit.MILLISECONDS)
+
+    private fun acpStub(deadlineMillis: Long): AcpRuntimeRpcGrpc.AcpRuntimeRpcStub =
+        (acpGrpcStub ?: error("ACP gRPC transport is not ready"))
+            .withDeadlineAfter(deadlineMillis, TimeUnit.MILLISECONDS)
+
+    private fun compatibilityStub(deadlineMillis: Long): ContextEngineRpcGrpc.ContextEngineRpcStub =
+        (compatibilityGrpcStub ?: error("ContextEngine compatibility gRPC transport is not ready"))
+            .withDeadlineAfter(deadlineMillis, TimeUnit.MILLISECONDS)
+
+    private fun JsonObject?.text(name: String): String =
+        this?.get(name)?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+
+    private fun JsonObject?.int(name: String): Int? =
+        this?.get(name)?.jsonPrimitive?.intOrNull
+
+    private fun JsonObject?.jsonBytes(name: String, fallback: JsonElement): ByteString =
+        ByteString.copyFromUtf8(json.encodeToString(this?.get(name) ?: fallback))
 
     private fun parsePayload(payload: ByteString): JsonElement =
         if (payload.isEmpty) JsonObject(emptyMap()) else json.parseToJsonElement(payload.toStringUtf8())
