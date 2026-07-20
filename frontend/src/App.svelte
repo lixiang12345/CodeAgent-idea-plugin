@@ -124,6 +124,7 @@
   let resolvingApprovalIds = new Set<string>();
   let backendUrl = "";
   let nodePath = "";
+  let inlineCompletionsEnabled = true;
   let backendToken = "";
   let autoApproveReadOnly = true;
   let contextMode: "remote-http" | "lexical" | "private-semantic" = "remote-http";
@@ -647,6 +648,7 @@
       requestId: options.requestId,
       backendUrl,
       nodePath,
+      inlineCompletionsEnabled,
       backendToken: includeSecrets ? backendToken : "",
       clearBackendToken: options.clearBackendToken ?? false,
       autoApproveReadOnly,
@@ -730,6 +732,7 @@
   function hydrateSettings(currentSnapshot: AppSnapshot) {
     backendUrl = currentSnapshot.settings.backendUrl;
     nodePath = currentSnapshot.settings.nodePath;
+    inlineCompletionsEnabled = currentSnapshot.settings.inlineCompletionsEnabled;
     autoApproveReadOnly = currentSnapshot.settings.autoApproveReadOnly;
     chatZoom = currentSnapshot.settings.chatZoom;
     showTimestamps = currentSnapshot.settings.showTimestamps;
@@ -2195,6 +2198,10 @@
                 <label class="toggle-row">
                   <input type="checkbox" bind:checked={autoApproveReadOnly} />
                   <span><strong>Auto-run read-only tools</strong><small>Context retrieval, search, and file reads</small></span>
+                </label>
+                <label class="toggle-row">
+                  <input type="checkbox" bind:checked={inlineCompletionsEnabled} />
+                  <span><strong>Inline completions</strong><small>Offer CodeAgent suggestions as you type in the editor</small></span>
                 </label>
                 <div class="service-health-stack">
                   <div class="service-health-row">

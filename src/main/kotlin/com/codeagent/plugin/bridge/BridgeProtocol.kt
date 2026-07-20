@@ -167,6 +167,7 @@ data class CheckpointSummaryDto(
 data class SettingsSnapshotDto(
     val backendUrl: String = DEFAULT_BACKEND_URL,
     val nodePath: String = "node",
+    val inlineCompletionsEnabled: Boolean = true,
     val backendTokenConfigured: Boolean = false,
     val autoApproveReadOnly: Boolean = true,
     val chatZoom: Int = 100,

@@ -22,6 +22,7 @@
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.lang</depends>
     <resource-bundle>messages.CodeAgentBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
@@ -30,6 +31,18 @@
                     secondary="true"
                     icon="/icons/plugin.svg"
                     factoryClass="com.codeagent.plugin.ui.CodeAgentToolWindowFactory"/>
+        <postStartupActivity implementation="com.codeagent.plugin.context.CodeAgentPostStartupActivity"/>
+        <applicationConfigurable
+                parentId="editor"
+                id="com.codeagent.plugin.settings"
+                displayName="CodeAgent"
+                instance="com.codeagent.plugin.settings.CodeAgentConfigurable"/>
+        <statusBarWidgetFactory
+                implementation="com.codeagent.plugin.ui.CodeAgentStatusBarWidgetFactory"
+                id="CodeAgentStatusBar"/>
+        <inline.completion.provider
+                order="first"
+                implementation="com.codeagent.plugin.agent.CodeAgentInlineCompletionProvider"/>
         <notificationGroup id="CodeAgent"
                            displayType="BALLOON"
                            isLogByDefault="true"/>
@@ -42,6 +55,26 @@
                 description="Open the CodeAgent tool window">
             <keyboard-shortcut keymap="$default" first-keystroke="control alt I"/>
             <keyboard-shortcut keymap="Mac OS X" first-keystroke="meta control I"/>
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        <action id="CodeAgent.ReindexContext"
+                class="com.codeagent.plugin.actions.ReindexContextAction"
+                text="CodeAgent: Rebuild Context Index"
+                description="Rebuild the CodeAgent project context index">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        <action id="CodeAgent.ShowExtensionStatus"
+                class="com.codeagent.plugin.actions.ShowExtensionStatusAction"
+                text="CodeAgent: Show Extension Status"
+                description="Show CodeAgent backend and context status">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        <action id="CodeAgent.ToggleInlineCompletions"
+                class="com.codeagent.plugin.actions.ToggleInlineCompletionsAction"
+                text="CodeAgent: Toggle Inline Completions"
+                description="Enable or disable CodeAgent inline completions">
+            <keyboard-shortcut keymap="$default" first-keystroke="control alt 9"/>
+            <keyboard-shortcut keymap="Mac OS X" first-keystroke="meta control 9"/>
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
     </actions>

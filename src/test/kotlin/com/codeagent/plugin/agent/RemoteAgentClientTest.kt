@@ -20,6 +20,51 @@ import kotlin.test.assertTrue
 
 class RemoteAgentClientTest {
     @Test
+    fun `requests inline completion with bounded editor context and authentication`() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val authorization = AtomicReference<String?>(null)
+        val requestBody = AtomicReference("")
+        server.createContext("/v1/completions") { exchange ->
+            authorization.set(exchange.requestHeaders.getFirst("Authorization"))
+            requestBody.set(exchange.requestBody.bufferedReader().readText())
+            val body = """{"completion":"println(\"hello\")","model":"gpt-5.6-sol"}""".toByteArray()
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        server.start()
+
+        try {
+            val client = RemoteAgentClient(
+                settings = CodeAgentSettings(
+                    backendUrl = "http://127.0.0.1:${server.address.port}",
+                    nodePath = "node",
+                    autoApproveReadOnly = true,
+                    backendToken = "completion-secret",
+                ),
+                httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build(),
+            )
+
+            val response = client.completion(
+                prefix = "fun main() {\n  ",
+                suffix = "\n}",
+                path = "src/Main.kt",
+                language = "Kotlin",
+                model = "gpt-5.6-sol",
+            ).join()
+
+            assertEquals("Bearer completion-secret", authorization.get())
+            assertTrue(requestBody.get().contains("\"prefix\":\"fun main() {\\n  \""))
+            assertTrue(requestBody.get().contains("\"suffix\":\"\\n}\""))
+            assertTrue(requestBody.get().contains("\"path\":\"src/Main.kt\""))
+            assertTrue(requestBody.get().contains("\"language\":\"Kotlin\""))
+            assertEquals("println(\"hello\")", response.completion)
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
     fun `streams backend events and posts tool results with backend authentication`() {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         var runAuthorization: String? = null

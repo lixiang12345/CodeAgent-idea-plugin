@@ -136,6 +136,7 @@ export interface ImageCanvasSnapshot {
 export interface SettingsSnapshot {
   backendUrl: string;
   nodePath: string;
+  inlineCompletionsEnabled: boolean;
   backendTokenConfigured: boolean;
   autoApproveReadOnly: boolean;
   chatZoom: number;
@@ -1404,6 +1405,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     settings: {
       backendUrl: "http://127.0.0.1:8788",
       nodePath: "node",
+      inlineCompletionsEnabled: true,
       backendTokenConfigured: false,
       autoApproveReadOnly: true,
       chatZoom: 100,

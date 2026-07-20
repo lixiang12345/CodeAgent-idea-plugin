@@ -10,6 +10,7 @@ import com.codeagent.plugin.agent.GitWorkspaceService
 import com.codeagent.plugin.agent.HookRuntimeService
 import com.codeagent.plugin.agent.HookRuntimeSnapshot
 import com.codeagent.plugin.agent.ImageCanvasService
+import com.codeagent.plugin.agent.InlineCompletionSettingsService
 import com.codeagent.plugin.agent.McpRuntimeService
 import com.codeagent.plugin.agent.McpRuntimeSnapshot
 import com.codeagent.plugin.agent.PluginRuntimeService
@@ -118,6 +119,7 @@ class IdeBridge(
     private val imageCanvas = project.service<ImageCanvasService>()
     private val customizations = project.service<WorkspaceCustomizationService>()
     private val settingsService = service<CodeAgentSettingsService>()
+    private val inlineCompletionSettings = service<InlineCompletionSettingsService>()
     private val oidcLogin = service<OidcLoginService>()
     private val stateLock = Any()
     private val runs = RunGeneration()
@@ -1125,6 +1127,7 @@ class IdeBridge(
 
     private fun saveSettings(payload: JsonElement) {
         val request = json.decodeFromJsonElement<SettingsPayload>(payload)
+        inlineCompletionSettings.setEnabled(request.inlineCompletionsEnabled)
         val previous = settingsService.snapshot()
         settingsService.update(
             CodeAgentSettingsUpdate(
@@ -1231,6 +1234,7 @@ class IdeBridge(
                 settings = SettingsSnapshotDto(
                     backendUrl = settings.backendUrl,
                     nodePath = settings.nodePath,
+                    inlineCompletionsEnabled = inlineCompletionSettings.isEnabled(),
                     backendTokenConfigured = !settings.backendToken.isNullOrBlank(),
                     autoApproveReadOnly = settings.autoApproveReadOnly,
                     chatZoom = settings.chatZoom,
@@ -2691,6 +2695,7 @@ class IdeBridge(
     private data class SettingsPayload(
         val backendUrl: String,
         val nodePath: String,
+        val inlineCompletionsEnabled: Boolean = true,
         val autoApproveReadOnly: Boolean = true,
         val chatZoom: Int = 100,
         val showTimestamps: Boolean = true,

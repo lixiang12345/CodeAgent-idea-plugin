@@ -178,6 +178,7 @@ class BridgeProtocolTest {
         assertEquals("remote-http", DEFAULT_CONTEXT_MODE)
         assertEquals(DEFAULT_CONTEXT_MODE, CodeAgentSettingsState().contextMode)
         assertEquals(DEFAULT_CONTEXT_MODE, SettingsSnapshotDto().contextMode)
+        assertEquals(true, SettingsSnapshotDto().inlineCompletionsEnabled)
         assertEquals(100, SettingsSnapshotDto().chatZoom)
         assertEquals(true, SettingsSnapshotDto().showTimestamps)
         assertEquals(false, SettingsSnapshotDto().desktopNotifications)

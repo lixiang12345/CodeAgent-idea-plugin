@@ -269,6 +269,37 @@ internal class RemoteAgentClient(
         }
     }
 
+    fun completion(
+        prefix: String,
+        suffix: String,
+        path: String,
+        language: String,
+        model: String? = null,
+    ): CompletableFuture<RemoteCompletionResponse> {
+        val uri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/completions")
+        val body = json.encodeToString(
+            RemoteCompletionRequest(
+                prefix = prefix,
+                suffix = suffix,
+                path = path,
+                language = language,
+                model = model,
+            ),
+        )
+        return httpClient.sendAsync(
+            requestBuilder(uri)
+                .timeout(Duration.ofSeconds(35))
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            check(response.statusCode() == 200) {
+                "Backend completion returned HTTP " + response.statusCode() + ": " + errorMessage(response.body())
+            }
+            json.decodeFromString<RemoteCompletionResponse>(response.body())
+        }
+    }
+
     fun stream(
         request: RemoteRunRequest,
         onStreamChanged: (Closeable?) -> Unit,
@@ -425,6 +456,21 @@ internal data class RemoteEnhanceResponse(
     val text: String,
     val model: String? = null,
     val provider: String? = null,
+)
+
+@Serializable
+internal data class RemoteCompletionRequest(
+    val prefix: String,
+    val suffix: String = "",
+    val path: String = "unknown",
+    val language: String = "unknown",
+    val model: String? = null,
+)
+
+@Serializable
+internal data class RemoteCompletionResponse(
+    val completion: String = "",
+    val model: String? = null,
 )
 
 @Serializable

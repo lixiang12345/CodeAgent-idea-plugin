@@ -1,6 +1,7 @@
 <script lang="ts">
   import DOMPurify from "dompurify";
   import { marked } from "marked";
+  import CodeBlock from "./CodeBlock.svelte";
   import MermaidCanvas from "./MermaidCanvas.svelte";
   import Icon from "./Icon.svelte";
 
@@ -11,6 +12,7 @@
 
   type Segment =
     | { kind: "markdown"; html: string }
+    | { kind: "code"; source: string; language: string }
     | { kind: "mermaid"; source: string };
 
   let { content, onOpenMermaid }: Props = $props();
@@ -39,17 +41,18 @@
     };
 
     for (let index = 0; index < lines.length; index += 1) {
-      const opening = lines[index].match(/^\s*(`{3,}|~{3,})\s*mermaid(?:\s+.*)?$/i);
+      const opening = lines[index].match(/^\s*(`{3,}|~{3,})\s*([^\s`]*)?.*$/);
       if (!opening) {
         markdown.push(lines[index]);
         continue;
       }
 
       const fence = opening[1];
-      const diagram: string[] = [];
+      const language = (opening[2] || "text").toLowerCase();
+      const code: string[] = [];
       let closingIndex = index + 1;
       while (closingIndex < lines.length && lines[closingIndex].trim() !== fence) {
-        diagram.push(lines[closingIndex]);
+        code.push(lines[closingIndex]);
         closingIndex += 1;
       }
       if (closingIndex >= lines.length) {
@@ -58,8 +61,11 @@
       }
 
       flushMarkdown();
-      const diagramSource = diagram.join("\n").trim();
-      if (diagramSource) segments.push({ kind: "mermaid", source: diagramSource });
+      const source = code.join("\n");
+      if (source.trim()) {
+        if (language === "mermaid") segments.push({ kind: "mermaid", source: source.trim() });
+        else segments.push({ kind: "code", source, language });
+      }
       index = closingIndex;
     }
 
@@ -74,6 +80,8 @@
   {#each segments as segment, index (`${segment.kind}-${index}`)}
     {#if segment.kind === "markdown"}
       <div class="markdown-body">{@html segment.html}</div>
+    {:else if segment.kind === "code"}
+      <CodeBlock source={segment.source} language={segment.language} />
     {:else}
       <section class="inline-mermaid">
         <header>
