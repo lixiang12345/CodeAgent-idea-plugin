@@ -13,6 +13,12 @@ import com.codeagent.plugin.agent.ImageCanvasService
 import com.codeagent.plugin.agent.InlineCompletionSettingsService
 import com.codeagent.plugin.agent.McpRuntimeService
 import com.codeagent.plugin.agent.McpRuntimeSnapshot
+import com.codeagent.plugin.agent.AcpRuntimeService
+import com.codeagent.plugin.agent.AcpRuntimeSnapshot
+import com.codeagent.plugin.agent.ByokService
+import com.codeagent.plugin.actions.configureAnthropicByok
+import com.codeagent.plugin.actions.configureBedrockByok
+import com.codeagent.plugin.actions.configureOpenAiByok
 import com.codeagent.plugin.agent.PluginRuntimeService
 import com.codeagent.plugin.agent.PluginRuntimeSnapshot
 import com.codeagent.plugin.agent.RemoteContextUpdated
@@ -38,6 +44,7 @@ import com.codeagent.plugin.settings.CodeAgentSettingsService
 import com.codeagent.plugin.settings.CodeAgentSettingsUpdate
 import com.codeagent.plugin.settings.DEFAULT_CONTEXT_MODE
 import com.codeagent.plugin.settings.OidcLoginService
+import com.codeagent.plugin.ui.CodeAgentUiRequest
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
@@ -90,6 +97,8 @@ private val EDT_BRIDGE_COMMANDS = setOf(
     "importTasks",
     "importThread",
     "pickContext",
+    "configureByok",
+    "clearByok",
 )
 
 class IdeBridge(
@@ -112,6 +121,7 @@ class IdeBridge(
     private val contextEngine = project.service<ContextEngineService>()
     private val agent = project.service<AgentOrchestrator>()
     private val mcpRuntimeService = project.service<McpRuntimeService>()
+    private val acpRuntimeService = project.service<AcpRuntimeService>()
     private val hookRuntimeService = project.service<HookRuntimeService>()
     private val pluginRuntimeService = project.service<PluginRuntimeService>()
     private val changeReview = project.service<ChangeReviewService>()
@@ -121,6 +131,7 @@ class IdeBridge(
     private val settingsService = service<CodeAgentSettingsService>()
     private val inlineCompletionSettings = service<InlineCompletionSettingsService>()
     private val oidcLogin = service<OidcLoginService>()
+    private val byokService = service<ByokService>()
     private val stateLock = Any()
     private val runs = RunGeneration()
     private val contextIndexRuns = RunGeneration()
@@ -149,6 +160,9 @@ class IdeBridge(
 
     @Volatile
     private var mcpRuntime = mcpRuntimeService.snapshot().toDto()
+
+    @Volatile
+    private var acpRuntime = acpRuntimeService.snapshot().toDto()
 
     @Volatile
     private var hookRuntime = hookRuntimeService.snapshot().toDto()
@@ -184,6 +198,10 @@ class IdeBridge(
             mcpRuntime = mcpRuntimeService.snapshot().toDto()
             emitSnapshot()
         }
+        acpRuntimeService.setChangeListener {
+            acpRuntime = acpRuntimeService.snapshot().toDto()
+            emitSnapshot()
+        }
         hookRuntimeService.setChangeListener {
             hookRuntime = hookRuntimeService.snapshot().toDto()
             emitSnapshot()
@@ -214,6 +232,22 @@ class IdeBridge(
         </script>
     """.trimIndent()
 
+    fun handleUiRequest(request: CodeAgentUiRequest) {
+        when (request.action) {
+            "openSettings" -> openSettingsSection(requireNotNull(request.section))
+            "signIn" -> {
+                openSettingsSection("Account")
+                signIn()
+            }
+            "signOut" -> {
+                openSettingsSection("Account")
+                signOut()
+            }
+            "recoverConversations" -> recoverCloudConversations()
+            else -> emit("error", mapOf("message" to "Unsupported IDE action: ${request.action}"))
+        }
+    }
+
     fun dispose() {
         if (!disposed.compareAndSet(false, true)) return
         synchronized(stateLock) {
@@ -225,6 +259,7 @@ class IdeBridge(
         agent.cancel()
         cloudSync.setChangeListener(null)
         mcpRuntimeService.setChangeListener(null)
+        acpRuntimeService.setChangeListener(null)
         hookRuntimeService.setChangeListener(null)
         pluginRuntimeService.setChangeListener(null)
         conversationSummaries.setChangeListener(null)
@@ -325,6 +360,14 @@ class IdeBridge(
             "saveSettings" -> saveSettings(requireNotNull(command.payload) { "saveSettings requires payload" })
             "signIn" -> signIn()
             "signOut" -> signOut()
+            "configureByok" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<ByokProviderPayload>(it) }
+                configureByok(request.provider)
+            }
+            "clearByok" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<ByokProviderPayload>(it) }
+                clearByok(request.provider)
+            }
             "refreshJobs" -> refreshJobs()
             "createJob" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<CreateJobPayload>(it) }
@@ -344,6 +387,19 @@ class IdeBridge(
             }
             "refreshConfigurations" -> refreshConfigurations()
             "refreshMcpRuntime" -> refreshMcpRuntime()
+            "refreshAcpRuntime" -> refreshAcpRuntime()
+            "startAcpAgent" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<AcpAgentPayload>(it) }
+                controlAcpAgent("start", request.agentId)
+            }
+            "stopAcpAgent" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<AcpAgentPayload>(it) }
+                controlAcpAgent("stop", request.agentId)
+            }
+            "restartAcpAgent" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<AcpAgentPayload>(it) }
+                controlAcpAgent("restart", request.agentId)
+            }
             "startMcpServer" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<McpServerPayload>(it) }
                 controlMcpServer("start", request.serverId)
@@ -359,6 +415,14 @@ class IdeBridge(
             "testMcpServer" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<McpServerPayload>(it) }
                 controlMcpServer("test", request.serverId)
+            }
+            "startMcpOAuth" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<McpServerPayload>(it) }
+                authorizeMcpServer(request.serverId)
+            }
+            "clearMcpOAuth" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<McpServerPayload>(it) }
+                disconnectMcpServerOAuth(request.serverId)
             }
             "saveConfiguration" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<SaveConfigurationPayload>(it) }
@@ -1253,12 +1317,16 @@ class IdeBridge(
                     contextRerankModel = settings.contextRerankModel,
                 ),
                 account = account,
+                byok = byokService.snapshot().let {
+                    ByokSnapshotDto(it.activeProvider, it.openAiConfigured, it.anthropicConfigured, it.bedrockConfigured)
+                },
                 context = context,
                 backendHealth = backendHealth,
                 models = modelRegistry.copy(selectedModel = active.selectedModelId),
                 backendTools = backendTools,
                 configurations = configurations,
                 mcpRuntime = mcpRuntime,
+                acpRuntime = acpRuntime,
                 hookRuntime = hookRuntime,
                 pluginRuntime = pluginRuntime,
                 jobs = productJobs,
@@ -1586,6 +1654,22 @@ class IdeBridge(
         }
     }
 
+    private fun recoverCloudConversations() {
+        val userId = account.userId
+        if (account.state != "signed_in" || userId.isNullOrBlank()) {
+            emit("error", mapOf("message" to "Sign in before recovering cloud conversations"))
+            openSettingsSection("Account")
+            return
+        }
+        synchronized(stateLock) { syncedAccountUserId = null }
+        emit("notice", mapOf("message" to "Recovering cloud conversations"))
+        restoreCloudConversations(userId)
+    }
+
+    private fun openSettingsSection(section: String) {
+        emit("navigateSettings", mapOf("section" to section))
+    }
+
     private fun resetCloudSync() {
         synchronized(stateLock) { syncedAccountUserId = null }
         cloudSync.reset()
@@ -1784,6 +1868,9 @@ class IdeBridge(
                 mcpRuntimeService.reconcile(requests.getValue("mcp").join().data).whenComplete { _, mcpError ->
                     if (mcpError != null) emit("error", mapOf("message" to "MCP activation failed: ${mcpError.rootMessage()}"))
                 }
+                acpRuntimeService.reconcile(requests.getValue("acp").join().data).whenComplete { _, acpError ->
+                    if (acpError != null) emit("error", mapOf("message" to "ACP activation failed: ${acpError.rootMessage()}"))
+                }
                 hookRuntimeService.reconcile(requests.getValue("hooks").join().data)
                 pluginRuntimeService.reconcile(requests.getValue("plugins").join().data)
                 val selected = synchronized(stateLock) { conversations.active().selectedAgentProfileId }
@@ -1801,6 +1888,74 @@ class IdeBridge(
             if (error != null) emit("error", mapOf("message" to error.rootMessage()))
         }
     }
+
+    private fun configureByok(provider: String) {
+        val configured = when (provider) {
+            "openai" -> configureOpenAiByok(project)
+            "anthropic" -> configureAnthropicByok(project)
+            "aws-bedrock" -> configureBedrockByok(project)
+            else -> error("Unsupported BYOK provider: $provider")
+        }
+        if (configured) {
+            emit("notice", mapOf("message" to "BYOK provider configured securely"))
+            checkBackendHealth()
+            emitSnapshot()
+        }
+    }
+
+    private fun clearByok(provider: String) {
+        when (provider) {
+            "openai" -> byokService.clearOpenAi()
+            "anthropic" -> byokService.clearAnthropic()
+            "aws-bedrock" -> byokService.clearBedrock()
+            else -> error("Unsupported BYOK provider: $provider")
+        }
+        emit("notice", mapOf("message" to "BYOK credentials removed"))
+        checkBackendHealth()
+        emitSnapshot()
+    }
+
+    private fun refreshAcpRuntime() {
+        acpRuntimeService.refresh().whenComplete { _, error ->
+            if (error != null) emit("error", mapOf("message" to error.rootMessage()))
+        }
+    }
+
+    private fun controlAcpAgent(action: String, agentId: String) {
+        require(agentId.isNotBlank()) { "ACP agent ID is required" }
+        val request = when (action) {
+            "start" -> acpRuntimeService.start(agentId)
+            "stop" -> acpRuntimeService.stop(agentId)
+            "restart" -> acpRuntimeService.restart(agentId)
+            else -> error("Unsupported ACP action: $action")
+        }
+        request.whenComplete { _, error ->
+            if (error != null) emit("error", mapOf("message" to error.rootMessage()))
+            else emit("notice", mapOf("message" to "ACP agent ${action}ed"))
+        }
+    }
+
+    private fun AcpRuntimeSnapshot.toDto() = AcpRuntimeSnapshotDto(
+        state = state,
+        label = label,
+        agents = agents.map { agent ->
+            AcpAgentRuntimeDto(
+                id = agent.id,
+                name = agent.name,
+                enabled = agent.enabled,
+                state = agent.state,
+                label = agent.label,
+                protocolVersion = agent.protocolVersion,
+                agentName = agent.agentName,
+                agentVersion = agent.agentVersion,
+                loadSession = agent.loadSession,
+                authMethods = agent.authMethods.map { AcpAuthMethodDto(it.id, it.name) },
+                sessionCount = agent.sessions.size,
+                pid = agent.pid,
+                lastError = agent.lastError,
+            )
+        },
+    )
 
     private fun controlMcpServer(action: String, serverId: String) {
         require(serverId.isNotBlank()) { "MCP server ID is required" }
@@ -1833,6 +1988,22 @@ class IdeBridge(
                 }
                 emit("notice", mapOf("message" to "$verb MCP server"))
             }
+        }
+    }
+
+    private fun authorizeMcpServer(serverId: String) {
+        mcpRuntime = mcpRuntime.copy(state = "degraded", label = "Complete MCP authorization in your browser")
+        emitSnapshot()
+        mcpRuntimeService.authorize(serverId).whenComplete { _, error ->
+            if (error != null) emit("error", mapOf("message" to error.rootMessage()))
+            else emit("notice", mapOf("message" to "MCP OAuth connected"))
+        }
+    }
+
+    private fun disconnectMcpServerOAuth(serverId: String) {
+        mcpRuntimeService.disconnectOAuth(serverId).whenComplete { _, error ->
+            if (error != null) emit("error", mapOf("message" to error.rootMessage()))
+            else emit("notice", mapOf("message" to "MCP OAuth credentials removed"))
         }
     }
 
@@ -2750,6 +2921,12 @@ class IdeBridge(
     private data class McpServerPayload(val serverId: String)
 
     @Serializable
+    private data class ByokProviderPayload(val provider: String)
+
+    @Serializable
+    private data class AcpAgentPayload(val agentId: String)
+
+    @Serializable
     private data class HookPayload(val hookId: String)
 
     @Serializable
@@ -2774,7 +2951,7 @@ class IdeBridge(
         private const val MAX_QUEUED_MESSAGES = 10
         private const val MAX_CLIPBOARD_TEXT_LENGTH = 512_000
         private val BUILT_IN_AGENT_PROFILES = setOf("general", "search", "context", "prompt", "loop")
-        private val CONFIGURATION_KINDS = listOf("mcp", "hooks", "commands", "agents", "plugins", "tool-permissions")
+        private val CONFIGURATION_KINDS = listOf("mcp", "acp", "hooks", "commands", "agents", "plugins", "tool-permissions")
         private val SUBAGENT_ROLES = setOf("research", "review", "test", "security", "planner")
     }
 }

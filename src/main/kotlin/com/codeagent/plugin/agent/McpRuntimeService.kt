@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 @Service(Service.Level.PROJECT)
 class McpRuntimeService(project: Project) : Disposable {
     private val contextEngine = project.service<ContextEngineService>()
+    private val oauth = service<McpOAuthService>()
     private val json = Json { ignoreUnknownKeys = true }
     private val scheduler = AppExecutorUtil.getAppScheduledExecutorService()
     private val refreshInFlight = AtomicBoolean(false)
@@ -35,6 +36,9 @@ class McpRuntimeService(project: Project) : Disposable {
 
     @Volatile
     private var configuredServerIds = emptySet<String>()
+
+    @Volatile
+    private var configurationsById = emptyMap<String, RemoteConfiguration>()
 
     @Volatile
     private var changeListener: (() -> Unit)? = null
@@ -57,15 +61,42 @@ class McpRuntimeService(project: Project) : Disposable {
     }
 
     internal fun reconcile(configurations: List<RemoteConfiguration>): CompletableFuture<McpRuntimeSnapshot> {
-        val parsed = configurations.map(::mcpServerConfiguration)
-        configuredServerIds = parsed.mapTo(linkedSetOf(), McpServerConfiguration::id)
-        return requestSnapshot(
-            type = "mcp.reconcile",
-            payload = buildJsonObject {
-                put("configurations", json.encodeToJsonElement(parsed))
-            },
-            timeout = Duration.ofMinutes(2),
-        )
+        configurationsById = configurations.associateBy(RemoteConfiguration::id)
+        configuredServerIds = configurationsById.keys
+        val prepared = configurations.map { configuration ->
+            val oauthConfiguration = mcpOAuthConfiguration(configuration)
+            if (oauthConfiguration == null) {
+                CompletableFuture.completedFuture(mcpServerConfiguration(configuration))
+            } else {
+                oauth.ensureAccessToken(oauthConfiguration).thenApply { token ->
+                    mcpServerConfiguration(configuration, token)
+                }
+            }
+        }
+        return CompletableFuture.allOf(*prepared.toTypedArray()).thenCompose {
+            val parsed = prepared.map(CompletableFuture<McpServerConfiguration>::join)
+            requestSnapshot(
+                type = "mcp.reconcile",
+                payload = buildJsonObject {
+                    put("configurations", json.encodeToJsonElement(parsed))
+                },
+                timeout = Duration.ofMinutes(2),
+            )
+        }
+    }
+
+    internal fun authorize(serverId: String): CompletableFuture<McpRuntimeSnapshot> {
+        val configuration = requireNotNull(configurationsById[serverId]) { "Unknown MCP server: $serverId" }
+        val oauthConfiguration = requireNotNull(mcpOAuthConfiguration(configuration)) {
+            "MCP server '$serverId' is not configured for OAuth"
+        }
+        return oauth.authorize(oauthConfiguration).thenCompose { reconcile(configurationsById.values.toList()) }
+    }
+
+    internal fun disconnectOAuth(serverId: String): CompletableFuture<McpRuntimeSnapshot> {
+        require(configurationsById.containsKey(serverId)) { "Unknown MCP server: $serverId" }
+        oauth.clear(serverId)
+        return reconcile(configurationsById.values.toList())
     }
 
     internal fun refresh(): CompletableFuture<McpRuntimeSnapshot> =
@@ -163,7 +194,7 @@ class McpRuntimeService(project: Project) : Disposable {
         }
 }
 
-internal fun mcpServerConfiguration(configuration: RemoteConfiguration): McpServerConfiguration {
+internal fun mcpServerConfiguration(configuration: RemoteConfiguration, accessToken: String? = null): McpServerConfiguration {
     require(configuration.kind == "mcp") { "Expected MCP configuration, got ${configuration.kind}" }
     val value = configuration.value
     return McpServerConfiguration(
@@ -177,9 +208,23 @@ internal fun mcpServerConfiguration(configuration: RemoteConfiguration): McpServ
         cwd = value.text("cwd"),
         url = value.text("url"),
         authMode = value.text("authMode") ?: "none",
+        accessToken = accessToken,
         tokenEnvironment = value.text("tokenEnvironment"),
         requiredEnvironment = value.strings("requiredEnvironment"),
         timeoutSeconds = value.integer("timeoutSeconds") ?: 60,
+    )
+}
+
+internal fun mcpOAuthConfiguration(configuration: RemoteConfiguration): McpOAuthConfiguration? {
+    if (configuration.kind != "mcp" || configuration.value.text("authMode") != "oauth") return null
+    val value = configuration.value
+    return McpOAuthConfiguration(
+        id = configuration.id,
+        authorizationEndpoint = requireNotNull(value.text("authorizationEndpoint")) { "MCP OAuth authorization endpoint is required" },
+        tokenEndpoint = requireNotNull(value.text("tokenEndpoint")) { "MCP OAuth token endpoint is required" },
+        clientId = requireNotNull(value.text("clientId")) { "MCP OAuth client ID is required" },
+        scopes = value.strings("scopes"),
+        audience = value.text("audience"),
     )
 }
 
@@ -219,6 +264,7 @@ internal data class McpServerConfiguration(
     val cwd: String? = null,
     val url: String? = null,
     val authMode: String = "none",
+    val accessToken: String? = null,
     val tokenEnvironment: String? = null,
     val requiredEnvironment: List<String> = emptyList(),
     val timeoutSeconds: Int = 60,

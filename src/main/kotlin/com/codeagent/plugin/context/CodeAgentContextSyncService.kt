@@ -10,9 +10,6 @@ import com.intellij.openapi.fileEditor.FileDocumentManagerListener
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.vfs.VirtualFileManager
-import com.intellij.openapi.vfs.newvfs.BulkFileListener
-import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.util.concurrency.AppExecutorUtil
 import java.nio.file.Path
 import java.util.concurrent.ScheduledFuture
@@ -28,11 +25,6 @@ class CodeAgentContextSyncService(private val project: Project) : Disposable {
 
     init {
         val connection = project.messageBus.connect(this)
-        connection.subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {
-            override fun after(events: List<VFileEvent>) {
-                if (events.any { isProjectFile(it.path) }) scheduleRefresh()
-            }
-        })
         connection.subscribe(FileDocumentManagerListener.TOPIC, object : FileDocumentManagerListener {
             override fun beforeDocumentSaving(document: Document) {
                 val file = FileDocumentManager.getInstance().getFile(document)
@@ -50,6 +42,12 @@ class CodeAgentContextSyncService(private val project: Project) : Disposable {
         refreshTask?.cancel(false)
         refreshTask = null
     }
+
+    fun externalFilesChanged(paths: List<String>) {
+        if (paths.any(::isProjectFile)) scheduleRefresh()
+    }
+
+    fun editorStateChanged() = scheduleRefresh()
 
     private fun scheduleRefresh() {
         refreshTask?.cancel(false)

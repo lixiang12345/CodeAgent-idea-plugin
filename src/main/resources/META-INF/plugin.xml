@@ -26,12 +26,26 @@
     <resource-bundle>messages.CodeAgentBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
+        <notificationGroup id="CodeAgent.Updates"
+                           displayType="STICKY_BALLOON"
+                           isLogByDefault="true"/>
         <toolWindow id="CodeAgent"
                     anchor="right"
                     secondary="true"
                     icon="/icons/plugin.svg"
                     factoryClass="com.codeagent.plugin.ui.CodeAgentToolWindowFactory"/>
         <postStartupActivity implementation="com.codeagent.plugin.context.CodeAgentPostStartupActivity"/>
+        <postStartupActivity implementation="com.codeagent.plugin.diagnostics.CodeAgentDiagnosticsStartupActivity"/>
+        <postStartupActivity implementation="com.codeagent.plugin.diagnostics.CodeAgentSidecarStartupActivity"/>
+        <postStartupActivity implementation="com.codeagent.plugin.diagnostics.CodeAgentIntegrityStartupActivity"/>
+        <errorHandler implementation="com.codeagent.plugin.diagnostics.CodeAgentErrorReportSubmitter"/>
+        <applicationService serviceImplementation="com.codeagent.plugin.settings.CodeAgentSettingsService"/>
+        <applicationService serviceImplementation="com.codeagent.plugin.agent.ByokService"/>
+        <applicationService serviceImplementation="com.codeagent.plugin.settings.OidcLoginService"/>
+        <applicationService serviceImplementation="com.codeagent.plugin.agent.McpOAuthService"/>
+        <applicationService serviceImplementation="com.codeagent.plugin.diagnostics.PerformanceWatcherReporter"/>
+        <applicationService serviceImplementation="com.codeagent.plugin.diagnostics.ClientMetricsReporter"/>
+        <applicationService serviceImplementation="com.codeagent.plugin.diagnostics.CrashDetectionService"/>
         <applicationConfigurable
                 parentId="editor"
                 id="com.codeagent.plugin.settings"
@@ -40,13 +54,37 @@
         <statusBarWidgetFactory
                 implementation="com.codeagent.plugin.ui.CodeAgentStatusBarWidgetFactory"
                 id="CodeAgentStatusBar"/>
+        <projectService serviceImplementation="com.codeagent.plugin.ui.CodeAgentUiService"/>
+        <projectService serviceImplementation="com.codeagent.plugin.diagnostics.OnboardingSessionEventReporter"/>
         <inline.completion.provider
                 order="first"
                 implementation="com.codeagent.plugin.agent.CodeAgentInlineCompletionProvider"/>
+        <inline.completion.element.manipulator
+                order="first"
+                implementation="com.codeagent.plugin.agent.CodeAgentInlineCompletionElementManipulator"/>
+        <fileBasedIndex implementation="com.codeagent.plugin.context.CodeAgentWorkspaceIndex"/>
+        <httpRequestHandler implementation="com.codeagent.plugin.settings.CodeAgentOAuthCallbackHandler"/>
+        <httpRequestHandler implementation="com.codeagent.plugin.agent.CodeAgentMcpOAuthCallbackHandler"/>
+        <editorFactoryListener implementation="com.codeagent.plugin.diagnostics.CodeAgentEditorFocusListener"/>
+        <editorFactoryListener implementation="com.codeagent.plugin.diagnostics.CodeAgentChatSelectionListener"/>
         <notificationGroup id="CodeAgent"
                            displayType="BALLOON"
                            isLogByDefault="true"/>
     </extensions>
+
+    <projectListeners>
+        <listener class="com.codeagent.plugin.diagnostics.CodeAgentVfsListener"
+                  topic="com.intellij.openapi.vfs.newvfs.BulkFileListener"/>
+    </projectListeners>
+
+    <applicationListeners>
+        <listener class="com.codeagent.plugin.agent.CodeAgentInlineCompletionInstallListener"
+                  topic="com.intellij.codeInsight.inline.completion.InlineCompletionInstallListener"/>
+        <listener class="com.codeagent.plugin.diagnostics.CodeAgentProjectMetricsListener"
+                  topic="com.intellij.openapi.project.ProjectManagerListener"/>
+        <listener class="com.codeagent.plugin.diagnostics.CodeAgentShutdownListener"
+                  topic="com.intellij.ide.AppLifecycleListener"/>
+    </applicationListeners>
 
     <actions>
         <action id="CodeAgent.ShowToolWindow"
@@ -77,5 +115,42 @@
             <keyboard-shortcut keymap="Mac OS X" first-keystroke="meta control 9"/>
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
+        <action id="CodeAgent.OpenNativeSettings"
+                class="com.codeagent.plugin.actions.OpenNativeSettingsAction"
+                icon="AllIcons.General.Settings"
+                text="CodeAgent: Plugin Settings"
+                description="Open the native CodeAgent settings page"/>
+        <action id="CodeAgent.OpenSettingsWebview"
+                class="com.codeagent.plugin.actions.OpenSettingsWebviewAction"
+                icon="AllIcons.General.Settings"
+                text="CodeAgent: Settings"
+                description="Open CodeAgent settings"/>
+        <action id="CodeAgent.OpenSettingsHome" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Home Settings"/>
+        <action id="CodeAgent.OpenSettingsServices" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Services Settings"/>
+        <action id="CodeAgent.OpenSettingsMcpServers" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open MCP Servers Settings"/>
+        <action id="CodeAgent.OpenSettingsGuidelines" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Rules &amp; Guidelines Settings"/>
+        <action id="CodeAgent.OpenSettingsMemories" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Memories Settings"/>
+        <action id="CodeAgent.OpenSettingsCommands" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Commands Settings"/>
+        <action id="CodeAgent.OpenSettingsSkills" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Skills Settings"/>
+        <action id="CodeAgent.OpenSettingsUserExperience" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open User Experience Settings"/>
+        <action id="CodeAgent.OpenSettingsFeatureFlags" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Feature Flags Settings"/>
+        <action id="CodeAgent.OpenSettingsBeta" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Beta Settings"/>
+        <action id="CodeAgent.OpenSettingsAccount" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Account Settings"/>
+        <action id="CodeAgent.OpenSettingsSubscription" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Subscription Settings"/>
+        <action id="CodeAgent.ShowDocs" class="com.codeagent.plugin.actions.ShowDocsAction" icon="AllIcons.Toolwindows.Documentation" text="CodeAgent: Documentation" description="Open CodeAgent documentation"/>
+        <action id="CodeAgent.ShowHelp" class="com.codeagent.plugin.actions.ShowHelpAction" icon="AllIcons.Actions.Help" text="CodeAgent: Help" description="Open CodeAgent support"/>
+        <action id="CodeAgent.OpenWorkspaceGuidelines" class="com.codeagent.plugin.actions.OpenWorkspaceGuidelinesAction" text="CodeAgent: Edit Workspace Guidelines" description="Open the repository CodeAgent guidelines file"/>
+        <action id="CodeAgent.SignIn" class="com.codeagent.plugin.actions.SignInAction" text="CodeAgent: Sign In" description="Sign in to CodeAgent"/>
+        <action id="CodeAgent.SignOut" class="com.codeagent.plugin.actions.SignOutAction" icon="AllIcons.Actions.Exit" text="CodeAgent: Sign Out" description="Sign out of CodeAgent"/>
+        <action id="CodeAgent.ExportLogs" class="com.codeagent.plugin.actions.ExportLogsAction" icon="AllIcons.ToolbarDecorator.Export" text="CodeAgent: Export Logs" description="Export local IDE logs to a diagnostic ZIP"/>
+        <action id="CodeAgent.RecoverCloudConversations" class="com.codeagent.plugin.actions.RecoverCloudConversationsAction" text="CodeAgent: Recover Conversations from Backend" description="Restore account conversations from the backend"/>
+        <action id="CodeAgent.GenerateSyncReport" class="com.codeagent.plugin.actions.GenerateSyncReportAction" text="CodeAgent: Generate Sync Report" description="Open a report of context indexing and synchronization state"/>
+        <action id="CodeAgent.ManageAccount" class="com.codeagent.plugin.actions.ManageAccountAction" text="CodeAgent: Manage Account" description="Open CodeAgent account settings"/>
+        <action id="CodeAgent.ByokSetAnthropicKey" class="com.codeagent.plugin.actions.SetAnthropicKeyAction" text="CodeAgent: Set Anthropic API Key (BYOK)" description="Store an Anthropic API key securely and use it for model requests"/>
+        <action id="CodeAgent.ByokSetOpenAIKey" class="com.codeagent.plugin.actions.SetOpenAiKeyAction" text="CodeAgent: Set OpenAI API Key (BYOK)" description="Store an OpenAI API key securely and use it for model requests"/>
+        <action id="CodeAgent.ByokClearAnthropicKey" class="com.codeagent.plugin.actions.ClearAnthropicKeyAction" text="CodeAgent: Clear Anthropic API Key (BYOK)" description="Remove the Anthropic API key from Password Safe"/>
+        <action id="CodeAgent.ByokClearOpenAIKey" class="com.codeagent.plugin.actions.ClearOpenAiKeyAction" text="CodeAgent: Clear OpenAI API Key (BYOK)" description="Remove the OpenAI API key from Password Safe"/>
+        <action id="CodeAgent.ByokSetBedrockKey" class="com.codeagent.plugin.actions.SetBedrockKeyAction" text="CodeAgent: Set AWS Bedrock Credentials (BYOK)" description="Store AWS credentials, region, and Bedrock model securely"/>
+        <action id="CodeAgent.ByokClearBedrockKey" class="com.codeagent.plugin.actions.ClearBedrockKeyAction" text="CodeAgent: Clear AWS Bedrock Credentials (BYOK)" description="Remove AWS Bedrock credentials from Password Safe"/>
     </actions>
 </idea-plugin>

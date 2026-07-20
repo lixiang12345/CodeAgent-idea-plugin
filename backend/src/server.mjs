@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { AgentRunner, validateRunRequest } from "./agent-runner.mjs";
 import { createIntegrationToolRegistryFromEnv } from "./integration-tools.mjs";
-import { createModelGatewayFromEnv } from "./model-gateway.mjs";
+import { createModelGatewayFromEnv, createRequestModelGateway } from "./model-gateway.mjs";
 import { createAuthenticatorFromEnv, SharedTokenAuthenticator } from "./auth.mjs";
 import { ProductJobRunner } from "./job-runner.mjs";
 import { createProductStoreFromEnv } from "./product-store.mjs";
@@ -67,20 +67,22 @@ export function createCodeAgentServer({
       if (await handlePublicProductRequest(request, response, { authenticator: auth, runtimeManifest: manifest })) return;
       const principal = await auth.authenticate(request);
       await store.upsertUser(principal);
+      const requestGateway = createRequestModelGateway(request.headers, gateway);
+      if (requestGateway !== gateway) response.setHeader("cache-control", "no-store");
       if (await handleProductRequest(request, response, {
         principal,
         authenticator: auth,
         store,
         jobRunner: jobs,
-        modelGateway: gateway,
+        modelGateway: requestGateway,
         readJson,
       })) return;
       if (request.url === "/v1/models" && request.method === "GET") {
-        const data = typeof gateway.listModels === "function" ? await gateway.listModels() : [];
+        const data = typeof requestGateway.listModels === "function" ? await requestGateway.listModels() : [];
         return json(response, 200, {
           object: "list",
-          provider: gateway.provider || "custom",
-          defaultModel: gateway.defaultModel || "",
+          provider: requestGateway.provider || "custom",
+          defaultModel: requestGateway.defaultModel || "",
           data,
         });
       }
@@ -136,9 +138,9 @@ export function createCodeAgentServer({
           error.statusCode = 400;
           throw error;
         }
-        const model = typeof body?.model === "string" && body.model.trim() ? body.model.trim() : gateway.defaultModel;
+        const model = typeof body?.model === "string" && body.model.trim() ? body.model.trim() : requestGateway.defaultModel;
         let enhanced = "";
-        const turn = await gateway.stream({
+        const turn = await requestGateway.stream({
           model,
           tools: [],
           messages: promptEnhancementMessages({
@@ -162,8 +164,8 @@ export function createCodeAgentServer({
         }
         return json(response, 200, {
           text: enhanced,
-          model: model || gateway.defaultModel || "",
-          provider: gateway.provider || "custom",
+          model: model || requestGateway.defaultModel || "",
+          provider: requestGateway.provider || "custom",
         });
       }
 
@@ -176,7 +178,7 @@ export function createCodeAgentServer({
           profileId: body.agentProfileId,
         });
         const effectiveRequest = applyAgentProfile(body, agentProfile);
-        const selectedModel = effectiveRequest.model || gateway.defaultModel || "";
+        const selectedModel = effectiveRequest.model || requestGateway.defaultModel || "";
         if (selectedModel) effectiveRequest.model = selectedModel;
         const initialToolCatalog = createToolCatalog(agentProfile, effectiveRequest.tools);
         const contextBudget = contextBudgetFor(
@@ -188,7 +190,7 @@ export function createCodeAgentServer({
         run.emit("run.started", {
           runId: run.id,
           protocolVersion: 1,
-          provider: gateway.provider || "custom",
+          provider: requestGateway.provider || "custom",
           model: selectedModel,
           agentProfileId: agentProfile.id,
           agentType: agentProfile.agentType,
@@ -203,7 +205,8 @@ export function createCodeAgentServer({
           retrievalBudgetTokens: contextBudget.retrievalBudgetTokens,
           toolDefinitionTokens: contextBudget.toolDefinitionTokens,
         });
-        void runner.run({
+        const requestRunner = requestGateway === gateway ? runner : new AgentRunner({ modelGateway: requestGateway });
+        void requestRunner.run({
           request: effectiveRequest,
           agentProfile,
           emit: run.emit.bind(run),

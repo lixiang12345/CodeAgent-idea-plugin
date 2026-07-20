@@ -306,14 +306,14 @@ Extracted action-type strings from `Store-*.js` (subset of product domains).
 | Original family | Scale | CodeAgent status |
 | --- | --- | --- |
 | Sidecar `/api/ide/*` + `/api/sse/*` | 13 routes | **Replaced** by JVM tools + bridge events (no sidecar IDE HTTP) |
-| Sidecar `/api/acp/*` | 9 routes | **Not implemented** (no ACP server) |
+| Sidecar `/api/acp/*` | 9 routes | **Implemented by the ACP v1 sidecar runtime** (official SDK, stdio agents, sessions, prompt/update/cancel) |
 | Cloud chat-stream + node-typed requests | large DTO graph | **Replaced** by `POST /v1/runs` + simple messages[] |
-| Remote tools / MCP / OAuth / billing | large | **Unavailable shells** in UI |
-| Completions ACP | 3 routes + rich recency blobs | **Out of scope** (no inline completion product) |
+| Remote tools / MCP / OAuth / billing | large | **Typed backend tools plus managed MCP and provider OAuth; billing remains backend/account dependent** |
+| Completions ACP | 3 routes + rich recency blobs | **Inline completion is implemented with bounded context, LRU/TTL cache, install listener, element manipulator, cancellation, and telemetry** |
 | Webview `tools/*` state machine | 30+ actions | **Collapsed** into `ToolRun` statuses + approvals |
 | `postToolUseMessagesByToolId` | first-class | **Partial**: multi assistant messages + interleaved timeline |
 | History load/save/delete cloud | request/response pairs | Local thread store + MD import/export only |
-| gRPC intake/allowlist | 2 clients | **Not ported** |
+| gRPC intake/allowlist | 2 clients | **Replaced by the typed HTTP/SSE backend contract and JVM bridge; proprietary binary services are intentionally not bundled** |
 
 ### CodeAgent implemented count (for contrast)
 

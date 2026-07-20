@@ -4,6 +4,8 @@
     sendCommand,
     type ConfigurationKind,
     type ConfigurationSnapshot,
+    type AcpAgentRuntime,
+    type AcpRuntimeSnapshot,
     type HookExecution,
     type HookRuntimeSnapshot,
     type McpRuntimeSnapshot,
@@ -17,6 +19,7 @@
   export let section: string;
   export let configurationSnapshot: ConfigurationSnapshot;
   export let mcpRuntime: McpRuntimeSnapshot;
+  export let acpRuntime: AcpRuntimeSnapshot;
   export let hookRuntime: HookRuntimeSnapshot;
   export let pluginRuntime: PluginRuntimeSnapshot;
   export let models: ModelOption[] = [];
@@ -55,11 +58,18 @@
     url: string;
     authMode: string;
     tokenEnvironment: string;
+    authorizationEndpoint: string;
+    tokenEndpoint: string;
+    clientId: string;
+    scopes: string;
+    audience: string;
+    authMethodId: string;
     requiredEnvironment: string;
   };
 
   const sectionKinds: Record<string, ConfigurationKind> = {
     "MCP Servers": "mcp",
+    "ACP Agents": "acp",
     Commands: "commands",
     Hooks: "hooks",
     Agents: "agents",
@@ -72,6 +82,12 @@
       lead: "Store local stdio or remote MCP endpoints without putting credentials in product configuration.",
       singular: "MCP server",
       icon: "mcp",
+    },
+    acp: {
+      title: "ACP Agents",
+      lead: "Connect external Agent Client Protocol v1 agents through a supervised local stdio runtime.",
+      singular: "ACP agent",
+      icon: "bot",
     },
     commands: {
       title: "Commands",
@@ -167,6 +183,12 @@ $: if (section !== previousSection) {
       url: "",
       authMode: "none",
       tokenEnvironment: "",
+      authorizationEndpoint: "",
+      tokenEndpoint: "",
+      clientId: "",
+      scopes: "",
+      audience: "",
+      authMethodId: "",
       requiredEnvironment: "",
     };
   }
@@ -190,6 +212,7 @@ $: if (section !== previousSection) {
   function beginCreate() {
     editing = false;
     draft = emptyDraft();
+    if (kind === "acp") draft.timeoutSeconds = 300;
     editorOpen = true;
   }
 
@@ -231,6 +254,12 @@ $: if (section !== previousSection) {
       url: text(value.url),
       authMode: text(value.authMode) || "none",
       tokenEnvironment: text(value.tokenEnvironment),
+      authorizationEndpoint: text(value.authorizationEndpoint),
+      tokenEndpoint: text(value.tokenEndpoint),
+      clientId: text(value.clientId),
+      scopes: listValue(value.scopes),
+      audience: text(value.audience),
+      authMethodId: text(value.authMethodId),
       requiredEnvironment: listValue(value.requiredEnvironment),
     };
     editorOpen = true;
@@ -297,6 +326,17 @@ $: if (section !== previousSection) {
         capabilities: parseList(draft.capabilities),
       };
     }
+    if (kind === "acp") {
+      return {
+        ...common,
+        command: draft.command.trim(),
+        args: parseList(draft.args),
+        cwd: draft.cwd.trim() || null,
+        requiredEnvironment: parseList(draft.requiredEnvironment),
+        authMethodId: draft.authMethodId.trim() || null,
+        timeoutSeconds: draft.timeoutSeconds,
+      };
+    }
     return {
       ...common,
       transport: draft.transport,
@@ -306,6 +346,11 @@ $: if (section !== previousSection) {
       url: draft.transport === "stdio" ? null : draft.url.trim(),
       authMode: draft.transport === "stdio" ? "none" : draft.authMode,
       tokenEnvironment: draft.authMode === "bearer-environment" ? draft.tokenEnvironment.trim() : null,
+      authorizationEndpoint: draft.authMode === "oauth" ? draft.authorizationEndpoint.trim() : null,
+      tokenEndpoint: draft.authMode === "oauth" ? draft.tokenEndpoint.trim() : null,
+      clientId: draft.authMode === "oauth" ? draft.clientId.trim() : null,
+      scopes: draft.authMode === "oauth" ? parseList(draft.scopes) : [],
+      audience: draft.authMode === "oauth" ? draft.audience.trim() || null : null,
       requiredEnvironment: parseList(draft.requiredEnvironment),
       timeoutSeconds: draft.timeoutSeconds,
     };
@@ -332,7 +377,12 @@ $: if (section !== previousSection) {
       return Boolean(draft.source.trim())
         && (!draft.integrity.trim() || /^sha256:[a-f0-9]{64}$/.test(draft.integrity.trim()));
     }
-    return draft.transport === "stdio" ? Boolean(draft.command.trim()) : Boolean(draft.url.trim());
+    if (kind === "acp") return Boolean(draft.command.trim()) && draft.timeoutSeconds >= 1 && draft.timeoutSeconds <= 1800;
+    if (draft.transport === "stdio") return Boolean(draft.command.trim());
+    if (!draft.url.trim()) return false;
+    return draft.authMode !== "oauth" || Boolean(
+      draft.authorizationEndpoint.trim() && draft.tokenEndpoint.trim() && draft.clientId.trim()
+    );
   }
 
   function save() {
@@ -370,6 +420,10 @@ $: if (section !== previousSection) {
       const runtime = runtimeFor(item.id);
       return `${text(value.transport) || "stdio"} · ${runtime?.state ?? "not activated"} · ${runtime?.tools.length ?? 0} tools`;
     }
+    if (kind === "acp") {
+      const runtime = acpRuntimeFor(item.id);
+      return `ACP v${runtime?.protocolVersion ?? 1} · ${runtime?.state ?? "not activated"} · ${runtime?.sessionCount ?? 0} sessions`;
+    }
     if (kind === "commands") {
       const mode = text(value.mode) || "inherit";
       const profile = text(value.agentProfileId);
@@ -397,7 +451,18 @@ $: if (section !== previousSection) {
     return mcpRuntime.servers.find((server) => server.id === serverId);
   }
 
-  function controlMcp(command: "startMcpServer" | "stopMcpServer" | "restartMcpServer" | "testMcpServer", serverId: string) {
+  function acpRuntimeFor(agentId: string): AcpAgentRuntime | undefined {
+    return acpRuntime.agents.find((agent) => agent.id === agentId);
+  }
+
+  function controlAcp(command: "startAcpAgent" | "stopAcpAgent" | "restartAcpAgent", agentId: string) {
+    sendCommand(command, { agentId });
+  }
+
+  function controlMcp(
+    command: "startMcpServer" | "stopMcpServer" | "restartMcpServer" | "testMcpServer" | "startMcpOAuth" | "clearMcpOAuth",
+    serverId: string,
+  ) {
     sendCommand(command, { serverId });
   }
 
@@ -521,6 +586,14 @@ $: if (section !== previousSection) {
         </div>
       </fieldset>
       <div class="runtime-note"><Icon name="shield" size={13} /><span>Installation downloads and caches one bounded JSON manifest on this device. CodeAgent verifies identity, version, permissions, and optional SHA-256 integrity; plugin JVM, Node, and shell code is never loaded.</span></div>
+    {:else if kind === "acp"}
+      <label><span>Command</span><input bind:value={draft.command} maxlength="4000" placeholder="gemini" /></label>
+      <label><span>Arguments</span><textarea class="list-textarea" bind:value={draft.args} spellcheck="false" placeholder="--experimental-acp"></textarea><small>One argument per line.</small></label>
+      <label><span>Working directory</span><input bind:value={draft.cwd} maxlength="4000" placeholder="Project root" /><small>Must remain inside the current project.</small></label>
+      <label><span>Authentication method ID</span><input bind:value={draft.authMethodId} maxlength="240" placeholder="Optional; must be advertised during initialize" /></label>
+      <label><span>Required environment</span><textarea class="list-textarea" bind:value={draft.requiredEnvironment} spellcheck="false" placeholder="AGENT_API_TOKEN"></textarea><small>Only these named variables plus the minimal process environment are inherited.</small></label>
+      <label><span>Timeout seconds</span><input type="number" min="1" max="1800" bind:value={draft.timeoutSeconds} /></label>
+      <div class="runtime-note"><Icon name="shield" size={13} /><span>CodeAgent negotiates official ACP protocol v1, advertises no filesystem or terminal client capability, rejects unattended permission requests, and exposes prompts as approval-controlled Agent tools.</span></div>
     {:else}
       <fieldset>
         <legend>Transport</legend>
@@ -536,9 +609,15 @@ $: if (section !== previousSection) {
         <label><span>Working directory</span><input bind:value={draft.cwd} maxlength="4000" placeholder="Optional" /></label>
       {:else}
         <label><span>Endpoint URL</span><input bind:value={draft.url} maxlength="4000" placeholder="https://example.com/mcp" /></label>
-        <label><span>Authentication</span><select bind:value={draft.authMode}><option value="none">None</option><option value="bearer-environment">Bearer token from environment</option></select></label>
+        <label><span>Authentication</span><select bind:value={draft.authMode}><option value="none">None</option><option value="bearer-environment">Bearer token from environment</option><option value="oauth">OAuth 2.0 with PKCE</option></select></label>
         {#if draft.authMode === "bearer-environment"}
           <label><span>Token environment variable</span><input bind:value={draft.tokenEnvironment} maxlength="128" placeholder="MCP_ACCESS_TOKEN" /></label>
+        {:else if draft.authMode === "oauth"}
+          <label><span>Authorization endpoint</span><input bind:value={draft.authorizationEndpoint} maxlength="4000" placeholder="https://provider.example/oauth/authorize" /></label>
+          <label><span>Token endpoint</span><input bind:value={draft.tokenEndpoint} maxlength="4000" placeholder="https://provider.example/oauth/token" /></label>
+          <label><span>Client ID</span><input bind:value={draft.clientId} maxlength="500" /></label>
+          <label><span>Scopes</span><textarea class="list-textarea" bind:value={draft.scopes} spellcheck="false" placeholder="mcp:tools&#10;offline_access"></textarea><small>One scope per line. Authorization uses PKCE; no client secret is stored.</small></label>
+          <label><span>Audience</span><input bind:value={draft.audience} maxlength="1000" placeholder="Optional resource audience" /></label>
         {/if}
       {/if}
       <label><span>Required environment</span><textarea class="list-textarea" bind:value={draft.requiredEnvironment} spellcheck="false" placeholder="API_TOKEN"></textarea><small>Names only. Secret values stay outside CodeAgent.</small></label>
@@ -574,6 +653,14 @@ $: if (section !== previousSection) {
     </div>
   {/if}
 
+  {#if kind === "acp"}
+    <div class="configuration-status mcp-gateway-status">
+      <span class="status-dot {acpRuntime.state}"></span>
+      <span><strong>ACP runtime · {acpRuntime.state}</strong><small>{acpRuntime.label}</small></span>
+      <button class="icon-button compact" title="Refresh ACP runtime" onclick={() => sendCommand("refreshAcpRuntime")}><Icon name="activity" size={13} /></button>
+    </div>
+  {/if}
+
   {#if kind === "hooks"}
     <div class="configuration-status hook-runtime-status">
       <span class="status-dot {hookRuntime.state}"></span>
@@ -600,6 +687,7 @@ $: if (section !== previousSection) {
     <section class="configuration-list">
       {#each items as item}
         {@const runtime = kind === "mcp" ? runtimeFor(item.id) : undefined}
+        {@const acpAgent = kind === "acp" ? acpRuntimeFor(item.id) : undefined}
         {@const plugin = kind === "plugins" ? pluginRuntimeFor(item.id) : undefined}
         <article class:mcp-item={kind === "mcp"} class:plugin-item={kind === "plugins"}>
           <span class="configuration-icon"><Icon name={page.icon} size={14} /></span>
@@ -626,6 +714,10 @@ $: if (section !== previousSection) {
                 {#if runtime?.latencyMs !== undefined}<small>{runtime.latencyMs} ms</small>{/if}
               </span>
               <span class="mcp-runtime-actions">
+                {#if item.value.authMode === "oauth"}
+                  <button class="icon-button compact" title="Connect MCP OAuth" disabled={item.value.enabled === false} onclick={() => controlMcp("startMcpOAuth", item.id)}><Icon name="log-in" size={11} /></button>
+                  <button class="icon-button compact" title="Clear MCP OAuth credentials" onclick={() => controlMcp("clearMcpOAuth", item.id)}><Icon name="log-out" size={11} /></button>
+                {/if}
                 {#if runtime?.state === "ready" || runtime?.state === "degraded" || runtime?.state === "error"}
                   <button class="icon-button compact" title="Stop MCP server" onclick={() => controlMcp("stopMcpServer", item.id)}><Icon name="square" size={11} /></button>
                   <button class="icon-button compact" title="Restart MCP server" onclick={() => controlMcp("restartMcpServer", item.id)}><Icon name="refresh-ccw" size={11} /></button>
@@ -642,6 +734,25 @@ $: if (section !== previousSection) {
                   {/each}
                 </details>
               {/if}
+            </div>
+          {/if}
+          {#if kind === "acp"}
+            <div class="mcp-runtime-row">
+              <span class="mcp-runtime-copy">
+                <i class="runtime-state {acpAgent?.state ?? (item.value.enabled === false ? 'disabled' : 'stopped')}">{acpAgent?.state ?? (item.value.enabled === false ? "disabled" : "stopped")}</i>
+                <small>{acpAgent?.label ?? (item.value.enabled === false ? "Disabled" : "Waiting for ACP activation")}</small>
+                {#if acpAgent?.pid}<small>PID {acpAgent.pid}</small>{/if}
+                {#if acpAgent?.protocolVersion}<small>ACP v{acpAgent.protocolVersion}</small>{/if}
+                {#if acpAgent?.loadSession}<small>Session restore</small>{/if}
+              </span>
+              <span class="mcp-runtime-actions">
+                {#if acpAgent?.state === "ready" || acpAgent?.state === "error"}
+                  <button class="icon-button compact" title="Stop ACP agent" onclick={() => controlAcp("stopAcpAgent", item.id)}><Icon name="square" size={11} /></button>
+                  <button class="icon-button compact" title="Restart ACP agent" onclick={() => controlAcp("restartAcpAgent", item.id)}><Icon name="refresh-ccw" size={11} /></button>
+                {:else}
+                  <button class="icon-button compact" title="Start ACP agent" disabled={item.value.enabled === false || acpAgent?.state === "starting"} onclick={() => controlAcp("startAcpAgent", item.id)}><Icon name="play" size={11} /></button>
+                {/if}
+              </span>
             </div>
           {/if}
           {#if kind === "plugins"}

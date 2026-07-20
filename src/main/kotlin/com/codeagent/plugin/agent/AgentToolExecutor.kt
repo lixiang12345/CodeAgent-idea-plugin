@@ -52,6 +52,7 @@ internal class AgentToolExecutor(
     private val contextEngine = project.service<ContextEngineService>()
     private val conversations = project.service<ConversationStore>()
     private val mcpRuntime = project.service<McpRuntimeService>()
+    private val acpRuntime = project.service<AcpRuntimeService>()
     private val remoteTools = remoteCapabilities.filter(RemoteToolCapability::available).associateBy(RemoteToolCapability::name)
     private val json = Json { ignoreUnknownKeys = true }
     private val executor = AppExecutorUtil.getAppExecutorService()
@@ -197,6 +198,7 @@ internal class AgentToolExecutor(
             add(AgentToolDefinition(remote.name, remote.description, remote.parameters, toolRiskFromWire(remote.risk)))
         }
         addAll(mcpRuntime.definitions())
+        addAll(acpRuntime.definitions())
         add(tool("open_file", "Open one known project file in the IDE for user inspection. This changes editor state but does not modify file content", schema(
             properties = mapOf("path" to stringProperty("Project-relative file path")),
             required = listOf("path"),
@@ -209,6 +211,7 @@ internal class AgentToolExecutor(
             "add_tasks", "update_tasks", "reorg_tasks", "ask_user", "open_browser", "open_file", "render_mermaid" -> ToolRisk.LOCAL_STATE
             else -> when {
                 mcpRuntime.hasTool(toolName) -> mcpRuntime.risk(toolName)
+                acpRuntime.hasTool(toolName) -> ToolRisk.MUTATING
                 remoteTools.containsKey(toolName) -> toolRiskFromWire(requireNotNull(remoteTools[toolName]).risk)
                 else -> ToolRisk.READ_ONLY
             }
@@ -244,6 +247,8 @@ internal class AgentToolExecutor(
             "open_file" -> openFile(args)
             else -> if (mcpRuntime.hasTool(call.name)) {
                 mcpRuntime.execute(call.name, args).join()
+            } else if (acpRuntime.hasTool(call.name)) {
+                acpRuntime.execute(call.name, args).join()
             } else {
                 executeRemote(call.name, args)
             }

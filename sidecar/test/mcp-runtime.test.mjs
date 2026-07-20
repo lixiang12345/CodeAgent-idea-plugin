@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { McpRuntimeManager } from "../dist/mcp-runtime.mjs";
+import { bearerFetch, McpRuntimeManager } from "../dist/mcp-runtime.mjs";
 
 const testRoot = path.dirname(fileURLToPath(import.meta.url));
 const fixture = path.join(testRoot, "fixtures", "echo-mcp-server.mjs");
@@ -87,5 +87,26 @@ test("reports missing allowlisted environment without leaking a value", async ()
   } finally {
     await manager.close();
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("injects an OAuth bearer token without exposing it in the URL", async () => {
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    requests.push({ input: String(input), headers: new Headers(init?.headers) });
+    return new Response("ok");
+  };
+  try {
+    const response = await bearerFetch("oauth-secret")("https://mcp.example.test/rpc?visible=yes", {
+      headers: { "x-client": "CodeAgent" },
+    });
+    assert.equal(await response.text(), "ok");
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].headers.get("authorization"), "Bearer oauth-secret");
+    assert.equal(requests[0].headers.get("x-client"), "CodeAgent");
+    assert.doesNotMatch(requests[0].input, /oauth-secret/);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });

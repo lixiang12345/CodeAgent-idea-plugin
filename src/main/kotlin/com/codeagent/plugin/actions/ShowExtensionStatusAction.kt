@@ -1,6 +1,7 @@
 package com.codeagent.plugin.actions
 
 import com.codeagent.plugin.agent.AgentOrchestrator
+import com.codeagent.plugin.agent.InlineCompletionTelemetryService
 import com.codeagent.plugin.context.ContextEngineService
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
@@ -24,12 +25,14 @@ class ShowExtensionStatusAction : AnAction() {
                 else if (value.indexed) "Context indexed: ${value.fileCount} files, ${value.chunkCount} chunks"
                 else "Context not indexed"
             }
+        val completions = service<InlineCompletionTelemetryService>().snapshot()
         CompletableFuture.allOf(backend, context).whenComplete { _, _ ->
             NotificationGroupManager.getInstance()
                 .getNotificationGroup("CodeAgent")
                 .createNotification(
                     "CodeAgent status",
-                    "${backend.join()}<br>${context.join()}",
+                    "${backend.join()}<br>${context.join()}<br>Inline completion: ${completions.suggestions} suggestions, " +
+                        "${completions.cacheHits} cache hits, ${completions.failures} failures",
                     NotificationType.INFORMATION,
                 )
                 .notify(project)

@@ -28,4 +28,9 @@ await Promise.all([
     entryPoints: [path.join(root, "src/mcp-runtime.ts")],
     outfile: path.join(root, "dist/mcp-runtime.mjs"),
   }),
+  build({
+    ...common,
+    entryPoints: [path.join(root, "src/acp-runtime.ts")],
+    outfile: path.join(root, "dist/acp-runtime.mjs"),
+  }),
 ]);

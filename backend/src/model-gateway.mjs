@@ -1,3 +1,5 @@
+import { createHash, createHmac } from "node:crypto";
+
 export function createModelGatewayFromEnv(env = process.env, fetchImpl = fetch) {
   const providers = configuredNativeProviders(env);
   if (providers.length > 0) {
@@ -17,6 +19,208 @@ export function createModelGatewayFromEnv(env = process.env, fetchImpl = fetch) 
     streamIdleTimeoutMs: positiveIntegerSetting(env, "MODEL_STREAM_IDLE_TIMEOUT_MS", 45_000),
     fetchImpl,
   });
+}
+
+export function createRequestModelGateway(headers, fallbackGateway, fetchImpl = fetch) {
+  const provider = requestHeader(headers, "x-codeagent-byok-provider", 32).toLowerCase();
+  if (!provider) return fallbackGateway;
+  if (provider === "openai" || provider === "anthropic") {
+    const apiKey = requestHeader(headers, "x-codeagent-byok-api-key", 8_192, true);
+    if (!apiKey) throw new Error(`BYOK ${provider} API key is required`);
+    const endpoint = requestHeader(headers, "x-codeagent-byok-base-url", 4_000)
+      || (provider === "openai" ? "https://api.openai.com" : "https://api.anthropic.com");
+    return new SingleProviderByokGateway({ provider, endpoint, apiKey, fetchImpl });
+  }
+  if (provider === "aws-bedrock") {
+    return new BedrockConverseGateway({
+      region: requestHeader(headers, "x-codeagent-byok-aws-region", 64),
+      accessKeyId: requestHeader(headers, "x-codeagent-byok-aws-access-key-id", 512, true),
+      secretAccessKey: requestHeader(headers, "x-codeagent-byok-aws-secret-access-key", 8_192, true),
+      sessionToken: requestHeader(headers, "x-codeagent-byok-aws-session-token", 16_384, true) || null,
+      model: requestHeader(headers, "x-codeagent-byok-model", 1_000),
+      fetchImpl,
+    });
+  }
+  throw new Error(`Unsupported BYOK provider: ${provider}`);
+}
+
+class SingleProviderByokGateway {
+  constructor({ provider, endpoint, apiKey, maxTokens = 8_192, streamIdleTimeoutMs = 45_000, fetchImpl = fetch }) {
+    this.provider = `byok-${provider}`;
+    this.protocol = provider === "anthropic" ? "anthropic-messages" : "openai-responses";
+    this.endpoint = normalizeGatewayEndpoint(endpoint);
+    this.apiKey = apiKey;
+    this.maxTokens = maxTokens;
+    this.streamIdleTimeoutMs = streamIdleTimeoutMs;
+    this.fetchImpl = fetchImpl;
+    this.defaultModel = "";
+    this.models = null;
+  }
+
+  async listModels({ signal } = {}) {
+    if (!this.models) {
+      const models = await this.route("byok-discovery").listModels({ signal });
+      this.models = models.map((model) => ({ ...model, protocol: this.protocol }));
+      this.defaultModel = this.models[0]?.id || "";
+    }
+    return this.models.map((model) => ({ ...model }));
+  }
+
+  async stream(request) {
+    let model = request.model || this.defaultModel;
+    if (!model) {
+      await this.listModels({ signal: request.signal });
+      model = request.model || this.defaultModel;
+    }
+    if (!model) throw new Error(`${this.provider} model discovery returned no models`);
+    return this.route(model).stream({ ...request, model });
+  }
+
+  route(model) {
+    const options = {
+      endpoint: this.endpoint,
+      apiKey: this.apiKey,
+      model,
+      maxTokens: this.maxTokens,
+      streamIdleTimeoutMs: this.streamIdleTimeoutMs,
+      fetchImpl: this.fetchImpl,
+    };
+    return this.protocol === "anthropic-messages"
+      ? new AnthropicMessagesGateway(options)
+      : new OpenAIResponsesGateway(options);
+  }
+}
+
+export class BedrockConverseGateway {
+  constructor({ region, accessKeyId, secretAccessKey, sessionToken = null, model, maxTokens = 8_192, fetchImpl = fetch, now = () => new Date() }) {
+    if (!/^[a-z]{2}(?:-gov)?-[a-z]+-\d$/.test(region || "")) throw new Error("AWS Bedrock region is invalid");
+    if (!accessKeyId) throw new Error("AWS access key ID is required");
+    if (!secretAccessKey) throw new Error("AWS secret access key is required");
+    if (!model) throw new Error("AWS Bedrock model ID is required");
+    this.provider = "byok-aws-bedrock";
+    this.region = region;
+    this.accessKeyId = accessKeyId;
+    this.secretAccessKey = secretAccessKey;
+    this.sessionToken = sessionToken;
+    this.defaultModel = model;
+    this.maxTokens = maxTokens;
+    this.fetchImpl = fetchImpl;
+    this.now = now;
+  }
+
+  async listModels() {
+    return [{ id: this.defaultModel, ownedBy: "aws-bedrock", protocol: "bedrock-converse" }];
+  }
+
+  async stream({ messages, tools, model, maxOutputTokens, signal, onTextDelta }) {
+    const selectedModel = model || this.defaultModel;
+    if (selectedModel !== this.defaultModel) throw new Error(`AWS Bedrock model is not enabled: ${selectedModel}`);
+    const body = JSON.stringify(toBedrockRequest(messages, tools, outputTokenLimit(maxOutputTokens, this.maxTokens)));
+    const host = `bedrock-runtime.${this.region}.amazonaws.com`;
+    const pathname = `/model/${encodeURIComponent(selectedModel)}/converse`;
+    const headers = signAwsRequest({
+      method: "POST",
+      host,
+      pathname,
+      body,
+      region: this.region,
+      service: "bedrock",
+      accessKeyId: this.accessKeyId,
+      secretAccessKey: this.secretAccessKey,
+      sessionToken: this.sessionToken,
+      now: this.now(),
+    });
+    const response = await this.fetchImpl(`https://${host}${pathname}`, { method: "POST", signal, headers, body });
+    const payload = await readSuccessfulJson(response, "AWS Bedrock Converse request");
+    const blocks = payload?.output?.message?.content ?? [];
+    const content = blocks.filter((block) => typeof block?.text === "string").map((block) => block.text).join("");
+    if (content) onTextDelta(content);
+    const toolCalls = blocks.filter((block) => block?.toolUse).map((block, index) => ({
+      id: block.toolUse.toolUseId || `call-${index}`,
+      name: block.toolUse.name || "",
+      arguments: JSON.stringify(block.toolUse.input || {}),
+    }));
+    return normalizedTurn(content, toolCalls);
+  }
+}
+
+function toBedrockRequest(messages, tools, maxTokens) {
+  const system = messages.filter((message) => message.role === "system")
+    .map((message) => message.content || "").filter(Boolean).map((text) => ({ text }));
+  const providerMessages = [];
+  for (const message of messages) {
+    if (message.role === "system") continue;
+    if (message.role === "tool") {
+      appendContentMessage(providerMessages, "user", [{ toolResult: {
+        toolUseId: message.toolCallId,
+        content: [{ text: message.content || "" }],
+        status: "success",
+      } }]);
+      continue;
+    }
+    const content = [];
+    if (message.content) content.push({ text: message.content });
+    for (const attachment of message.attachments || []) content.push({ text: attachmentText(attachment) });
+    for (const call of message.toolCalls || []) {
+      content.push({ toolUse: { toolUseId: call.id, name: call.name, input: parseArguments(call.arguments) } });
+    }
+    appendContentMessage(providerMessages, message.role === "assistant" ? "assistant" : "user", content.length ? content : [{ text: "" }]);
+  }
+  return {
+    system: system.length ? system : undefined,
+    messages: providerMessages,
+    inferenceConfig: { maxTokens },
+    toolConfig: tools.length ? { tools: tools.map((tool) => ({ toolSpec: {
+      name: tool.name,
+      description: tool.description,
+      inputSchema: { json: tool.parameters },
+    } })) } : undefined,
+  };
+}
+
+export function signAwsRequest({ method, host, pathname, body, region, service, accessKeyId, secretAccessKey, sessionToken, now }) {
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const date = amzDate.slice(0, 8);
+  const payloadHash = sha256(body);
+  const canonicalHeaderValues = {
+    "content-type": "application/json",
+    host,
+    "x-amz-date": amzDate,
+    ...(sessionToken ? { "x-amz-security-token": sessionToken } : {}),
+  };
+  const signedHeaders = Object.keys(canonicalHeaderValues).sort();
+  const canonicalHeaders = signedHeaders.map((name) => `${name}:${canonicalHeaderValues[name].trim()}\n`).join("");
+  const canonicalRequest = [method, pathname, "", canonicalHeaders, signedHeaders.join(";"), payloadHash].join("\n");
+  const scope = `${date}/${region}/${service}/aws4_request`;
+  const stringToSign = ["AWS4-HMAC-SHA256", amzDate, scope, sha256(canonicalRequest)].join("\n");
+  const dateKey = hmac(`AWS4${secretAccessKey}`, date);
+  const regionKey = hmac(dateKey, region);
+  const serviceKey = hmac(regionKey, service);
+  const signingKey = hmac(serviceKey, "aws4_request");
+  const signature = createHmac("sha256", signingKey).update(stringToSign).digest("hex");
+  return {
+    "content-type": "application/json",
+    host,
+    "x-amz-date": amzDate,
+    ...(sessionToken ? { "x-amz-security-token": sessionToken } : {}),
+    authorization: `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${scope}, SignedHeaders=${signedHeaders.join(";")}, Signature=${signature}`,
+  };
+}
+
+function requestHeader(headers, name, maxLength, secret = false) {
+  const raw = headers?.[name];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string" || value.length > maxLength) throw new Error(`Invalid ${secret ? "BYOK credential" : name} header`);
+  return value.trim();
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function hmac(key, value) {
+  return createHmac("sha256", key).update(value).digest();
 }
 
 export class ConfiguredNativeGateway {

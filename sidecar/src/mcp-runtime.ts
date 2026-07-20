@@ -29,8 +29,9 @@ export interface McpServerConfiguration {
   args?: string[];
   cwd?: string | null;
   url?: string | null;
-  authMode?: "none" | "bearer-environment";
+  authMode?: "none" | "bearer-environment" | "oauth";
   tokenEnvironment?: string | null;
+  accessToken?: string | null;
   requiredEnvironment?: string[];
   timeoutSeconds?: number;
 }
@@ -258,7 +259,7 @@ export class McpRuntimeManager {
       validateEnvironment(runtime.config);
       const transport = this.createTransport(runtime);
       const client = new Client(
-        { name: "CodeAgent", version: "0.7.16" },
+        { name: "CodeAgent", version: "0.7.17" },
         { capabilities: {} },
       );
       runtime.transport = transport;
@@ -347,7 +348,9 @@ export class McpRuntimeManager {
     const url = new URL(requireText(configuration.url, "url"));
     const token = configuration.authMode === "bearer-environment"
       ? process.env[requireText(configuration.tokenEnvironment, "tokenEnvironment")]
-      : undefined;
+      : configuration.authMode === "oauth"
+        ? requireText(configuration.accessToken, "OAuth access token")
+        : undefined;
     const authenticatedFetch = token ? bearerFetch(token) : fetch;
     if (configuration.transport === "sse") {
       return new SSEClientTransport(url, {
@@ -505,6 +508,9 @@ function normalizeConfiguration(value: McpServerConfiguration): McpServerConfigu
   if (!["stdio", "streamable-http", "sse"].includes(value.transport)) {
     throw new Error(`Unsupported MCP transport '${String(value.transport)}'`);
   }
+  if (!["none", "bearer-environment", "oauth"].includes(value.authMode ?? "none")) {
+    throw new Error(`Unsupported MCP authentication mode '${String(value.authMode)}'`);
+  }
   const timeoutSeconds = Number.isInteger(value.timeoutSeconds) ? Number(value.timeoutSeconds) : 60;
   if (timeoutSeconds < 1 || timeoutSeconds > 600) throw new Error("MCP timeout must be between 1 and 600 seconds");
   return {
@@ -546,7 +552,7 @@ function resolveWorkingDirectory(rootValue: string, configured?: string | null):
   return candidate;
 }
 
-function bearerFetch(token: string): typeof fetch {
+export function bearerFetch(token: string): typeof fetch {
   return async (input, init = {}) => {
     const headers = new Headers(init.headers);
     headers.set("Authorization", `Bearer ${token}`);

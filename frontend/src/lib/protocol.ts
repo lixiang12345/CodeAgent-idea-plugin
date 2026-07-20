@@ -199,7 +199,7 @@ export interface BackendToolCapability {
   requiredEnvironment: string[];
 }
 
-export type ConfigurationKind = "mcp" | "hooks" | "commands" | "agents" | "plugins" | "tool-permissions";
+export type ConfigurationKind = "mcp" | "acp" | "hooks" | "commands" | "agents" | "plugins" | "tool-permissions";
 
 export interface ProductConfiguration {
   id: string;
@@ -325,6 +325,28 @@ export interface McpRuntimeSnapshot {
   tools: McpTool[];
 }
 
+export interface AcpAgentRuntime {
+  id: string;
+  name: string;
+  enabled: boolean;
+  state: "disabled" | "stopped" | "starting" | "ready" | "error";
+  label: string;
+  protocolVersion?: number;
+  agentName?: string;
+  agentVersion?: string;
+  loadSession: boolean;
+  authMethods: Array<{ id: string; name: string }>;
+  sessionCount: number;
+  pid?: number;
+  lastError?: string;
+}
+
+export interface AcpRuntimeSnapshot {
+  state: "idle" | "ready" | "degraded";
+  label: string;
+  agents: AcpAgentRuntime[];
+}
+
 export type ProductJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 
 export interface ProductJob {
@@ -384,6 +406,12 @@ export interface AppSnapshot {
   attachments: ContextItem[];
   settings: SettingsSnapshot;
   account: AccountSnapshot;
+  byok: {
+    activeProvider?: "openai" | "anthropic" | "aws-bedrock";
+    openAiConfigured: boolean;
+    anthropicConfigured: boolean;
+    bedrockConfigured: boolean;
+  };
   context: {
     state: "unavailable" | "not_indexed" | "indexing" | "checking" | "ready" | "error";
     label: string;
@@ -410,6 +438,7 @@ export interface AppSnapshot {
   backendTools: BackendToolCapability[];
   configurations: ConfigurationSnapshot;
   mcpRuntime: McpRuntimeSnapshot;
+  acpRuntime: AcpRuntimeSnapshot;
   hookRuntime: HookRuntimeSnapshot;
   pluginRuntime: PluginRuntimeSnapshot;
   jobs: ProductJobSnapshot;
@@ -1070,6 +1099,29 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     emitDevelopmentSnapshot();
     return;
   }
+  if (command.type === "startMcpOAuth" || command.type === "clearMcpOAuth") {
+    emitDevelopmentEvent("notice", {
+      message: command.type === "startMcpOAuth"
+        ? "Development host acknowledged MCP OAuth; the JetBrains host opens the real PKCE flow"
+        : "Development host cleared the simulated MCP OAuth session",
+    });
+    return;
+  }
+  if (command.type === "configureByok" || command.type === "clearByok") {
+    const provider = String((command.payload as { provider?: string } | undefined)?.provider ?? "");
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      byok: {
+        ...snapshot.byok,
+        activeProvider: command.type === "configureByok" ? provider as "openai" | "anthropic" | "aws-bedrock" : snapshot.byok.activeProvider === provider ? undefined : snapshot.byok.activeProvider,
+        openAiConfigured: provider === "openai" ? command.type === "configureByok" : snapshot.byok.openAiConfigured,
+        anthropicConfigured: provider === "anthropic" ? command.type === "configureByok" : snapshot.byok.anthropicConfigured,
+        bedrockConfigured: provider === "aws-bedrock" ? command.type === "configureByok" : snapshot.byok.bedrockConfigured,
+      },
+    }));
+    emitDevelopmentEvent("notice", { message: command.type === "configureByok" ? "Development BYOK provider configured" : "Development BYOK credential cleared" });
+    return;
+  }
   if (command.type === "listCheckpoints") {
     emitDevelopmentEvent("checkpoints", [{ id: "dev-checkpoint", label: "Development snapshot", createdAt: new Date().toISOString() }]);
     return;
@@ -1435,6 +1487,12 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       ],
       label: "Signed in as CodeAgent Developer",
     },
+    byok: {
+      activeProvider: "openai",
+      openAiConfigured: true,
+      anthropicConfigured: false,
+      bedrockConfigured: false,
+    },
 
     context: { state: "not_indexed", label: "Preparing automatic project index" },
     backendHealth: { state: "online", label: "Connected to codeagent-backend", protocolVersion: 1 },
@@ -1554,6 +1612,23 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
             },
           },
         ],
+        acp: [
+          {
+            id: "review-agent",
+            kind: "acp",
+            value: {
+              name: "Review ACP Agent",
+              description: "External ACP v1 review specialist.",
+              enabled: true,
+              command: "review-agent",
+              args: ["--acp"],
+              cwd: null,
+              requiredEnvironment: [],
+              authMethodId: null,
+              timeoutSeconds: 300,
+            },
+          },
+        ],
       },
     },
     mcpRuntime: {
@@ -1609,6 +1684,23 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
           risk: "read_only",
         },
       ],
+    },
+    acpRuntime: {
+      state: "ready",
+      label: "1 ACP agent ready",
+      agents: [{
+        id: "review-agent",
+        name: "Review ACP Agent",
+        enabled: true,
+        state: "ready",
+        label: "Connected · Review Agent",
+        protocolVersion: 1,
+        agentName: "Review Agent",
+        agentVersion: "1.0.0",
+        loadSession: true,
+        authMethods: [],
+        sessionCount: 1,
+      }],
     },
     hookRuntime: {
       state: "ready",

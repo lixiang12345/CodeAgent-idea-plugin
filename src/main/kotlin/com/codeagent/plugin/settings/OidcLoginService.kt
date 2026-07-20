@@ -1,15 +1,11 @@
 package com.codeagent.plugin.settings
 
 import com.intellij.ide.BrowserUtil
-import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.util.concurrency.AppExecutorUtil
-import com.sun.net.httpserver.HttpExchange
-import com.sun.net.httpserver.HttpServer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import java.net.InetSocketAddress
 import java.net.URI
 import java.net.URLEncoder
 import java.net.http.HttpClient
@@ -22,14 +18,16 @@ import java.time.Duration
 import java.time.Instant
 import java.util.Base64
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import org.jetbrains.ide.BuiltInServerManager
 
-@Service(Service.Level.APP)
 class OidcLoginService {
     private val settings = service<CodeAgentSettingsService>()
     private val json = Json { ignoreUnknownKeys = true }
     private val http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
     private val executor = AppExecutorUtil.getAppExecutorService()
+    private val pending = ConcurrentHashMap<String, CompletableFuture<String>>()
 
     fun authConfig(): CompletableFuture<OidcAuthConfig> = CompletableFuture.supplyAsync(::fetchAuthConfig, executor)
 
@@ -42,12 +40,15 @@ class OidcLoginService {
         val verifier = randomUrlToken(48)
         val challenge = base64Url(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(StandardCharsets.US_ASCII)))
         val state = randomUrlToken(32)
-        val callback = LoopbackCallback.start(state)
+        val builtInServer = BuiltInServerManager.getInstance().waitForStart()
+        val redirectUri = "http://127.0.0.1:${builtInServer.port}$CALLBACK_PATH"
+        val authorizationCode = CompletableFuture<String>()
+        pending[state] = authorizationCode
         try {
             val query = linkedMapOf(
                 "response_type" to "code",
                 "client_id" to clientId,
-                "redirect_uri" to callback.redirectUri,
+                "redirect_uri" to redirectUri,
                 "scope" to config.scopes.joinToString(" "),
                 "state" to state,
                 "code_challenge" to challenge,
@@ -55,22 +56,32 @@ class OidcLoginService {
             )
             config.audience?.takeIf(String::isNotBlank)?.let { query["audience"] = it }
             BrowserUtil.browse(withQuery(authorizationEndpoint, query))
-            val code = callback.code.orTimeout(5, TimeUnit.MINUTES).join()
+            val code = authorizationCode.orTimeout(5, TimeUnit.MINUTES).join()
             val tokens = exchangeToken(
                 tokenEndpoint = tokenEndpoint,
                 fields = linkedMapOf(
                     "grant_type" to "authorization_code",
                     "client_id" to clientId,
                     "code" to code,
-                    "redirect_uri" to callback.redirectUri,
+                    "redirect_uri" to redirectUri,
                     "code_verifier" to verifier,
                 ),
             )
             persist(tokens)
         } finally {
-            callback.close()
+            pending.remove(state, authorizationCode)
         }
     }, executor)
+
+    fun completeCallback(state: String?, code: String?, error: String?): Boolean {
+        val pendingCode = state?.let(pending::remove) ?: return false
+        when {
+            !error.isNullOrBlank() -> pendingCode.completeExceptionally(IllegalStateException("OIDC authorization failed: $error"))
+            code.isNullOrBlank() -> pendingCode.completeExceptionally(IllegalStateException("OIDC callback contains no authorization code"))
+            else -> pendingCode.complete(code)
+        }
+        return true
+    }
 
     fun ensureFreshToken(): CompletableFuture<Unit> {
         val current = settings.snapshot()
@@ -154,54 +165,8 @@ class OidcLoginService {
         settings.updateAuthTokens(tokens.accessToken, tokens.refreshToken, expiresAt)
     }
 
-    private data class LoopbackCallback(
-        val server: HttpServer,
-        val state: String,
-        val code: CompletableFuture<String>,
-    ) : AutoCloseable {
-        val redirectUri: String = "http://127.0.0.1:${server.address.port}/callback"
-
-        override fun close() {
-            server.stop(0)
-        }
-
-        companion object {
-            fun start(state: String): LoopbackCallback {
-                val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-                val code = CompletableFuture<String>()
-                val callback = LoopbackCallback(server, state, code)
-                server.createContext("/callback") { exchange -> callback.handle(exchange) }
-                server.executor = AppExecutorUtil.getAppExecutorService()
-                server.start()
-                return callback
-            }
-        }
-
-        private fun handle(exchange: HttpExchange) {
-            val params = parseQuery(exchange.requestURI.rawQuery.orEmpty())
-            val error = params["error"]
-            val returnedState = params["state"]
-            val authorizationCode = params["code"]
-            val success = error == null && returnedState == state && !authorizationCode.isNullOrBlank()
-            when {
-                error != null -> code.completeExceptionally(IllegalStateException("OIDC authorization failed: $error"))
-                returnedState != state -> code.completeExceptionally(IllegalStateException("OIDC state validation failed"))
-                authorizationCode.isNullOrBlank() -> code.completeExceptionally(IllegalStateException("OIDC callback contains no authorization code"))
-                else -> code.complete(authorizationCode)
-            }
-            val html = if (success) {
-                "<html><body><h2>CodeAgent sign-in complete</h2><p>You can return to the IDE.</p></body></html>"
-            } else {
-                "<html><body><h2>CodeAgent sign-in failed</h2><p>Return to the IDE for details.</p></body></html>"
-            }
-            val bytes = html.toByteArray(StandardCharsets.UTF_8)
-            exchange.responseHeaders.set("Content-Type", "text/html; charset=utf-8")
-            exchange.sendResponseHeaders(if (success) 200 else 400, bytes.size.toLong())
-            exchange.responseBody.use { it.write(bytes) }
-        }
-    }
-
     companion object {
+        const val CALLBACK_PATH = "/codeagent/oauth/callback"
         private val random = SecureRandom()
 
         private fun randomUrlToken(bytes: Int): String = ByteArray(bytes).also(random::nextBytes).let(::base64Url)
@@ -221,11 +186,6 @@ class OidcLoginService {
             return uri
         }
 
-        private fun parseQuery(value: String): Map<String, String> = value.split('&').filter(String::isNotBlank).associate { pair ->
-            val parts = pair.split('=', limit = 2)
-            java.net.URLDecoder.decode(parts[0], StandardCharsets.UTF_8) to
-                java.net.URLDecoder.decode(parts.getOrElse(1) { "" }, StandardCharsets.UTF_8)
-        }
     }
 }
 

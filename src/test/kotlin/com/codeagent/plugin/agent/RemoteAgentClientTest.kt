@@ -20,6 +20,47 @@ import kotlin.test.assertTrue
 
 class RemoteAgentClientTest {
     @Test
+    fun `sends BYOK credentials only to model endpoints`() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val modelProvider = AtomicReference<String?>(null)
+        val modelKey = AtomicReference<String?>(null)
+        val accountKey = AtomicReference<String?>(null)
+        server.createContext("/v1/models") { exchange ->
+            modelProvider.set(exchange.requestHeaders.getFirst("X-CodeAgent-BYOK-Provider"))
+            modelKey.set(exchange.requestHeaders.getFirst("X-CodeAgent-BYOK-API-Key"))
+            val body = """{"provider":"byok-openai","defaultModel":"gpt-byok","data":[{"id":"gpt-byok"}]}""".toByteArray()
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        server.createContext("/v1/me") { exchange ->
+            accountKey.set(exchange.requestHeaders.getFirst("X-CodeAgent-BYOK-API-Key"))
+            val body = """{"user":{"id":"local-user"},"usage":[],"session":{"mode":"local"}}""".toByteArray()
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        server.start()
+        try {
+            val client = RemoteAgentClient(
+                settings = CodeAgentSettings(
+                    backendUrl = "http://127.0.0.1:${server.address.port}",
+                    nodePath = "node",
+                    autoApproveReadOnly = true,
+                    backendToken = null,
+                ),
+                httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build(),
+                byokCredentials = ByokRequestCredentials.OpenAi("sk-transient"),
+            )
+            client.models().join()
+            client.account().join()
+            assertEquals("openai", modelProvider.get())
+            assertEquals("sk-transient", modelKey.get())
+            assertEquals(null, accountKey.get())
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
     fun `requests inline completion with bounded editor context and authentication`() {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val authorization = AtomicReference<String?>(null)

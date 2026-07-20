@@ -107,6 +107,13 @@ function assertSynchronized(version) {
     errors.push(`sidecar/src/mcp-runtime.ts client: expected ${version}, found ${runtimeVersion ?? "<missing>"}`);
   }
 
+  const acpRuntimeVersion = read("sidecar/src/acp-runtime.ts").match(
+    /clientInfo:\s*\{\s*name:\s*"CodeAgent",\s*title:\s*"CodeAgent for JetBrains",\s*version:\s*"(\d+\.\d+\.\d+)"\s*\}/,
+  )?.[1];
+  if (acpRuntimeVersion !== version) {
+    errors.push(`sidecar/src/acp-runtime.ts client: expected ${version}, found ${acpRuntimeVersion ?? "<missing>"}`);
+  }
+
   if (errors.length > 0) {
     throw new Error(`Version metadata is not synchronized:\n- ${errors.join("\n- ")}`);
   }
@@ -165,6 +172,13 @@ function buildUpdates(fromVersion, toVersion) {
     read("sidecar/src/mcp-runtime.ts").replace(
       `{ name: "CodeAgent", version: "${fromVersion}" }`,
       `{ name: "CodeAgent", version: "${toVersion}" }`,
+    ),
+  );
+  updates.set(
+    "sidecar/src/acp-runtime.ts",
+    read("sidecar/src/acp-runtime.ts").replace(
+      `clientInfo: { name: "CodeAgent", title: "CodeAgent for JetBrains", version: "${fromVersion}" }`,
+      `clientInfo: { name: "CodeAgent", title: "CodeAgent for JetBrains", version: "${toVersion}" }`,
     ),
   );
 

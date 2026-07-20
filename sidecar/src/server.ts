@@ -10,6 +10,10 @@ import {
   McpRuntimeManager,
   type McpServerConfiguration,
 } from "./mcp-runtime.ts";
+import {
+  AcpRuntimeManager,
+  type AcpAgentConfiguration,
+} from "./acp-runtime.ts";
 
 interface RequestEnvelope {
   id: string;
@@ -28,6 +32,13 @@ interface RequestEnvelope {
     | "mcp.restart"
     | "mcp.test"
     | "mcp.call"
+    | "acp.reconcile"
+    | "acp.status"
+    | "acp.start"
+    | "acp.stop"
+    | "acp.restart"
+    | "acp.prompt"
+    | "acp.cancel"
     | "shutdown";
   root?: string;
   extraRoots?: IndexRootInput[];
@@ -81,6 +92,7 @@ interface ContextBackend {
 const runtimes = new Map<string, WorkspaceRuntime>();
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const mcpRuntime = new McpRuntimeManager(process.cwd());
+const acpRuntime = new AcpRuntimeManager(process.cwd());
 
 function send(response: ResponseEnvelope): void {
   process.stdout.write(`${JSON.stringify(response)}\n`);
@@ -124,7 +136,7 @@ async function handle(request: RequestEnvelope): Promise<void> {
           ok: true,
           nodeVersion: process.versions.node,
           protocolVersion: 3,
-          capabilities: ["incremental-index", "workspace-watch", "multi-root-index", "remote-http", "mcp-runtime"],
+          capabilities: ["incremental-index", "workspace-watch", "multi-root-index", "remote-http", "mcp-runtime", "acp-v1-runtime"],
         },
       });
       return;
@@ -220,6 +232,44 @@ async function handle(request: RequestEnvelope): Promise<void> {
       send({ id: request.id, type: "result", payload: result });
       return;
     }
+    case "acp.reconcile": {
+      const configurations = Array.isArray(request.payload?.configurations)
+        ? request.payload.configurations as AcpAgentConfiguration[]
+        : [];
+      send({ id: request.id, type: "result", payload: await acpRuntime.reconcile(configurations) });
+      return;
+    }
+    case "acp.status":
+      send({ id: request.id, type: "result", payload: acpRuntime.status() });
+      return;
+    case "acp.start":
+      send({ id: request.id, type: "result", payload: await acpRuntime.start(requiredPayloadText(request, "agentId")) });
+      return;
+    case "acp.stop":
+      send({ id: request.id, type: "result", payload: await acpRuntime.stop(requiredPayloadText(request, "agentId")) });
+      return;
+    case "acp.restart":
+      send({ id: request.id, type: "result", payload: await acpRuntime.restart(requiredPayloadText(request, "agentId")) });
+      return;
+    case "acp.prompt": {
+      const result = await acpRuntime.prompt(
+        requiredPayloadText(request, "agentId"),
+        requiredPayloadText(request, "prompt"),
+        typeof request.payload?.sessionId === "string" ? request.payload.sessionId : null,
+      );
+      send({ id: request.id, type: "result", payload: result });
+      return;
+    }
+    case "acp.cancel":
+      send({
+        id: request.id,
+        type: "result",
+        payload: await acpRuntime.cancel(
+          requiredPayloadText(request, "agentId"),
+          requiredPayloadText(request, "sessionId"),
+        ),
+      });
+      return;
     case "shutdown":
       await closeAll();
       send({ id: request.id, type: "result", payload: { ok: true } });
@@ -333,6 +383,7 @@ async function statusPayload(runtime: WorkspaceRuntime): Promise<Record<string, 
 }
 
 async function closeAll(): Promise<void> {
+  await acpRuntime.close();
   await mcpRuntime.close();
   for (const runtime of runtimes.values()) {
     stopWatching(runtime);

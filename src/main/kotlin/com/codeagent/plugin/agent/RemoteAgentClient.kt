@@ -22,6 +22,7 @@ private val SHARED_HTTP_CLIENT: HttpClient = HttpClient.newBuilder()
 internal class RemoteAgentClient(
     private val settings: CodeAgentSettings,
     private val httpClient: HttpClient = SHARED_HTTP_CLIENT,
+    private val byokCredentials: ByokRequestCredentials? = null,
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -154,7 +155,7 @@ internal class RemoteAgentClient(
     fun models(): CompletableFuture<RemoteModelsResponse> {
         val uri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/models")
         return httpClient.sendAsync(
-            requestBuilder(uri).timeout(Duration.ofSeconds(30)).GET().build(),
+            modelRequestBuilder(uri).timeout(Duration.ofSeconds(30)).GET().build(),
             HttpResponse.BodyHandlers.ofString(),
         ).thenApply { response ->
             check(response.statusCode() == 200) {
@@ -256,7 +257,7 @@ internal class RemoteAgentClient(
             ),
         )
         return httpClient.sendAsync(
-            requestBuilder(uri)
+            modelRequestBuilder(uri)
                 .timeout(Duration.ofSeconds(60))
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build(),
@@ -287,7 +288,7 @@ internal class RemoteAgentClient(
             ),
         )
         return httpClient.sendAsync(
-            requestBuilder(uri)
+            modelRequestBuilder(uri)
                 .timeout(Duration.ofSeconds(35))
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build(),
@@ -306,7 +307,7 @@ internal class RemoteAgentClient(
         onEvent: (String, JsonElement) -> Unit,
     ) {
         val responseFuture = httpClient.sendAsync(
-            requestBuilder(runsUri)
+            modelRequestBuilder(runsUri)
                 .header("Accept", "text/event-stream")
                 .POST(HttpRequest.BodyPublishers.ofString(json.encodeToString(request)))
                 .build(),
@@ -398,6 +399,10 @@ internal class RemoteAgentClient(
             settings.backendToken?.takeIf(String::isNotBlank)?.let { header("Authorization", "Bearer $it") }
         }
 
+    private fun modelRequestBuilder(uri: URI): HttpRequest.Builder = requestBuilder(uri).apply {
+        byokCredentials?.headersFor(settings.backendUrl)?.forEach(::header)
+    }
+
     private fun errorMessage(body: String): String = runCatching {
         json.decodeFromString<RemoteHttpError>(body).let { it.error ?: it.message }
     }.getOrNull()?.takeIf(String::isNotBlank) ?: body.take(1_000).ifBlank { "Empty response body" }
@@ -435,7 +440,7 @@ internal class RemoteAgentClient(
     }
 
     companion object {
-        private val CONFIGURATION_KINDS = setOf("mcp", "hooks", "commands", "agents", "plugins", "tool-permissions")
+        private val CONFIGURATION_KINDS = setOf("mcp", "acp", "hooks", "commands", "agents", "plugins", "tool-permissions")
         private val TERMINAL_RUN_EVENTS = setOf("run.completed", "run.error", "run.cancelled")
         private const val STREAM_HEADER_TIMEOUT_SECONDS = 45L
     }
@@ -649,7 +654,7 @@ internal data class RemoteAccountResponse(
 internal data class RemoteAccountUser(
     val id: String,
     val email: String? = null,
-    val displayName: String,
+    val displayName: String = "",
 )
 
 @Serializable

@@ -58,8 +58,20 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | Tools catalog / Icon gallery / Feedback | Implemented | UI overlays provide insert-tool seeding, icon name copy, local feedback notes, and a bounded support bundle containing a redacted runtime audit plus explicitly requested conversation context |
 | Cloud integrations | Conditional | Search/read adapters are advertised only when their backend environment is configured; provider errors and missing credentials remain explicit failures |
 | Subagents | Implemented | Synchronous `subagent` plus durable asynchronous jobs support persisted partial output, polling progress, cancellation, retry, composer handoff, and read-only IDE result navigation |
-| MCP | Implemented | Enabled stdio, Streamable HTTP, and legacy SSE definitions are reconciled by a local managed gateway with health checks, bounded reconnects, explicit start/stop/restart/test controls, tool-list refresh notifications, environment allowlisting, bearer-token injection, namespaced Agent tools, and approval-aware risk defaults. Provider OAuth remains a separate future adapter |
+| MCP | Implemented | Enabled stdio, Streamable HTTP, and legacy SSE definitions are reconciled by a local managed gateway with health checks, bounded reconnects, explicit start/stop/restart/test controls, tool-list refresh notifications, environment allowlisting, bearer-token injection, namespaced Agent tools, approval-aware risk defaults, PKCE OAuth authorization-code flow, Password Safe token storage, refresh, and callback state validation |
 | Plugins | Implemented | Account-synchronized plugin definitions drive explicit per-device install, validate, update, and uninstall actions for bounded declarative manifests. Identity, exact version, SHA-256 integrity, capabilities, and contribution schemas are verified; granted commands and prompt templates become namespaced slash commands, while rules and skills become read-only workspace context, without loading arbitrary code |
+
+## Native parity and intentional architecture differences
+
+The current plugin registers the original action and extension surface that is meaningful in this product boundary: **33 IDEA Actions** and **26 IntelliJ extension/listener registrations**, including the standalone settings sections, sign-in/sign-out, account management, log export, cloud conversation recovery, sync report, BYOK actions, FileBasedIndex, inline-completion element manipulation, OAuth/MCP callback handlers, lifecycle listeners, and error/performance/client telemetry services.
+
+ACP is implemented through the official `@agentclientprotocol/sdk` v1 runtime in the sidecar, with agent discovery, capability negotiation, `session/new`, `session/load`, prompt/update/cancel handling, persisted session state, and explicit permission denial as the default safety boundary.
+
+The build also supports a managed Node 22 runtime manifest for darwin, win32, and linux x64/arm64 targets. Downloads are HTTPS-only, SHA-256 pinned, bounded in size, protected against archive path traversal, and installed atomically. The backend accepts either `RUNTIME_MANIFEST_JSON` or an HTTPS `RUNTIME_MANIFEST_URL`.
+
+The original Augment package's proprietary gRPC/Protobuf services, `classic-level.node`, and roughly 115 MB of protocol dependencies are not copied. CodeAgent uses a documented HTTP/SSE backend, a typed JVM bridge, an official MCP/ACP sidecar, and the open ContextEngine implementation. This is an architectural substitution, not a claim of binary-level equivalence. Cloud integrations remain configuration-dependent and are reported unavailable until their credentials and endpoints are present.
+
+Plugin Verifier currently runs against IntelliJ IDEA Community 2025.2.6.2. PyCharm, WebStorm, CLion, and other JetBrains products remain an explicit verification matrix to execute before claiming cross-product coverage; the build does not report unverified products as passed.
 
 ## Tool catalog
 

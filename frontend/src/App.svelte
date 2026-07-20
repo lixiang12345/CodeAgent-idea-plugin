@@ -35,6 +35,7 @@
       items: [
         { id: "Services", label: "Services", icon: "plug" },
         { id: "MCP Servers", label: "MCP Servers", icon: "mcp" },
+        { id: "ACP Agents", label: "ACP Agents", icon: "bot" },
       ],
     },
     {
@@ -42,6 +43,7 @@
       items: [
         { id: "Rules & Guidelines", label: "Rules & Guidelines", icon: "pencil-ruler" },
         { id: "API Keys", label: "API Keys", icon: "key-round" },
+        { id: "Memories", label: "Memories", icon: "brain" },
         { id: "Commands", label: "Commands", icon: "square-terminal", badge: "Beta" },
         { id: "Skills", label: "Skills", icon: "wand-sparkles", badge: "Beta" },
         { id: "Hooks", label: "Hooks", icon: "workflow" },
@@ -306,6 +308,11 @@
       settingsSaveState = settingsDirtyWhileSaving ? "idle" : "saved";
       settingsDirtyWhileSaving = false;
       pendingSettingsSave = null;
+      return;
+    }
+    if (event.type === "navigateSettings") {
+      const section = String((event.payload as { section?: string })?.section ?? "Home");
+      openSettings(section);
       return;
     }
     if (event.type === "backendConnectionChecked") {
@@ -2144,11 +2151,35 @@
               <h1>{settingsSection === "API Keys" ? "API Keys" : "Services"}</h1>
               <p class="settings-lead">
                 {#if settingsSection === "API Keys"}
-                  Agent model credentials stay on the deployed backend. ContextEngine deployment credentials remain in JetBrains Password Safe.
+                  Model credentials stay in JetBrains Password Safe and are sent only for model discovery, completion, enhancement, and Agent-run requests to HTTPS or the local loopback backend.
                 {:else}
                   Connect this IDE capability gateway to the deployed Agent backend.
                 {/if}
               </p>
+              {#if settingsSection === "API Keys"}
+                <section class="settings-block list-block byok-provider-list">
+                  <header><strong>Bring your own model provider</strong><span>{snapshot.byok.activeProvider ?? "Backend default"}</span></header>
+                  <div>
+                    <Icon name="sparkles" size={14} />
+                    <span><strong>OpenAI Responses</strong><small>{snapshot.byok.openAiConfigured ? (snapshot.byok.activeProvider === "openai" ? "Configured and active" : "Configured") : "Not configured"}</small></span>
+                    <button onclick={() => sendCommand("configureByok", { provider: "openai" })}>{snapshot.byok.openAiConfigured ? "Replace" : "Set key"}</button>
+                    {#if snapshot.byok.openAiConfigured}<button class="danger" title="Remove OpenAI key" onclick={() => sendCommand("clearByok", { provider: "openai" })}>Clear</button>{/if}
+                  </div>
+                  <div>
+                    <Icon name="bot" size={14} />
+                    <span><strong>Anthropic Messages</strong><small>{snapshot.byok.anthropicConfigured ? (snapshot.byok.activeProvider === "anthropic" ? "Configured and active" : "Configured") : "Not configured"}</small></span>
+                    <button onclick={() => sendCommand("configureByok", { provider: "anthropic" })}>{snapshot.byok.anthropicConfigured ? "Replace" : "Set key"}</button>
+                    {#if snapshot.byok.anthropicConfigured}<button class="danger" title="Remove Anthropic key" onclick={() => sendCommand("clearByok", { provider: "anthropic" })}>Clear</button>{/if}
+                  </div>
+                  <div>
+                    <Icon name="cloud" size={14} />
+                    <span><strong>AWS Bedrock Converse</strong><small>{snapshot.byok.bedrockConfigured ? (snapshot.byok.activeProvider === "aws-bedrock" ? "Configured and active · SigV4" : "Configured · SigV4") : "Access key, secret, region, and model required"}</small></span>
+                    <button onclick={() => sendCommand("configureByok", { provider: "aws-bedrock" })}>{snapshot.byok.bedrockConfigured ? "Replace" : "Set credentials"}</button>
+                    {#if snapshot.byok.bedrockConfigured}<button class="danger" title="Remove AWS credentials" onclick={() => sendCommand("clearByok", { provider: "aws-bedrock" })}>Clear</button>{/if}
+                  </div>
+                  <p>Provider secrets are never written to project files, product configuration, backend storage, or logs. Durable background jobs continue to use the deployed backend credential because BYOK secrets are intentionally not persisted server-side.</p>
+                </section>
+              {/if}
               <section class="settings-form settings-block" oninput={markSettingsDirty}>
                 <label><span>Backend URL</span><input bind:value={backendUrl} /></label>
                 <label class="secret-field">
@@ -2241,6 +2272,14 @@
                   {/each}
                 </section>
               {/if}
+            {:else if settingsSection === "Memories"}
+              <h1>Memories</h1>
+              <p class="settings-lead">Conversation continuity is derived from compact, factual summaries and stays subordinate to the current request and workspace rules.</p>
+              <section class="settings-block capability-list">
+                <div><Icon name="brain" size={14} /><span class="capability-copy"><strong>Thread summaries</strong><small>Long conversations are compacted into bounded continuity context when the model budget reaches its threshold.</small></span><i class:ready={snapshot.threads.length > 0}>{snapshot.threads.length} threads</i></div>
+                <div><Icon name="shield" size={14} /><span class="capability-copy"><strong>Instruction safety</strong><small>Remembered text is treated as historical evidence, never as higher-priority instruction.</small></span><i class="ready">Enforced</i></div>
+                <div><Icon name="cloud" size={14} /><span class="capability-copy"><strong>Cloud recovery</strong><small>Signed-in accounts can restore conversation summaries together with the durable thread state.</small></span><i class:ready={snapshot.account.state === "signed_in"}>{snapshot.account.state === "signed_in" ? "Available" : "Sign in"}</i></div>
+              </section>
             {:else if settingsSection === "Rules & Guidelines"}
               {#if ruleEditorOpen}
                 <div class="rule-editor-title">
@@ -2382,11 +2421,12 @@
                 <p>Notification sound and delivery style follow the IDE notification settings.</p>
                 <footer><button class="primary" onclick={saveUserExperience}>Save preferences</button></footer>
               </section>
-            {:else if ["MCP Servers", "Commands", "Hooks", "Agents", "Plugins"].includes(settingsSection)}
+            {:else if ["MCP Servers", "ACP Agents", "Commands", "Hooks", "Agents", "Plugins"].includes(settingsSection)}
               <ConfigurationSettings
                 section={settingsSection}
                 configurationSnapshot={snapshot.configurations}
                 mcpRuntime={snapshot.mcpRuntime}
+                acpRuntime={snapshot.acpRuntime}
                 hookRuntime={snapshot.hookRuntime}
                 pluginRuntime={snapshot.pluginRuntime}
                 models={snapshot.models.options}
@@ -2400,6 +2440,7 @@
                 <div><Icon name="cloud" size={14} /><span class="capability-copy"><strong>Cloud sessions</strong><small>Account-scoped conversations and durable jobs require a signed-in backend session.</small></span><i class:ready={snapshot.account.state === "signed_in"}>{snapshot.account.state === "signed_in" ? "Active" : "Inactive"}</i></div>
                 <div><Icon name="server" size={14} /><span class="capability-copy"><strong>Backend agent runtime</strong><small>Prompt enhancement, model routing, and bounded agent runs use the deployed backend.</small></span><i class:ready={snapshot.backendHealth.state === "online"}>{snapshot.backendHealth.state === "online" ? "Active" : "Offline"}</i></div>
                 <div><Icon name="mcp" size={14} /><span class="capability-copy"><strong>MCP runtime</strong><small>Local stdio and remote HTTP/SSE servers expose namespaced, approval-controlled Agent tools.</small></span><i class:ready={snapshot.mcpRuntime.state === "ready"}>{snapshot.mcpRuntime.state === "ready" ? `${snapshot.mcpRuntime.tools.length} tools` : snapshot.mcpRuntime.state}</i></div>
+                <div><Icon name="bot" size={14} /><span class="capability-copy"><strong>ACP v1 runtime</strong><small>External ACP agents negotiate capabilities, preserve sessions, stream updates, and remain behind IDE approval.</small></span><i class:ready={snapshot.acpRuntime.state === "ready"}>{snapshot.acpRuntime.state === "ready" ? `${snapshot.acpRuntime.agents.length} agents` : snapshot.acpRuntime.state}</i></div>
               </section>
             {:else if settingsSection === "Beta"}
               <h1>Beta <em>Beta</em></h1>

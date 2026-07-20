@@ -509,7 +509,7 @@ Conversation is a **node stream**, not a single assistant string:
 | Sidecar IDE tool callbacks | JVM `AgentToolExecutor` |
 | Cloud search/read tools | Backend `GET /v1/tools` + `POST /v1/tools/{toolName}` proxied by `AgentToolExecutor` |
 | gRPC discovery + auth token | Settings backend URL + Password Safe token |
-| MCP / OAuth / Account APIs | Managed stdio/Streamable HTTP/SSE MCP gateway with discovered Agent tools; backend account APIs are real, while provider-specific MCP OAuth/ACP remains out of scope |
+| MCP / OAuth / Account APIs | Managed stdio/Streamable HTTP/SSE MCP gateway with discovered Agent tools, provider OAuth PKCE/token refresh, ACP v1 sessions, and real backend account APIs |
 | `postToolUseMessagesByToolId` | Multi assistant messages + interleaved timeline (coarse) |
 
 ---

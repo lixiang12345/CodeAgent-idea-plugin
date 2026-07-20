@@ -3,6 +3,7 @@ package com.codeagent.plugin.ui
 import com.codeagent.plugin.CodeAgentBundle
 import com.codeagent.plugin.bridge.IdeBridge
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.ui.components.JBLabel
@@ -42,6 +43,7 @@ class CodeAgentPanel(private val project: Project) : Disposable {
         val ideBridge = IdeBridge(project, jcefBrowser)
         browser = jcefBrowser
         bridge = ideBridge
+        project.service<CodeAgentUiService>().subscribe(this, ideBridge::handleUiRequest)
 
         val cefBrowser = jcefBrowser.cefBrowser
         val client = jcefBrowser.jbCefClient

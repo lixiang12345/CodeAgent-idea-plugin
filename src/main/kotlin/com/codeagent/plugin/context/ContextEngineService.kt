@@ -25,19 +25,21 @@ import java.util.concurrent.CompletableFuture
 @Service(Service.Level.PROJECT)
 class ContextEngineService(project: Project) : Disposable {
     private val json = Json { ignoreUnknownKeys = true }
-    private val root = Path.of(requireNotNull(project.basePath) { "CodeAgent requires a project base path" })
-        .toAbsolutePath()
-        .normalize()
+    private val root = project.basePath
+        ?.let { Path.of(it).toAbsolutePath().normalize() }
     private val settings = service<CodeAgentSettingsService>()
     private val httpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(10))
         .build()
-    private val client = ContextEngineClient(root, projectContextRoots(project, root)) {
-        contextEngineRuntimeSettings(settings.snapshot())
+    private val client = root?.let { projectRoot ->
+        ContextEngineClient(projectRoot, projectContextRoots(project, projectRoot)) {
+            contextEngineRuntimeSettings(settings.snapshot())
+        }
     }
 
-    fun status(): CompletableFuture<ContextStatus> =
-        client.request("status").thenCompose { payload ->
+    fun status(): CompletableFuture<ContextStatus> {
+        val client = client ?: return unavailable()
+        return client.request("status").thenCompose { payload ->
             val status = json.decodeFromJsonElement<ContextStatus>(payload)
             if (!status.indexed || status.watching) {
                 CompletableFuture.completedFuture(status)
@@ -45,20 +47,25 @@ class ContextEngineService(project: Project) : Disposable {
                 ensureWatching()
             }
         }
+    }
 
-    fun index(onProgress: (IndexProgress) -> Unit): CompletableFuture<IndexResult> =
-        client.request(
+    fun index(onProgress: (IndexProgress) -> Unit): CompletableFuture<IndexResult> {
+        val client = client ?: return unavailable()
+        return client.request(
             type = "index",
             timeout = Duration.ofMinutes(20),
             onProgress = { onProgress(json.decodeFromJsonElement(it)) },
         ).thenApply { json.decodeFromJsonElement<IndexResult>(it) }
             .thenCompose { result -> ensureWatching().thenApply { result } }
+    }
 
     fun retrieve(
         informationRequest: String,
         topK: Int = 14,
         maxTokens: Int? = null,
-    ): CompletableFuture<PackedContext> = client.request(
+    ): CompletableFuture<PackedContext> {
+        val client = client ?: return unavailable()
+        return client.request(
         type = "retrieve",
         payload = buildJsonObject {
             put("informationRequest", informationRequest)
@@ -66,7 +73,8 @@ class ContextEngineService(project: Project) : Disposable {
             maxTokens?.let { put("maxTokens", it) }
         },
         timeout = Duration.ofMinutes(2),
-    ).thenApply { json.decodeFromJsonElement(it) }
+        ).thenApply { json.decodeFromJsonElement(it) }
+    }
 
     internal fun retrievePlanned(
         informationRequest: String,
@@ -83,6 +91,7 @@ class ContextEngineService(project: Project) : Disposable {
         val searches = plan.queries.map { query ->
             search(query.text, topK, query.pathPrefix).thenApply { hits -> ContextQueryResult(query, hits) }
         }
+        if (client == null) return unavailable()
         return CompletableFuture.allOf(*searches.toTypedArray()).thenApply {
             ContextPackBuilder.build(plan, searches.map { future -> future.join() }, maxTokens)
         }
@@ -92,7 +101,9 @@ class ContextEngineService(project: Project) : Disposable {
         query: String,
         topK: Int,
         pathPrefix: String?,
-    ): CompletableFuture<List<ContextSearchHit>> = client.request(
+    ): CompletableFuture<List<ContextSearchHit>> {
+        val client = client ?: return unavailable()
+        return client.request(
         type = "search",
         payload = buildJsonObject {
             put("query", query)
@@ -101,9 +112,12 @@ class ContextEngineService(project: Project) : Disposable {
             pathPrefix?.let { put("pathPrefix", it) }
         },
         timeout = Duration.ofMinutes(2),
-    ).thenApply { json.decodeFromJsonElement(it) }
+        ).thenApply { json.decodeFromJsonElement(it) }
+    }
 
-    fun restart() = client.restart()
+    fun restart() {
+        client?.restart()
+    }
 
     internal fun checkRemoteConnection(
         baseUrl: String,
@@ -115,33 +129,42 @@ class ContextEngineService(project: Project) : Disposable {
         type: String,
         payload: JsonObject? = null,
         timeout: Duration = Duration.ofSeconds(30),
-    ): CompletableFuture<JsonElement> = client.request(type, payload, timeout)
+    ): CompletableFuture<JsonElement> = client?.request(type, payload, timeout) ?: unavailable()
 
-    override fun dispose() = client.dispose()
+    override fun dispose() {
+        client?.dispose()
+    }
 
-    private fun ensureWatching(): CompletableFuture<ContextStatus> =
-        client.request(
+    private fun ensureWatching(): CompletableFuture<ContextStatus> {
+        val client = client ?: return unavailable()
+        return client.request(
             type = "watch",
             payload = buildJsonObject { put("debounceMs", 800) },
         ).thenApply { json.decodeFromJsonElement(it) }
+    }
+
+    private fun <T> unavailable(): CompletableFuture<T> = CompletableFuture.failedFuture(
+        IllegalStateException("ContextEngine is unavailable until a project with a base path is open"),
+    )
 }
 
 internal fun contextEngineRuntimeSettings(
     current: CodeAgentSettings,
-    resolvedNodePath: String = NodeRuntimeLocator.find(current.nodePath),
+    resolvedNodePath: String? = null,
     processEnvironment: Map<String, String> = System.getenv(),
 ): ContextEngineRuntimeSettings {
+    val nodePath = resolvedNodePath ?: ManagedNodeRuntimeInstaller.resolve(current)
     if (current.contextMode == "remote-http") {
         val apiKey = resolvedContextHttpApiKey(current, processEnvironment)
         val environment = buildMap {
             put("CONTEXTENGINE_HTTP_URL", current.contextHttpBaseUrl)
             apiKey?.let { put("CONTEXTENGINE_HTTP_API_KEY", it) }
         }
-        return ContextEngineRuntimeSettings(nodePath = resolvedNodePath, environment = environment)
+        return ContextEngineRuntimeSettings(nodePath = nodePath, environment = environment)
     }
 
     if (current.contextMode != "private-semantic") {
-        return ContextEngineRuntimeSettings(nodePath = resolvedNodePath)
+        return ContextEngineRuntimeSettings(nodePath = nodePath)
     }
 
     val apiKey = current.contextEmbeddingApiKey?.takeIf { it.isNotBlank() } ?: "codeagent-local-endpoint"
@@ -159,7 +182,7 @@ internal fun contextEngineRuntimeSettings(
             put("CONTEXTENGINE_RERANK_MODEL", current.contextRerankModel)
         }
     }
-    return ContextEngineRuntimeSettings(nodePath = resolvedNodePath, environment = environment)
+    return ContextEngineRuntimeSettings(nodePath = nodePath, environment = environment)
 }
 
 internal fun resolvedContextHttpApiKey(

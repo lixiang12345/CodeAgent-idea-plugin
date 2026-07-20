@@ -226,6 +226,14 @@ data class AccountSnapshotDto(
 )
 
 @Serializable
+data class ByokSnapshotDto(
+    val activeProvider: String? = null,
+    val openAiConfigured: Boolean = false,
+    val anthropicConfigured: Boolean = false,
+    val bedrockConfigured: Boolean = false,
+)
+
+@Serializable
 data class ContextSnapshotDto(
     val state: String = "unavailable",
     val label: String = "Context unavailable",
@@ -410,6 +418,33 @@ data class McpRuntimeSnapshotDto(
 )
 
 @Serializable
+data class AcpAuthMethodDto(val id: String, val name: String)
+
+@Serializable
+data class AcpAgentRuntimeDto(
+    val id: String,
+    val name: String,
+    val enabled: Boolean,
+    val state: String,
+    val label: String,
+    val protocolVersion: Int? = null,
+    val agentName: String? = null,
+    val agentVersion: String? = null,
+    val loadSession: Boolean = false,
+    val authMethods: List<AcpAuthMethodDto> = emptyList(),
+    val sessionCount: Int = 0,
+    val pid: Int? = null,
+    val lastError: String? = null,
+)
+
+@Serializable
+data class AcpRuntimeSnapshotDto(
+    val state: String = "idle",
+    val label: String = "No ACP agents configured",
+    val agents: List<AcpAgentRuntimeDto> = emptyList(),
+)
+
+@Serializable
 data class ProductJobDto(
     val id: String,
     val type: String,
@@ -478,6 +513,7 @@ data class AppSnapshotDto(
     val attachments: List<ContextItemDto> = emptyList(),
     val settings: SettingsSnapshotDto = SettingsSnapshotDto(),
     val account: AccountSnapshotDto = AccountSnapshotDto(),
+    val byok: ByokSnapshotDto = ByokSnapshotDto(),
 
     val context: ContextSnapshotDto = ContextSnapshotDto(),
     val backendHealth: BackendHealthDto = BackendHealthDto(),
@@ -485,6 +521,7 @@ data class AppSnapshotDto(
     val backendTools: List<BackendToolDto> = emptyList(),
     val configurations: ConfigurationSnapshotDto = ConfigurationSnapshotDto(),
     val mcpRuntime: McpRuntimeSnapshotDto = McpRuntimeSnapshotDto(),
+    val acpRuntime: AcpRuntimeSnapshotDto = AcpRuntimeSnapshotDto(),
     val hookRuntime: HookRuntimeSnapshotDto = HookRuntimeSnapshotDto(),
     val pluginRuntime: PluginRuntimeSnapshotDto = PluginRuntimeSnapshotDto(),
     val jobs: ProductJobSnapshotDto = ProductJobSnapshotDto(),

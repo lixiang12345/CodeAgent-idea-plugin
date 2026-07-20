@@ -3,7 +3,6 @@ package com.codeagent.plugin.settings
 import com.intellij.credentialStore.CredentialAttributes
 import com.intellij.ide.passwordSafe.PasswordSafe
 import com.intellij.openapi.components.PersistentStateComponent
-import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import java.net.URI
@@ -15,7 +14,6 @@ const val DEFAULT_CONTEXT_EMBEDDING_URL = "http://127.0.0.1:8000/v1"
 const val DEFAULT_CONTEXT_EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 const val DEFAULT_CONTEXT_RERANK_MODEL = "Qwen/Qwen3-Reranker-0.6B"
 
-@Service(Service.Level.APP)
 @State(name = "CodeAgentSettings", storages = [Storage("CodeAgent.xml")])
 class CodeAgentSettingsService : PersistentStateComponent<CodeAgentSettingsState> {
     private var settings = CodeAgentSettingsState()

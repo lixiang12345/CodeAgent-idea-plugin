@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { inlineCompletionMessages } from "./prompt.mjs";
 
-const CONFIGURATION_KINDS = new Set(["mcp", "hooks", "commands", "agents", "plugins", "tool-permissions"]);
+const CONFIGURATION_KINDS = new Set(["mcp", "acp", "hooks", "commands", "agents", "plugins", "tool-permissions"]);
 const PLUGIN_CAPABILITIES = new Set(["commands", "agents", "hooks", "mcp", "rules", "skills", "tools", "prompts"]);
 const AGENT_CONFIGURATION_DEFAULTS = {
   general: { maxTurns: 12, maxToolCalls: 48, maxSubagentCalls: 4, verificationPolicy: "after-mutation" },
@@ -13,10 +13,15 @@ const AGENT_CONFIGURATION_DEFAULTS = {
 
 export function createRuntimeManifestFromEnv(env = process.env) {
   const raw = env.RUNTIME_MANIFEST_JSON?.trim();
-  if (!raw) return { version: 1, runtimes: [] };
-  const manifest = JSON.parse(raw);
-  validateRuntimeManifest(manifest);
-  return manifest;
+  if (raw) {
+    const manifest = JSON.parse(raw);
+    validateRuntimeManifest(manifest);
+    return manifest;
+  }
+  const sourceUrl = env.RUNTIME_MANIFEST_URL?.trim();
+  if (!sourceUrl) return { version: 1, runtimes: [] };
+  validateRuntimeManifestUrl(sourceUrl);
+  return { version: 1, runtimes: [], sourceUrl };
 }
 
 export async function handlePublicProductRequest(request, response, { authenticator, runtimeManifest }) {
@@ -26,7 +31,10 @@ export async function handlePublicProductRequest(request, response, { authentica
   if (typeof authenticator.handlePublicRequest === "function" &&
       await authenticator.handlePublicRequest(request, response)) return true;
   if (request.url === "/v1/runtime/manifest" && request.method === "GET") {
-    return sendJson(response, 200, runtimeManifest);
+    const manifest = runtimeManifest?.sourceUrl
+      ? await fetchRuntimeManifest(runtimeManifest.sourceUrl)
+      : runtimeManifest;
+    return sendJson(response, 200, manifest);
   }
   return false;
 }
@@ -379,9 +387,29 @@ function normalizeConfiguration(kind, value) {
     }
     case "mcp":
       return normalizeMcpConfiguration(value, common);
+    case "acp":
+      return normalizeAcpConfiguration(value, common);
     default:
       throw badRequest("Unsupported configuration kind");
   }
+}
+
+function normalizeAcpConfiguration(value, common) {
+  const requiredEnvironment = stringList(value.requiredEnvironment, "requiredEnvironment", 64, 128);
+  for (const name of requiredEnvironment) {
+    if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(name)) {
+      throw badRequest("requiredEnvironment must contain uppercase environment variable names");
+    }
+  }
+  return {
+    ...common,
+    command: boundedText(value.command, "command", 4_000),
+    args: stringList(value.args, "args", 128, 2_000),
+    cwd: optionalText(value.cwd, "cwd", 4_000),
+    requiredEnvironment,
+    authMethodId: optionalText(value.authMethodId, "authMethodId", 240),
+    timeoutSeconds: boundedInteger(value.timeoutSeconds, 1, 1_800, 300),
+  };
 }
 
 function normalizeMcpConfiguration(value, common) {
@@ -396,13 +424,22 @@ function normalizeMcpConfiguration(value, common) {
   }
   const authMode = transport === "stdio"
     ? "none"
-    : enumValue(value.authMode, "authMode", ["none", "bearer-environment"], "none");
+    : enumValue(value.authMode, "authMode", ["none", "bearer-environment", "oauth"], "none");
   const tokenEnvironment = authMode === "bearer-environment"
     ? boundedText(value.tokenEnvironment, "tokenEnvironment", 128)
     : null;
   if (tokenEnvironment && !/^[A-Z][A-Z0-9_]{0,127}$/.test(tokenEnvironment)) {
     throw badRequest("tokenEnvironment must be an uppercase environment variable name");
   }
+  const authorizationEndpoint = authMode === "oauth"
+    ? normalizedSecureUrl(value.authorizationEndpoint, "authorizationEndpoint")
+    : null;
+  const tokenEndpoint = authMode === "oauth"
+    ? normalizedSecureUrl(value.tokenEndpoint, "tokenEndpoint")
+    : null;
+  const clientId = authMode === "oauth" ? boundedText(value.clientId, "clientId", 500) : null;
+  const scopes = authMode === "oauth" ? stringList(value.scopes, "scopes", 32, 240) : [];
+  const audience = authMode === "oauth" ? optionalText(value.audience, "audience", 1_000) : null;
   return {
     ...common,
     transport,
@@ -412,6 +449,11 @@ function normalizeMcpConfiguration(value, common) {
     url,
     authMode,
     tokenEnvironment,
+    authorizationEndpoint,
+    tokenEndpoint,
+    clientId,
+    scopes,
+    audience,
     requiredEnvironment,
     timeoutSeconds: boundedInteger(value.timeoutSeconds, 1, 600, 60),
   };
@@ -432,18 +474,22 @@ function optionalBoolean(value, fallback) {
 }
 
 function normalizedRemoteUrl(value) {
-  const text = boundedText(value, "url", 4_000);
+  return normalizedSecureUrl(value, "url");
+}
+
+function normalizedSecureUrl(value, field) {
+  const text = boundedText(value, field, 4_000);
   let url;
   try {
     url = new URL(text);
   } catch {
-    throw badRequest("url must be a valid absolute URL");
+    throw badRequest(`${field} must be a valid absolute URL`);
   }
   const loopback = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
   if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
-    throw badRequest("Remote MCP URLs must use https; loopback http is allowed for local development");
+    throw badRequest(`${field} must use https; loopback http is allowed for local development`);
   }
-  if (url.username || url.password) throw badRequest("MCP URLs must not contain credentials");
+  if (url.username || url.password) throw badRequest(`${field} must not contain credentials`);
   return url.toString();
 }
 
@@ -494,17 +540,37 @@ function boundedText(value, field, max, allowEmpty = false) {
 }
 
 function validateRuntimeManifest(manifest) {
-  if (!manifest || typeof manifest !== "object" || !Array.isArray(manifest.runtimes)) throw new Error("RUNTIME_MANIFEST_JSON must contain runtimes[]");
+  if (!manifest || typeof manifest !== "object" || !Array.isArray(manifest.runtimes)) throw new Error("Runtime manifest must contain runtimes[]");
   for (const runtime of manifest.runtimes) {
     if (!["darwin", "win32", "linux"].includes(runtime.platform)) throw new Error("Runtime platform is invalid");
     if (!["arm64", "x64"].includes(runtime.arch)) throw new Error("Runtime architecture is invalid");
     for (const field of ["version", "url", "sha256", "executable"]) {
       if (typeof runtime[field] !== "string" || !runtime[field].trim()) throw new Error(`Runtime ${field} is required`);
     }
+    if (runtime.archive !== undefined && !["zip", "raw"].includes(runtime.archive)) throw new Error("Runtime archive is invalid");
     if (!/^[a-f0-9]{64}$/i.test(runtime.sha256)) throw new Error("Runtime sha256 is invalid");
-    const url = new URL(runtime.url);
-    if (url.protocol !== "https:") throw new Error("Runtime URL must use https");
+    if (runtime.executable.startsWith("/") || /^[A-Za-z]:[\\/]/.test(runtime.executable) || runtime.executable.split(/[\\/]+/).includes("..")) {
+      throw new Error("Runtime executable must stay inside its installation directory");
+    }
+    validateRuntimeManifestUrl(runtime.url);
   }
+}
+
+function validateRuntimeManifestUrl(value) {
+  const url = new URL(value);
+  if (url.protocol !== "https:" || url.username || url.password || url.hash) {
+    throw new Error("Runtime URL must use HTTPS without credentials or fragments");
+  }
+}
+
+async function fetchRuntimeManifest(sourceUrl) {
+  const response = await fetch(sourceUrl, { signal: AbortSignal.timeout(15_000) });
+  if (!response.ok) throw new Error(`Runtime manifest download returned HTTP ${response.status}`);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > 1_000_000) throw new Error("Runtime manifest is too large");
+  const manifest = JSON.parse(new TextDecoder().decode(bytes));
+  validateRuntimeManifest(manifest);
+  return manifest;
 }
 
 function sendJson(response, status, body) {

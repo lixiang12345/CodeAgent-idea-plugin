@@ -6,12 +6,16 @@ import test from "node:test";
 import { SignJWT, exportJWK } from "jose";
 import { createCodeAgentServer } from "../src/server.mjs";
 import { createAuthenticatorFromEnv } from "../src/auth.mjs";
+import { createRuntimeManifestFromEnv } from "../src/product-api.mjs";
 import { AgentRunner, validateRunRequest } from "../src/agent-runner.mjs";
 import { applyAgentProfile, builtInAgentProfile, resolveAgentProfile } from "../src/agent-profile.mjs";
 import {
   AnthropicMessagesGateway,
+  BedrockConverseGateway,
   OpenAIResponsesGateway,
   createModelGatewayFromEnv,
+  createRequestModelGateway,
+  signAwsRequest,
 } from "../src/model-gateway.mjs";
 import { composeSystemPrompt, PROMPT_VERSION, productJobMessages } from "../src/prompt.mjs";
 import {
@@ -1449,6 +1453,79 @@ test("sends native Anthropic image blocks and text fallback attachment context",
   assert.match(captured.messages[0].content[2].text, /fun main\(\) = error/);
 });
 
+test("creates request-scoped OpenAI BYOK routing without persisting the key", async () => {
+  const requests = [];
+  const fallback = { provider: "fallback" };
+  const gateway = createRequestModelGateway({
+    "x-codeagent-byok-provider": "openai",
+    "x-codeagent-byok-api-key": "sk-request-only",
+    "x-codeagent-byok-base-url": "https://api.openai.test",
+  }, fallback, async (url, init) => {
+    requests.push({ url: String(url), headers: init.headers });
+    return new Response(JSON.stringify({ data: [{ id: "gpt-byok", owned_by: "openai" }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+  assert.notEqual(gateway, fallback);
+  assert.equal(gateway.provider, "byok-openai");
+  assert.deepEqual(await gateway.listModels(), [{ id: "gpt-byok", ownedBy: "openai", protocol: "openai-responses" }]);
+  assert.equal(requests[0].headers.authorization, "Bearer sk-request-only");
+  assert.doesNotMatch(requests[0].url, /sk-request-only/);
+});
+
+test("signs and executes AWS Bedrock Converse BYOK requests with SigV4", async () => {
+  const requests = [];
+  const gateway = new BedrockConverseGateway({
+    region: "us-east-1",
+    accessKeyId: "AKIDEXAMPLE",
+    secretAccessKey: "secret-example",
+    sessionToken: "session-example",
+    model: "anthropic.claude-3-5-sonnet:0",
+    now: () => new Date("2026-07-20T12:34:56.000Z"),
+    fetchImpl: async (url, init) => {
+      requests.push({ url: String(url), init, body: JSON.parse(init.body) });
+      return new Response(JSON.stringify({
+        output: { message: { content: [
+          { text: "Bedrock reply" },
+          { toolUse: { toolUseId: "tool-1", name: "read_file", input: { path: "README.md" } } },
+        ] } },
+        stopReason: "tool_use",
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    },
+  });
+  let streamed = "";
+  const result = await gateway.stream({
+    messages: [{ role: "system", content: "Be precise" }, { role: "user", content: "Review" }],
+    tools: [{ name: "read_file", description: "Read a file", parameters: { type: "object" } }],
+    signal: undefined,
+    onTextDelta(delta) { streamed += delta; },
+  });
+  assert.equal(streamed, "Bedrock reply");
+  assert.equal(result.toolCalls[0].name, "read_file");
+  assert.match(requests[0].url, /anthropic\.claude-3-5-sonnet%3A0\/converse$/);
+  assert.match(requests[0].init.headers.authorization, /^AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE\/20260720\/us-east-1\/bedrock\/aws4_request/);
+  assert.equal(requests[0].init.headers["x-amz-security-token"], "session-example");
+  assert.doesNotMatch(requests[0].init.headers.authorization, /secret-example|session-example/);
+  assert.equal(requests[0].body.system[0].text, "Be precise");
+  assert.equal(requests[0].body.toolConfig.tools[0].toolSpec.name, "read_file");
+
+  const signed = signAwsRequest({
+    method: "POST",
+    host: "bedrock-runtime.us-east-1.amazonaws.com",
+    pathname: "/model/test/converse",
+    body: "{}",
+    region: "us-east-1",
+    service: "bedrock",
+    accessKeyId: "AKIDEXAMPLE",
+    secretAccessKey: "secret-example",
+    sessionToken: null,
+    now: new Date("2026-07-20T12:34:56.000Z"),
+  });
+  assert.equal(signed["x-amz-date"], "20260720T123456Z");
+  assert.match(signed.authorization, /SignedHeaders=content-type;host;x-amz-date/);
+});
+
 
 test("serves the normalized backend model registry", async () => {
   const modelGateway = {
@@ -1919,6 +1996,46 @@ test("validates and persists typed product configurations", async () => {
     assert.equal(mcp.value.url, "http://127.0.0.1:3939/mcp");
     assert.equal(mcp.value.tokenEnvironment, "CONTEXT_MCP_TOKEN");
 
+    const oauthMcpResponse = await fetch(`${baseUrl}/v1/configurations/mcp/remote-oauth`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Remote OAuth MCP",
+        transport: "streamable-http",
+        url: "https://mcp.example.test/rpc",
+        authMode: "oauth",
+        authorizationEndpoint: "https://identity.example.test/authorize",
+        tokenEndpoint: "https://identity.example.test/token",
+        clientId: "codeagent-desktop",
+        scopes: ["tools.read", "tools.execute"],
+        audience: "https://mcp.example.test",
+        accessToken: "must-never-be-stored",
+        refreshToken: "must-never-be-stored",
+      }),
+    });
+    assert.equal(oauthMcpResponse.status, 200);
+    const oauthMcp = await oauthMcpResponse.json();
+    assert.equal(oauthMcp.value.authMode, "oauth");
+    assert.deepEqual(oauthMcp.value.scopes, ["tools.read", "tools.execute"]);
+    assert.equal(oauthMcp.value.accessToken, undefined);
+    assert.equal(oauthMcp.value.refreshToken, undefined);
+
+    const insecureOAuthMcp = await fetch(`${baseUrl}/v1/configurations/mcp/insecure-oauth`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Unsafe OAuth MCP",
+        transport: "streamable-http",
+        url: "https://mcp.example.test/rpc",
+        authMode: "oauth",
+        authorizationEndpoint: "http://identity.example.test/authorize",
+        tokenEndpoint: "https://identity.example.test/token",
+        clientId: "codeagent-desktop",
+      }),
+    });
+    assert.equal(insecureOAuthMcp.status, 400);
+    assert.match((await insecureOAuthMcp.json()).error, /authorizationEndpoint must use https/);
+
     const invalidMcp = await fetch(`${baseUrl}/v1/configurations/mcp/public-insecure`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -1926,6 +2043,35 @@ test("validates and persists typed product configurations", async () => {
     });
     assert.equal(invalidMcp.status, 400);
     assert.match((await invalidMcp.json()).error, /must use https/);
+
+    const acpResponse = await fetch(`${baseUrl}/v1/configurations/acp/review-agent`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Review agent",
+        command: "review-agent",
+        args: ["--acp"],
+        cwd: ".",
+        requiredEnvironment: ["REVIEW_AGENT_TOKEN"],
+        authMethodId: "agent-login",
+        timeoutSeconds: 300,
+        secret: "must-not-survive",
+      }),
+    });
+    assert.equal(acpResponse.status, 200);
+    const acp = await acpResponse.json();
+    assert.equal(acp.kind, "acp");
+    assert.deepEqual(acp.value.args, ["--acp"]);
+    assert.equal(acp.value.authMethodId, "agent-login");
+    assert.equal(acp.value.secret, undefined);
+
+    const invalidAcp = await fetch(`${baseUrl}/v1/configurations/acp/unbounded`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Unbounded", command: "agent", timeoutSeconds: 3600 }),
+    });
+    assert.equal(invalidAcp.status, 400);
+    assert.match((await invalidAcp.json()).error, /between 1 and 1800/);
 
     const invalidAgent = await fetch(`${baseUrl}/v1/configurations/agents/unbounded`, {
       method: "PUT",
@@ -2220,6 +2366,40 @@ test("retries a remote history-summary task after a transient stream disconnect"
     server.close();
     await once(server, "close");
   }
+});
+
+test("accepts inline or remote managed runtime manifest configuration", () => {
+  const inline = createRuntimeManifestFromEnv({
+    RUNTIME_MANIFEST_JSON: JSON.stringify({ version: 1, runtimes: [] }),
+  });
+  assert.deepEqual(inline, { version: 1, runtimes: [] });
+
+  const remote = createRuntimeManifestFromEnv({
+    RUNTIME_MANIFEST_URL: "https://downloads.example.test/codeagent/runtime-manifest.json",
+  });
+  assert.equal(remote.sourceUrl, "https://downloads.example.test/codeagent/runtime-manifest.json");
+
+  assert.throws(
+    () => createRuntimeManifestFromEnv({ RUNTIME_MANIFEST_URL: "http://downloads.example.test/manifest.json" }),
+    /HTTPS/,
+  );
+
+  assert.throws(
+    () => createRuntimeManifestFromEnv({
+      RUNTIME_MANIFEST_JSON: JSON.stringify({
+        version: 1,
+        runtimes: [{
+          platform: "linux",
+          arch: "x64",
+          version: "22.5.0",
+          url: "https://downloads.example.test/node.zip",
+          sha256: "a".repeat(64),
+          executable: "../node",
+        }],
+      }),
+    }),
+    /installation directory/,
+  );
 });
 
 async function waitForJob(baseUrl, id) {

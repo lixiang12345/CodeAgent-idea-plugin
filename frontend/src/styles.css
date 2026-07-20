@@ -393,6 +393,9 @@ button { color: inherit; }
 .workspace-row i, .list-block i { color: #7cbd8d; font: normal 8px var(--mono); }
 .list-block > div + div { border-top: 1px solid var(--line); }
 .list-block small { color: var(--muted); font-size: 8px; }
+.byok-provider-list > div > button { height: 23px; padding: 0 7px; border: 1px solid var(--line-strong); border-radius: 3px; color: #c9ced5; background: #2c2f34; font-size: 8px; cursor: pointer; }
+.byok-provider-list > div > button.danger { color: #d79a9a; }
+.byok-provider-list > p { margin: 8px 0 0; line-height: 1.45; }
 .section-title, .rule-editor-title { display: flex; align-items: flex-start; gap: 7px; }
 .section-title > div, .rule-editor-title > div { min-width: 0; flex: 1; }
 .section-title > button { height: 26px; margin-top: 7px; padding: 0 8px; display: flex; align-items: center; gap: 4px; border: 1px solid #456b50; border-radius: 4px; color: #b9dec2; background: #253b2b; font-size: 8px; cursor: pointer; }

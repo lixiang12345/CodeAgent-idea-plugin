@@ -26,11 +26,13 @@ private const val AGENT_PREFLIGHT_TIMEOUT_SECONDS = 45L
 class AgentOrchestrator(private val project: Project) : Disposable {
     private val settingsService = service<CodeAgentSettingsService>()
     private val oidcLogin = service<OidcLoginService>()
+    private val byok = service<ByokService>()
     private val executor = AppExecutorUtil.getAppExecutorService()
     private val activeRun = AtomicReference<RunContext?>()
     private val customizations = project.service<WorkspaceCustomizationService>()
     private val pluginRuntime = project.service<PluginRuntimeService>()
     private val mcpRuntime = project.service<McpRuntimeService>()
+    private val acpRuntime = project.service<AcpRuntimeService>()
     private val hookRuntime = project.service<HookRuntimeService>()
     private val guidanceLoader = WorkspaceGuidanceLoader(project.basePath?.let(Path::of))
     private val json = Json { ignoreUnknownKeys = true }
@@ -65,12 +67,13 @@ class AgentOrchestrator(private val project: Project) : Disposable {
                 val settings = settingsService.snapshot()
                 val customization = customizations.refresh()
                 val pluginContributions = pluginRuntime.snapshot()
-                val client = RemoteAgentClient(settings)
+                val client = RemoteAgentClient(settings, byokCredentials = byok.requestCredentials())
                 context.client.set(client)
                 val remoteTools = awaitStage("tool discovery", client.tools())
                     .data
                     .filter(RemoteToolCapability::available)
                 awaitStage("MCP preparation", mcpRuntime.prepareForRun())
+                awaitStage("ACP preparation", acpRuntime.prepareForRun())
                 val toolRunner = AgentToolExecutor(project, client, remoteTools)
                 val definitions = toolRunner.definitions(mode)
                 val request = RemoteRunRequest(
@@ -196,7 +199,8 @@ class AgentOrchestrator(private val project: Project) : Disposable {
 
     internal fun account(): CompletableFuture<RemoteAccountResponse> = withClient(RemoteAgentClient::account)
 
-    internal fun models(): CompletableFuture<RemoteModelsResponse> = RemoteAgentClient(settingsService.snapshot()).models()
+    internal fun models(): CompletableFuture<RemoteModelsResponse> =
+        RemoteAgentClient(settingsService.snapshot(), byokCredentials = byok.requestCredentials()).models()
 
     internal fun tools(): CompletableFuture<RemoteToolsResponse> = withClient(RemoteAgentClient::tools)
 
@@ -226,7 +230,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         repositoryContext: String,
         conversationContext: String,
     ): CompletableFuture<RemoteEnhanceResponse> =
-        withClient {
+        withModelClient {
             it.enhance(
                 text,
                 mode,
@@ -239,6 +243,11 @@ class AgentOrchestrator(private val project: Project) : Disposable {
 
     private fun <T> withClient(request: (RemoteAgentClient) -> CompletableFuture<T>): CompletableFuture<T> =
         oidcLogin.ensureFreshToken().thenCompose { request(RemoteAgentClient(settingsService.snapshot())) }
+
+    private fun <T> withModelClient(request: (RemoteAgentClient) -> CompletableFuture<T>): CompletableFuture<T> =
+        oidcLogin.ensureFreshToken().thenCompose {
+            request(RemoteAgentClient(settingsService.snapshot(), byokCredentials = byok.requestCredentials()))
+        }
 
     fun resolveApproval(toolId: String, approved: Boolean): Boolean {
         val context = activeRun.get() ?: return false
