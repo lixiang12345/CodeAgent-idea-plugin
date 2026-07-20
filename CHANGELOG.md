@@ -2,7 +2,13 @@
 
 ## Unreleased
 
+- Added the versioned `codeagent.context.v1` Protobuf/gRPC sidecar transport with loopback bearer authentication, streaming progress events, deadline handling, and an explicit JSON Lines rollback mode.
 - Added an official release build command that increments and synchronizes version metadata before full-stack verification and plugin packaging.
+
+## 0.7.18 - 2026-07-20
+
+- Switched the default JVM-to-ContextEngine sidecar boundary to the authenticated Protobuf/gRPC transport and bundled its generated JVM stubs and Node runtime.
+- Added end-to-end health, authorization, indexing, and stream-event coverage for the new local RPC path.
 
 ## 0.7.0 - 2026-07-14
 

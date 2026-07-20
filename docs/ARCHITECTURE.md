@@ -48,7 +48,7 @@ flowchart LR
     Gateway["Kotlin capability gateway\napprovals and path policy"]
     Backend["Deployed Agent backend\nprompts, loop, model"]
     Tools["IDE-native tools\nVFS/editor/process/Git"]
-    Context["Node ContextEngine sidecar\nJSON Lines"]
+    Context["Node ContextEngine sidecar\nProtobuf/gRPC"]
     Model["Model provider"]
 
     Web <--> Bridge <--> Gateway
@@ -57,7 +57,9 @@ flowchart LR
     Gateway <--> Backend <--> Model
 ```
 
-The UI-to-JVM protocol uses small versioned JSON envelopes. Long work is acknowledged immediately and reported as events, so the JCEF callback thread never blocks. The ContextEngine process has a separate JSON Lines protocol because it owns Node 22's SQLite state and can be restarted independently.
+The UI-to-JVM protocol uses small versioned JSON envelopes. Long work is acknowledged immediately and reported as events, so the JCEF callback thread never blocks. The ContextEngine process is now reached through a loopback Protobuf/gRPC stream by default: a versioned IDL carries request envelopes, ordered progress events, deadlines, cancellation, and a per-process bearer token. The original JSON Lines protocol remains available only through `CODEAGENT_CONTEXT_RPC=jsonl` for diagnostics and rollback. The sidecar still owns Node 22's SQLite state and can be restarted independently.
+
+The local RPC contract intentionally keeps MCP/ACP payloads extensible while their schemas continue to evolve. Their envelope and lifecycle are binary Protobuf/gRPC; the generic payload field is canonical JSON until those operation families stabilize into dedicated messages. This preserves forward compatibility without pretending that our private service definitions are byte-compatible with Augment's proprietary protos.
 
 Agent prompts, model credentials, the bounded model/tool loop, and tool-call sequencing are owned by the deployed backend. The JVM advertises an allowlist of tools and independently enforces mode capabilities, project paths, and approvals. The Webview cannot provide system instructions or execute tools. See the [prompt and agent architecture](PROMPT_ARCHITECTURE.md) for the trust model.
 

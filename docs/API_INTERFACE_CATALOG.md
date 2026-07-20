@@ -510,13 +510,16 @@ Conversation is a **node stream**, not a single assistant string:
 | Cloud search/read tools | Backend `GET /v1/tools` + `POST /v1/tools/{toolName}` proxied by `AgentToolExecutor` |
 | gRPC discovery + auth token | Settings backend URL + Password Safe token |
 | MCP / OAuth / Account APIs | Managed stdio/Streamable HTTP/SSE MCP gateway with discovered Agent tools, provider OAuth PKCE/token refresh, ACP v1 sessions, and real backend account APIs |
-| `postToolUseMessagesByToolId` | Multi assistant messages + interleaved timeline (coarse) |
+
+### 5.5 Local Protobuf/gRPC transport
+
+CodeAgent's local sidecar boundary is defined by `src/main/proto/com/codeagent/plugin/context/context_engine.proto` and loaded by the Node bundle as `context-engine.proto`. The single server-streaming `Execute` RPC preserves the existing operation names while adding typed framing, ordered progress, deadlines, cancellation of the client stream, and bearer authentication. This is an intentional protocol-level alignment with the original plugin; it is not a claim of wire compatibility with Augment's private generated services.
 
 ---
 
 ## 6. Local capability sidecar (not HTTP backend)
 
-Protocol: JSON Lines over process stdio (Node ≥ 22.5).  
+Protocol: loopback Protobuf/gRPC with a private readiness pipe (Node ≥ 22.5); JSON Lines is an explicit diagnostic fallback.
 Used when the model requests `codebase_retrieval`, the UI triggers index/status, or account MCP definitions must be reconciled with local and remote MCP servers.
 
 Logical operations (capability gateway owned):

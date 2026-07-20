@@ -1,8 +1,18 @@
 package com.codeagent.plugin.context
 
+import com.codeagent.plugin.context.rpc.ContextEngineRpcGrpc
+import com.codeagent.plugin.context.rpc.ContextEvent
+import com.codeagent.plugin.context.rpc.ContextRequest
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.util.concurrency.AppExecutorUtil
+import com.google.protobuf.ByteString
+import io.grpc.ClientInterceptors
+import io.grpc.ManagedChannel
+import io.grpc.ManagedChannelBuilder
+import io.grpc.Metadata
+import io.grpc.stub.MetadataUtils
+import io.grpc.stub.StreamObserver
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -36,7 +46,9 @@ class ContextEngineClient(
     @Volatile
     private var process: Process? = null
     private var writer: BufferedWriter? = null
-    private var extractedServer: Path? = null
+    private var grpcChannel: ManagedChannel? = null
+    private var grpcStub: ContextEngineRpcGrpc.ContextEngineRpcStub? = null
+    private var extractedRuntimeDirectory: Path? = null
     private var activeRuntime: ContextEngineRuntimeSettings? = null
 
     fun request(
@@ -49,6 +61,7 @@ class ContextEngineClient(
         executor.execute {
             runCatching {
                 ensureStarted()
+                val runtime = activeRuntime ?: error("ContextEngine runtime is not active")
                 val id = UUID.randomUUID().toString()
                 val timeoutTask = scheduler.schedule({
                     pending.remove(id)?.future?.completeExceptionally(
@@ -56,23 +69,27 @@ class ContextEngineClient(
                     )
                 }, timeout.toMillis(), TimeUnit.MILLISECONDS)
                 val requestFuture = CompletableFuture<JsonElement>()
-                pending[id] = PendingRequest(requestFuture, onProgress) { timeoutTask.cancel(false) }
+                pending[id] = PendingRequest(requestFuture, onProgress, { timeoutTask.cancel(false) })
                 requestFuture.whenComplete { value, error ->
                     if (error != null) result.completeExceptionally(error) else result.complete(value)
                 }
-                val request = SidecarRequest(
-                    id = id,
-                    type = type,
-                    root = root.toString(),
-                    extraRoots = extraRoots,
-                    payload = payload,
-                )
-                synchronized(processLock) {
-                    writer?.apply {
-                        write(json.encodeToString(request))
-                        newLine()
-                        flush()
-                    } ?: error("ContextEngine process is not writable")
+                if (runtime.rpcMode == "jsonl") {
+                    val request = SidecarRequest(
+                        id = id,
+                        type = type,
+                        root = root.toString(),
+                        extraRoots = extraRoots,
+                        payload = payload,
+                    )
+                    synchronized(processLock) {
+                        writer?.apply {
+                            write(json.encodeToString(request))
+                            newLine()
+                            flush()
+                        } ?: error("ContextEngine process is not writable")
+                    }
+                } else {
+                    sendGrpcRequest(id, type, payload, timeout)
                 }
             }.onFailure(result::completeExceptionally)
         }
@@ -81,8 +98,8 @@ class ContextEngineClient(
 
     override fun dispose() {
         stopProcess("ContextEngine client disposed")
-        extractedServer?.let { runCatching { Files.deleteIfExists(it) } }
-        extractedServer = null
+        extractedRuntimeDirectory?.let { runCatching { it.toFile().deleteRecursively() } }
+        extractedRuntimeDirectory = null
     }
 
     fun restart() {
@@ -94,6 +111,9 @@ class ContextEngineClient(
             val current = process
             process = null
             writer = null
+            grpcStub = null
+            grpcChannel?.shutdownNow()
+            grpcChannel = null
             activeRuntime = null
             current
         }
@@ -110,7 +130,14 @@ class ContextEngineClient(
             process?.destroyForcibly()
             failPending(IllegalStateException("ContextEngine process restarted"))
 
-            val server = extractedServer ?: extractServer().also { extractedServer = it }
+            val runtimeDirectory = extractedRuntimeDirectory ?: extractRuntimeDirectory().also {
+                extractedRuntimeDirectory = it
+            }
+            val server = if (runtime.rpcMode == "jsonl") {
+                runtimeDirectory.resolve("server.mjs")
+            } else {
+                runtimeDirectory.resolve("grpc-server.mjs")
+            }
             val builder = ProcessBuilder(runtime.nodePath, server.toString())
                 .directory(root.toFile())
             val environment = builder.environment()
@@ -118,20 +145,53 @@ class ContextEngineClient(
             environment.putAll(runtime.environment)
             val started = builder.start()
             process = started
-            writer = started.outputWriter()
             activeRuntime = runtime
-            executor.execute { readStdout(started) }
+            if (runtime.rpcMode == "jsonl") {
+                writer = started.outputWriter()
+                executor.execute { readStdout(started) }
+            } else {
+                try {
+                    startGrpcTransport(started)
+                } catch (error: Throwable) {
+                    process = null
+                    activeRuntime = null
+                    started.destroyForcibly()
+                    throw error
+                }
+            }
             executor.execute { readStderr(started) }
         }
     }
 
-    private fun extractServer(): Path {
-        val target = Files.createTempFile("codeagent-context-", ".mjs")
-        val source = requireNotNull(javaClass.getResourceAsStream("/sidecar/server.mjs")) {
-            "Missing bundled ContextEngine sidecar"
+    private fun extractRuntimeDirectory(): Path {
+        val directory = Files.createTempDirectory("codeagent-context-")
+        listOf("server.mjs", "grpc-server.mjs", "context-engine.proto").forEach { name ->
+            val source = requireNotNull(javaClass.getResourceAsStream("/sidecar/$name")) {
+                "Missing bundled ContextEngine sidecar resource: $name"
+            }
+            source.use {
+                Files.copy(it, directory.resolve(name), StandardCopyOption.REPLACE_EXISTING)
+            }
         }
-        source.use { Files.copy(it, target, StandardCopyOption.REPLACE_EXISTING) }
-        return target
+        return directory
+    }
+
+    private fun startGrpcTransport(started: Process) {
+        val readyLine = CompletableFuture.supplyAsync({
+            started.inputReader().use { it.readLine() }
+        }, executor).get(GRPC_STARTUP_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        val ready = parseGrpcReady(readyLine)
+        val channel = ManagedChannelBuilder
+            .forAddress("127.0.0.1", ready.port)
+            .usePlaintext()
+            .build()
+        val metadata = Metadata().apply {
+            put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer ${ready.token}")
+        }
+        grpcChannel = channel
+        grpcStub = ContextEngineRpcGrpc.newStub(
+            ClientInterceptors.intercept(channel, MetadataUtils.newAttachHeadersInterceptor(metadata)),
+        )
     }
 
     private fun readStdout(owner: Process) {
@@ -176,6 +236,64 @@ class ContextEngineClient(
         }
     }
 
+    private fun sendGrpcRequest(
+        id: String,
+        type: String,
+        payload: JsonObject?,
+        timeout: Duration,
+    ) {
+        val stub = grpcStub ?: error("ContextEngine gRPC transport is not ready")
+        val request = ContextRequest.newBuilder()
+            .setId(id)
+            .setType(type)
+            .setRoot(root.toString())
+            .addAllExtraRoots(extraRoots.map { entry ->
+                com.codeagent.plugin.context.rpc.IndexRoot.newBuilder()
+                    .setName(entry.name)
+                    .setPath(entry.path)
+                    .setKind(entry.kind)
+                    .build()
+            })
+            .setPayloadJson(ByteString.copyFrom(json.encodeToString(payload ?: JsonObject(emptyMap())).toByteArray()))
+            .build()
+        stub.withDeadlineAfter(timeout.toMillis(), TimeUnit.MILLISECONDS).execute(
+            request,
+            object : StreamObserver<ContextEvent> {
+                override fun onNext(event: ContextEvent) {
+                    val requestState = pending[event.id] ?: return
+                    when (event.type) {
+                        ContextEvent.Type.PROGRESS -> requestState.onProgress(parsePayload(event.payloadJson))
+                        ContextEvent.Type.RESULT -> {
+                            pending.remove(event.id)
+                            requestState.cancelTimeout()
+                            requestState.future.complete(parsePayload(event.payloadJson))
+                        }
+                        ContextEvent.Type.ERROR -> {
+                            pending.remove(event.id)
+                            requestState.cancelTimeout()
+                            requestState.future.completeExceptionally(
+                                IllegalStateException(event.errorMessage.ifBlank { "ContextEngine request failed" }),
+                            )
+                        }
+                        else -> Unit
+                    }
+                }
+
+                override fun onError(error: Throwable) {
+                    pending.remove(id)?.let { requestState ->
+                        requestState.cancelTimeout()
+                        requestState.future.completeExceptionally(error)
+                    }
+                }
+
+                override fun onCompleted() = Unit
+            },
+        )
+    }
+
+    private fun parsePayload(payload: ByteString): JsonElement =
+        if (payload.isEmpty) JsonObject(emptyMap()) else json.parseToJsonElement(payload.toStringUtf8())
+
     private fun failPending(error: Throwable) {
         val requests = pending.values.toList()
         pending.clear()
@@ -207,8 +325,28 @@ class ContextEngineClient(
         val payload: JsonElement? = null,
     )
 
+    private data class GrpcReady(val port: Int, val token: String, val protocolVersion: Int)
+
+    private fun parseGrpcReady(line: String?): GrpcReady {
+        require(line?.startsWith("CODEAGENT_GRPC_READY ") == true) {
+            "ContextEngine gRPC sidecar did not become ready: ${line ?: "process exited"}"
+        }
+        val payload = json.parseToJsonElement(line.removePrefix("CODEAGENT_GRPC_READY ")).jsonObject
+        return GrpcReady(
+            port = payload.getValue("port").jsonPrimitive.content.toInt(),
+            token = payload.getValue("token").jsonPrimitive.content,
+            protocolVersion = payload.getValue("protocolVersion").jsonPrimitive.content.toInt(),
+        ).also {
+            require(it.protocolVersion == GRPC_PROTOCOL_VERSION) {
+                "Unsupported ContextEngine gRPC protocol ${it.protocolVersion}; expected $GRPC_PROTOCOL_VERSION"
+            }
+        }
+    }
+
     companion object {
         private val LOG = logger<ContextEngineClient>()
+        private const val GRPC_PROTOCOL_VERSION = 1
+        private const val GRPC_STARTUP_TIMEOUT_SECONDS = 10L
         private val CONTEXT_ENVIRONMENT_KEYS = setOf(
             "CONTEXTENGINE_HTTP_URL",
             "CONTEXTENGINE_HTTP_API_KEY",
@@ -239,4 +377,9 @@ data class ContextIndexRoot(
 data class ContextEngineRuntimeSettings(
     val nodePath: String,
     val environment: Map<String, String> = emptyMap(),
-)
+    val rpcMode: String = "grpc",
+) {
+    init {
+        require(rpcMode == "grpc" || rpcMode == "jsonl") { "Unsupported ContextEngine RPC mode: $rpcMode" }
+    }
+}

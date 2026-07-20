@@ -68,6 +68,17 @@ class ContextEngineRuntimeSettingsTest {
     }
 
     @Test
+    fun `json lines remains an explicit sidecar fallback`() {
+        val runtime = contextEngineRuntimeSettings(
+            settings(contextMode = "lexical", contextEmbeddingApiKey = null),
+            resolvedNodePath = "/opt/node",
+            processEnvironment = mapOf("CODEAGENT_CONTEXT_RPC" to "jsonl"),
+        )
+
+        assertEquals("jsonl", runtime.rpcMode)
+    }
+
+    @Test
     fun `private semantic mode maps embedding endpoint settings`() {
         val runtime = contextEngineRuntimeSettings(
             settings(

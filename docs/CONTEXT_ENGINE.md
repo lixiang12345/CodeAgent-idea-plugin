@@ -2,6 +2,12 @@
 
 CodeAgent vendors the upstream `lixiang12345/ContextEngine-plugin` commit as a pinned Git submodule and compiles its public `ContextEngine` API into the local Node sidecar. The IDE plugin does not maintain a second retrieval implementation.
 
+## JVM/sidecar transport
+
+The default JVM-to-sidecar transport is `codeagent.context.v1.ContextEngineRpc` over loopback gRPC. `context_engine.proto` is compiled into JVM stubs and loaded by the Node sidecar, so both ends share field numbering and streaming event semantics. The sidecar emits a random bearer token in its private readiness pipe; the token is attached to every RPC and is never exposed to the WebView or backend.
+
+The RPC stream carries ordered `RESULT`, `PROGRESS`, and `ERROR` events, with gRPC deadlines enforcing the request timeout. Set `CODEAGENT_CONTEXT_RPC=jsonl` only when diagnosing an installation that cannot start the gRPC runtime; JSON Lines is a compatibility fallback, not the release path.
+
 - Current upstream pin: `2490d91cfc36b0f0e76a409ff164aecd62caad6a` (`v0.4.0` plus no-model lexical retrieval and Kotlin chunking fixes, verified July 14, 2026).
 
 ## Runtime ownership
@@ -76,4 +82,4 @@ node dist/cli.js eval \
   --reindex
 ```
 
-The sidecar integration test verifies initial indexing, automatic add/update/delete synchronization, and retrieval of newly indexed content over the JSON Lines protocol.
+The sidecar integration tests verify authenticated gRPC startup and health, initial indexing, automatic add/update/delete synchronization, and retrieval of newly indexed content. JSON Lines coverage is retained for the rollback path.

@@ -154,17 +154,22 @@ internal fun contextEngineRuntimeSettings(
     processEnvironment: Map<String, String> = System.getenv(),
 ): ContextEngineRuntimeSettings {
     val nodePath = resolvedNodePath ?: ManagedNodeRuntimeInstaller.resolve(current)
+    val rpcMode = processEnvironment["CODEAGENT_CONTEXT_RPC"]
+        ?.trim()
+        ?.lowercase()
+        ?.takeIf { it == "grpc" || it == "jsonl" }
+        ?: "grpc"
     if (current.contextMode == "remote-http") {
         val apiKey = resolvedContextHttpApiKey(current, processEnvironment)
         val environment = buildMap {
             put("CONTEXTENGINE_HTTP_URL", current.contextHttpBaseUrl)
             apiKey?.let { put("CONTEXTENGINE_HTTP_API_KEY", it) }
         }
-        return ContextEngineRuntimeSettings(nodePath = nodePath, environment = environment)
+        return ContextEngineRuntimeSettings(nodePath = nodePath, environment = environment, rpcMode = rpcMode)
     }
 
     if (current.contextMode != "private-semantic") {
-        return ContextEngineRuntimeSettings(nodePath = nodePath)
+        return ContextEngineRuntimeSettings(nodePath = nodePath, rpcMode = rpcMode)
     }
 
     val apiKey = current.contextEmbeddingApiKey?.takeIf { it.isNotBlank() } ?: "codeagent-local-endpoint"
@@ -182,7 +187,7 @@ internal fun contextEngineRuntimeSettings(
             put("CONTEXTENGINE_RERANK_MODEL", current.contextRerankModel)
         }
     }
-    return ContextEngineRuntimeSettings(nodePath = nodePath, environment = environment)
+    return ContextEngineRuntimeSettings(nodePath = nodePath, environment = environment, rpcMode = rpcMode)
 }
 
 internal fun resolvedContextHttpApiKey(

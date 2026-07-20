@@ -1,4 +1,5 @@
 import { build } from "esbuild";
+import { copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -33,4 +34,15 @@ await Promise.all([
     entryPoints: [path.join(root, "src/acp-runtime.ts")],
     outfile: path.join(root, "dist/acp-runtime.mjs"),
   }),
+  build({
+    ...common,
+    entryPoints: [path.join(root, "src/grpc-server.ts")],
+    outfile: path.join(root, "dist/grpc-server.mjs"),
+  }),
 ]);
+
+await mkdir(path.join(root, "dist"), { recursive: true });
+await copyFile(
+  path.join(root, "../src/main/proto/com/codeagent/plugin/context/context_engine.proto"),
+  path.join(root, "dist/context-engine.proto"),
+);

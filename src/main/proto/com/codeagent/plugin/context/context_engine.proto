@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package codeagent.context.v1;
+
+option java_package = "com.codeagent.plugin.context.rpc";
+option java_multiple_files = true;
+option java_outer_classname = "ContextEngineRpcProto";
+
+// The envelope is protobuf/gRPC so JVM and Node share framing, streaming,
+// deadlines, cancellation, and error delivery. The payload remains JSON only
+// for the generic MCP/ACP operations that are intentionally extensible.
+message ContextRequest {
+  string id = 1;
+  string type = 2;
+  string root = 3;
+  repeated IndexRoot extra_roots = 4;
+  bytes payload_json = 5;
+}
+
+message IndexRoot {
+  string name = 1;
+  string path = 2;
+  string kind = 3;
+}
+
+message ContextEvent {
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    RESULT = 1;
+    PROGRESS = 2;
+    ERROR = 3;
+  }
+
+  string id = 1;
+  Type type = 2;
+  bytes payload_json = 3;
+  string error_message = 4;
+}
+
+service ContextEngineRpc {
+  rpc Execute(ContextRequest) returns (stream ContextEvent);
+}

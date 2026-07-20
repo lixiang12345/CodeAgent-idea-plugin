@@ -2,6 +2,7 @@ import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
+    id("com.google.protobuf")
     id("org.jetbrains.kotlin.jvm")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("org.jetbrains.intellij.platform")
@@ -10,7 +11,15 @@ plugins {
 group = providers.gradleProperty("group").get()
 version = providers.gradleProperty("version").get()
 
+val grpcVersion = "1.73.0"
+val protobufVersion = "4.33.5"
+
 dependencies {
+    implementation("io.grpc:grpc-netty-shaded:$grpcVersion")
+    implementation("io.grpc:grpc-protobuf:$grpcVersion")
+    implementation("io.grpc:grpc-stub:$grpcVersion")
+    implementation("com.google.protobuf:protobuf-java:$protobufVersion")
+    implementation("javax.annotation:javax.annotation-api:1.3.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1") {
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
     }
@@ -20,6 +29,24 @@ dependencies {
     intellijPlatform {
         intellijIdeaCommunity("2025.2.6.2")
         testFramework(TestFrameworkType.Platform)
+    }
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:$protobufVersion"
+    }
+    plugins {
+        create("grpc") {
+            artifact = "io.grpc:protoc-gen-grpc-java:$grpcVersion"
+        }
+    }
+    generateProtoTasks {
+        all().forEach { task ->
+            task.plugins {
+                create("grpc")
+            }
+        }
     }
 }
 
@@ -78,7 +105,12 @@ val buildSidecar = tasks.register<Exec>("buildSidecar") {
     commandLine("npm", "run", "build")
     inputs.files(fileTree("sidecar/src"), file("sidecar/package.json"), file("sidecar/package-lock.json"), file("sidecar/build.mjs"))
     inputs.files(fileTree("vendor/context-engine/src"), file("vendor/context-engine/package.json"))
-    outputs.file("sidecar/dist/server.mjs")
+    inputs.file("src/main/proto/com/codeagent/plugin/context/context_engine.proto")
+    outputs.files(
+        "sidecar/dist/server.mjs",
+        "sidecar/dist/grpc-server.mjs",
+        "sidecar/dist/context-engine.proto",
+    )
 }
 
 tasks {
@@ -88,6 +120,12 @@ tasks {
             into("web")
         }
         from("sidecar/dist/server.mjs") {
+            into("sidecar")
+        }
+        from("sidecar/dist/grpc-server.mjs") {
+            into("sidecar")
+        }
+        from("sidecar/dist/context-engine.proto") {
             into("sidecar")
         }
         from("vendor/context-engine/LICENSE") {

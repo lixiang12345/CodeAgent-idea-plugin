@@ -37,7 +37,7 @@ Current CodeAgent tool calls and results are structured. User-selected attachmen
 
 ContextEngine is connected locally, not installed in the deployed backend:
 
-1. The IDEA plugin starts the bundled Node sidecar over a JSON Lines process protocol.
+1. The IDEA plugin starts the bundled Node sidecar and connects to its authenticated loopback Protobuf/gRPC endpoint. A JSON Lines process protocol remains available only as an explicit diagnostic fallback.
 2. The sidecar imports the pinned `vendor/context-engine` submodule and owns its local SQLite index.
 3. The plugin starts the first index automatically when the workspace is unindexed. The sidecar then watches the project tree and runs hash-based incremental indexing after an 800 ms debounce. Added, changed, and deleted files are synchronized without rebuilding unchanged files.
 4. The JVM advertises `codebase_retrieval` as an Agent/Chat/Ask tool.

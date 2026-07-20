@@ -4,6 +4,7 @@ rootProject.name = "CodeAgent"
 
 pluginManagement {
     plugins {
+        id("com.google.protobuf") version "0.9.5"
         id("org.jetbrains.kotlin.jvm") version "2.1.20"
         id("org.jetbrains.kotlin.plugin.serialization") version "2.1.20"
     }
