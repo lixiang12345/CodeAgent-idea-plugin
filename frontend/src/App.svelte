@@ -104,7 +104,7 @@
   type WorkspaceView = "chat" | "settings" | "mermaid" | "git" | "tasks" | "jobs" | "images" | "tools" | "icons" | "edits" | "feedback";
   let currentView: WorkspaceView = "chat";
   let settingsSection = "Home";
-  let settingsNavigationOpen = true;
+  let settingsNavigationOpen = false;
   let threadDrawerOpen = false;
   let modeMenuOpen = false;
   let modelMenuOpen = false;
@@ -1148,7 +1148,7 @@
 
   function openSettings(section = "Home") {
     settingsSection = section;
-    settingsNavigationOpen = true;
+    settingsNavigationOpen = false;
     currentView = "settings";
     closeMenus();
   }
@@ -1590,8 +1590,13 @@
   if (handleChatZoomShortcut(event)) return;
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") submit();
   if (event.key === "Escape") {
+    const settingsDrawerWasOpen = currentView === "settings" && settingsNavigationOpen;
     threadDrawerOpen = false;
     closeMenus();
+    if (settingsDrawerWasOpen) {
+      settingsNavigationOpen = false;
+      event.preventDefault();
+    }
   }
 }} />
 

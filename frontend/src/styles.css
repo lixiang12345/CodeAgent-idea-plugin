@@ -25,6 +25,7 @@
   --red-soft: #3b2529;
   --amber: #d19a66;
   --accent: #3574f0;
+  --focus-ring: #8ab4f8;
   --mono: "JetBrains Mono", Menlo, Consolas, monospace;
   --tw: 420px;
   --chat-zoom: 1;
@@ -71,7 +72,7 @@ button { color: inherit; }
 .app-title strong { font-size: 12px; font-weight: 600; color: #e0e0e0; }
 .app-logo { display: grid; place-items: center; width: 20px; height: 20px; border-radius: var(--ds-radius-2); color: var(--bright); background: transparent; }
 .icon-button { width: 26px; height: 26px; padding: 0; display: grid; place-items: center; border: 0; border-radius: var(--ds-radius-2); color: var(--dim); background: transparent; cursor: pointer; }
-.icon-button:hover, .icon-button:focus-visible { color: var(--bright); background: rgba(255,255,255,.06); outline: 0; }
+.icon-button:hover, .icon-button:focus-visible { color: var(--bright); background: rgba(255,255,255,.06); }
 .icon-button:disabled { opacity: .35; cursor: default; }
 .icon-button.compact { width: 24px; height: 24px; }
 .icon-button.active { color: var(--bright); background: rgba(255,255,255,.08); }
@@ -94,7 +95,7 @@ button { color: inherit; }
 .ch-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; }
 .chat-zoom-controls { display: inline-flex; align-items: center; gap: 1px; }
 .chat-zoom-value { min-width: 35px; height: 24px; padding: 0 3px; border: 0; border-radius: var(--ds-radius-2); color: #9299a3; background: transparent; font: 9px var(--mono); cursor: pointer; }
-.chat-zoom-value:hover, .chat-zoom-value:focus-visible { color: var(--bright); background: rgba(255,255,255,.06); outline: 0; }
+.chat-zoom-value:hover, .chat-zoom-value:focus-visible { color: var(--bright); background: rgba(255,255,255,.06); }
 .chip { height: 20px; padding: 1px 7px; display: inline-flex; align-items: center; gap: 3px; color: var(--dim); border: 1px solid var(--border); border-radius: 99px; background: rgba(255,255,255,.04); font-size: var(--ds-font-size-0); text-transform: capitalize; }
 .chip.green { color: var(--ds-color-green-11); border-color: rgba(48,164,108,.35); background: #499c5418; }
 @keyframes status-spin { to { transform: rotate(360deg); } }
@@ -680,8 +681,22 @@ button { color: inherit; }
   .jobs-actions > span { display: none; }
   .job-row > header time { display: none; }
   .settings-layout { display: block; position: relative; }
-  .settings-navigation { position: absolute; inset: 0; z-index: 5; border-right: 0; transform: translateX(-100%); transition: transform .14s ease; }
-  .settings-layout.navigation-open .settings-navigation { transform: translateX(0); }
+  .settings-navigation {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    visibility: hidden;
+    pointer-events: none;
+    border-right: 0;
+    transform: translateX(-100%);
+    transition: transform .16s ease, visibility 0s linear .16s;
+  }
+  .settings-layout.navigation-open .settings-navigation {
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateX(0);
+    transition-delay: 0s;
+  }
   .settings-content { height: 100%; }
   .settings-nav-toggle { display: inline-flex; }
 }
@@ -971,6 +986,23 @@ button { color: inherit; }
   margin-bottom: 16px;
   font-size: 11.5px;
   line-height: 1.45;
+}
+
+:where(button, a, summary, input, textarea, select, [role="button"]):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.composer:focus-within,
+.comp:focus-within,
+.thread-search:focus-within {
+  border-color: var(--focus-ring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-navigation {
+    transition: none;
+  }
 }
 
 .settings-stats {
