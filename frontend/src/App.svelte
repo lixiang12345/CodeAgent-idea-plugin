@@ -101,6 +101,14 @@
     ask_user: "message-circle",
   };
 
+  const builtInAgentProfiles = [
+    { id: "general", name: "General Agent", description: "Balanced implementation and verification", agentType: "general", source: "Built in" },
+    { id: "search", name: "Search Agent", description: "Evidence-first repository and service research", agentType: "search", source: "Built in" },
+    { id: "context", name: "Context Agent", description: "Focused repository context collection", agentType: "context", source: "Built in" },
+    { id: "prompt", name: "Prompt Engineer", description: "Task and prompt refinement", agentType: "prompt", source: "Built in" },
+    { id: "loop", name: "Loop Agent", description: "Bounded execution, verification, and iteration", agentType: "loop", source: "Built in" },
+  ];
+
   let snapshot: AppSnapshot | null = null;
   let prompt = "";
   type WorkspaceView = "chat" | "settings" | "mermaid" | "git" | "tasks" | "jobs" | "images" | "tools" | "icons" | "edits" | "feedback";
@@ -109,6 +117,7 @@
   let settingsNavigationOpen = false;
   let threadDrawerOpen = false;
   let modeMenuOpen = false;
+  let agentMenuOpen = false;
   let modelMenuOpen = false;
   let skillsOpen = false;
   let tasksOpen = true;
@@ -447,6 +456,7 @@
     moreMenuOpen = false;
     threadOptOpen = false;
     modeMenuOpen = false;
+    agentMenuOpen = false;
     modelMenuOpen = false;
     skillsOpen = false;
     slashOpen = false;
@@ -498,6 +508,50 @@
     snapshot = { ...snapshot, mode };
     modeMenuOpen = false;
     sendCommand("setMode", { mode });
+  }
+
+  function availableAgentProfiles(currentSnapshot: AppSnapshot) {
+    const configured = (currentSnapshot.configurations.items.agents ?? [])
+      .filter((profile) => profile.value.enabled !== false)
+      .map((profile) => ({
+        id: profile.id,
+        name: typeof profile.value.name === "string" ? profile.value.name : profile.id,
+        description: typeof profile.value.description === "string" ? profile.value.description : "Account Agent profile",
+        agentType: typeof profile.value.agentType === "string" ? profile.value.agentType : "general",
+        source: "Account",
+      }));
+    const plugins = currentSnapshot.pluginRuntime.agents.map((profile) => ({
+      id: profile.id,
+      name: profile.name,
+      description: profile.description ?? `Agent profile from ${profile.pluginId}`,
+      agentType: profile.agentType,
+      source: profile.pluginId,
+    }));
+    const unique = new Map<string, (typeof builtInAgentProfiles)[number]>();
+    [...builtInAgentProfiles, ...configured, ...plugins].forEach((profile) => {
+      if (!unique.has(profile.id)) unique.set(profile.id, profile);
+    });
+    return [...unique.values()];
+  }
+
+  function activeAgentProfile(currentSnapshot: AppSnapshot) {
+    return availableAgentProfiles(currentSnapshot).find((profile) => profile.id === currentSnapshot.selectedAgentProfileId)
+      ?? builtInAgentProfiles[0];
+  }
+
+  function selectAgentProfile(agentProfileId: string) {
+    if (!snapshot || isBusy(snapshot) || snapshot.selectedAgentProfileId === agentProfileId) return;
+    snapshot = { ...snapshot, selectedAgentProfileId: agentProfileId };
+    agentMenuOpen = false;
+    sendCommand("selectAgentProfile", { agentProfileId });
+  }
+
+  function toggleAgentMenu(event: MouseEvent) {
+    event.stopPropagation();
+    if (!snapshot || isBusy(snapshot)) return;
+    const open = !agentMenuOpen;
+    closeMenus();
+    agentMenuOpen = open;
   }
 
   function selectModel(modelId: string) {
@@ -1511,6 +1565,7 @@
     slashOpen = true;
     atOpen = false;
     modeMenuOpen = false;
+    agentMenuOpen = false;
     skillsOpen = false;
   }
 
@@ -1518,6 +1573,7 @@
     atOpen = true;
     slashOpen = false;
     modeMenuOpen = false;
+    agentMenuOpen = false;
     skillsOpen = false;
   }
 
@@ -1944,6 +2000,17 @@
                 {/each}
               </div>
             {/if}
+            {#if agentMenuOpen}
+              <div class="composer-popup agent-menu" role="listbox" aria-label="Available Agent profiles">
+                {#each availableAgentProfiles(snapshot) as profile}
+                  <button type="button" class:active={snapshot.selectedAgentProfileId === profile.id} role="option" aria-selected={snapshot.selectedAgentProfileId === profile.id} onclick={() => selectAgentProfile(profile.id)}>
+                    <span class="agent-profile-mark"><Icon name={profile.agentType === "search" ? "search" : profile.agentType === "context" ? "layers" : profile.agentType === "prompt" ? "sparkles" : "bot"} size={14} /></span>
+                    <span class="agent-option-copy"><strong>{profile.name}</strong><small>{profile.description} · {profile.source}</small></span>
+                    {#if snapshot.selectedAgentProfileId === profile.id}<Icon name="check" size={13} />{/if}
+                  </button>
+                {/each}
+              </div>
+            {/if}
             <textarea
               bind:value={prompt}
               placeholder="Type a message or command..."
@@ -1962,7 +2029,7 @@
             ></textarea>
             <div class="composer-toolbar abar">
               <div class="mode-control">
-                <button class="mode-button dd-btn" onclick={() => { modeMenuOpen = !modeMenuOpen; modelMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}>
+                <button class="mode-button dd-btn" onclick={() => { modeMenuOpen = !modeMenuOpen; agentMenuOpen = false; modelMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}>
                   <span class="tag {snapshot.mode}">{modeLabel(snapshot.mode)}</span>
                   <Icon name="chevron-down" size={12} />
                 </button>
@@ -1987,6 +2054,21 @@
                   </div>
                 {/if}
               </div>
+              <div class="agent-control" title={`Agent profile: ${activeAgentProfile(snapshot).name}`}>
+                <button
+                  type="button"
+                  class="agent-select"
+                  class:active={agentMenuOpen}
+                  disabled={isBusy(snapshot)}
+                  aria-label="Agent profile selection"
+                  aria-haspopup="listbox"
+                  aria-expanded={agentMenuOpen}
+                  onclick={toggleAgentMenu}
+                >
+                  <Icon name="bot" size={12} />
+                  <span>{activeAgentProfile(snapshot).name}</span>
+                </button>
+              </div>
               <div class="model-control" title={modelTitle(snapshot.models)}>
                 <button
                   type="button"
@@ -2008,7 +2090,7 @@
               <button title="Attach file/image" onclick={() => sendCommand("pickContext")}><Icon name="file-input" size={14} /></button>
               <button title={enhancing ? "Enhancing…" : "Enhance prompt"} disabled={!prompt.trim() || enhancing || isBusy(snapshot)} onclick={enhancePrompt}><Icon name="sparkles" size={14} /></button>
               <div class="skill-control">
-                <button class:active={skillsOpen} title="Skills" onclick={() => { skillsOpen = !skillsOpen; modeMenuOpen = false; modelMenuOpen = false; }}>
+                <button class:active={skillsOpen} title="Skills" onclick={() => { skillsOpen = !skillsOpen; modeMenuOpen = false; agentMenuOpen = false; modelMenuOpen = false; }}>
                   <Icon name="wand-sparkles" size={14} />
                   {#if selectedSkillCount() > 0}<i>{selectedSkillCount()}</i>{/if}
                 </button>
@@ -2130,7 +2212,7 @@
                 </div>
                 <div>
                   <Icon name="layers" size={14} />
-                  <span class="capability-copy"><strong>Declarative plugins</strong><small>{snapshot.pluginRuntime.items.length} configured · {snapshot.pluginRuntime.commands.length + snapshot.pluginRuntime.prompts.length} active prompt templates</small></span>
+                  <span class="capability-copy"><strong>Declarative plugins</strong><small>{snapshot.pluginRuntime.items.length} configured · {snapshot.pluginRuntime.commands.length + snapshot.pluginRuntime.prompts.length} templates · {snapshot.pluginRuntime.agents.length} agents · {snapshot.pluginRuntime.hooks.length} hooks · {snapshot.pluginRuntime.mcpServers.length} MCP · {snapshot.pluginRuntime.tools.length} tools</small></span>
                   <i class:ready={snapshot.pluginRuntime.state === "ready"}>{snapshot.pluginRuntime.state}</i>
                 </div>
                 <div>

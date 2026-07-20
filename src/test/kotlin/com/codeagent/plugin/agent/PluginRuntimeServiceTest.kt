@@ -3,6 +3,7 @@ package com.codeagent.plugin.agent
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.nio.charset.StandardCharsets
 import kotlin.test.Test
@@ -71,6 +72,70 @@ class PluginRuntimeServiceTest {
         assertEquals(1, installed.items.single().ruleCount)
         assertEquals(1, installed.items.single().skillCount)
         assertTrue(installed.commands.isEmpty())
+    }
+
+    @Test
+    fun `activates typed Agent hook MCP and tool contributions only after explicit grants`() {
+        val source = "https://plugins.example.test/runtime.json"
+        val runtime = PluginRuntime(
+            MutablePluginFetcher(source, runtimeManifest()),
+            MemoryPluginStore(),
+        )
+        runtime.reconcile(
+            listOf(
+                configuration(
+                    source,
+                    capabilities = listOf("agents", "hooks", "mcp", "tools"),
+                ),
+            ),
+        )
+
+        val installed = runtime.install("review-pack")
+
+        assertEquals(listOf("plugin.review-pack.reviewer"), installed.agents.map(PluginAgentDefinition::id))
+        assertEquals(listOf("plugin.review-pack.verify"), installed.hooks.map(RemoteConfiguration::id))
+        assertEquals(listOf("plugin.review-pack.local"), installed.mcpServers.map(RemoteConfiguration::id))
+        assertEquals(listOf("plugin.review-pack.readme"), installed.tools.map(PluginToolDefinition::id))
+        assertEquals("review-pack", installed.hooks.single().value["pluginId"]?.jsonPrimitive?.content)
+        assertEquals("plugin.review-pack.reviewer", installed.agents.single().id)
+        assertEquals(1, installed.items.single().agentCount)
+        assertEquals(1, installed.items.single().hookCount)
+        assertEquals(1, installed.items.single().mcpCount)
+        assertEquals(1, installed.items.single().toolCount)
+    }
+
+    @Test
+    fun `does not activate reserved plugin content without matching capability grants`() {
+        val source = "https://plugins.example.test/runtime.json"
+        val runtime = PluginRuntime(
+            MutablePluginFetcher(source, runtimeManifest()),
+            MemoryPluginStore(),
+        )
+        runtime.reconcile(listOf(configuration(source, capabilities = emptyList())))
+
+        val installed = runtime.install("review-pack")
+
+        assertTrue(installed.agents.isEmpty())
+        assertTrue(installed.hooks.isEmpty())
+        assertTrue(installed.mcpServers.isEmpty())
+        assertTrue(installed.tools.isEmpty())
+    }
+
+    @Test
+    fun `rejects duplicate Agent allowed tools during manifest installation`() {
+        val source = "https://plugins.example.test/runtime.json"
+        val runtime = PluginRuntime(
+            MutablePluginFetcher(source, runtimeManifest(allowedTools = "\"readme\", \"readme\"")),
+            MemoryPluginStore(),
+        )
+        runtime.reconcile(listOf(configuration(source, capabilities = listOf("agents", "hooks", "mcp", "tools"))))
+
+        val error = assertFailsWith<IllegalArgumentException> {
+            runtime.install("review-pack")
+        }
+
+        assertTrue(error.message.orEmpty().contains("allowed tools must be unique"))
+        assertEquals("error", runtime.snapshot().items.single().state)
     }
 
     @Test
@@ -239,6 +304,59 @@ class PluginRuntimeServiceTest {
               "name": "Threat model",
               "description": "Build a compact threat model before implementation",
               "content": "# Threat model\n\nIdentify assets, trust boundaries, entry points, and mitigations."
+            }
+          ]
+        }
+    """.trimIndent().toByteArray(StandardCharsets.UTF_8)
+
+    private fun runtimeManifest(allowedTools: String = "\"readme\""): ByteArray = """
+        {
+          "schemaVersion": 1,
+          "id": "review-pack",
+          "name": "Review pack",
+          "version": "1.0.0",
+          "capabilities": ["agents", "hooks", "mcp", "tools"],
+          "agents": [
+            {
+              "id": "reviewer",
+              "name": "Plugin reviewer",
+              "description": "Evidence-first review",
+              "agentType": "search",
+              "allowedTools": [$allowedTools],
+              "maxTurns": 8,
+              "maxToolCalls": 20,
+              "maxSubagentCalls": 2,
+              "verificationPolicy": "none",
+              "contextWindowTokens": 96000,
+              "reservedOutputTokens": 8192
+            }
+          ],
+          "hooks": [
+            {
+              "id": "verify",
+              "name": "Verify run",
+              "event": "after-run",
+              "command": "echo verified",
+              "runPolicy": "manual",
+              "failurePolicy": "continue"
+            }
+          ],
+          "mcp": [
+            {
+              "id": "local",
+              "name": "Local MCP",
+              "transport": "stdio",
+              "command": "node",
+              "args": ["server.mjs"]
+            }
+          ],
+          "tools": [
+            {
+              "id": "readme",
+              "name": "Read README",
+              "description": "Read the project README",
+              "target": "read_file",
+              "defaults": {"path": "README.md"}
             }
           ]
         }

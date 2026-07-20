@@ -74,11 +74,31 @@ class AgentOrchestrator(private val project: Project) : Disposable {
                     .filter(RemoteToolCapability::available)
                 awaitStage("MCP preparation", mcpRuntime.prepareForRun())
                 awaitStage("ACP preparation", acpRuntime.prepareForRun())
-                val toolRunner = AgentToolExecutor(project, client, remoteTools)
+                val toolRunner = AgentToolExecutor(project, client, remoteTools, pluginContributions.tools)
                 val definitions = toolRunner.definitions(mode)
+                val pluginAgent = pluginContributions.agents.firstOrNull { it.id == agentProfileId }
                 val request = RemoteRunRequest(
                     mode = mode,
                     agentProfileId = agentProfileId,
+                    agentProfile = pluginAgent?.let { profile ->
+                        RemoteAgentProfile(
+                            id = profile.id,
+                            pluginId = profile.pluginId,
+                            pluginVersion = profile.pluginVersion,
+                            name = profile.name,
+                            description = profile.description,
+                            agentType = profile.agentType,
+                            systemPrompt = profile.systemPrompt,
+                            model = profile.model,
+                            allowedTools = profile.allowedTools,
+                            maxTurns = profile.maxTurns,
+                            maxToolCalls = profile.maxToolCalls,
+                            maxSubagentCalls = profile.maxSubagentCalls,
+                            verificationPolicy = profile.verificationPolicy,
+                            contextWindowTokens = profile.contextWindowTokens,
+                            reservedOutputTokens = profile.reservedOutputTokens,
+                        )
+                    },
                     model = model,
                     messages = history.map { message ->
                         RemoteMessage(

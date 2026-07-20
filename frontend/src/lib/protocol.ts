@@ -256,6 +256,47 @@ export interface PluginPrompt {
   argumentHint?: string;
 }
 
+export interface PluginAgent {
+  id: string;
+  pluginId: string;
+  pluginVersion: string;
+  name: string;
+  description?: string;
+  agentType: "general" | "search" | "context" | "prompt" | "loop";
+  model?: string;
+  allowedTools: string[];
+  maxTurns: number;
+  maxToolCalls: number;
+  maxSubagentCalls: number;
+  verificationPolicy: "none" | "after-mutation";
+  contextWindowTokens: number;
+  reservedOutputTokens: number;
+}
+
+export interface PluginHook {
+  id: string;
+  pluginId: string;
+  name: string;
+  event: string;
+  runPolicy: string;
+}
+
+export interface PluginMcpServer {
+  id: string;
+  pluginId: string;
+  name: string;
+  transport: string;
+  authMode: string;
+}
+
+export interface PluginTool {
+  id: string;
+  pluginId: string;
+  name: string;
+  description?: string;
+  target: string;
+}
+
 export interface PluginRuntimeItem {
   id: string;
   name: string;
@@ -273,6 +314,10 @@ export interface PluginRuntimeItem {
   promptCount: number;
   ruleCount: number;
   skillCount: number;
+  agentCount: number;
+  hookCount: number;
+  mcpCount: number;
+  toolCount: number;
   installedAt?: string;
   lastCheckedAt?: string;
   lastError?: string;
@@ -284,6 +329,10 @@ export interface PluginRuntimeSnapshot {
   items: PluginRuntimeItem[];
   commands: PluginCommand[];
   prompts: PluginPrompt[];
+  agents: PluginAgent[];
+  hooks: PluginHook[];
+  mcpServers: PluginMcpServer[];
+  tools: PluginTool[];
 }
 
 export type McpRuntimeState = "disabled" | "stopped" | "starting" | "ready" | "degraded" | "error" | "stopping";
@@ -856,6 +905,18 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     updateDevelopmentSnapshot((snapshot) => snapshot.models.options.some((model) => model.id === modelId)
       ? { ...snapshot, models: { ...snapshot.models, selectedModel: modelId } }
       : snapshot);
+    return;
+  }
+  if (command.type === "selectAgentProfile") {
+    const agentProfileId = String((command.payload as { agentProfileId?: string } | undefined)?.agentProfileId ?? "").trim();
+    updateDevelopmentSnapshot((snapshot) => {
+      const knownIds = new Set([
+        "general", "search", "context", "prompt", "loop",
+        ...(snapshot.configurations.items.agents ?? []).filter((profile) => profile.value.enabled !== false).map((profile) => profile.id),
+        ...snapshot.pluginRuntime.agents.map((profile) => profile.id),
+      ]);
+      return knownIds.has(agentProfileId) ? { ...snapshot, selectedAgentProfileId: agentProfileId } : snapshot;
+    });
     return;
   }
   if (command.type === "getContextStatus") {
@@ -1741,6 +1802,10 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
           promptCount: 1,
           ruleCount: 0,
           skillCount: 0,
+          agentCount: 0,
+          hookCount: 0,
+          mcpCount: 0,
+          toolCount: 0,
           installedAt: new Date(Date.now() - 86_400_000).toISOString(),
           lastCheckedAt: new Date(Date.now() - 60_000).toISOString(),
         },
@@ -1767,6 +1832,10 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
           argumentHint: "[scope]",
         },
       ],
+      agents: [],
+      hooks: [],
+      mcpServers: [],
+      tools: [],
     },
     jobs: {
       state: "ready",

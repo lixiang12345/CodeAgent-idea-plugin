@@ -18,6 +18,7 @@ import com.intellij.problems.WolfTheProblemSolver
 import com.intellij.psi.PsiManager
 import com.intellij.util.concurrency.AppExecutorUtil
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -46,6 +47,7 @@ internal class AgentToolExecutor(
     private val project: Project,
     private val remoteClient: RemoteAgentClient? = null,
     remoteCapabilities: List<RemoteToolCapability> = emptyList(),
+    private val pluginTools: List<PluginToolDefinition> = emptyList(),
 ) : AgentToolRunner {
     private val root = Path.of(requireNotNull(project.basePath)).toAbsolutePath().normalize()
     private val guard = ProjectPathGuard(root)
@@ -56,6 +58,10 @@ internal class AgentToolExecutor(
     private val remoteTools = remoteCapabilities.filter(RemoteToolCapability::available).associateBy(RemoteToolCapability::name)
     private val json = Json { ignoreUnknownKeys = true }
     private val executor = AppExecutorUtil.getAppExecutorService()
+
+    @Volatile
+    private var activePluginTools = emptyMap<String, PluginToolDefinition>()
+
     override fun definitions(mode: String): List<AgentToolDefinition> = filterToolDefinitionsForMode(mode, buildList {
         add(tool("codebase_retrieval", "Use first for behavior, symbol, flow, or cross-file questions. Plans multi-stage retrieval and returns a deduplicated evidence pack with path and line citations", schema(
             properties = mapOf(
@@ -203,6 +209,20 @@ internal class AgentToolExecutor(
             properties = mapOf("path" to stringProperty("Project-relative file path")),
             required = listOf("path"),
         )))
+        val targets = associateBy(AgentToolDefinition::name)
+        val aliases = pluginTools.filter { alias -> alias.id !in targets && alias.target in targets }
+        activePluginTools = aliases.associateBy(PluginToolDefinition::id)
+        aliases.forEach { alias ->
+            val target = requireNotNull(targets[alias.target])
+            add(
+                AgentToolDefinition(
+                    name = alias.id,
+                    description = alias.description ?: "${alias.name}: ${target.description}",
+                    parameters = parametersWithDefaults(target.parameters, alias.defaults),
+                    risk = target.risk,
+                ),
+            )
+        }
     })
 
     override fun risk(toolName: String): ToolRisk =
@@ -210,6 +230,7 @@ internal class AgentToolExecutor(
             "write_file", "replace_text", "remove_files", "apply_patch", "run_terminal" -> ToolRisk.MUTATING
             "add_tasks", "update_tasks", "reorg_tasks", "ask_user", "open_browser", "open_file", "render_mermaid" -> ToolRisk.LOCAL_STATE
             else -> when {
+                activePluginTools.containsKey(toolName) -> risk(requireNotNull(activePluginTools[toolName]).target)
                 mcpRuntime.hasTool(toolName) -> mcpRuntime.risk(toolName)
                 acpRuntime.hasTool(toolName) -> ToolRisk.MUTATING
                 remoteTools.containsKey(toolName) -> toolRiskFromWire(requireNotNull(remoteTools[toolName]).risk)
@@ -245,7 +266,10 @@ internal class AgentToolExecutor(
             "run_terminal" -> runTerminal(args)
             "ask_user" -> askUser(args)
             "open_file" -> openFile(args)
-            else -> if (mcpRuntime.hasTool(call.name)) {
+            else -> activePluginTools[call.name]?.let { alias ->
+                val merged = JsonObject(alias.defaults + args)
+                executeBlocking(call.copy(name = alias.target, arguments = merged.toString()))
+            } ?: if (mcpRuntime.hasTool(call.name)) {
                 mcpRuntime.execute(call.name, args).join()
             } else if (acpRuntime.hasTool(call.name)) {
                 acpRuntime.execute(call.name, args).join()
@@ -812,6 +836,23 @@ internal fun toolRiskFromWire(value: String): ToolRisk = when (value) {
 
 private fun requireSupportedRunMode(mode: String) {
     require(mode in setOf("agent", "chat", "ask")) { "Unsupported mode: $mode" }
+}
+
+internal fun parametersWithDefaults(parameters: JsonObject, defaults: JsonObject): JsonObject {
+    if (defaults.isEmpty()) return parameters
+    val updated = parameters.toMutableMap()
+    (parameters["properties"] as? JsonObject)?.let { properties ->
+        updated["properties"] = JsonObject(
+            properties.mapValues { (name, schema) ->
+                val defaultValue = defaults[name]
+                if (defaultValue == null || schema !is JsonObject) schema else JsonObject(schema + ("default" to defaultValue))
+            },
+        )
+    }
+    (parameters["required"] as? JsonArray)?.let { required ->
+        updated["required"] = JsonArray(required.filter { it.jsonPrimitive.content !in defaults })
+    }
+    return JsonObject(updated)
 }
 
 internal fun JsonObject.optionalStringListArgument(name: String): List<String> {

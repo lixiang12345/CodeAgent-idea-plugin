@@ -17,7 +17,7 @@ services:
 
   backend:
     build: .
-    image: codeagent-backend:0.7.19
+    image: codeagent-backend:0.7.21
     container_name: codeagent-backend
     restart: unless-stopped
     env_file:

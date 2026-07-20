@@ -164,6 +164,48 @@ test("resolves configured Agent profiles and intersects read-only tool policy", 
   assert.deepEqual(effective.tools.map((tool) => tool.name), ["read_file"]);
 });
 
+test("accepts a strictly namespaced request-level plugin Agent profile without storing it", async () => {
+  const store = new MemoryProductStore();
+  const requestProfile = {
+    id: "plugin.review-pack.reviewer",
+    pluginId: "review-pack",
+    pluginVersion: "1.2.0",
+    name: "Plugin reviewer",
+    description: "Read-only review profile",
+    agentType: "search",
+    systemPrompt: "Report evidence-backed findings.",
+    model: null,
+    allowedTools: ["plugin.review-pack.review", "read_file"],
+    maxTurns: 8,
+    maxToolCalls: 20,
+    maxSubagentCalls: 2,
+    verificationPolicy: "none",
+    contextWindowTokens: 96_000,
+    reservedOutputTokens: 8_192,
+  };
+  const profile = await resolveAgentProfile({
+    store,
+    userId: "user-1",
+    profileId: requestProfile.id,
+    requestProfile,
+  });
+  assert.equal(profile.id, requestProfile.id);
+  assert.equal(profile.pluginId, "review-pack");
+  assert.equal(profile.builtin, false);
+  assert.deepEqual(profile.allowedTools, ["plugin.review-pack.review", "read_file"]);
+  assert.deepEqual(await store.listConfigurations("user-1", "agents"), []);
+
+  await assert.rejects(
+    () => resolveAgentProfile({
+      store,
+      userId: "user-1",
+      profileId: "plugin.other.reviewer",
+      requestProfile,
+    }),
+    /does not match agentProfileId/,
+  );
+});
+
 test("keeps Context and Prompt Agents on retrieval-first tool policy", () => {
   const tools = [
     { name: "codebase_retrieval", description: "Retrieve", parameters: {}, risk: "read_only" },

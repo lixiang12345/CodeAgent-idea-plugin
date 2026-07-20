@@ -31,7 +31,7 @@ The analyzed Augment Webview uses Redux and sagas rather than calling model prov
 
 Provider formatting and credentials are not owned by that Webview. The local sidecar contains agent/tool orchestration prompt extensions and sends a service-level streaming request; the remote product service can also select or compose default prompt policy. This supports the CodeAgent decision to keep UI prompts limited to user-facing starters while placing the authoritative agent harness in the backend.
 
-Current CodeAgent tool calls and results are structured. User-selected attachments, however, are currently rendered into a bounded text block of project-relative paths inside the user message. That is simpler than Augment's typed content-node model. Native image/file payloads and richer IDE-state nodes remain a compatibility gap; the current implementation does not claim parity for those data types.
+CodeAgent tool calls, tool results, and user-selected attachments are structured end to end. The IDE resolves bounded file, image, editor-selection, caret, and IDE-state metadata into typed attachment records. OpenAI receives native image/file content blocks, Anthropic receives native image blocks with bounded text fallback for other file types, and providers without a native attachment surface receive a bounded textual representation. Payload size, MIME type, Base64 content, project-relative paths, and IDE metadata are validated before the backend model gateway consumes them.
 
 ## ContextEngine boundary
 

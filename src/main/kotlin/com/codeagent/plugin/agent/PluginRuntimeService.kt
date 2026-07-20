@@ -7,9 +7,14 @@ import com.intellij.util.concurrency.AppExecutorUtil
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -46,6 +51,34 @@ internal data class PluginPromptDefinition(
     val argumentHint: String? = null,
 )
 
+internal data class PluginAgentDefinition(
+    val id: String,
+    val pluginId: String,
+    val pluginVersion: String,
+    val name: String,
+    val description: String? = null,
+    val agentType: String = "general",
+    val systemPrompt: String? = null,
+    val model: String? = null,
+    val allowedTools: List<String> = emptyList(),
+    val maxTurns: Int = 12,
+    val maxToolCalls: Int = 48,
+    val maxSubagentCalls: Int = 4,
+    val verificationPolicy: String = "after-mutation",
+    val contextWindowTokens: Int = 256_000,
+    val reservedOutputTokens: Int = 8_192,
+)
+
+internal data class PluginToolDefinition(
+    val id: String,
+    val pluginId: String,
+    val pluginVersion: String,
+    val name: String,
+    val description: String? = null,
+    val target: String,
+    val defaults: JsonObject = JsonObject(emptyMap()),
+)
+
 internal data class PluginRuntimeItem(
     val id: String,
     val name: String,
@@ -63,6 +96,10 @@ internal data class PluginRuntimeItem(
     val promptCount: Int = 0,
     val ruleCount: Int = 0,
     val skillCount: Int = 0,
+    val agentCount: Int = 0,
+    val hookCount: Int = 0,
+    val mcpCount: Int = 0,
+    val toolCount: Int = 0,
     val installedAt: String? = null,
     val lastCheckedAt: String? = null,
     val lastError: String? = null,
@@ -76,6 +113,10 @@ internal data class PluginRuntimeSnapshot(
     val prompts: List<PluginPromptDefinition> = emptyList(),
     val rules: List<WorkspaceRule> = emptyList(),
     val skills: List<WorkspaceSkill> = emptyList(),
+    val agents: List<PluginAgentDefinition> = emptyList(),
+    val hooks: List<RemoteConfiguration> = emptyList(),
+    val mcpServers: List<RemoteConfiguration> = emptyList(),
+    val tools: List<PluginToolDefinition> = emptyList(),
 )
 
 internal data class PluginDefinition(
@@ -103,6 +144,10 @@ internal data class DeclarativePluginManifest(
     val prompts: List<DeclarativePluginPrompt> = emptyList(),
     val rules: List<DeclarativePluginRule> = emptyList(),
     val skills: List<DeclarativePluginSkill> = emptyList(),
+    val agents: List<DeclarativePluginAgent> = emptyList(),
+    val hooks: List<DeclarativePluginHook> = emptyList(),
+    val mcp: List<DeclarativePluginMcpServer> = emptyList(),
+    val tools: List<DeclarativePluginTool> = emptyList(),
 )
 
 @Serializable
@@ -140,6 +185,65 @@ internal data class DeclarativePluginSkill(
     val name: String,
     val description: String? = null,
     val content: String,
+)
+
+@Serializable
+internal data class DeclarativePluginAgent(
+    val id: String,
+    val name: String,
+    val description: String? = null,
+    val agentType: String = "general",
+    val systemPrompt: String? = null,
+    val model: String? = null,
+    val allowedTools: List<String> = emptyList(),
+    val maxTurns: Int = 12,
+    val maxToolCalls: Int = 48,
+    val maxSubagentCalls: Int = 4,
+    val verificationPolicy: String = "after-mutation",
+    val contextWindowTokens: Int = 256_000,
+    val reservedOutputTokens: Int = 8_192,
+)
+
+@Serializable
+internal data class DeclarativePluginHook(
+    val id: String,
+    val name: String,
+    val event: String,
+    val command: String,
+    val timeoutSeconds: Int = 60,
+    val runPolicy: String = "manual",
+    val failurePolicy: String = "continue",
+    val requiredEnvironment: List<String> = emptyList(),
+)
+
+@Serializable
+internal data class DeclarativePluginMcpServer(
+    val id: String,
+    val name: String,
+    val description: String? = null,
+    val transport: String = "stdio",
+    val command: String? = null,
+    val args: List<String> = emptyList(),
+    val cwd: String? = null,
+    val url: String? = null,
+    val authMode: String = "none",
+    val tokenEnvironment: String? = null,
+    val authorizationEndpoint: String? = null,
+    val tokenEndpoint: String? = null,
+    val clientId: String? = null,
+    val scopes: List<String> = emptyList(),
+    val audience: String? = null,
+    val requiredEnvironment: List<String> = emptyList(),
+    val timeoutSeconds: Int = 60,
+)
+
+@Serializable
+internal data class DeclarativePluginTool(
+    val id: String,
+    val name: String,
+    val description: String? = null,
+    val target: String,
+    val defaults: JsonObject = JsonObject(emptyMap()),
 )
 
 internal data class StoredPluginManifest(
@@ -246,6 +350,10 @@ internal class PluginRuntime(
         val prompts = activePromptsLocked()
         val rules = activeRulesLocked()
         val skills = activeSkillsLocked()
+        val agents = activeAgentsLocked()
+        val hooks = activeHooksLocked()
+        val mcpServers = activeMcpServersLocked()
+        val tools = activeToolsLocked()
         val items = definitions.values.sortedBy(PluginDefinition::name).map { definition ->
             val installedPlugin = installed[definition.id]
             val checkedPlugin = checked[definition.id]
@@ -285,6 +393,10 @@ internal class PluginRuntime(
                 promptCount = prompts.count { it.pluginId == definition.id },
                 ruleCount = rules.count { it.source == "plugin:${definition.id}" },
                 skillCount = skills.count { it.source == "plugin:${definition.id}" },
+                agentCount = agents.count { it.pluginId == definition.id },
+                hookCount = hooks.count { it.value["pluginId"]?.jsonPrimitive?.contentOrNull == definition.id },
+                mcpCount = mcpServers.count { it.value["pluginId"]?.jsonPrimitive?.contentOrNull == definition.id },
+                toolCount = tools.count { it.pluginId == definition.id },
                 installedAt = installedPlugin?.installedAt,
                 lastCheckedAt = checkedPlugin?.checkedAt,
                 lastError = lastError,
@@ -303,13 +415,17 @@ internal class PluginRuntime(
                 "No plugins configured"
             } else {
                 "${items.size} configured · $installedCount installed · $activeCount active · " +
-                    "${commands.size + prompts.size + rules.size + skills.size} contributions"
+                    "${commands.size + prompts.size + rules.size + skills.size + agents.size + hooks.size + mcpServers.size + tools.size} contributions"
             },
             items = items,
             commands = commands,
             prompts = prompts,
             rules = rules,
             skills = skills,
+            agents = agents,
+            hooks = hooks,
+            mcpServers = mcpServers,
+            tools = tools,
         )
     }
 
@@ -347,7 +463,9 @@ internal class PluginRuntime(
                         prompt = command.prompt,
                         argumentHint = command.argumentHint,
                         mode = command.mode,
-                        agentProfileId = command.agentProfileId,
+                        agentProfileId = command.agentProfileId?.let { profileId ->
+                            namespacedPluginReference(definition.id, profileId, manifest.agents.mapTo(mutableSetOf()) { it.id })
+                        },
                     )
                 }
             }
@@ -405,6 +523,112 @@ internal class PluginRuntime(
                 }
             }
             .sortedBy(WorkspaceSkill::id)
+            .toList()
+
+    private fun activeAgentsLocked(): List<PluginAgentDefinition> =
+        activeManifestsLocked("agents")
+            .flatMap { (definition, manifest) ->
+                val localToolIds = manifest.tools.mapTo(mutableSetOf()) { it.id }
+                manifest.agents.asSequence().map { agent ->
+                    PluginAgentDefinition(
+                        id = pluginContributionId(definition.id, agent.id),
+                        pluginId = definition.id,
+                        pluginVersion = manifest.version,
+                        name = agent.name,
+                        description = agent.description,
+                        agentType = agent.agentType,
+                        systemPrompt = agent.systemPrompt,
+                        model = agent.model,
+                        allowedTools = agent.allowedTools.map { toolId ->
+                            namespacedPluginReference(definition.id, toolId, localToolIds)
+                        },
+                        maxTurns = agent.maxTurns,
+                        maxToolCalls = agent.maxToolCalls,
+                        maxSubagentCalls = agent.maxSubagentCalls,
+                        verificationPolicy = agent.verificationPolicy,
+                        contextWindowTokens = agent.contextWindowTokens,
+                        reservedOutputTokens = agent.reservedOutputTokens,
+                    )
+                }
+            }
+            .sortedBy(PluginAgentDefinition::id)
+            .toList()
+
+    private fun activeHooksLocked(): List<RemoteConfiguration> =
+        activeManifestsLocked("hooks")
+            .flatMap { (definition, manifest) ->
+                manifest.hooks.asSequence().map { hook ->
+                    RemoteConfiguration(
+                        id = pluginContributionId(definition.id, hook.id),
+                        kind = "hooks",
+                        value = buildJsonObject {
+                            put("name", hook.name)
+                            put("enabled", true)
+                            put("event", hook.event)
+                            put("command", hook.command)
+                            put("timeoutSeconds", hook.timeoutSeconds)
+                            put("runPolicy", hook.runPolicy)
+                            put("failurePolicy", hook.failurePolicy)
+                            put("requiredEnvironment", buildJsonArray { hook.requiredEnvironment.forEach { add(JsonPrimitive(it)) } })
+                            put("pluginId", definition.id)
+                            put("pluginVersion", manifest.version)
+                        },
+                    )
+                }
+            }
+            .sortedBy(RemoteConfiguration::id)
+            .toList()
+
+    private fun activeMcpServersLocked(): List<RemoteConfiguration> =
+        activeManifestsLocked("mcp")
+            .flatMap { (definition, manifest) ->
+                manifest.mcp.asSequence().map { server ->
+                    RemoteConfiguration(
+                        id = pluginContributionId(definition.id, server.id),
+                        kind = "mcp",
+                        value = buildJsonObject {
+                            put("name", server.name)
+                            server.description?.let { put("description", it) }
+                            put("enabled", true)
+                            put("transport", server.transport)
+                            server.command?.let { put("command", it) }
+                            put("args", buildJsonArray { server.args.forEach { add(JsonPrimitive(it)) } })
+                            server.cwd?.let { put("cwd", it) }
+                            server.url?.let { put("url", it) }
+                            put("authMode", server.authMode)
+                            server.tokenEnvironment?.let { put("tokenEnvironment", it) }
+                            server.authorizationEndpoint?.let { put("authorizationEndpoint", it) }
+                            server.tokenEndpoint?.let { put("tokenEndpoint", it) }
+                            server.clientId?.let { put("clientId", it) }
+                            put("scopes", buildJsonArray { server.scopes.forEach { add(JsonPrimitive(it)) } })
+                            server.audience?.let { put("audience", it) }
+                            put("requiredEnvironment", buildJsonArray { server.requiredEnvironment.forEach { add(JsonPrimitive(it)) } })
+                            put("timeoutSeconds", server.timeoutSeconds)
+                            put("pluginId", definition.id)
+                            put("pluginVersion", manifest.version)
+                        },
+                    )
+                }
+            }
+            .sortedBy(RemoteConfiguration::id)
+            .toList()
+
+    private fun activeToolsLocked(): List<PluginToolDefinition> =
+        activeManifestsLocked("tools")
+            .flatMap { (definition, manifest) ->
+                manifest.tools.asSequence().map { tool ->
+                    PluginToolDefinition(
+                        id = pluginContributionId(definition.id, tool.id),
+                        pluginId = definition.id,
+                        pluginVersion = manifest.version,
+                        name = tool.name,
+                        description = tool.description,
+                        target = tool.target,
+                        defaults = tool.defaults,
+                    )
+                }
+            }
+            .sortedBy(PluginToolDefinition::id)
             .toList()
 
     private fun activeManifestsLocked(capability: String): Sequence<Pair<PluginDefinition, DeclarativePluginManifest>> =
@@ -610,6 +834,18 @@ private fun validateManifest(
     require(manifest.skills.isEmpty() || "skills" in declaredCapabilities) {
         "Plugin skill contributions require the skills capability"
     }
+    require(manifest.agents.isEmpty() || "agents" in declaredCapabilities) {
+        "Plugin Agent contributions require the agents capability"
+    }
+    require(manifest.hooks.isEmpty() || "hooks" in declaredCapabilities) {
+        "Plugin hook contributions require the hooks capability"
+    }
+    require(manifest.mcp.isEmpty() || "mcp" in declaredCapabilities) {
+        "Plugin MCP contributions require the mcp capability"
+    }
+    require(manifest.tools.isEmpty() || "tools" in declaredCapabilities) {
+        "Plugin tool contributions require the tools capability"
+    }
     require(manifest.commands.size <= MAX_PLUGIN_CONTRIBUTIONS_PER_TYPE) {
         "Plugin declares too many command contributions"
     }
@@ -622,8 +858,21 @@ private fun validateManifest(
     require(manifest.skills.size <= MAX_PLUGIN_CONTRIBUTIONS_PER_TYPE) {
         "Plugin declares too many skill contributions"
     }
+    require(manifest.agents.size <= MAX_PLUGIN_CONTRIBUTIONS_PER_TYPE) {
+        "Plugin declares too many Agent contributions"
+    }
+    require(manifest.hooks.size <= MAX_PLUGIN_CONTRIBUTIONS_PER_TYPE) {
+        "Plugin declares too many hook contributions"
+    }
+    require(manifest.mcp.size <= MAX_PLUGIN_CONTRIBUTIONS_PER_TYPE) {
+        "Plugin declares too many MCP contributions"
+    }
+    require(manifest.tools.size <= MAX_PLUGIN_CONTRIBUTIONS_PER_TYPE) {
+        "Plugin declares too many tool contributions"
+    }
     require(
-        manifest.commands.size + manifest.prompts.size + manifest.rules.size + manifest.skills.size <=
+        manifest.commands.size + manifest.prompts.size + manifest.rules.size + manifest.skills.size +
+            manifest.agents.size + manifest.hooks.size + manifest.mcp.size + manifest.tools.size <=
             MAX_PLUGIN_CONTRIBUTIONS_TOTAL,
     ) {
         "Plugin declares too many contributions"
@@ -648,7 +897,11 @@ private fun validateManifest(
         require(command.mode in setOf("inherit", "agent", "chat", "ask")) {
             "Plugin command mode is invalid"
         }
-        require(command.agentProfileId == null || command.agentProfileId in BUILT_IN_AGENT_PROFILES) {
+        require(
+            command.agentProfileId == null ||
+                command.agentProfileId in BUILT_IN_AGENT_PROFILES ||
+                manifest.agents.any { it.id == command.agentProfileId },
+        ) {
             "Plugin command Agent profile is invalid"
         }
     }
@@ -698,6 +951,131 @@ private fun validateManifest(
             "Plugin skill content is invalid"
         }
     }
+    val agentIds = mutableSetOf<String>()
+    manifest.agents.forEach { agent ->
+        require(PLUGIN_COMMAND_ID_PATTERN.matches(agent.id)) { "Invalid plugin Agent ID '${agent.id}'" }
+        require(agentIds.add(agent.id)) { "Duplicate plugin Agent ID '${agent.id}'" }
+        require(namespacedContributionIdWithinLimit(manifest.id, agent.id)) {
+            "Namespaced plugin Agent ID is too long"
+        }
+        require(agent.name.isNotBlank() && agent.name.length <= 160) { "Plugin Agent name is invalid" }
+        require(agent.description == null || agent.description.length <= 2_000) {
+            "Plugin Agent description is too long"
+        }
+        require(agent.agentType in AGENT_PROFILE_TYPES) { "Plugin Agent type is invalid" }
+        require(agent.systemPrompt == null || agent.systemPrompt.length <= 100_000) {
+            "Plugin Agent system prompt is too long"
+        }
+        require(agent.model == null || agent.model.length <= 240) { "Plugin Agent model is invalid" }
+        require(agent.allowedTools.distinct().size == agent.allowedTools.size) {
+            "Plugin Agent allowed tools must be unique"
+        }
+        require(agent.allowedTools.size <= 128 && agent.allowedTools.all(::validPluginReference)) {
+            "Plugin Agent allowed tools are invalid"
+        }
+        require(agent.maxTurns in 1..64) { "Plugin Agent maxTurns must be between 1 and 64" }
+        require(agent.maxToolCalls in 1..256) { "Plugin Agent maxToolCalls must be between 1 and 256" }
+        require(agent.maxSubagentCalls in 0..16) { "Plugin Agent maxSubagentCalls must be between 0 and 16" }
+        require(agent.verificationPolicy in VERIFICATION_POLICIES) {
+            "Plugin Agent verification policy is invalid"
+        }
+        require(agent.contextWindowTokens in 32_768..2_000_000) {
+            "Plugin Agent context window is invalid"
+        }
+        require(agent.reservedOutputTokens in 1_024..65_536 && agent.reservedOutputTokens < agent.contextWindowTokens) {
+            "Plugin Agent reserved output budget is invalid"
+        }
+    }
+    val hookIds = mutableSetOf<String>()
+    manifest.hooks.forEach { hook ->
+        require(PLUGIN_COMMAND_ID_PATTERN.matches(hook.id)) { "Invalid plugin hook ID '${hook.id}'" }
+        require(hookIds.add(hook.id)) { "Duplicate plugin hook ID '${hook.id}'" }
+        require(namespacedContributionIdWithinLimit(manifest.id, hook.id)) {
+            "Namespaced plugin hook ID is too long"
+        }
+        require(hook.name.isNotBlank() && hook.name.length <= 160) { "Plugin hook name is invalid" }
+        require(hook.event in HOOK_EVENTS) { "Plugin hook event is invalid" }
+        require(hook.command.isNotBlank() && hook.command.length <= 4_000) { "Plugin hook command is invalid" }
+        require(hook.timeoutSeconds in 1..600) { "Plugin hook timeout is invalid" }
+        require(hook.runPolicy in HOOK_RUN_POLICIES) { "Plugin hook run policy is invalid" }
+        require(hook.failurePolicy in HOOK_FAILURE_POLICIES) { "Plugin hook failure policy is invalid" }
+        require(hook.requiredEnvironment.size <= 32 && hook.requiredEnvironment.all(::validEnvironmentName)) {
+            "Plugin hook environment requirements are invalid"
+        }
+    }
+    val mcpIds = mutableSetOf<String>()
+    manifest.mcp.forEach { server ->
+        require(PLUGIN_COMMAND_ID_PATTERN.matches(server.id)) { "Invalid plugin MCP ID '${server.id}'" }
+        require(mcpIds.add(server.id)) { "Duplicate plugin MCP ID '${server.id}'" }
+        require(namespacedContributionIdWithinLimit(manifest.id, server.id)) {
+            "Namespaced plugin MCP ID is too long"
+        }
+        require(server.name.isNotBlank() && server.name.length <= 160) { "Plugin MCP name is invalid" }
+        require(server.description == null || server.description.length <= 2_000) {
+            "Plugin MCP description is too long"
+        }
+        require(server.transport in MCP_TRANSPORTS) { "Plugin MCP transport is invalid" }
+        if (server.transport == "stdio") {
+            require(!server.command.isNullOrBlank() && server.command.length <= 4_000) {
+                "stdio plugin MCP command is required"
+            }
+            require(server.url == null) { "stdio plugin MCP cannot declare a URL" }
+            require(server.authMode == "none") { "stdio plugin MCP authentication must be none" }
+        } else {
+            require(server.command == null) { "HTTP plugin MCP cannot declare a command" }
+            require(server.url != null) { "HTTP plugin MCP URL is required" }
+            validatePluginSource(server.url)
+            require(server.authMode in MCP_AUTH_MODES) { "Plugin MCP authentication is invalid" }
+        }
+        require(server.args.size <= 128 && server.args.all { it.length <= 2_000 }) {
+            "Plugin MCP arguments are invalid"
+        }
+        require(server.cwd == null || (!URI.create(server.cwd).isAbsolute && server.cwd.length <= 4_000)) {
+            "Plugin MCP working directory must be relative"
+        }
+        if (server.authMode == "bearer-environment") {
+            require(validEnvironmentName(server.tokenEnvironment)) { "Plugin MCP token environment is invalid" }
+        }
+        if (server.authMode == "oauth") {
+            require(server.authorizationEndpoint != null && server.tokenEndpoint != null) {
+                "Plugin MCP OAuth endpoints are required"
+            }
+            validatePluginSource(server.authorizationEndpoint)
+            validatePluginSource(server.tokenEndpoint)
+            require(!server.clientId.isNullOrBlank() && server.clientId.length <= 500) {
+                "Plugin MCP OAuth client ID is required"
+            }
+            require(server.scopes.size <= 32 && server.scopes.all { it.length in 1..240 }) {
+                "Plugin MCP OAuth scopes are invalid"
+            }
+            require(server.audience == null || server.audience.length <= 1_000) {
+                "Plugin MCP OAuth audience is too long"
+            }
+        }
+        require(server.requiredEnvironment.size <= 32 && server.requiredEnvironment.all(::validEnvironmentName)) {
+            "Plugin MCP environment requirements are invalid"
+        }
+        require(server.timeoutSeconds in 1..600) { "Plugin MCP timeout is invalid" }
+    }
+    val toolIds = mutableSetOf<String>()
+    manifest.tools.forEach { tool ->
+        require(PLUGIN_COMMAND_ID_PATTERN.matches(tool.id)) { "Invalid plugin tool ID '${tool.id}'" }
+        require(toolIds.add(tool.id)) { "Duplicate plugin tool ID '${tool.id}'" }
+        require(namespacedContributionIdWithinLimit(manifest.id, tool.id)) {
+            "Namespaced plugin tool ID is too long"
+        }
+        require(tool.name.isNotBlank() && tool.name.length <= 160) { "Plugin tool name is invalid" }
+        require(tool.description == null || tool.description.length <= 2_000) {
+            "Plugin tool description is too long"
+        }
+        require(validPluginReference(tool.target) && !tool.target.startsWith("plugin.")) {
+            "Plugin tool target is invalid"
+        }
+        require(tool.defaults.size <= 64 && tool.defaults.keys.all(::validPluginReference)) {
+            "Plugin tool defaults are invalid"
+        }
+        require(tool.defaults.toString().length <= 16_000) { "Plugin tool defaults are too large" }
+    }
     return manifest.copy(capabilities = declaredCapabilities)
 }
 
@@ -719,6 +1097,21 @@ private fun sha256(bytes: ByteArray): String =
     MessageDigest.getInstance("SHA-256")
         .digest(bytes)
         .joinToString("") { byte -> (byte.toInt() and 0xff).toString(16).padStart(2, '0') }
+
+internal fun pluginContributionId(pluginId: String, contributionId: String): String =
+    "plugin.$pluginId.$contributionId"
+
+private fun namespacedContributionIdWithinLimit(pluginId: String, contributionId: String): Boolean =
+    pluginContributionId(pluginId, contributionId).length <= 120
+
+private fun namespacedPluginReference(pluginId: String, reference: String, localIds: Set<String>): String =
+    if (reference in localIds) pluginContributionId(pluginId, reference) else reference
+
+private fun validPluginReference(value: String): Boolean =
+    value.length in 1..160 && Regex("^[A-Za-z0-9._:-]+$").matches(value)
+
+private fun validEnvironmentName(value: String?): Boolean =
+    value != null && Regex("^[A-Za-z_][A-Za-z0-9_]{0,127}$").matches(value)
 
 private fun Throwable.rootMessage(): String {
     var current = this
@@ -744,7 +1137,14 @@ private val ALLOWED_PLUGIN_CAPABILITIES = setOf(
     "prompts",
 )
 private val BUILT_IN_AGENT_PROFILES = setOf("general", "search", "context", "prompt", "loop")
+private val AGENT_PROFILE_TYPES = setOf("general", "search", "context", "prompt", "loop")
+private val VERIFICATION_POLICIES = setOf("none", "after-mutation")
 private val RULE_TRIGGERS = setOf("always", "manual", "agent")
+private val HOOK_EVENTS = setOf("before-run", "after-run", "before-tool", "after-tool", "on-error")
+private val HOOK_RUN_POLICIES = setOf("manual", "automatic")
+private val HOOK_FAILURE_POLICIES = setOf("continue", "fail-run")
+private val MCP_TRANSPORTS = setOf("stdio", "streamable-http", "sse")
+private val MCP_AUTH_MODES = setOf("none", "bearer-environment", "oauth")
 private const val MAX_PLUGIN_MANIFEST_BYTES = 1_048_576
 private const val MAX_PLUGIN_CONTRIBUTIONS_PER_TYPE = 32
 private const val MAX_PLUGIN_CONTRIBUTIONS_TOTAL = 64

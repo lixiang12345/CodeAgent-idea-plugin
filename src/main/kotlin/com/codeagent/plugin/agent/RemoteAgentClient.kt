@@ -482,10 +482,30 @@ internal data class RemoteCompletionResponse(
 internal data class RemoteRunRequest(
     val mode: String,
     val agentProfileId: String = "general",
+    val agentProfile: RemoteAgentProfile? = null,
     val model: String? = null,
     val messages: List<RemoteMessage>,
     val tools: List<RemoteToolDefinition>,
     val workspace: RemoteWorkspace,
+)
+
+@Serializable
+internal data class RemoteAgentProfile(
+    val id: String,
+    val pluginId: String,
+    val pluginVersion: String,
+    val name: String,
+    val description: String? = null,
+    val agentType: String,
+    val systemPrompt: String? = null,
+    val model: String? = null,
+    val allowedTools: List<String> = emptyList(),
+    val maxTurns: Int,
+    val maxToolCalls: Int,
+    val maxSubagentCalls: Int,
+    val verificationPolicy: String,
+    val contextWindowTokens: Int,
+    val reservedOutputTokens: Int,
 )
 
 @Serializable

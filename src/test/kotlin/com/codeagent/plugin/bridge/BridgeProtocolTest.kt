@@ -272,6 +272,10 @@ class BridgeProtocolTest {
                     name = "Security review",
                 ),
             ),
+            agents = emptyList(),
+            hooks = emptyList(),
+            mcpServers = emptyList(),
+            tools = emptyList(),
         )
 
         val encoded = json.encodeToString(plugins)

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CodeAgent Backend API",
-    "version": "0.7.19",
+    "version": "0.7.21",
     "description": "Protocol version 1 API used by the CodeAgent IDEA capability gateway."
   },
   "servers": [
@@ -1307,6 +1307,9 @@
             "pattern": "^[A-Za-z0-9._-]{1,120}$",
             "default": "general"
           },
+          "agentProfile": {
+            "$ref": "#/components/schemas/PluginAgentProfile"
+          },
           "model": {
             "type": "string"
           },
@@ -1347,6 +1350,40 @@
               "null"
             ]
           }
+        },
+        "additionalProperties": false
+      },
+      "PluginAgentProfile": {
+        "type": "object",
+        "required": [
+          "id",
+          "pluginId",
+          "pluginVersion",
+          "name",
+          "agentType",
+          "maxTurns",
+          "maxToolCalls",
+          "maxSubagentCalls",
+          "verificationPolicy",
+          "contextWindowTokens",
+          "reservedOutputTokens"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^plugin\\.[A-Za-z0-9._-]{1,120}\\.[A-Za-z0-9_-]{1,80}$" },
+          "pluginId": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,120}$" },
+          "pluginVersion": { "type": "string", "maxLength": 240 },
+          "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "description": { "type": ["string", "null"], "maxLength": 2000 },
+          "agentType": { "type": "string", "enum": ["general", "search", "context", "prompt", "loop"] },
+          "systemPrompt": { "type": ["string", "null"], "maxLength": 100000 },
+          "model": { "type": ["string", "null"], "maxLength": 240 },
+          "allowedTools": { "type": "array", "maxItems": 128, "items": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,160}$" } },
+          "maxTurns": { "type": "integer", "minimum": 1, "maximum": 64 },
+          "maxToolCalls": { "type": "integer", "minimum": 1, "maximum": 256 },
+          "maxSubagentCalls": { "type": "integer", "minimum": 0, "maximum": 16 },
+          "verificationPolicy": { "type": "string", "enum": ["none", "after-mutation"] },
+          "contextWindowTokens": { "type": "integer", "minimum": 32768, "maximum": 2000000 },
+          "reservedOutputTokens": { "type": "integer", "minimum": 1024, "maximum": 65536 }
         },
         "additionalProperties": false
       },

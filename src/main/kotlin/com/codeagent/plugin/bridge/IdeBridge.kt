@@ -23,6 +23,7 @@ import com.codeagent.plugin.agent.PluginRuntimeService
 import com.codeagent.plugin.agent.PluginRuntimeSnapshot
 import com.codeagent.plugin.agent.RemoteContextUpdated
 import com.codeagent.plugin.agent.RemoteAgentClient
+import com.codeagent.plugin.agent.RemoteConfiguration
 import com.codeagent.plugin.agent.RemoteBackendHealth
 import com.codeagent.plugin.agent.RemoteJob
 import com.codeagent.plugin.agent.RemoteJobInput
@@ -72,6 +73,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.nio.file.Path
 import java.nio.charset.StandardCharsets
@@ -208,6 +211,7 @@ class IdeBridge(
         }
         pluginRuntimeService.setChangeListener {
             pluginRuntime = pluginRuntimeService.snapshot().toDto()
+            reconcilePluginContributions()
             emitSnapshot()
         }
         conversationSummaries.setChangeListener { snapshot ->
@@ -1360,10 +1364,36 @@ class IdeBridge(
         emit("snapshot", json.encodeToJsonElement(snapshot))
     }
 
+    private fun reconcilePluginContributions() {
+        val contributions = pluginRuntimeService.snapshot()
+        val accountHooks = remoteConfigurations("hooks")
+        val accountMcp = remoteConfigurations("mcp")
+        val hookIds = accountHooks.mapTo(mutableSetOf(), RemoteConfiguration::id)
+        val mcpIds = accountMcp.mapTo(mutableSetOf(), RemoteConfiguration::id)
+        hookRuntimeService.reconcile(accountHooks + contributions.hooks.filter { it.id !in hookIds })
+        mcpRuntimeService.reconcile(accountMcp + contributions.mcpServers.filter { it.id !in mcpIds })
+            .whenComplete { _, error ->
+                if (error != null) {
+                    emit("error", mapOf("message" to "MCP activation failed: ${error.rootMessage()}"))
+                }
+            }
+    }
+
+    private fun remoteConfigurations(kind: String): List<RemoteConfiguration> =
+        configurations.items[kind].orEmpty().map { configuration ->
+            RemoteConfiguration(
+                id = configuration.id,
+                kind = configuration.kind,
+                value = configuration.value,
+                createdAt = configuration.createdAt,
+                updatedAt = configuration.updatedAt,
+            )
+        }
+
     private fun isKnownAgentProfile(agentProfileId: String): Boolean =
         agentProfileId in BUILT_IN_AGENT_PROFILES || configurations.items["agents"].orEmpty().any { configuration ->
             configuration.id == agentProfileId && configuration.value["enabled"]?.toString() != "false"
-        }
+        } || pluginRuntimeService.snapshot().agents.any { it.id == agentProfileId }
 
     private fun refreshContextStatus(manual: Boolean = false) {
         if (manual) {
@@ -1787,11 +1817,11 @@ class IdeBridge(
 
     private fun clearAuthenticatedCapabilities(label: String) {
         synchronized(stateLock) { productJobsGeneration += 1 }
-        mcpRuntimeService.reconcile(emptyList()).exceptionally { null }
-        hookRuntimeService.reconcile(emptyList())
-        pluginRuntimeService.reconcile(emptyList())
         backendTools = emptyList()
         configurations = ConfigurationSnapshotDto(state = "unavailable", label = label)
+        pluginRuntimeService.reconcile(emptyList())
+        mcpRuntimeService.reconcile(emptyList()).exceptionally { null }
+        hookRuntimeService.reconcile(emptyList())
         productJobs = ProductJobSnapshotDto(state = "unavailable", label = label)
     }
 
@@ -1865,13 +1895,9 @@ class IdeBridge(
                 )
             }
             if (error == null) {
-                mcpRuntimeService.reconcile(requests.getValue("mcp").join().data).whenComplete { _, mcpError ->
-                    if (mcpError != null) emit("error", mapOf("message" to "MCP activation failed: ${mcpError.rootMessage()}"))
-                }
                 acpRuntimeService.reconcile(requests.getValue("acp").join().data).whenComplete { _, acpError ->
                     if (acpError != null) emit("error", mapOf("message" to "ACP activation failed: ${acpError.rootMessage()}"))
                 }
-                hookRuntimeService.reconcile(requests.getValue("hooks").join().data)
                 pluginRuntimeService.reconcile(requests.getValue("plugins").join().data)
                 val selected = synchronized(stateLock) { conversations.active().selectedAgentProfileId }
                 if (!isKnownAgentProfile(selected)) {
@@ -2240,6 +2266,10 @@ class IdeBridge(
                 promptCount = item.promptCount,
                 ruleCount = item.ruleCount,
                 skillCount = item.skillCount,
+                agentCount = item.agentCount,
+                hookCount = item.hookCount,
+                mcpCount = item.mcpCount,
+                toolCount = item.toolCount,
                 installedAt = item.installedAt,
                 lastCheckedAt = item.lastCheckedAt,
                 lastError = item.lastError,
@@ -2265,6 +2295,51 @@ class IdeBridge(
                 name = prompt.name,
                 description = prompt.description,
                 argumentHint = prompt.argumentHint,
+            )
+        },
+        agents = agents.map { agent ->
+            PluginAgentDto(
+                id = agent.id,
+                pluginId = agent.pluginId,
+                pluginVersion = agent.pluginVersion,
+                name = agent.name,
+                description = agent.description,
+                agentType = agent.agentType,
+                model = agent.model,
+                allowedTools = agent.allowedTools,
+                maxTurns = agent.maxTurns,
+                maxToolCalls = agent.maxToolCalls,
+                maxSubagentCalls = agent.maxSubagentCalls,
+                verificationPolicy = agent.verificationPolicy,
+                contextWindowTokens = agent.contextWindowTokens,
+                reservedOutputTokens = agent.reservedOutputTokens,
+            )
+        },
+        hooks = hooks.map { hook ->
+            PluginHookDto(
+                id = hook.id,
+                pluginId = hook.value["pluginId"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                name = hook.value["name"]?.jsonPrimitive?.contentOrNull ?: hook.id,
+                event = hook.value["event"]?.jsonPrimitive?.contentOrNull ?: "before-run",
+                runPolicy = hook.value["runPolicy"]?.jsonPrimitive?.contentOrNull ?: "manual",
+            )
+        },
+        mcpServers = mcpServers.map { server ->
+            PluginMcpServerDto(
+                id = server.id,
+                pluginId = server.value["pluginId"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                name = server.value["name"]?.jsonPrimitive?.contentOrNull ?: server.id,
+                transport = server.value["transport"]?.jsonPrimitive?.contentOrNull ?: "stdio",
+                authMode = server.value["authMode"]?.jsonPrimitive?.contentOrNull ?: "none",
+            )
+        },
+        tools = tools.map { tool ->
+            PluginToolDto(
+                id = tool.id,
+                pluginId = tool.pluginId,
+                name = tool.name,
+                description = tool.description,
+                target = tool.target,
             )
         },
     )

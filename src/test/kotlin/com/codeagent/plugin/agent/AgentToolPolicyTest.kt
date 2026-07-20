@@ -1,6 +1,11 @@
 package com.codeagent.plugin.agent
 
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -51,6 +56,25 @@ class AgentToolPolicyTest {
         assertFailsWith<IllegalArgumentException> {
             filterToolDefinitionsForMode("unknown", definitions())
         }
+    }
+
+    @Test
+    fun `plugin tool defaults make only defaulted schema fields optional`() {
+        val parameters = buildJsonObject {
+            put("type", "object")
+            put("required", kotlinx.serialization.json.buildJsonArray {
+                add(JsonPrimitive("path"))
+                add(JsonPrimitive("start_line"))
+            })
+            put("properties", buildJsonObject {
+                put("path", buildJsonObject { put("type", "string") })
+                put("start_line", buildJsonObject { put("type", "integer") })
+            })
+        }
+        val updated = parametersWithDefaults(parameters, buildJsonObject { put("path", "README.md") })
+
+        assertEquals(listOf("start_line"), updated["required"]?.jsonArray?.map { it.jsonPrimitive.content })
+        assertEquals("README.md", updated["properties"]?.jsonObject?.get("path")?.jsonObject?.get("default")?.jsonPrimitive?.content)
     }
 
     private fun definitions() = listOf(

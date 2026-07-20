@@ -11,6 +11,9 @@ export const AGENT_PROFILE_TYPES = Object.freeze(["general", "search", "context"
 export const VERIFICATION_POLICIES = Object.freeze(["none", "after-mutation"]);
 
 const PROFILE_ID_PATTERN = /^[A-Za-z0-9._-]{1,120}$/;
+const PLUGIN_ID_PATTERN = /^[A-Za-z0-9._-]{1,120}$/;
+const PLUGIN_CONTRIBUTION_PATTERN = /^[A-Za-z0-9_-]{1,80}$/;
+const TOOL_ID_PATTERN = /^[A-Za-z0-9._:-]{1,160}$/;
 const READ_ONLY_PROFILE_TYPES = new Set(["search", "context", "prompt"]);
 const TYPE_RUNTIME_DEFAULTS = {
   general: { maxTurns: 12, maxToolCalls: 48, maxSubagentCalls: 4, verificationPolicy: "after-mutation" },
@@ -103,8 +106,11 @@ export function builtInAgentProfile(id = "general") {
   return cloneProfile(BUILT_INS[id] || BUILT_INS.general);
 }
 
-export async function resolveAgentProfile({ store, userId, profileId }) {
+export async function resolveAgentProfile({ store, userId, profileId, requestProfile = null }) {
   const id = normalizeProfileId(profileId);
+  if (requestProfile !== null && requestProfile !== undefined) {
+    return pluginRequestProfile(requestProfile, id);
+  }
   const record = typeof store.getConfiguration === "function"
     ? await store.getConfiguration(userId, "agents", id)
     : (await store.listConfigurations(userId, "agents")).find((item) => item.id === id) || null;
@@ -114,6 +120,80 @@ export async function resolveAgentProfile({ store, userId, profileId }) {
   }
   if (BUILT_INS[id]) return cloneProfile(BUILT_INS[id]);
   throw validationError(`Unknown Agent profile: ${id}`);
+}
+
+function pluginRequestProfile(value, requestedId) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw validationError("Plugin Agent profile must be an object");
+  }
+  const allowedFields = new Set([
+    "id", "pluginId", "pluginVersion", "name", "description", "agentType", "systemPrompt", "model",
+    "allowedTools", "maxTurns", "maxToolCalls", "maxSubagentCalls", "verificationPolicy",
+    "contextWindowTokens", "reservedOutputTokens",
+  ]);
+  if (Object.keys(value).some((field) => !allowedFields.has(field))) {
+    throw validationError("Plugin Agent profile contains unsupported fields");
+  }
+  if (value.id !== requestedId) throw validationError("Plugin Agent profile ID does not match agentProfileId");
+  if (typeof value.pluginId !== "string" || !PLUGIN_ID_PATTERN.test(value.pluginId)) {
+    throw validationError("Plugin Agent profile pluginId is invalid");
+  }
+  const prefix = `plugin.${value.pluginId}.`;
+  const localId = requestedId.startsWith(prefix) ? requestedId.slice(prefix.length) : "";
+  if (!PLUGIN_CONTRIBUTION_PATTERN.test(localId)) {
+    throw validationError("Plugin Agent profile is outside its plugin namespace");
+  }
+  if (typeof value.pluginVersion !== "string" || !value.pluginVersion.trim() || value.pluginVersion.length > 240) {
+    throw validationError("Plugin Agent profile version is invalid");
+  }
+  if (typeof value.name !== "string" || !value.name.trim() || value.name.length > 160) {
+    throw validationError("Plugin Agent profile name is invalid");
+  }
+  optionalBoundedText(value.description, "description", 2_000);
+  optionalBoundedText(value.systemPrompt, "systemPrompt", 100_000);
+  optionalBoundedText(value.model, "model", 240);
+  if (!AGENT_PROFILE_TYPES.includes(value.agentType)) {
+    throw validationError(`Unsupported Agent profile type: ${String(value.agentType)}`);
+  }
+  const allowedTools = value.allowedTools ?? [];
+  if (!Array.isArray(allowedTools) || allowedTools.length > 128 ||
+      allowedTools.some((tool) => typeof tool !== "string" || !TOOL_ID_PATTERN.test(tool))) {
+    throw validationError("Plugin Agent allowedTools are invalid");
+  }
+  if (new Set(allowedTools).size !== allowedTools.length) {
+    throw validationError("Plugin Agent allowedTools must be unique");
+  }
+  integerSetting(value.maxTurns, "maxTurns", 1, 64, 12);
+  integerSetting(value.maxToolCalls, "maxToolCalls", 1, 256, 48);
+  integerSetting(value.maxSubagentCalls, "maxSubagentCalls", 0, 16, 4);
+  if (!VERIFICATION_POLICIES.includes(value.verificationPolicy)) {
+    throw validationError("Plugin Agent verificationPolicy is invalid");
+  }
+  integerSetting(
+    value.contextWindowTokens,
+    "contextWindowTokens",
+    MIN_CONTEXT_WINDOW_TOKENS,
+    MAX_CONTEXT_WINDOW_TOKENS,
+    DEFAULT_CONTEXT_WINDOW_TOKENS,
+  );
+  integerSetting(
+    value.reservedOutputTokens,
+    "reservedOutputTokens",
+    MIN_RESERVED_OUTPUT_TOKENS,
+    MAX_RESERVED_OUTPUT_TOKENS,
+    DEFAULT_RESERVED_OUTPUT_TOKENS,
+  );
+  if (value.reservedOutputTokens >= value.contextWindowTokens) {
+    throw validationError("reservedOutputTokens must be smaller than contextWindowTokens");
+  }
+  return profile({
+    ...value,
+    id: requestedId,
+    allowedTools,
+    builtin: false,
+    pluginId: value.pluginId,
+    pluginVersion: value.pluginVersion,
+  });
 }
 
 export function applyAgentProfile(request, agentProfile) {
@@ -170,6 +250,8 @@ function profile({
   contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS,
   reservedOutputTokens = DEFAULT_RESERVED_OUTPUT_TOKENS,
   builtin = true,
+  pluginId = null,
+  pluginVersion = null,
 }) {
   if (!PROFILE_ID_PATTERN.test(id)) throw validationError("Agent profile ID is invalid");
   if (!AGENT_PROFILE_TYPES.includes(agentType)) throw validationError(`Unsupported Agent profile type: ${agentType}`);
@@ -206,6 +288,8 @@ function profile({
     contextWindowTokens: normalizedContextWindowTokens,
     reservedOutputTokens: normalizedReservedOutputTokens,
     builtin,
+    pluginId,
+    pluginVersion,
   };
 }
 
@@ -229,6 +313,13 @@ function integerSetting(value, name, min, max, fallback) {
 
 function integerRuntimeSetting(value, min, max, fallback) {
   return Number.isInteger(value) ? Math.min(max, Math.max(min, value)) : fallback;
+}
+
+function optionalBoundedText(value, name, maxLength) {
+  if (value === undefined || value === null) return;
+  if (typeof value !== "string" || value.length > maxLength) {
+    throw validationError(`${name} must be a string of at most ${maxLength} characters`);
+  }
 }
 
 function validationError(message) {

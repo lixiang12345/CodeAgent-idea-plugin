@@ -330,7 +330,7 @@ MCP definitions reference credential environment-variable names only. Remote end
 
 Plugin definitions contain `source`, optional exact `version`, optional `sha256:<hex>` `integrity`, and an explicit capability grant list. Sources require HTTPS except loopback HTTP and cannot contain credentials or fragments. The account record does not install a plugin by itself: the Webview invokes the IDE-owned `installPlugin`, `updatePlugin`, `testPlugin`, or `uninstallPlugin` bridge command, and the JVM downloads at most a 1 MiB declarative JSON manifest into the device-local cache. It rejects unknown manifest fields, mismatched identity/version/integrity, undeclared grants, unsupported capabilities, invalid declarative contributions, and command/prompt IDs that collide in the shared slash namespace. Removing the account configuration also removes the local cached manifest.
 
-Manifest schema version `1` supports the declared capabilities `commands`, `agents`, `hooks`, `mcp`, `rules`, `skills`, `tools`, and `prompts`. Explicitly granted `commands` and `prompts` are exposed to the composer as namespaced slash templates and resolve through the same bounded command runtime as account commands. Explicitly granted `rules` and `skills` become read-only namespaced workspace context, with manual rules and skills selected per conversation. `agents`, `hooks`, `mcp`, and `tools` remain reserved permission boundaries and cannot execute plugin-provided JVM, Node.js, shell, network, or tool-handler code.
+Manifest schema version `1` supports the declared capabilities `commands`, `agents`, `hooks`, `mcp`, `rules`, `skills`, `tools`, and `prompts`. Explicitly granted `commands` and `prompts` are exposed to the composer as namespaced slash templates and resolve through the same bounded command runtime as account commands. Explicitly granted `rules` and `skills` become read-only namespaced workspace context, with manual rules and skills selected per conversation. `agents` contributes request-scoped profiles that the backend reconstructs and validates on every run. `hooks` and `mcp` contribute namespaced configurations to the existing supervised Hook and MCP runtimes after local installation. `tools` contributes aliases and default argument templates for existing tools; aliases inherit the target schema, mode restriction, and approval risk and cannot register executable handlers.
 
 ### 3.7 `POST /v1/runs` (SSE)
 
@@ -339,6 +339,21 @@ Manifest schema version `1` supports the declared capabilities `commands`, `agen
 ```json
 {
   "mode": "agent",
+  "agentProfileId": "plugin.review-pack.reviewer",
+  "agentProfile": {
+    "id": "plugin.review-pack.reviewer",
+    "pluginId": "review-pack",
+    "pluginVersion": "1.0.0",
+    "name": "Review Agent",
+    "agentType": "loop",
+    "allowedTools": ["plugin.review-pack.read-review-scope", "diagnostics"],
+    "maxTurns": 16,
+    "maxToolCalls": 64,
+    "maxSubagentCalls": 3,
+    "verificationPolicy": "after-mutation",
+    "contextWindowTokens": 256000,
+    "reservedOutputTokens": 8192
+  },
   "model": "claude-sonnet-5",
   "messages": [
     { "role": "user", "content": "..." },

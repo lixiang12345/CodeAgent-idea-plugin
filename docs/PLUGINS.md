@@ -25,7 +25,7 @@ An installed plugin can remain present but disabled. Disabled plugins contribute
   "source": "https://plugins.example.com/review-pack.json",
   "version": "1.0.0",
   "integrity": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  "capabilities": ["commands", "prompts", "rules", "skills"]
+  "capabilities": ["commands", "prompts", "rules", "skills", "agents", "hooks", "mcp", "tools"]
 }
 ```
 
@@ -46,7 +46,7 @@ An installed plugin can remain present but disabled. Disabled plugins contribute
   "description": "Shared review workflows",
   "publisher": "Example Engineering",
   "homepage": "https://plugins.example.com/review-pack",
-  "capabilities": ["commands", "prompts", "rules", "skills"],
+  "capabilities": ["commands", "prompts", "rules", "skills", "agents", "hooks", "mcp", "tools"],
   "commands": [
     {
       "id": "review",
@@ -83,6 +83,53 @@ An installed plugin can remain present but disabled. Disabled plugins contribute
       "description": "Build a compact threat model before implementation",
       "content": "# Threat model\n\nIdentify assets, trust boundaries, entry points, and mitigations."
     }
+  ],
+  "agents": [
+    {
+      "id": "reviewer",
+      "name": "Review Agent",
+      "description": "Evidence-first repository review",
+      "agentType": "loop",
+      "systemPrompt": "Lead with concrete findings and verify every mutation.",
+      "allowedTools": ["read-review-scope", "search_text", "diagnostics"],
+      "maxTurns": 16,
+      "maxToolCalls": 64,
+      "maxSubagentCalls": 3,
+      "verificationPolicy": "after-mutation",
+      "contextWindowTokens": 256000,
+      "reservedOutputTokens": 8192
+    }
+  ],
+  "hooks": [
+    {
+      "id": "verify",
+      "name": "Verify after run",
+      "event": "after-run",
+      "command": "./gradlew test",
+      "timeoutSeconds": 600,
+      "runPolicy": "manual",
+      "failurePolicy": "continue",
+      "requiredEnvironment": ["JAVA_HOME"]
+    }
+  ],
+  "mcp": [
+    {
+      "id": "project-tools",
+      "name": "Project tools",
+      "transport": "stdio",
+      "command": "node",
+      "args": ["tools/mcp-server.mjs"],
+      "timeoutSeconds": 60
+    }
+  ],
+  "tools": [
+    {
+      "id": "read-review-scope",
+      "name": "Read review scope",
+      "description": "Read the default review target",
+      "target": "read_file",
+      "defaults": { "path": "README.md" }
+    }
   ]
 }
 ```
@@ -94,29 +141,33 @@ Command templates use the existing command placeholders:
 - `{{arguments}}`: text following the slash command.
 - `{{project}}`: current project name.
 
-`mode` is one of `inherit`, `agent`, `chat`, or `ask`. `agentProfileId` can reference only a built-in profile: `general`, `search`, `context`, `prompt`, or `loop`.
+`mode` is one of `inherit`, `agent`, `chat`, or `ask`. `agentProfileId` can reference a built-in profile or an Agent declared by the same plugin. Local contribution references such as `reviewer` and `read-review-scope` are converted to stable `plugin.<plugin-id>.<contribution-id>` runtime IDs.
 
 ## Capabilities
 
 Schema version 1 recognizes:
 
-- `commands`: active; contributes namespaced slash commands after explicit grant.
-- `prompts`: active; contributes namespaced prompt templates through the existing bounded slash-template runtime.
-- `rules`: active; contributes read-only `always`, `agent`, or per-thread `manual` rules.
-- `skills`: active; contributes read-only skills that users select per conversation.
-- `agents`, `hooks`, `mcp`, `tools`: reserved permission names.
-
-Reserved capabilities are visible in configuration and runtime metadata, but CodeAgent does not consume their manifest content. They cannot register Agent profiles, execute lifecycle commands, connect MCP servers, or install tool handlers. Adding an implementation requires a typed schema, a dedicated validator, an explicit activation path, lifecycle tests, and the same user-visible permission boundary.
+- `commands`: contributes namespaced slash commands after explicit grant.
+- `prompts`: contributes namespaced prompt templates through the bounded slash-template runtime.
+- `rules`: contributes read-only `always`, `agent`, or per-thread `manual` rules.
+- `skills`: contributes read-only skills that users select per conversation.
+- `agents`: contributes request-scoped Agent profiles. Profiles are selectable per thread and are revalidated by the backend on every run; they are never written into account configuration.
+- `hooks`: contributes lifecycle hooks to the existing supervised Hook runtime. Manual hooks can be tested from the plugin details; automatic hooks follow their declared event and failure policy.
+- `mcp`: contributes stdio, Streamable HTTP, or SSE MCP servers to the existing sidecar runtime. OAuth tokens remain device-local in Password Safe.
+- `tools`: contributes namespaced aliases and default argument templates for tools already available in the current run. It cannot install a new handler or change the target tool's risk classification.
 
 ## Security properties
 
 - Installation is explicit per device.
 - Account configuration alone cannot activate downloaded content.
-- The manifest size, schema, identity, version, integrity, capabilities, contribution counts, IDs, text lengths, rule triggers, command modes, and built-in Agent profile references are validated.
+- The manifest size, schema, identity, version, integrity, capabilities, contribution counts, IDs, text lengths, URLs, environment names, runtime budgets, rule triggers, command modes, Hook policies, MCP transports/authentication, Agent profiles, and tool aliases are validated.
 - Remote sources use HTTPS; redirects are subject to the same final-URL validation.
 - Cached writes are atomic where the filesystem supports them.
 - Plugin commands and prompt assets pass through the existing command-template, Agent-policy, tool-approval, and prompt-priority layers.
 - Plugin rules and skills remain lower-priority workspace context and cannot override server-owned safety policy or the current user request.
-- A plugin cannot register executable tool handlers or bypass IDEA approvals.
+- Plugin Agent profiles are sent only with the selected run and are strictly reconstructed by the backend before policy is applied.
+- Plugin Tool aliases inherit the target definition, schema, mode restrictions, and approval risk. Call arguments override declared defaults.
+- Hook commands and stdio MCP processes run only after the capability is both granted in account configuration and installed on the current device. They remain subject to the existing environment allowlist, timeout, process supervision, and audit surfaces.
+- A plugin cannot register executable tool handlers, load code into the IDE process, embed credentials, or bypass IDEA approvals.
 
 This design keeps plugins useful for portable workflows while leaving code execution to CodeAgent's reviewed IDE, backend, sidecar, and MCP capability boundaries.

@@ -176,6 +176,7 @@ export function createCodeAgentServer({
           store,
           userId: principal.id,
           profileId: body.agentProfileId,
+          requestProfile: body.agentProfile,
         });
         const effectiveRequest = applyAgentProfile(body, agentProfile);
         const selectedModel = effectiveRequest.model || requestGateway.defaultModel || "";

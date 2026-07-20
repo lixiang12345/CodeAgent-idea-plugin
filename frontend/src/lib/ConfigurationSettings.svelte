@@ -441,7 +441,7 @@ $: if (section !== previousSection) {
     if (kind === "plugins") {
       const runtime = pluginRuntimeFor(item.id);
       return runtime
-        ? `${runtime.state} · ${runtime.installedVersion ?? "not installed"} · ${runtime.commandCount + runtime.promptCount} templates · ${runtime.ruleCount + runtime.skillCount} context assets`
+        ? `${runtime.state} · ${runtime.installedVersion ?? "not installed"} · ${runtime.commandCount + runtime.promptCount} templates · ${runtime.ruleCount + runtime.skillCount} context · ${runtime.agentCount} agents · ${runtime.hookCount} hooks · ${runtime.mcpCount} MCP · ${runtime.toolCount} tools`
         : text(value.version) || text(value.source) || "Declarative manifest";
     }
     return text(value.version) || text(value.source) || "Extension source";
@@ -468,6 +468,22 @@ $: if (section !== previousSection) {
 
   function pluginRuntimeFor(pluginId: string): PluginRuntimeItem | undefined {
     return pluginRuntime.items.find((plugin) => plugin.id === pluginId);
+  }
+
+  function pluginAgents(pluginId: string) {
+    return pluginRuntime.agents.filter((agent) => agent.pluginId === pluginId);
+  }
+
+  function pluginHooks(pluginId: string) {
+    return pluginRuntime.hooks.filter((hook) => hook.pluginId === pluginId);
+  }
+
+  function pluginMcpServers(pluginId: string) {
+    return pluginRuntime.mcpServers.filter((server) => server.pluginId === pluginId);
+  }
+
+  function pluginTools(pluginId: string) {
+    return pluginRuntime.tools.filter((tool) => tool.pluginId === pluginId);
   }
 
   function controlPlugin(
@@ -548,7 +564,7 @@ $: if (section !== previousSection) {
     {#if kind === "commands"}
       <label><span>Argument hint</span><input bind:value={draft.argumentHint} maxlength="500" placeholder="[scope] [options]" /></label>
       <label><span>Run mode</span><select bind:value={draft.commandMode}><option value="inherit">Current thread mode</option><option value="agent">Agent</option><option value="chat">Chat</option><option value="ask">Ask</option></select></label>
-      <label><span>Agent profile</span><select bind:value={draft.commandAgentProfileId}><option value="">Current thread profile</option><option value="general">General Agent</option><option value="search">Search Agent</option><option value="context">Context Agent</option><option value="prompt">Prompt Engineer</option><option value="loop">Loop Agent</option>{#each configurationSnapshot.items.agents ?? [] as agent}{#if agent.value.enabled !== false}<option value={agent.id}>{text(agent.value.name) || agent.id}</option>{/if}{/each}</select></label>
+      <label><span>Agent profile</span><select bind:value={draft.commandAgentProfileId}><option value="">Current thread profile</option><option value="general">General Agent</option><option value="search">Search Agent</option><option value="context">Context Agent</option><option value="prompt">Prompt Engineer</option><option value="loop">Loop Agent</option>{#each configurationSnapshot.items.agents ?? [] as agent}{#if agent.value.enabled !== false}<option value={agent.id}>{text(agent.value.name) || agent.id}</option>{/if}{/each}{#each pluginRuntime.agents as agent}<option value={agent.id}>{agent.name} · {agent.pluginId}</option>{/each}</select></label>
       <label><span>Prompt template</span><textarea bind:value={draft.prompt} spellcheck="true"></textarea></label>
       <div class="runtime-note"><Icon name="info" size={13} /><span>Use <code>&#123;&#123;arguments&#125;&#125;</code>, <code>&#123;&#123;project&#125;&#125;</code>, and <code>&#123;&#123;command&#125;&#125;</code> placeholders. Arguments are appended in a bounded block when the template omits the arguments placeholder.</span></div>
     {:else if kind === "hooks"}
@@ -783,6 +799,7 @@ $: if (section !== previousSection) {
                     <span><strong>Installed at</strong><code>{pluginTime(plugin.installedAt)}</code></span>
                     <span><strong>Last checked</strong><code>{pluginTime(plugin.lastCheckedAt)}</code></span>
                     <span><strong>Integrity</strong><code>{plugin.integrity ?? "Not pinned"}</code></span>
+                    <span><strong>Contributions</strong><code>{plugin.commandCount + plugin.promptCount} templates · {plugin.ruleCount + plugin.skillCount} context · {plugin.agentCount} agents · {plugin.hookCount} hooks · {plugin.mcpCount} MCP · {plugin.toolCount} tools</code></span>
                   </div>
                   <div class="plugin-capability-badges">
                     {#each plugin.declaredCapabilities as capability}
@@ -791,6 +808,23 @@ $: if (section !== previousSection) {
                       <small>No capabilities declared.</small>
                     {/each}
                   </div>
+                  {#if pluginAgents(plugin.id).length || pluginHooks(plugin.id).length || pluginMcpServers(plugin.id).length || pluginTools(plugin.id).length}
+                    <div class="plugin-contribution-list">
+                      {#each pluginAgents(plugin.id) as agent}
+                        <div><Icon name="bot" size={12} /><span><strong>{agent.name}</strong><small>{agent.agentType} · {agent.maxTurns} turns · {agent.maxToolCalls} tool calls</small></span><i>Agent</i></div>
+                      {/each}
+                      {#each pluginHooks(plugin.id) as hook}
+                        <div><Icon name="workflow" size={12} /><span><strong>{hook.name}</strong><small>{hook.event} · {hook.runPolicy}</small></span><button class="icon-button compact" title="Test plugin hook" onclick={() => testHook(hook.id)}><Icon name="play" size={11} /></button></div>
+                      {/each}
+                      {#each pluginMcpServers(plugin.id) as server}
+                        {@const runtimeServer = runtimeFor(server.id)}
+                        <div><Icon name="mcp" size={12} /><span><strong>{server.name}</strong><small>{server.transport} · {runtimeServer?.state ?? "activating"} · {runtimeServer?.tools.length ?? 0} tools</small></span><span class="plugin-contribution-actions">{#if server.authMode === "oauth"}<button class="icon-button compact" title="Authorize plugin MCP server" onclick={() => controlMcp("startMcpOAuth", server.id)}><Icon name="key-round" size={11} /></button>{/if}{#if runtimeServer?.state === "ready" || runtimeServer?.state === "error"}<button class="icon-button compact" title="Restart plugin MCP server" onclick={() => controlMcp("restartMcpServer", server.id)}><Icon name="refresh-ccw" size={11} /></button>{:else}<button class="icon-button compact" title="Start plugin MCP server" onclick={() => controlMcp("startMcpServer", server.id)}><Icon name="play" size={11} /></button>{/if}</span></div>
+                      {/each}
+                      {#each pluginTools(plugin.id) as tool}
+                        <div><Icon name="wrench" size={12} /><span><strong>{tool.name}</strong><small>{tool.description ?? `Alias for ${tool.target}`}</small></span><i>{tool.target}</i></div>
+                      {/each}
+                    </div>
+                  {/if}
                   {#if plugin.lastError}<p class="plugin-runtime-error">{plugin.lastError}</p>{/if}
                 </details>
               {/if}
@@ -893,6 +927,13 @@ $: if (section !== previousSection) {
   .plugin-capability-badges { padding: 4px 0 7px; display: flex; flex-wrap: wrap; gap: 4px; }
   .plugin-capability-badges i { padding: 2px 5px; border-radius: 3px; color: #858d97; background: #2c3035; font: normal 7px var(--mono); }
   .plugin-capability-badges i.granted { color: #a9d9b5; background: #294331; }
+  .plugin-contribution-list { margin: 0 0 7px; border-top: 1px solid #30343a; }
+  .plugin-contribution-list > div { min-height: 34px; padding: 5px 0; display: flex; align-items: center; gap: 7px; border-bottom: 1px solid #2d3035; }
+  .plugin-contribution-list > div > span:not(.plugin-contribution-actions) { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+  .plugin-contribution-list strong { color: #c3c8cf; font-size: 8px; font-weight: 500; }
+  .plugin-contribution-list small { overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 7px; white-space: nowrap; }
+  .plugin-contribution-list > div > i { max-width: 120px; overflow: hidden; text-overflow: ellipsis; color: #8c949f; font: normal 7px var(--mono); white-space: nowrap; }
+  .plugin-contribution-actions { display: flex; gap: 3px; }
   .plugin-runtime-error { margin: 0 0 7px; color: #e0a4aa; font: 7px/1.45 var(--mono); }
   .switch { position: relative; width: 27px; height: 16px; flex: 0 0 27px; }
   .switch input { position: absolute; opacity: 0; }
@@ -981,6 +1022,9 @@ $: if (section !== previousSection) {
   .plugin-runtime-metadata strong { font-size: 9.5px; }
   .plugin-runtime-metadata code { font-size: 9px; }
   .plugin-capability-badges i { font-size: 9px; }
+  .plugin-contribution-list > div { min-height: 40px; }
+  .plugin-contribution-list strong { font-size: 10px; }
+  .plugin-contribution-list small, .plugin-contribution-list > div > i { font-size: 9px; }
   .plugin-runtime-error { font-size: 9.5px; }
   .configuration-empty strong { font-size: 12px; }
   .configuration-empty p { font-size: 10.5px; line-height: 1.45; }

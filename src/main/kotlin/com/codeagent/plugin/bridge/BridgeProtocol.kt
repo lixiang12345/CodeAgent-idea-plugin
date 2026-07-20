@@ -346,6 +346,51 @@ data class PluginPromptDto(
 )
 
 @Serializable
+data class PluginAgentDto(
+    val id: String,
+    val pluginId: String,
+    val pluginVersion: String,
+    val name: String,
+    val description: String? = null,
+    val agentType: String = "general",
+    val model: String? = null,
+    val allowedTools: List<String> = emptyList(),
+    val maxTurns: Int = 12,
+    val maxToolCalls: Int = 48,
+    val maxSubagentCalls: Int = 4,
+    val verificationPolicy: String = "after-mutation",
+    val contextWindowTokens: Int = 256_000,
+    val reservedOutputTokens: Int = 8_192,
+)
+
+@Serializable
+data class PluginHookDto(
+    val id: String,
+    val pluginId: String,
+    val name: String,
+    val event: String,
+    val runPolicy: String,
+)
+
+@Serializable
+data class PluginMcpServerDto(
+    val id: String,
+    val pluginId: String,
+    val name: String,
+    val transport: String,
+    val authMode: String,
+)
+
+@Serializable
+data class PluginToolDto(
+    val id: String,
+    val pluginId: String,
+    val name: String,
+    val description: String? = null,
+    val target: String,
+)
+
+@Serializable
 data class PluginRuntimeItemDto(
     val id: String,
     val name: String,
@@ -363,6 +408,10 @@ data class PluginRuntimeItemDto(
     val promptCount: Int = 0,
     val ruleCount: Int = 0,
     val skillCount: Int = 0,
+    val agentCount: Int = 0,
+    val hookCount: Int = 0,
+    val mcpCount: Int = 0,
+    val toolCount: Int = 0,
     val installedAt: String? = null,
     val lastCheckedAt: String? = null,
     val lastError: String? = null,
@@ -375,6 +424,10 @@ data class PluginRuntimeSnapshotDto(
     val items: List<PluginRuntimeItemDto> = emptyList(),
     val commands: List<PluginCommandDto> = emptyList(),
     val prompts: List<PluginPromptDto> = emptyList(),
+    val agents: List<PluginAgentDto> = emptyList(),
+    val hooks: List<PluginHookDto> = emptyList(),
+    val mcpServers: List<PluginMcpServerDto> = emptyList(),
+    val tools: List<PluginToolDto> = emptyList(),
 )
 
 @Serializable
