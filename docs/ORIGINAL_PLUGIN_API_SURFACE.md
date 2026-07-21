@@ -306,14 +306,14 @@ Extracted action-type strings from `Store-*.js` (subset of product domains).
 | Original family | Scale | CodeAgent status |
 | --- | --- | --- |
 | Sidecar `/api/ide/*` + `/api/sse/*` | 13 routes | **Replaced** by JVM tools + bridge events (no sidecar IDE HTTP) |
-| Sidecar launch/list/read/write/kill process tools | 5 tools | **Implemented** as approval-aware project services with stable process IDs, project-contained `cwd`, launch/read wait semantics, interactive-input detection, bounded output cursors, stdin, graceful/forced process-tree termination, and project-disposal cleanup |
+| Sidecar launch/list/read/write/kill process tools | 5 tools | **Implemented** as approval-aware project services with the original `terminal_id`, `input_text`, `wait`, and `max_wait_seconds` argument names, backward-compatible aliases, project-contained `cwd`, interactive-input detection, bounded output cursors, stdin, graceful/forced process-tree termination, and project-disposal cleanup |
 | Sidecar `/api/acp/*` | 9 routes | **Implemented by the ACP v1 sidecar runtime** (official SDK, stdio agents, sessions, prompt/update/cancel) |
 | Cloud chat-stream + node-typed requests | large DTO graph | **Replaced** by `POST /v1/runs` + simple messages[] |
 | Remote tools / MCP / OAuth / billing | large | **Typed backend tools plus managed MCP and provider OAuth; billing remains backend/account dependent** |
 | Completions ACP | 3 routes + rich recency blobs | **Inline completion is implemented with bounded context, LRU/TTL cache, install listener, element manipulator, cancellation, and telemetry** |
 | Webview `tools/*` state machine | 30+ actions | **Collapsed** into `ToolRun` statuses + approvals |
 | `postToolUseMessagesByToolId` | first-class | **Implemented by run/turn identity**: each model turn persists as its own assistant message and is interleaved with the tool batch by stable timeline sequence |
-| History load/save/delete cloud | request/response pairs | Local thread store + MD import/export only |
+| History load/save/delete cloud | request/response pairs | **Implemented** with account-isolated backend persistence, local-first debounced synchronization, optimistic-version conflict resolution, deletion tombstones, explicit recovery, and Markdown import/export |
 | gRPC intake/allowlist | 2 clients | **Replaced by the typed HTTP/SSE backend contract and JVM bridge; proprietary binary services are intentionally not bundled** |
 
 ### CodeAgent implemented count (for contrast)

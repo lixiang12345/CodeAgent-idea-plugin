@@ -3,8 +3,10 @@ package com.codeagent.plugin.agent
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.add
+import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class AgentToolArgumentsTest {
     @Test
@@ -35,5 +37,30 @@ class AgentToolArgumentsTest {
             }
         }
         assertEquals(emptyList(), blankOnly.optionalStringListArgument("focus_paths"))
+    }
+
+    @Test
+    fun `prefers canonical process arguments and accepts legacy aliases`() {
+        val canonical = buildJsonObject {
+            put("terminal_id", "terminal-1")
+            put("process_id", "terminal-1")
+        }
+        val legacy = buildJsonObject { put("process_id", "terminal-2") }
+
+        assertEquals("terminal-1", canonical.requiredAliasedStringArgument("terminal_id", "process_id"))
+        assertEquals("terminal-2", legacy.requiredAliasedStringArgument("terminal_id", "process_id"))
+        assertEquals("", buildJsonObject { put("input", "") }.requiredAliasedStringArgument("input_text", "input", allowEmpty = true))
+    }
+
+    @Test
+    fun `rejects conflicting canonical and legacy process arguments`() {
+        val arguments = buildJsonObject {
+            put("terminal_id", "terminal-1")
+            put("process_id", "terminal-2")
+        }
+
+        assertFailsWith<IllegalArgumentException> {
+            arguments.requiredAliasedStringArgument("terminal_id", "process_id")
+        }
     }
 }

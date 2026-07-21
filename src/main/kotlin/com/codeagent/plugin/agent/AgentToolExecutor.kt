@@ -200,7 +200,7 @@ internal class AgentToolExecutor(
                 ),
                 required = listOf("command"),
             )))
-            add(tool("launch_process", "Start a long-running shell process in the project root and return a stable process_id. Use read_process to consume output, write_process for stdin, wait_process for completion, and kill_process when cleanup is required", schema(
+            add(tool("launch_process", "Start a long-running shell process in the project root and return a stable terminal_id. Use read_process to consume output, write_process for stdin, wait_process for completion, and kill_process when cleanup is required", schema(
                 properties = mapOf(
                     "command" to stringProperty("Shell command to start"),
                     "name" to stringProperty("Optional short process label"),
@@ -212,37 +212,42 @@ internal class AgentToolExecutor(
             )))
             add(tool("write_process", "Write bounded UTF-8 input to one running managed process. This may change process or project state and requires approval", schema(
                 properties = mapOf(
-                    "process_id" to stringProperty("Managed process ID returned by launch_process"),
-                    "input" to stringProperty("Input text to write"),
+                    "terminal_id" to stringProperty("Terminal ID returned by launch_process"),
+                    "input_text" to stringProperty("Input text to write"),
+                    "process_id" to stringProperty("Deprecated compatibility alias for terminal_id"),
+                    "input" to stringProperty("Deprecated compatibility alias for input_text"),
                     "append_newline" to booleanProperty("Append a newline after the input; defaults to true"),
                 ),
-                required = listOf("process_id", "input"),
+                required = listOf("terminal_id", "input_text"),
             )))
             add(tool("kill_process", "Stop one managed process and release its operating-system resources. Graceful termination is attempted before force is used", schema(
                 properties = mapOf(
-                    "process_id" to stringProperty("Managed process ID returned by launch_process"),
+                    "terminal_id" to stringProperty("Terminal ID returned by launch_process"),
+                    "process_id" to stringProperty("Deprecated compatibility alias for terminal_id"),
                     "force" to booleanProperty("Terminate forcibly without the graceful wait"),
                 ),
-                required = listOf("process_id"),
+                required = listOf("terminal_id"),
             )))
         }
         add(tool("list_processes", "List managed project processes with IDs, commands, state, PID, start time, and exit status", schema(emptyMap())))
         add(tool("read_process", "Read bounded output from a managed process without blocking. Pass the returned next_offset on later reads to consume only new output", schema(
             properties = mapOf(
-                "process_id" to stringProperty("Managed process ID returned by launch_process"),
+                "terminal_id" to stringProperty("Terminal ID returned by launch_process"),
+                "process_id" to stringProperty("Deprecated compatibility alias for terminal_id"),
                 "offset" to integerProperty("Absolute output offset to start reading", 0, 1_000_000_000),
                 "max_chars" to integerProperty("Maximum output characters", 1, 40_000),
                 "wait" to booleanProperty("Wait for completion or an interactive input prompt before reading; defaults to false"),
                 "max_wait_seconds" to integerProperty("Maximum read wait in seconds", 1, 60),
             ),
-            required = listOf("process_id"),
+            required = listOf("terminal_id"),
         )))
         add(tool("wait_process", "Wait up to a bounded timeout for one managed process to exit, then report its current state", schema(
             properties = mapOf(
-                "process_id" to stringProperty("Managed process ID returned by launch_process"),
+                "terminal_id" to stringProperty("Terminal ID returned by launch_process"),
+                "process_id" to stringProperty("Deprecated compatibility alias for terminal_id"),
                 "timeout_seconds" to integerProperty("Maximum wait in seconds", 1, 60),
             ),
-            required = listOf("process_id"),
+            required = listOf("terminal_id"),
         )))
         remoteTools.values.forEach { remote ->
             add(AgentToolDefinition(remote.name, remote.description, remote.parameters, toolRiskFromWire(remote.risk)))
@@ -602,7 +607,7 @@ internal class AgentToolExecutor(
     }
 
     private fun readProcess(args: JsonObject): ToolExecutionResult {
-        val id = args.requiredString("process_id")
+        val id = args.requiredAliasedStringArgument("terminal_id", "process_id")
         if (args["wait"]?.jsonPrimitive?.booleanOrNull == true) {
             managedProcesses.waitFor(id, args["max_wait_seconds"]?.jsonPrimitive?.intOrNull ?: 30)
         }
@@ -620,8 +625,8 @@ internal class AgentToolExecutor(
     }
 
     private fun writeProcess(args: JsonObject): ToolExecutionResult {
-        val id = args.requiredString("process_id")
-        val input = args.requiredString("input", allowEmpty = true)
+        val id = args.requiredAliasedStringArgument("terminal_id", "process_id")
+        val input = args.requiredAliasedStringArgument("input_text", "input", allowEmpty = true)
         val appendNewline = args["append_newline"]?.jsonPrimitive?.booleanOrNull ?: true
         val process = managedProcesses.write(id, input, appendNewline)
         val output = formatProcess(process)
@@ -630,7 +635,7 @@ internal class AgentToolExecutor(
 
     private fun waitProcess(args: JsonObject): ToolExecutionResult {
         val process = managedProcesses.waitFor(
-            args.requiredString("process_id"),
+            args.requiredAliasedStringArgument("terminal_id", "process_id"),
             args["timeout_seconds"]?.jsonPrimitive?.intOrNull ?: 30,
         )
         val output = formatProcess(process)
@@ -639,7 +644,7 @@ internal class AgentToolExecutor(
 
     private fun killProcess(args: JsonObject): ToolExecutionResult {
         val process = managedProcesses.kill(
-            args.requiredString("process_id"),
+            args.requiredAliasedStringArgument("terminal_id", "process_id"),
             args["force"]?.jsonPrimitive?.booleanOrNull ?: false,
         )
         val output = formatProcess(process)
@@ -647,6 +652,7 @@ internal class AgentToolExecutor(
     }
 
     private fun formatProcess(process: ManagedProcessSnapshot): String = buildString {
+        append("terminal_id=${process.id}\n")
         append("process_id=${process.id}\n")
         append("name=${process.name}\n")
         append("state=${process.state}\n")
@@ -995,6 +1001,19 @@ internal fun JsonObject.optionalStringListArgument(name: String): List<String> {
         require(primitive.isString) { "$name[$index] must be a string" }
         primitive.contentOrNull?.trim()?.takeIf(String::isNotBlank)
     }
+}
+
+internal fun JsonObject.requiredAliasedStringArgument(
+    name: String,
+    legacyName: String,
+    allowEmpty: Boolean = false,
+): String {
+    val value = get(name)?.jsonPrimitive?.contentOrNull
+    val legacyValue = get(legacyName)?.jsonPrimitive?.contentOrNull
+    require(value == null || legacyValue == null || value == legacyValue) { "$name and $legacyName must match" }
+    val resolved = value ?: legacyValue ?: error("$name is required")
+    require(allowEmpty || resolved.isNotBlank()) { "$name must not be blank" }
+    return resolved
 }
 
 interface AgentToolRunner {

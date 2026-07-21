@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Added approval-aware project process sessions with stable IDs, project-contained working directories, incremental bounded output, stdin, wait/list/read controls, interactive-input detection, full process-tree termination, and automatic cleanup when a project closes.
+- Added approval-aware project process sessions with the original `terminal_id`/`input_text` contract, backward-compatible aliases, project-contained working directories, incremental bounded output, stdin, wait/list/read controls, interactive-input detection, full process-tree termination, and automatic cleanup when a project closes.
+- Published the account conversation list/create/read/update/delete contract in OpenAPI, including normalized timeline schemas and optimistic `If-Match` conflict handling.
 - Added the versioned `codeagent.context.v1` Protobuf/gRPC sidecar transport with loopback bearer authentication, streaming progress events, deadline handling, and an explicit JSON Lines rollback mode.
 - Split the local RPC surface into typed Context, MCP, and ACP services while retaining `ContextEngineRpc.Execute` for `0.7.18` clients; evolving MCP/ACP configuration and tool arguments remain versioned JSON bytes inside their typed envelopes.
 - Added an official release build command that increments and synchronizes version metadata before full-stack verification and plugin packaging.

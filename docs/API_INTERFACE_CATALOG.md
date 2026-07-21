@@ -332,7 +332,19 @@ Plugin definitions contain `source`, optional exact `version`, optional `sha256:
 
 Manifest schema version `1` supports the declared capabilities `commands`, `agents`, `hooks`, `mcp`, `rules`, `skills`, `tools`, and `prompts`. Explicitly granted `commands` and `prompts` are exposed to the composer as namespaced slash templates and resolve through the same bounded command runtime as account commands. Explicitly granted `rules` and `skills` become read-only namespaced workspace context, with manual rules and skills selected per conversation. `agents` contributes request-scoped profiles that the backend reconstructs and validates on every run. `hooks` and `mcp` contribute namespaced configurations to the existing supervised Hook and MCP runtimes after local installation. `tools` contributes aliases and default argument templates for existing tools; aliases inherit the target schema, mode restriction, and approval risk and cannot register executable handlers.
 
-### 3.7 `POST /v1/runs` (SSE)
+### 3.7 Conversation synchronization
+
+Conversation endpoints are account-isolated and require authentication outside local development mode:
+
+- `GET /v1/conversations` returns lightweight summaries and message/task/tool counts.
+- `POST /v1/conversations` creates a normalized conversation and returns version `1`.
+- `GET /v1/conversations/{id}` returns messages, tasks, tool timeline records, summary, selected model/profile/customization IDs, and synchronization metadata.
+- `PUT /v1/conversations/{id}` replaces the snapshot. An optional `If-Match: <version>` header enables optimistic concurrency and returns `409` when another client has already advanced the version.
+- `DELETE /v1/conversations/{id}` removes the account copy and returns `204`.
+
+The IDE keeps local history authoritative while offline, debounces uploads, retains deletion tombstones until the backend confirms removal, and resolves version conflicts using the newer client timestamp. Limits are 200 messages, 100 tasks, and 1,000 tool records per conversation; backend validation also bounds text and timeline fields.
+
+### 3.8 `POST /v1/runs` (SSE)
 
 **Request body: `RemoteRunRequest`**
 
@@ -406,7 +418,7 @@ Header: `x-codeagent-run-id: <runId>`
 | `run.error` | `{ message }` | Fatal run error |
 | comment heartbeat | `: heartbeat` | Every ~15s |
 
-### 3.8 `POST /v1/runs/{runId}/tool-results`
+### 3.9 `POST /v1/runs/{runId}/tool-results`
 
 **Request body**
 
@@ -434,7 +446,7 @@ Header: `x-codeagent-run-id: <runId>`
 { "accepted": true }
 ```
 
-### 3.9 `DELETE /v1/runs/{runId}`
+### 3.10 `DELETE /v1/runs/{runId}`
 
 **Response 202**
 
