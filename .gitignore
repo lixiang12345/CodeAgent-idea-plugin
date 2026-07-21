@@ -26,5 +26,6 @@ backend/.env
 
 # Local ContextEngine runtime data and secrets.
 .contextengine/
+.understand-anything/
 .env
 omp-session-*.html
