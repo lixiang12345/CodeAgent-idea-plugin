@@ -2,7 +2,7 @@
 
 CodeAgent is an IDE-native AI coding agent for IntelliJ IDEA and other JetBrains IDEs. It combines a separately deployed Agent backend with the open [ContextEngine](https://github.com/lixiang12345/ContextEngine-plugin) retrieval component running locally beside the IDE.
 
-The IDEA plugin is a capability gateway: it owns project access, ContextEngine, approvals, editor actions, terminal execution, and Diff/revert. The deployable backend in `backend/` owns prompts, model credentials, streamed model calls, and tool-call orchestration. See the [prototype parity contract](docs/PROTOTYPE_PARITY.md), [product definition](docs/PRODUCT.md), [Rules and Skills guide](docs/RULES_AND_SKILLS.md), [prompt architecture](docs/PROMPT_ARCHITECTURE.md), [declarative plugins guide](docs/PLUGINS.md), [ContextEngine deployment guide](docs/CONTEXT_ENGINE.md), [provider and data flow](docs/PROVIDER_AND_DATA_FLOW.md), and [architecture analysis](docs/ARCHITECTURE.md).
+The IDEA plugin is a capability gateway: it owns project access, ContextEngine, approvals, editor actions, terminal execution, and Diff/revert. The deployable backend in `backend/` owns prompts, model credentials, streamed model calls, and tool-call orchestration. See the [prototype parity contract](docs/PROTOTYPE_PARITY.md), [next steps and release gates](docs/NEXT_STEPS.md), [product definition](docs/PRODUCT.md), [Rules and Skills guide](docs/RULES_AND_SKILLS.md), [prompt architecture](docs/PROMPT_ARCHITECTURE.md), [declarative plugins guide](docs/PLUGINS.md), [ContextEngine deployment guide](docs/CONTEXT_ENGINE.md), [provider and data flow](docs/PROVIDER_AND_DATA_FLOW.md), and [architecture analysis](docs/ARCHITECTURE.md).
 
 ## Run the backend
 

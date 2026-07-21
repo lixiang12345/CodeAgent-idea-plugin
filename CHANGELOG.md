@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added a single next-steps and release-gates document for live GitHub acceptance, broader JetBrains verification, retrieval evaluation, and integration operations readiness.
 - Added GitHub pull-request workflow-run, job, step, temporary log-download, branch-protection, repository-ruleset, and merge-readiness reads; approval-gated Actions rerun/cancel controls; validated line-level review submission; and branch-policy gates before merge.
 - Added bounded GitHub pull-request commit, review, line-comment, and head-SHA Check Run reads; approval-gated PR creation, review submission, and reviewer requests; and a separately approved merge tool with live head-SHA race protection.
 - Added approval-gated GitHub issue creation, issue/pull-request comments, and state changes as a separate remote-state tool, plus bounded pull-request file and discussion-comment reads.
