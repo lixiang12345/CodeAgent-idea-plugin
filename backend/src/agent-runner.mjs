@@ -363,8 +363,13 @@ function sortJson(value) {
 
 function isMutationCall(call, risk) {
   if (risk !== "mutating" || isGlobalVerificationCall(call)) return false;
+  if (isRemoteStateMutation(call)) return false;
   if (call.name === "run_terminal" && isReadOnlyTerminalCall(call)) return false;
   return true;
+}
+
+function isRemoteStateMutation(call) {
+  return call.name === "github_manage";
 }
 
 function isReadOnlyTerminalCall(call) {

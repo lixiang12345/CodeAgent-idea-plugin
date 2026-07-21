@@ -42,6 +42,7 @@ export function createIntegrationToolRegistryFromEnv(
   return new IntegrationToolRegistry([
     createWebSearchTool(env, fetchImpl),
     createGitHubTool(env, fetchImpl),
+    createGitHubManageTool(env, fetchImpl),
     createLinearTool(env, fetchImpl),
     createNotionTool(env, fetchImpl),
     createJiraTool(env, fetchImpl),
@@ -117,26 +118,80 @@ function createGitHubTool(env, fetchImpl) {
   return tool({
     name: "github_search",
     catalogId: "github",
-    description: "Search GitHub repositories, issues and pull requests, or code; read one issue, pull request, or UTF-8 repository file",
+    description: "Search GitHub repositories, issues, pull requests, or code; read one issue, pull request, its files or comments, or a UTF-8 repository file",
     parameters: objectSchema({
-      operation: enumSchema("GitHub operation; defaults to search", ["search", "get_issue", "get_pull_request", "read_file"]),
+      operation: enumSchema("GitHub operation; defaults to search", [
+        "search",
+        "get_issue",
+        "get_pull_request",
+        "list_pull_request_files",
+        "list_comments",
+        "read_file",
+      ]),
       query: stringSchema("GitHub search query, including qualifiers when useful; required for search"),
       type: enumSchema("Search index when operation is search", ["issues", "repositories", "code"]),
-      repository: stringSchema("Repository in owner/name form; required for get_issue, get_pull_request, and read_file"),
+      repository: stringSchema("Repository in owner/name form; required for every operation except search"),
       number: integerSchema("Issue or pull request number", 1, 1_000_000),
       path: stringSchema("Repository-relative UTF-8 file path; required for read_file"),
       ref: stringSchema("Optional Git ref, branch, tag, or commit for read_file"),
-      limit: integerSchema("Maximum results", 1, 20),
+      limit: integerSchema("Maximum search results, changed files, or comments", 1, 100),
     }),
     available: Boolean(token),
     unavailableReason: "Set GITHUB_TOKEN on the backend",
     requiredEnvironment: ["GITHUB_TOKEN"],
     execute: async (args, { signal }) => {
-      const operation = optionalEnum(args.operation, "search", ["search", "get_issue", "get_pull_request", "read_file"]);
+      const operation = optionalEnum(args.operation, "search", [
+        "search",
+        "get_issue",
+        "get_pull_request",
+        "list_pull_request_files",
+        "list_comments",
+        "read_file",
+      ]);
       if (operation === "search") return githubSearch(baseUrl, token, fetchImpl, args, signal);
       const repository = githubRepository(args.repository);
       if (operation === "read_file") return githubFile(baseUrl, token, fetchImpl, repository, args, signal);
+      if (operation === "list_pull_request_files") {
+        return githubPullRequestFiles(baseUrl, token, fetchImpl, repository, args, signal);
+      }
+      if (operation === "list_comments") return githubComments(baseUrl, token, fetchImpl, repository, args, signal);
       return githubWorkItem(baseUrl, token, fetchImpl, repository, args, signal, operation);
+    },
+  });
+}
+
+function createGitHubManageTool(env, fetchImpl) {
+  const token = setting(env, "GITHUB_TOKEN");
+  const baseUrl = setting(env, "GITHUB_API_URL") || "https://api.github.com";
+  return tool({
+    name: "github_manage",
+    catalogId: "github",
+    description: "Create a GitHub issue, comment on an issue or pull request, or change an issue or pull-request state. Every operation writes remote state and requires approval",
+    parameters: objectSchema({
+      operation: enumSchema("GitHub write operation", ["create_issue", "add_comment", "set_issue_state"]),
+      repository: stringSchema("Repository in owner/name form"),
+      number: integerSchema("Issue or pull request number; required for add_comment and set_issue_state", 1, 1_000_000),
+      title: stringSchema("Issue title; required for create_issue"),
+      body: stringSchema("Issue or comment body; required for add_comment and optional for create_issue"),
+      state: enumSchema("Target state for set_issue_state", ["open", "closed"]),
+      state_reason: enumSchema("Optional GitHub state reason", ["completed", "not_planned", "reopened"]),
+    }, ["operation", "repository"]),
+    risk: "mutating",
+    available: Boolean(token),
+    unavailableReason: "Set GITHUB_TOKEN with GitHub Issues or Pull requests write access on the backend",
+    requiredEnvironment: ["GITHUB_TOKEN"],
+    execute: async (args, { signal }) => {
+      const operation = optionalEnum(args.operation, null, ["create_issue", "add_comment", "set_issue_state"]);
+      if (!operation) throw httpError(400, "operation is required");
+      const repository = githubRepository(args.repository);
+      if (operation === "create_issue") {
+        return githubCreateIssue(baseUrl, token, fetchImpl, repository, args, signal);
+      }
+      const number = githubNumber(args);
+      if (operation === "add_comment") {
+        return githubAddComment(baseUrl, token, fetchImpl, repository, number, args, signal);
+      }
+      return githubSetIssueState(baseUrl, token, fetchImpl, repository, number, args, signal);
     },
   });
 }
@@ -144,7 +199,7 @@ function createGitHubTool(env, fetchImpl) {
 async function githubSearch(baseUrl, token, fetchImpl, args, signal) {
   const query = requiredString(args, "query", 2_000);
   const type = optionalEnum(args.type, "issues", ["issues", "repositories", "code"]);
-  const limit = boundedInteger(args.limit, 10, 1, 20);
+  const limit = boundedInteger(args.limit, 10, 1, 100);
   const url = githubApiUrl(baseUrl, "search", type);
   url.searchParams.set("q", query);
   url.searchParams.set("per_page", String(limit));
@@ -176,8 +231,7 @@ async function githubSearch(baseUrl, token, fetchImpl, args, signal) {
 }
 
 async function githubWorkItem(baseUrl, token, fetchImpl, repository, args, signal, operation) {
-  const number = boundedInteger(args.number, null, 1, 1_000_000);
-  if (number === null) throw httpError(400, "number is required");
+  const number = githubNumber(args);
   const kind = operation === "get_pull_request" ? "pulls" : "issues";
   const label = operation === "get_pull_request" ? "pull request" : "issue";
   const body = await requestJson(
@@ -214,6 +268,167 @@ async function githubWorkItem(baseUrl, token, fetchImpl, repository, args, signa
     summary: `Read GitHub ${label} ${repository.slug}#${body.number || number}`,
     detail: truncate(output),
   };
+}
+
+async function githubPullRequestFiles(baseUrl, token, fetchImpl, repository, args, signal) {
+  const number = githubNumber(args);
+  const limit = boundedInteger(args.limit, 30, 1, 100);
+  const url = githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "pulls", String(number), "files");
+  url.searchParams.set("per_page", String(limit));
+  const body = await requestJson(
+    fetchImpl,
+    url,
+    { headers: githubHeaders(token), signal },
+    "GitHub pull request files",
+  );
+  const files = requiredArray(body, "GitHub pull request files").slice(0, limit);
+  const output = files.length
+    ? files.map((file, index) => buildString([
+      `${index + 1}. ${file.filename || "Unknown file"}`,
+      [
+        `status=${file.status || "unknown"}`,
+        Number.isInteger(file.additions) ? `additions=${file.additions}` : "",
+        Number.isInteger(file.deletions) ? `deletions=${file.deletions}` : "",
+        Number.isInteger(file.changes) ? `changes=${file.changes}` : "",
+      ].filter(Boolean).join(" "),
+      file.blob_url,
+      file.patch ? `patch:\n${truncate(file.patch, 8_000)}` : "patch unavailable (binary or too large)",
+    ])).join("\n\n")
+    : `No changed files found for ${repository.slug}#${number}`;
+  return {
+    output: truncate(output),
+    summary: `Read ${files.length} changed file${files.length === 1 ? "" : "s"} from ${repository.slug}#${number}`,
+    detail: truncate(output),
+  };
+}
+
+async function githubComments(baseUrl, token, fetchImpl, repository, args, signal) {
+  const number = githubNumber(args);
+  const limit = boundedInteger(args.limit, 30, 1, 100);
+  const url = githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "issues", String(number), "comments");
+  url.searchParams.set("per_page", String(limit));
+  const body = await requestJson(fetchImpl, url, { headers: githubHeaders(token), signal }, "GitHub comments");
+  const comments = requiredArray(body, "GitHub comments").slice(0, limit);
+  const output = comments.length
+    ? comments.map((comment, index) => buildString([
+      `${index + 1}. ${comment.user?.login || "unknown"} at ${comment.created_at || "unknown time"}`,
+      comment.html_url,
+      comment.body ? truncate(comment.body, 8_000) : "No comment body.",
+    ])).join("\n\n")
+    : `No comments found for ${repository.slug}#${number}`;
+  return {
+    output: truncate(output),
+    summary: `Read ${comments.length} comment${comments.length === 1 ? "" : "s"} from ${repository.slug}#${number}`,
+    detail: truncate(output),
+  };
+}
+
+async function githubCreateIssue(baseUrl, token, fetchImpl, repository, args, signal) {
+  const title = requiredString(args, "title", 256);
+  const bodyText = optionalString(args.body, "", 65_536);
+  const body = await githubMutation(
+    baseUrl,
+    token,
+    fetchImpl,
+    repository,
+    ["issues"],
+    { title, ...(bodyText ? { body: bodyText } : {}) },
+    signal,
+    "GitHub issue creation",
+  );
+  if (!Number.isInteger(body.number) || body.number < 1) {
+    throw httpError(502, "GitHub issue creation returned an unexpected response shape");
+  }
+  const output = buildString([
+    `Created ${repository.slug}#${body.number}: ${body.title || title}`,
+    body.html_url,
+    `state=${body.state || "open"}`,
+  ]);
+  return { output, summary: `Created GitHub issue ${repository.slug}#${body.number}`, detail: output };
+}
+
+async function githubAddComment(baseUrl, token, fetchImpl, repository, number, args, signal) {
+  const comment = requiredString(args, "body", 65_536);
+  const body = await githubMutation(
+    baseUrl,
+    token,
+    fetchImpl,
+    repository,
+    ["issues", String(number), "comments"],
+    { body: comment },
+    signal,
+    "GitHub comment creation",
+  );
+  if (!Number.isInteger(body.id) || body.id < 1 || typeof body.html_url !== "string") {
+    throw httpError(502, "GitHub comment creation returned an unexpected response shape");
+  }
+  const output = buildString([
+    `Commented on ${repository.slug}#${number}`,
+    body.html_url,
+    body.user?.login ? `author=${body.user.login}` : "",
+  ]);
+  return { output, summary: `Commented on GitHub item ${repository.slug}#${number}`, detail: output };
+}
+
+async function githubSetIssueState(baseUrl, token, fetchImpl, repository, number, args, signal) {
+  const state = optionalEnum(args.state, null, ["open", "closed"]);
+  if (!state) throw httpError(400, "state is required");
+  const stateReason = optionalEnum(args.state_reason, "", ["completed", "not_planned", "reopened"]);
+  if (state === "open" && stateReason && stateReason !== "reopened") {
+    throw httpError(400, "An open issue can only use state_reason=reopened");
+  }
+  if (state === "closed" && stateReason === "reopened") {
+    throw httpError(400, "A closed issue cannot use state_reason=reopened");
+  }
+  const body = await githubMutation(
+    baseUrl,
+    token,
+    fetchImpl,
+    repository,
+    ["issues", String(number)],
+    { state, ...(stateReason ? { state_reason: stateReason } : {}) },
+    signal,
+    "GitHub issue state update",
+    "PATCH",
+  );
+  if (!Number.isInteger(body.number) || body.number < 1 || !["open", "closed"].includes(body.state)) {
+    throw httpError(502, "GitHub issue state update returned an unexpected response shape");
+  }
+  const output = buildString([
+    `Updated ${repository.slug}#${body.number || number}`,
+    body.html_url,
+    `state=${body.state || state}`,
+    body.state_reason ? `state_reason=${body.state_reason}` : "",
+  ]);
+  return { output, summary: `Updated GitHub item ${repository.slug}#${body.number || number}`, detail: output };
+}
+
+async function githubMutation(
+  baseUrl,
+  token,
+  fetchImpl,
+  repository,
+  pathSegments,
+  requestBody,
+  signal,
+  operation,
+  method = "POST",
+) {
+  const body = await requestJson(
+    fetchImpl,
+    githubApiUrl(baseUrl, "repos", repository.owner, repository.name, ...pathSegments),
+    {
+      method,
+      headers: { ...githubHeaders(token), "content-type": "application/json" },
+      body: JSON.stringify(requestBody),
+      signal,
+    },
+    operation,
+  );
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw httpError(502, `${operation} returned an unexpected response shape`);
+  }
+  return body;
 }
 
 async function githubFile(baseUrl, token, fetchImpl, repository, args, signal) {
@@ -686,6 +901,12 @@ function githubFilePath(value) {
     throw httpError(400, "path must stay within the repository");
   }
   return { value: normalized, segments };
+}
+
+function githubNumber(args) {
+  const number = boundedInteger(args.number, null, 1, 1_000_000);
+  if (number === null) throw httpError(400, "number is required");
+  return number;
 }
 
 function isBinary(bytes) {

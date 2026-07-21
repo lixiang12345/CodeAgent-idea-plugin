@@ -15,6 +15,8 @@ test("reports missing integration credentials and rejects execution explicitly",
   assert.equal(tools.find((tool) => tool.name === "web_search").available, false);
   assert.equal(tools.find((tool) => tool.name === "web_search").risk, "read_only");
   assert.match(tools.find((tool) => tool.name === "github_search").unavailableReason, /GITHUB_TOKEN/);
+  assert.equal(tools.find((tool) => tool.name === "github_manage").risk, "mutating");
+  assert.match(tools.find((tool) => tool.name === "github_manage").unavailableReason, /write access/);
   assert.equal(tools.find((tool) => tool.name === "subagent").available, false);
   await assert.rejects(
     registry.execute("web_search", { query: "CodeAgent" }),
@@ -79,6 +81,28 @@ test("reads GitHub issues, pull requests, and text files through a scoped standa
         body: "Pull request body",
       });
     }
+    if (requestUrl === "https://github.example.test/api/v3/repos/codeagent/idea/pulls/7/files?per_page=2") {
+      return jsonResponse([
+        {
+          filename: "src/main.kt",
+          status: "modified",
+          additions: 5,
+          deletions: 2,
+          changes: 7,
+          patch: "@@ -1 +1 @@\n-old\n+new",
+          blob_url: "https://github.example.test/codeagent/idea/blob/head/src/main.kt",
+        },
+        { filename: "assets/icon.png", status: "added", additions: 0, deletions: 0, changes: 0 },
+      ]);
+    }
+    if (requestUrl === "https://github.example.test/api/v3/repos/codeagent/idea/issues/7/comments?per_page=1") {
+      return jsonResponse([{
+        user: { login: "reviewer" },
+        created_at: "2026-07-21T01:00:00Z",
+        html_url: "https://github.example.test/codeagent/idea/pull/7#issuecomment-1",
+        body: "Please cover the error path.",
+      }]);
+    }
     if (requestUrl === "https://github.example.test/api/v3/repos/codeagent/idea/contents/src/main.kt?ref=main") {
       return jsonResponse({
         type: "file",
@@ -122,6 +146,18 @@ test("reads GitHub issues, pull requests, and text files through a scoped standa
     repository: "codeagent/idea",
     path: "assets/icon.bin",
   });
+  const pullRequestFiles = await registry.execute("github_search", {
+    operation: "list_pull_request_files",
+    repository: "codeagent/idea",
+    number: 7,
+    limit: 2,
+  });
+  const comments = await registry.execute("github_search", {
+    operation: "list_comments",
+    repository: "codeagent/idea",
+    number: 7,
+    limit: 1,
+  });
 
   assert.match(issue.output, /Issue body/);
   assert.match(issue.output, /labels=bug/);
@@ -129,7 +165,12 @@ test("reads GitHub issues, pull requests, and text files through a scoped standa
   assert.match(pullRequest.output, /changed_files=3/);
   assert.match(file.output, /fun main\(\) = Unit/);
   assert.match(binary.output, /Binary file content is not included/);
-  assert.equal(calls.length, 4);
+  assert.match(pullRequestFiles.output, /src\/main\.kt/);
+  assert.match(pullRequestFiles.output, /additions=5/);
+  assert.match(pullRequestFiles.output, /patch:/);
+  assert.match(comments.output, /reviewer/);
+  assert.match(comments.output, /Please cover the error path/);
+  assert.equal(calls.length, 6);
   assert.equal(calls[0].options.headers.authorization, "Bearer github-token");
   assert.equal(calls[0].options.headers["x-github-api-version"], "2022-11-28");
 
@@ -145,6 +186,110 @@ test("reads GitHub issues, pull requests, and text files through a scoped standa
     registry.execute("github_search", { operation: "read_file", repository: "codeagent/idea", path: "bad.txt" }),
     (error) => error.statusCode === 502 && /invalid base64/.test(error.message),
   );
+});
+
+test("executes approval-classified GitHub writes with bounded standard REST payloads", async () => {
+  const calls = [];
+  const registry = createIntegrationToolRegistryFromEnv({
+    GITHUB_TOKEN: "github-write-token",
+    GITHUB_API_URL: "https://github.example.test/api/v3/",
+  }, async (url, options = {}) => {
+    const call = { url: String(url), options };
+    calls.push(call);
+    if (call.url === "https://github.example.test/api/v3/repos/codeagent/idea/issues" && options.method === "POST") {
+      return jsonResponse({
+        number: 51,
+        title: "Regression in login flow",
+        state: "open",
+        html_url: "https://github.example.test/codeagent/idea/issues/51",
+      }, 201);
+    }
+    if (call.url === "https://github.example.test/api/v3/repos/codeagent/idea/issues/51/comments" && options.method === "POST") {
+      return jsonResponse({
+        id: 9,
+        html_url: "https://github.example.test/codeagent/idea/issues/51#issuecomment-9",
+        user: { login: "codeagent" },
+      }, 201);
+    }
+    if (call.url === "https://github.example.test/api/v3/repos/codeagent/idea/issues/51" && options.method === "PATCH") {
+      return jsonResponse({
+        number: 51,
+        state: "closed",
+        state_reason: "completed",
+        html_url: "https://github.example.test/codeagent/idea/issues/51",
+      });
+    }
+    throw new Error(`Unexpected request: ${call.url}`);
+  }, {});
+
+  const capability = registry.list().find((tool) => tool.name === "github_manage");
+  assert.equal(capability.risk, "mutating");
+  assert.equal(capability.catalogId, "github");
+  assert.equal(capability.available, true);
+
+  const issue = await registry.execute("github_manage", {
+    operation: "create_issue",
+    repository: "codeagent/idea",
+    title: "Regression in login flow",
+    body: "Steps to reproduce",
+  });
+  const comment = await registry.execute("github_manage", {
+    operation: "add_comment",
+    repository: "codeagent/idea",
+    number: 51,
+    body: "Fixed by #52",
+  });
+  const state = await registry.execute("github_manage", {
+    operation: "set_issue_state",
+    repository: "codeagent/idea",
+    number: 51,
+    state: "closed",
+    state_reason: "completed",
+  });
+
+  assert.match(issue.output, /Created codeagent\/idea#51/);
+  assert.match(comment.output, /Commented on codeagent\/idea#51/);
+  assert.match(state.output, /state_reason=completed/);
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    title: "Regression in login flow",
+    body: "Steps to reproduce",
+  });
+  assert.deepEqual(JSON.parse(calls[1].options.body), { body: "Fixed by #52" });
+  assert.deepEqual(JSON.parse(calls[2].options.body), { state: "closed", state_reason: "completed" });
+  assert.equal(calls[0].options.headers.authorization, "Bearer github-write-token");
+  assert.equal(calls[0].options.headers["content-type"], "application/json");
+
+  await assert.rejects(
+    registry.execute("github_manage", {
+      operation: "set_issue_state",
+      repository: "codeagent/idea",
+      number: 51,
+      state: "open",
+      state_reason: "completed",
+    }),
+    (error) => error.statusCode === 400 && /only use state_reason=reopened/.test(error.message),
+  );
+  await assert.rejects(
+    registry.execute("github_manage", {
+      operation: "add_comment",
+      repository: "codeagent/idea",
+      number: 51,
+      body: " ",
+    }),
+    (error) => error.statusCode === 400 && /body is required/.test(error.message),
+  );
+  const malformedRegistry = createIntegrationToolRegistryFromEnv({ GITHUB_TOKEN: "github-write-token" }, async () => (
+    jsonResponse({ status: "ok" }, 201)
+  ), {});
+  await assert.rejects(
+    malformedRegistry.execute("github_manage", {
+      operation: "create_issue",
+      repository: "codeagent/idea",
+      title: "Missing provider fields",
+    }),
+    (error) => error.statusCode === 502 && /unexpected response shape/.test(error.message),
+  );
+  assert.equal(calls.length, 3);
 });
 
 test("executes configured HTTP integration adapters and normalizes real provider results", async () => {
@@ -228,7 +373,7 @@ test("executes configured HTTP integration adapters and normalizes real provider
     SUPABASE_TABLES: "tickets,projects",
   }, fetchImpl, modelGateway);
 
-  assert.equal(registry.list().filter((tool) => tool.available).length, 9);
+  assert.equal(registry.list().filter((tool) => tool.available).length, 10);
   assert.match((await registry.execute("web_search", { query: "web" })).output, /Web result/);
   assert.match((await registry.execute("github_search", { query: "bug" })).output, /GitHub issue/);
   assert.match((await registry.execute("linear_search", { query: "linear" })).output, /ENG-1/);

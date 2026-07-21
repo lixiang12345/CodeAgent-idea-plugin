@@ -90,6 +90,7 @@
     web_fetch: "globe",
     web_search: "globe",
     github_search: "github",
+    github_manage: "github",
     linear_search: "linear",
     notion_search: "notion",
     jira_search: "jira",

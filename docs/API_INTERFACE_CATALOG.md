@@ -286,7 +286,7 @@ Executes one configured backend-owned tool. Credentials remain in backend enviro
 
 Success returns `{ "output": "…", "summary": "…", "detail": "…" }`. Missing configuration returns `503 { "error": "…" }`; provider failures or invalid provider responses return `502`; unknown tools return `404`.
 
-Current adapters: `web_search`, `github_search` (search plus issue, pull-request, and repository-file reads), `linear_search`, `notion_search`, `jira_search`, `confluence_search`, `glean_search`, `supabase_query`, and synchronous model-only `subagent`.
+Current adapters: `web_search`, `github_search` (search plus issue, pull-request, changed-file, comment, and repository-file reads), approval-gated `github_manage` (issue creation, issue/pull-request comments, and state changes), `linear_search`, `notion_search`, `jira_search`, `confluence_search`, `glean_search`, `supabase_query`, and synchronous model-only `subagent`.
 
 ### 3.5 `POST /v1/enhance`
 
