@@ -46,6 +46,107 @@ test("rejects malformed successful provider responses instead of returning empty
   );
 });
 
+test("reads GitHub issues, pull requests, and text files through a scoped standard API", async () => {
+  const calls = [];
+  const registry = createIntegrationToolRegistryFromEnv({
+    GITHUB_TOKEN: "github-token",
+    GITHUB_API_URL: "https://github.example.test/api/v3",
+  }, async (url, options = {}) => {
+    const requestUrl = String(url);
+    calls.push({ url: requestUrl, options });
+    if (requestUrl === "https://github.example.test/api/v3/repos/codeagent/idea/issues/42") {
+      return jsonResponse({
+        number: 42,
+        title: "Issue detail",
+        html_url: "https://github.example.test/codeagent/idea/issues/42",
+        state: "open",
+        user: { login: "octo" },
+        labels: [{ name: "bug" }],
+        updated_at: "2026-07-21T00:00:00Z",
+        body: "Issue body",
+      });
+    }
+    if (requestUrl === "https://github.example.test/api/v3/repos/codeagent/idea/pulls/7") {
+      return jsonResponse({
+        number: 7,
+        title: "Pull request detail",
+        html_url: "https://github.example.test/codeagent/idea/pull/7",
+        state: "closed",
+        merged: true,
+        base: { ref: "main" },
+        head: { ref: "feature" },
+        changed_files: 3,
+        body: "Pull request body",
+      });
+    }
+    if (requestUrl === "https://github.example.test/api/v3/repos/codeagent/idea/contents/src/main.kt?ref=main") {
+      return jsonResponse({
+        type: "file",
+        encoding: "base64",
+        content: Buffer.from("fun main() = Unit\n").toString("base64"),
+        html_url: "https://github.example.test/codeagent/idea/blob/main/src/main.kt",
+      });
+    }
+    if (requestUrl === "https://github.example.test/api/v3/repos/codeagent/idea/contents/assets/icon.bin") {
+      return jsonResponse({
+        type: "file",
+        encoding: "base64",
+        content: Buffer.from([0, 1, 2]).toString("base64"),
+        html_url: "https://github.example.test/codeagent/idea/blob/main/assets/icon.bin",
+      });
+    }
+    if (requestUrl === "https://github.example.test/api/v3/repos/codeagent/idea/contents/bad.txt") {
+      return jsonResponse({ type: "file", encoding: "base64", content: "not-valid@" });
+    }
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  }, {});
+
+  const issue = await registry.execute("github_search", {
+    operation: "get_issue",
+    repository: "codeagent/idea",
+    number: 42,
+  });
+  const pullRequest = await registry.execute("github_search", {
+    operation: "get_pull_request",
+    repository: "codeagent/idea",
+    number: 7,
+  });
+  const file = await registry.execute("github_search", {
+    operation: "read_file",
+    repository: "codeagent/idea",
+    path: "src/main.kt",
+    ref: "main",
+  });
+  const binary = await registry.execute("github_search", {
+    operation: "read_file",
+    repository: "codeagent/idea",
+    path: "assets/icon.bin",
+  });
+
+  assert.match(issue.output, /Issue body/);
+  assert.match(issue.output, /labels=bug/);
+  assert.match(pullRequest.output, /merged=true/);
+  assert.match(pullRequest.output, /changed_files=3/);
+  assert.match(file.output, /fun main\(\) = Unit/);
+  assert.match(binary.output, /Binary file content is not included/);
+  assert.equal(calls.length, 4);
+  assert.equal(calls[0].options.headers.authorization, "Bearer github-token");
+  assert.equal(calls[0].options.headers["x-github-api-version"], "2022-11-28");
+
+  await assert.rejects(
+    registry.execute("github_search", { operation: "read_file", repository: "codeagent/idea", path: "../.env" }),
+    (error) => error.statusCode === 400 && /within the repository/.test(error.message),
+  );
+  await assert.rejects(
+    registry.execute("github_search", { operation: "get_issue", repository: "../secrets", number: 1 }),
+    (error) => error.statusCode === 400 && /owner\/name/.test(error.message),
+  );
+  await assert.rejects(
+    registry.execute("github_search", { operation: "read_file", repository: "codeagent/idea", path: "bad.txt" }),
+    (error) => error.statusCode === 502 && /invalid base64/.test(error.message),
+  );
+});
+
 test("executes configured HTTP integration adapters and normalizes real provider results", async () => {
   const calls = [];
   const fetchImpl = async (url, options = {}) => {

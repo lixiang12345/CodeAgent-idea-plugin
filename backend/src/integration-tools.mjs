@@ -1,6 +1,7 @@
 import { delegatedSubagentMessages } from "./prompt.mjs";
 
 const MAX_OUTPUT_CHARS = 24_000;
+const MAX_GITHUB_FILE_BYTES = 512_000;
 
 export class IntegrationToolRegistry {
   constructor(tools) {
@@ -116,57 +117,140 @@ function createGitHubTool(env, fetchImpl) {
   return tool({
     name: "github_search",
     catalogId: "github",
-    description: "Search GitHub repositories, issues and pull requests, or code",
+    description: "Search GitHub repositories, issues and pull requests, or code; read one issue, pull request, or UTF-8 repository file",
     parameters: objectSchema({
-      query: stringSchema("GitHub search query, including qualifiers when useful"),
-      type: enumSchema("Search index", ["issues", "repositories", "code"]),
+      operation: enumSchema("GitHub operation; defaults to search", ["search", "get_issue", "get_pull_request", "read_file"]),
+      query: stringSchema("GitHub search query, including qualifiers when useful; required for search"),
+      type: enumSchema("Search index when operation is search", ["issues", "repositories", "code"]),
+      repository: stringSchema("Repository in owner/name form; required for get_issue, get_pull_request, and read_file"),
+      number: integerSchema("Issue or pull request number", 1, 1_000_000),
+      path: stringSchema("Repository-relative UTF-8 file path; required for read_file"),
+      ref: stringSchema("Optional Git ref, branch, tag, or commit for read_file"),
       limit: integerSchema("Maximum results", 1, 20),
-    }, ["query"]),
+    }),
     available: Boolean(token),
     unavailableReason: "Set GITHUB_TOKEN on the backend",
     requiredEnvironment: ["GITHUB_TOKEN"],
     execute: async (args, { signal }) => {
-      const query = requiredString(args, "query", 2_000);
-      const type = optionalEnum(args.type, "issues", ["issues", "repositories", "code"]);
-      const limit = boundedInteger(args.limit, 10, 1, 20);
-      const url = new URL(`${baseUrl.replace(/\/$/, "")}/search/${type}`);
-      url.searchParams.set("q", query);
-      url.searchParams.set("per_page", String(limit));
-      const body = await requestJson(fetchImpl, url, {
-        headers: {
-          accept: "application/vnd.github+json",
-          authorization: `Bearer ${token}`,
-          "x-github-api-version": "2022-11-28",
-          "user-agent": "CodeAgent/0.6",
-        },
-        signal,
-      }, "GitHub search");
-      const results = requiredArray(body?.items, "GitHub search").slice(0, limit).map((item) => {
-        if (type === "repositories") {
-          return {
-            title: item.full_name || item.name,
-            url: item.html_url,
-            snippet: [item.description, item.language, item.stargazers_count != null ? `${item.stargazers_count} stars` : ""]
-              .filter(Boolean).join(" | "),
-          };
-        }
-        if (type === "code") {
-          return {
-            title: [item.repository?.full_name, item.path || item.name].filter(Boolean).join(":"),
-            url: item.html_url,
-            snippet: item.name || item.path || "",
-          };
-        }
-        return {
-          title: item.title || `#${item.number}`,
-          url: item.html_url,
-          snippet: [item.state, item.pull_request ? "pull request" : "issue", item.user?.login]
-            .filter(Boolean).join(" | "),
-        };
-      });
-      return searchResult(`GitHub ${type}`, results);
+      const operation = optionalEnum(args.operation, "search", ["search", "get_issue", "get_pull_request", "read_file"]);
+      if (operation === "search") return githubSearch(baseUrl, token, fetchImpl, args, signal);
+      const repository = githubRepository(args.repository);
+      if (operation === "read_file") return githubFile(baseUrl, token, fetchImpl, repository, args, signal);
+      return githubWorkItem(baseUrl, token, fetchImpl, repository, args, signal, operation);
     },
   });
+}
+
+async function githubSearch(baseUrl, token, fetchImpl, args, signal) {
+  const query = requiredString(args, "query", 2_000);
+  const type = optionalEnum(args.type, "issues", ["issues", "repositories", "code"]);
+  const limit = boundedInteger(args.limit, 10, 1, 20);
+  const url = githubApiUrl(baseUrl, "search", type);
+  url.searchParams.set("q", query);
+  url.searchParams.set("per_page", String(limit));
+  const body = await requestJson(fetchImpl, url, { headers: githubHeaders(token), signal }, "GitHub search");
+  const results = requiredArray(body?.items, "GitHub search").slice(0, limit).map((item) => {
+    if (type === "repositories") {
+      return {
+        title: item.full_name || item.name,
+        url: item.html_url,
+        snippet: [item.description, item.language, item.stargazers_count != null ? `${item.stargazers_count} stars` : ""]
+          .filter(Boolean).join(" | "),
+      };
+    }
+    if (type === "code") {
+      return {
+        title: [item.repository?.full_name, item.path || item.name].filter(Boolean).join(":"),
+        url: item.html_url,
+        snippet: item.name || item.path || "",
+      };
+    }
+    return {
+      title: item.title || `#${item.number}`,
+      url: item.html_url,
+      snippet: [item.state, item.pull_request ? "pull request" : "issue", item.user?.login]
+        .filter(Boolean).join(" | "),
+    };
+  });
+  return searchResult(`GitHub ${type}`, results);
+}
+
+async function githubWorkItem(baseUrl, token, fetchImpl, repository, args, signal, operation) {
+  const number = boundedInteger(args.number, null, 1, 1_000_000);
+  if (number === null) throw httpError(400, "number is required");
+  const kind = operation === "get_pull_request" ? "pulls" : "issues";
+  const label = operation === "get_pull_request" ? "pull request" : "issue";
+  const body = await requestJson(
+    fetchImpl,
+    githubApiUrl(baseUrl, "repos", repository.owner, repository.name, kind, String(number)),
+    { headers: githubHeaders(token), signal },
+    `GitHub ${label}`,
+  );
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw httpError(502, `GitHub ${label} returned an unexpected response shape`);
+  }
+  const labels = Array.isArray(body.labels)
+    ? body.labels.map((item) => item?.name).filter(Boolean)
+    : [];
+  const output = buildString([
+    `${repository.slug}#${body.number || number}: ${body.title || `GitHub ${label}`}`,
+    body.html_url,
+    [
+      `state=${body.state || "unknown"}`,
+      `author=${body.user?.login || "unknown"}`,
+      body.updated_at ? `updated_at=${body.updated_at}` : "",
+      labels.length ? `labels=${labels.join(", ")}` : "",
+      operation === "get_pull_request" && typeof body.merged === "boolean" ? `merged=${body.merged}` : "",
+      operation === "get_pull_request" && body.base?.ref ? `base=${body.base.ref}` : "",
+      operation === "get_pull_request" && body.head?.ref ? `head=${body.head.ref}` : "",
+      operation === "get_pull_request" && Number.isInteger(body.changed_files) ? `changed_files=${body.changed_files}` : "",
+    ].filter(Boolean).join("\n"),
+    "",
+    "Description:",
+    body.body || "No description provided.",
+  ]);
+  return {
+    output: truncate(output),
+    summary: `Read GitHub ${label} ${repository.slug}#${body.number || number}`,
+    detail: truncate(output),
+  };
+}
+
+async function githubFile(baseUrl, token, fetchImpl, repository, args, signal) {
+  const path = githubFilePath(args.path);
+  const ref = args.ref === undefined || args.ref === null || args.ref === "" ? "" : requiredString(args, "ref", 500);
+  const url = githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "contents", ...path.segments);
+  if (ref) url.searchParams.set("ref", ref);
+  const body = await requestJson(fetchImpl, url, { headers: githubHeaders(token), signal }, "GitHub file read");
+  if (!body || Array.isArray(body) || body.type !== "file" || typeof body.content !== "string") {
+    throw httpError(502, "GitHub file read returned an unexpected response shape");
+  }
+  if (body.encoding && body.encoding !== "base64") {
+    throw httpError(502, `GitHub file read returned unsupported encoding: ${body.encoding}`);
+  }
+  const encoded = body.content.replace(/\s/g, "");
+  if (!encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
+    throw httpError(502, "GitHub file read returned invalid base64 content");
+  }
+  const bytes = Buffer.from(encoded, "base64");
+  if (bytes.length > MAX_GITHUB_FILE_BYTES) {
+    throw httpError(400, `GitHub file is too large to read (${bytes.length} bytes; maximum ${MAX_GITHUB_FILE_BYTES})`);
+  }
+  const metadata = [
+    `${repository.slug}:${path.value}${ref ? `@${ref}` : ""}`,
+    body.html_url,
+    `size=${bytes.length}`,
+  ];
+  if (isBinary(bytes)) {
+    const output = [...metadata, "", "Binary file content is not included."].filter(Boolean).join("\n");
+    return { output, summary: `Read binary GitHub file ${repository.slug}:${path.value}`, detail: output };
+  }
+  const output = [...metadata, "", bytes.toString("utf8")].filter(Boolean).join("\n");
+  return {
+    output: truncate(output),
+    summary: `Read GitHub file ${repository.slug}:${path.value}`,
+    detail: truncate(output),
+  };
 }
 
 function createLinearTool(env, fetchImpl) {
@@ -561,6 +645,55 @@ function optionalEnum(value, fallback, allowed) {
   if (value === undefined || value === null || value === "") return fallback;
   if (!allowed.includes(value)) throw httpError(400, `Expected one of: ${allowed.join(", ")}`);
   return value;
+}
+
+function githubHeaders(token) {
+  return {
+    accept: "application/vnd.github+json",
+    authorization: `Bearer ${token}`,
+    "x-github-api-version": "2022-11-28",
+    "user-agent": "CodeAgent",
+  };
+}
+
+function githubApiUrl(baseUrl, ...segments) {
+  const url = requiredUrl(baseUrl, "GITHUB_API_URL");
+  const prefix = url.pathname.replace(/\/+$/, "");
+  url.pathname = `${prefix}/${segments.map(encodeURIComponent).join("/")}`;
+  url.search = "";
+  url.hash = "";
+  return url;
+}
+
+function githubRepository(value) {
+  if (typeof value !== "string") throw httpError(400, "repository is required in owner/name form");
+  const normalized = value.trim();
+  const match = /^([A-Za-z0-9_.-]{1,100})\/([A-Za-z0-9_.-]{1,100})$/.exec(normalized);
+  if (!match || match[1] === "." || match[1] === ".." || match[2] === "." || match[2] === "..") {
+    throw httpError(400, "repository must use owner/name form");
+  }
+  return { owner: match[1], name: match[2], slug: normalized };
+}
+
+function githubFilePath(value) {
+  if (typeof value !== "string") throw httpError(400, "path is required");
+  const normalized = value.trim();
+  if (!normalized || normalized.length > 1_000 || normalized.includes("\\0")) {
+    throw httpError(400, "path is invalid");
+  }
+  const segments = normalized.split("/");
+  if (segments.some((segment) => !segment || segment === "." || segment === "..")) {
+    throw httpError(400, "path must stay within the repository");
+  }
+  return { value: normalized, segments };
+}
+
+function isBinary(bytes) {
+  return bytes.includes(0);
+}
+
+function buildString(values) {
+  return values.filter((value) => typeof value === "string" && value.length > 0).join("\n");
 }
 
 function boundedInteger(value, fallback, minimum, maximum) {
