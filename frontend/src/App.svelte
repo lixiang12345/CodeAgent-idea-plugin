@@ -91,6 +91,7 @@
     web_search: "globe",
     github_search: "github",
     github_manage: "github",
+    github_actions_manage: "workflow",
     github_merge_pull_request: "git-merge",
     linear_search: "linear",
     notion_search: "notion",

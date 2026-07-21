@@ -561,6 +561,11 @@ test("does not require local project verification after approved GitHub remote-s
       number: 51,
       body: "Verified in the linked build.",
     }],
+    ["github_actions_manage", {
+      operation: "rerun_failed_jobs",
+      repository: "codeagent/idea",
+      run_id: 19,
+    }],
     ["github_merge_pull_request", {
       repository: "codeagent/idea",
       number: 52,

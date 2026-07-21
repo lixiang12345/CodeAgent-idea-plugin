@@ -43,6 +43,7 @@ export function createIntegrationToolRegistryFromEnv(
     createWebSearchTool(env, fetchImpl),
     createGitHubTool(env, fetchImpl),
     createGitHubManageTool(env, fetchImpl),
+    createGitHubActionsManageTool(env, fetchImpl),
     createGitHubMergeTool(env, fetchImpl),
     createLinearTool(env, fetchImpl),
     createNotionTool(env, fetchImpl),
@@ -119,7 +120,7 @@ function createGitHubTool(env, fetchImpl) {
   return tool({
     name: "github_search",
     catalogId: "github",
-    description: "Search GitHub; inspect issues, pull requests, commits, reviews, line comments, checks, and files; or read a UTF-8 repository file",
+    description: "Search GitHub; inspect pull-request reviews, checks, Actions runs and jobs, branch policy, rulesets, merge readiness, and bounded repository files",
     parameters: objectSchema({
       operation: enumSchema("GitHub operation; defaults to search", [
         "search",
@@ -130,6 +131,12 @@ function createGitHubTool(env, fetchImpl) {
         "list_pull_request_reviews",
         "list_review_comments",
         "list_pull_request_checks",
+        "list_pull_request_workflow_runs",
+        "list_workflow_jobs",
+        "get_workflow_job_logs",
+        "get_branch_protection",
+        "list_repository_rulesets",
+        "get_pull_request_merge_readiness",
         "list_comments",
         "read_file",
       ]),
@@ -139,6 +146,9 @@ function createGitHubTool(env, fetchImpl) {
       number: integerSchema("Issue or pull request number", 1, 1_000_000),
       path: stringSchema("Repository-relative UTF-8 file path; required for read_file"),
       ref: stringSchema("Optional Git ref, branch, tag, or commit for read_file"),
+      branch: stringSchema("Repository branch name; required for get_branch_protection"),
+      run_id: integerSchema("GitHub Actions workflow run ID", 1, Number.MAX_SAFE_INTEGER),
+      job_id: integerSchema("GitHub Actions job ID", 1, Number.MAX_SAFE_INTEGER),
       limit: integerSchema("Maximum search results, files, commits, reviews, comments, or checks", 1, 100),
     }),
     available: Boolean(token),
@@ -154,6 +164,12 @@ function createGitHubTool(env, fetchImpl) {
         "list_pull_request_reviews",
         "list_review_comments",
         "list_pull_request_checks",
+        "list_pull_request_workflow_runs",
+        "list_workflow_jobs",
+        "get_workflow_job_logs",
+        "get_branch_protection",
+        "list_repository_rulesets",
+        "get_pull_request_merge_readiness",
         "list_comments",
         "read_file",
       ]);
@@ -174,6 +190,24 @@ function createGitHubTool(env, fetchImpl) {
       }
       if (operation === "list_pull_request_checks") {
         return githubPullRequestChecks(baseUrl, token, fetchImpl, repository, args, signal);
+      }
+      if (operation === "list_pull_request_workflow_runs") {
+        return githubPullRequestWorkflowRuns(baseUrl, token, fetchImpl, repository, args, signal);
+      }
+      if (operation === "list_workflow_jobs") {
+        return githubWorkflowJobs(baseUrl, token, fetchImpl, repository, args, signal);
+      }
+      if (operation === "get_workflow_job_logs") {
+        return githubWorkflowJobLogs(baseUrl, token, fetchImpl, repository, args, signal);
+      }
+      if (operation === "get_branch_protection") {
+        return githubBranchProtection(baseUrl, token, fetchImpl, repository, args, signal);
+      }
+      if (operation === "list_repository_rulesets") {
+        return githubRepositoryRulesets(baseUrl, token, fetchImpl, repository, signal);
+      }
+      if (operation === "get_pull_request_merge_readiness") {
+        return githubPullRequestMergeReadiness(baseUrl, token, fetchImpl, repository, args, signal);
       }
       if (operation === "list_comments") return githubComments(baseUrl, token, fetchImpl, repository, args, signal);
       return githubWorkItem(baseUrl, token, fetchImpl, repository, args, signal, operation);
@@ -207,6 +241,8 @@ function createGitHubManageTool(env, fetchImpl) {
       base: stringSchema("Base branch for create_pull_request"),
       draft: booleanSchema("Whether a new pull request is a draft"),
       event: enumSchema("Review decision for submit_pull_request_review", ["APPROVE", "REQUEST_CHANGES", "COMMENT"]),
+      commit_id: stringSchema("Optional 40- or 64-character commit SHA to attach a review to"),
+      comments: githubReviewCommentsSchema(),
       reviewers: stringArraySchema("GitHub users to request as reviewers", 15),
       team_reviewers: stringArraySchema("GitHub team slugs to request as reviewers", 15),
     }, ["operation", "repository"]),
@@ -242,6 +278,44 @@ function createGitHubManageTool(env, fetchImpl) {
         return githubSubmitPullRequestReview(baseUrl, token, fetchImpl, repository, number, args, signal);
       }
       return githubRequestReviewers(baseUrl, token, fetchImpl, repository, number, args, signal);
+    },
+  });
+}
+
+function createGitHubActionsManageTool(env, fetchImpl) {
+  const token = setting(env, "GITHUB_TOKEN");
+  const baseUrl = setting(env, "GITHUB_API_URL") || "https://api.github.com";
+  return tool({
+    name: "github_actions_manage",
+    catalogId: "github",
+    description: "Rerun, cancel, or force-cancel GitHub Actions workflow runs and jobs. Every operation writes remote state and requires approval",
+    parameters: objectSchema({
+      operation: enumSchema("GitHub Actions write operation", [
+        "rerun_workflow",
+        "rerun_failed_jobs",
+        "cancel_workflow",
+        "force_cancel_workflow",
+        "rerun_job",
+      ]),
+      repository: stringSchema("Repository in owner/name form"),
+      run_id: integerSchema("GitHub Actions workflow run ID", 1, Number.MAX_SAFE_INTEGER),
+      job_id: integerSchema("GitHub Actions job ID", 1, Number.MAX_SAFE_INTEGER),
+    }, ["operation", "repository"]),
+    risk: "mutating",
+    available: Boolean(token),
+    unavailableReason: "Set GITHUB_TOKEN with GitHub Actions write access on the backend",
+    requiredEnvironment: ["GITHUB_TOKEN"],
+    execute: async (args, { signal }) => {
+      const operation = optionalEnum(args.operation, null, [
+        "rerun_workflow",
+        "rerun_failed_jobs",
+        "cancel_workflow",
+        "force_cancel_workflow",
+        "rerun_job",
+      ]);
+      if (!operation) throw httpError(400, "operation is required");
+      const repository = githubRepository(args.repository);
+      return githubActionsManage(baseUrl, token, fetchImpl, repository, operation, args, signal);
     },
   });
 }
@@ -429,10 +503,7 @@ async function githubPullRequestCommits(baseUrl, token, fetchImpl, repository, a
 async function githubPullRequestReviews(baseUrl, token, fetchImpl, repository, args, signal) {
   const number = githubNumber(args);
   const limit = boundedInteger(args.limit, 30, 1, 100);
-  const url = githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "pulls", String(number), "reviews");
-  url.searchParams.set("per_page", String(limit));
-  const body = await requestJson(fetchImpl, url, { headers: githubHeaders(token), signal }, "GitHub pull request reviews");
-  const reviews = requiredArray(body, "GitHub pull request reviews").slice(0, limit);
+  const reviews = await githubPullRequestReviewsData(baseUrl, token, fetchImpl, repository, number, limit, signal);
   const output = reviews.length
     ? reviews.map((review, index) => buildString([
       `${index + 1}. ${review.user?.login || "unknown"}: ${review.state || "UNKNOWN"}`,
@@ -449,6 +520,13 @@ async function githubPullRequestReviews(baseUrl, token, fetchImpl, repository, a
     summary: `Read ${reviews.length} review${reviews.length === 1 ? "" : "s"} from ${repository.slug}#${number}`,
     detail: truncate(output),
   };
+}
+
+async function githubPullRequestReviewsData(baseUrl, token, fetchImpl, repository, number, limit, signal) {
+  const url = githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "pulls", String(number), "reviews");
+  url.searchParams.set("per_page", String(limit));
+  const body = await requestJson(fetchImpl, url, { headers: githubHeaders(token), signal }, "GitHub pull request reviews");
+  return requiredArray(body, "GitHub pull request reviews").slice(0, limit);
 }
 
 async function githubReviewComments(baseUrl, token, fetchImpl, repository, args, signal) {
@@ -484,10 +562,7 @@ async function githubPullRequestChecks(baseUrl, token, fetchImpl, repository, ar
   const limit = boundedInteger(args.limit, 30, 1, 100);
   const pullRequest = await githubPullRequestMetadata(baseUrl, token, fetchImpl, repository, number, signal);
   const headSha = githubCommitSha(pullRequest.head?.sha, "GitHub pull request head SHA", 502);
-  const url = githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "commits", headSha, "check-runs");
-  url.searchParams.set("per_page", String(limit));
-  const body = await requestJson(fetchImpl, url, { headers: githubHeaders(token), signal }, "GitHub check runs");
-  const checks = requiredArray(body?.check_runs, "GitHub check runs").slice(0, limit);
+  const checks = await githubCheckRunsForSha(baseUrl, token, fetchImpl, repository, headSha, limit, signal);
   const output = checks.length
     ? checks.map((check, index) => buildString([
       `${index + 1}. ${check.name || "Unnamed check"}`,
@@ -506,6 +581,172 @@ async function githubPullRequestChecks(baseUrl, token, fetchImpl, repository, ar
     output: truncate(buildString([`head_sha=${headSha}`, output])),
     summary: `Read ${checks.length} check run${checks.length === 1 ? "" : "s"} from ${repository.slug}#${number}`,
     detail: truncate(buildString([`head_sha=${headSha}`, output])),
+  };
+}
+
+async function githubCheckRunsForSha(baseUrl, token, fetchImpl, repository, headSha, limit, signal) {
+  const url = githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "commits", headSha, "check-runs");
+  url.searchParams.set("per_page", String(limit));
+  const body = await requestJson(fetchImpl, url, { headers: githubHeaders(token), signal }, "GitHub check runs");
+  return requiredArray(body?.check_runs, "GitHub check runs").slice(0, limit);
+}
+
+async function githubPullRequestWorkflowRuns(baseUrl, token, fetchImpl, repository, args, signal) {
+  const number = githubNumber(args);
+  const limit = boundedInteger(args.limit, 30, 1, 100);
+  const pullRequest = await githubPullRequestMetadata(baseUrl, token, fetchImpl, repository, number, signal);
+  const headSha = githubCommitSha(pullRequest.head?.sha, "GitHub pull request head SHA", 502);
+  const runs = await githubWorkflowRunsForSha(baseUrl, token, fetchImpl, repository, headSha, limit, signal);
+  const output = runs.length
+    ? runs.map((run, index) => buildString([
+      `${index + 1}. ${run.name || run.workflow_name || "Unnamed workflow"}`,
+      [
+        Number.isInteger(run.id) ? `run_id=${run.id}` : "",
+        `status=${run.status || "unknown"}`,
+        run.conclusion ? `conclusion=${run.conclusion}` : "",
+        run.event ? `event=${run.event}` : "",
+        Number.isInteger(run.run_number) ? `run_number=${run.run_number}` : "",
+        run.created_at ? `created_at=${run.created_at}` : "",
+      ].filter(Boolean).join(" "),
+      run.html_url,
+    ])).join("\n\n")
+    : `No GitHub Actions workflow runs found for ${repository.slug}#${number} at ${headSha}`;
+  const detail = truncate(buildString([`head_sha=${headSha}`, output]));
+  return {
+    output: detail,
+    summary: `Read ${runs.length} GitHub Actions workflow run${runs.length === 1 ? "" : "s"} from ${repository.slug}#${number}`,
+    detail,
+  };
+}
+
+async function githubWorkflowRunsForSha(baseUrl, token, fetchImpl, repository, headSha, limit, signal) {
+  const url = githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "actions", "runs");
+  url.searchParams.set("head_sha", headSha);
+  url.searchParams.set("per_page", String(limit));
+  const body = await requestJson(fetchImpl, url, { headers: githubHeaders(token), signal }, "GitHub Actions workflow runs");
+  return requiredArray(body?.workflow_runs, "GitHub Actions workflow runs").slice(0, limit);
+}
+
+async function githubWorkflowJobs(baseUrl, token, fetchImpl, repository, args, signal) {
+  const runId = githubActionId(args.run_id, "run_id");
+  const limit = boundedInteger(args.limit, 30, 1, 100);
+  const url = githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "actions", "runs", String(runId), "jobs");
+  url.searchParams.set("per_page", String(limit));
+  const body = await requestJson(fetchImpl, url, { headers: githubHeaders(token), signal }, "GitHub Actions workflow jobs");
+  const jobs = requiredArray(body?.jobs, "GitHub Actions workflow jobs").slice(0, limit);
+  const output = jobs.length
+    ? jobs.map((job, index) => {
+      const steps = Array.isArray(job.steps)
+        ? job.steps.slice(0, 100).map((step) => [
+          Number.isInteger(step.number) ? `${step.number}.` : "-",
+          step.name || "Unnamed step",
+          `status=${step.status || "unknown"}`,
+          step.conclusion ? `conclusion=${step.conclusion}` : "",
+        ].filter(Boolean).join(" ")).join("\n")
+        : "";
+      return buildString([
+        `${index + 1}. ${job.name || "Unnamed job"}`,
+        [
+          Number.isInteger(job.id) ? `job_id=${job.id}` : "",
+          `status=${job.status || "unknown"}`,
+          job.conclusion ? `conclusion=${job.conclusion}` : "",
+          job.started_at ? `started_at=${job.started_at}` : "",
+          job.completed_at ? `completed_at=${job.completed_at}` : "",
+        ].filter(Boolean).join(" "),
+        job.html_url,
+        steps ? `steps:\n${steps}` : "",
+      ]);
+    }).join("\n\n")
+    : `No GitHub Actions jobs found for workflow run ${runId}`;
+  const detail = truncate(output);
+  return {
+    output: detail,
+    summary: `Read ${jobs.length} GitHub Actions job${jobs.length === 1 ? "" : "s"} from workflow run ${runId}`,
+    detail,
+  };
+}
+
+async function githubWorkflowJobLogs(baseUrl, token, fetchImpl, repository, args, signal) {
+  const jobId = githubActionId(args.job_id, "job_id");
+  const url = githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "actions", "jobs", String(jobId), "logs");
+  let response;
+  try {
+    response = await fetchImpl(url, { headers: githubHeaders(token), signal, redirect: "manual" });
+  } catch (error) {
+    throw httpError(502, `GitHub Actions job logs request failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (response.status >= 300 && response.status < 400) {
+    const location = response.headers.get("location");
+    if (!location) throw httpError(502, "GitHub Actions job logs returned a redirect without a download URL");
+    const output = buildString([
+      `GitHub Actions job ${jobId} logs are available from a short-lived download URL.`,
+      location,
+    ]);
+    return { output, summary: `Retrieved a temporary log download URL for GitHub Actions job ${jobId}`, detail: output };
+  }
+  const text = await response.text();
+  if (!response.ok) {
+    const message = githubProviderMessage(text) || `HTTP ${response.status}`;
+    throw httpError(502, `GitHub Actions job logs failed with HTTP ${response.status}: ${truncate(message, 1_000)}`);
+  }
+  const contentType = response.headers.get("content-type") || "";
+  if (/application\/(?:zip|octet-stream)/i.test(contentType) || text.includes("\0")) {
+    throw httpError(502, "GitHub Actions job logs returned a binary archive without a download redirect");
+  }
+  const output = truncate(buildString([
+    `GitHub Actions job ${jobId} logs:`,
+    text || "No log output was returned.",
+  ]));
+  return { output, summary: `Read GitHub Actions job ${jobId} logs`, detail: output };
+}
+
+async function githubBranchProtection(baseUrl, token, fetchImpl, repository, args, signal) {
+  const branch = githubBranch(args.branch);
+  const protection = await githubBranchProtectionData(baseUrl, token, fetchImpl, repository, branch, signal);
+  if (!protection) {
+    const output = `No GitHub branch protection configuration was returned for ${repository.slug}:${branch}.`;
+    return { output, summary: `No branch protection configured for ${repository.slug}:${branch}`, detail: output };
+  }
+  const report = formatBranchProtection(protection);
+  const output = buildString([`${repository.slug}:${branch}`, report]);
+  return { output: truncate(output), summary: `Read branch protection for ${repository.slug}:${branch}`, detail: truncate(output) };
+}
+
+async function githubBranchProtectionData(baseUrl, token, fetchImpl, repository, branch, signal) {
+  return requestJsonAllowNotFound(
+    fetchImpl,
+    githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "branches", branch, "protection"),
+    { headers: githubHeaders(token), signal },
+    "GitHub branch protection",
+  );
+}
+
+async function githubRepositoryRulesets(baseUrl, token, fetchImpl, repository, signal) {
+  const body = await requestJson(
+    fetchImpl,
+    githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "rulesets"),
+    { headers: githubHeaders(token), signal },
+    "GitHub repository rulesets",
+  );
+  const rulesets = requiredArray(body, "GitHub repository rulesets").slice(0, 100);
+  const output = rulesets.length
+    ? rulesets.map((ruleset, index) => buildString([
+      `${index + 1}. ${ruleset.name || "Unnamed ruleset"}`,
+      [
+        Number.isInteger(ruleset.id) ? `ruleset_id=${ruleset.id}` : "",
+        ruleset.target ? `target=${ruleset.target}` : "",
+        ruleset.enforcement ? `enforcement=${ruleset.enforcement}` : "",
+        ruleset.source_type ? `source_type=${ruleset.source_type}` : "",
+      ].filter(Boolean).join(" "),
+      Array.isArray(ruleset.conditions?.ref_name?.include) ? `include=${ruleset.conditions.ref_name.include.join(", ")}` : "",
+      Array.isArray(ruleset.conditions?.ref_name?.exclude) ? `exclude=${ruleset.conditions.ref_name.exclude.join(", ")}` : "",
+      Array.isArray(ruleset.rules) ? `rules=${ruleset.rules.map((rule) => rule?.type).filter(Boolean).join(", ") || "none"}` : "",
+    ])).join("\n\n")
+    : `No repository rulesets found for ${repository.slug}`;
+  return {
+    output: truncate(output),
+    summary: `Read ${rulesets.length} GitHub repository ruleset${rulesets.length === 1 ? "" : "s"} from ${repository.slug}`,
+    detail: truncate(output),
   };
 }
 
@@ -622,7 +863,11 @@ async function githubSubmitPullRequestReview(baseUrl, token, fetchImpl, reposito
   const event = optionalEnum(args.event, null, ["APPROVE", "REQUEST_CHANGES", "COMMENT"]);
   if (!event) throw httpError(400, "event is required");
   const reviewBody = optionalString(args.body, "", 65_536);
-  if (event !== "APPROVE" && !reviewBody) {
+  const commitId = args.commit_id === undefined || args.commit_id === null || args.commit_id === ""
+    ? ""
+    : githubCommitSha(args.commit_id, "commit_id");
+  const comments = githubReviewCommentList(args.comments);
+  if (event !== "APPROVE" && !reviewBody && !comments.length) {
     throw httpError(400, `body is required when event=${event}`);
   }
   const body = await githubMutation(
@@ -631,7 +876,12 @@ async function githubSubmitPullRequestReview(baseUrl, token, fetchImpl, reposito
     fetchImpl,
     repository,
     ["pulls", String(number), "reviews"],
-    { event, ...(reviewBody ? { body: reviewBody } : {}) },
+    {
+      event,
+      ...(reviewBody ? { body: reviewBody } : {}),
+      ...(commitId ? { commit_id: commitId } : {}),
+      ...(comments.length ? { comments } : {}),
+    },
     signal,
     "GitHub pull request review submission",
   );
@@ -643,8 +893,30 @@ async function githubSubmitPullRequestReview(baseUrl, token, fetchImpl, reposito
     body.html_url,
     `state=${body.state}`,
     body.commit_id ? `commit=${body.commit_id}` : "",
+    comments.length ? `line_comments=${comments.length}` : "",
   ]);
   return { output, summary: `Submitted GitHub review on ${repository.slug}#${number}`, detail: output };
+}
+
+async function githubActionsManage(baseUrl, token, fetchImpl, repository, operation, args, signal) {
+  const operations = {
+    rerun_workflow: { id: "run", path: (id) => ["actions", "runs", String(id), "rerun"], label: "Reran workflow" },
+    rerun_failed_jobs: { id: "run", path: (id) => ["actions", "runs", String(id), "rerun-failed-jobs"], label: "Reran failed jobs for workflow" },
+    cancel_workflow: { id: "run", path: (id) => ["actions", "runs", String(id), "cancel"], label: "Cancelled workflow" },
+    force_cancel_workflow: { id: "run", path: (id) => ["actions", "runs", String(id), "force-cancel"], label: "Force-cancelled workflow" },
+    rerun_job: { id: "job", path: (id) => ["actions", "jobs", String(id), "rerun"], label: "Reran job" },
+  };
+  const action = operations[operation];
+  const idName = `${action.id}_id`;
+  const id = githubActionId(args[idName], idName);
+  await requestJson(
+    fetchImpl,
+    githubApiUrl(baseUrl, "repos", repository.owner, repository.name, ...action.path(id)),
+    { method: "POST", headers: githubHeaders(token), signal },
+    `GitHub Actions ${operation}`,
+  );
+  const output = `${action.label} ${id} in ${repository.slug}`;
+  return { output, summary: output, detail: output };
 }
 
 async function githubRequestReviewers(baseUrl, token, fetchImpl, repository, number, args, signal) {
@@ -681,6 +953,239 @@ async function githubRequestReviewers(baseUrl, token, fetchImpl, repository, num
   return { output, summary: `Requested GitHub reviewers for ${repository.slug}#${number}`, detail: output };
 }
 
+async function githubPullRequestMergeReadiness(
+  baseUrl,
+  token,
+  fetchImpl,
+  repository,
+  args,
+  signal,
+  providedPullRequest = null,
+) {
+  const number = githubNumber(args);
+  const report = await githubPullRequestMergeReadinessData(
+    baseUrl,
+    token,
+    fetchImpl,
+    repository,
+    number,
+    signal,
+    providedPullRequest,
+  );
+  const output = formatMergeReadiness(repository, number, report);
+  return {
+    output: truncate(output),
+    summary: `GitHub pull request ${repository.slug}#${number} is ${report.ready ? "ready" : "not ready"} to merge`,
+    detail: truncate(output),
+    report,
+  };
+}
+
+async function githubPullRequestMergeReadinessData(
+  baseUrl,
+  token,
+  fetchImpl,
+  repository,
+  number,
+  signal,
+  providedPullRequest = null,
+) {
+  const pullRequest = providedPullRequest
+    || await githubPullRequestMetadata(baseUrl, token, fetchImpl, repository, number, signal);
+  const headSha = githubCommitSha(pullRequest.head?.sha, "GitHub pull request head SHA", 502);
+  const baseBranch = githubBranch(pullRequest.base?.ref, "GitHub pull request base branch", 502);
+  const [reviewData, protection] = await Promise.all([
+    githubPullRequestReviewsForReadiness(baseUrl, token, fetchImpl, repository, number, signal),
+    githubBranchProtectionData(baseUrl, token, fetchImpl, repository, baseBranch, signal),
+  ]);
+  const checkRuns = await githubCheckRunsForSha(baseUrl, token, fetchImpl, repository, headSha, 100, signal);
+  const requiredChecks = githubRequiredChecks(protection);
+  const needsCommitStatuses = requiredChecks.some((check) => check.appId === null);
+  const commitStatuses = needsCommitStatuses
+    ? await githubCommitStatuses(baseUrl, token, fetchImpl, repository, headSha, signal)
+    : [];
+
+  const reviewPolicy = protection?.required_pull_request_reviews || null;
+  const requiredApprovals = Number.isInteger(reviewPolicy?.required_approving_review_count)
+    ? Math.max(0, reviewPolicy.required_approving_review_count)
+    : 0;
+  const latestReviews = githubLatestReviews(reviewData.reviews);
+  const dismissesStaleReviews = reviewPolicy?.dismiss_stale_reviews === true;
+  const approvals = latestReviews.filter((review) => (
+    review.state === "APPROVED"
+      && (!dismissesStaleReviews || String(review.commit_id || "").toLowerCase() === headSha.toLowerCase())
+  ));
+  const changesRequested = latestReviews.filter((review) => review.state === "CHANGES_REQUESTED");
+  const checkResults = requiredChecks.map((requiredCheck) => (
+    githubRequiredCheckResult(requiredCheck, checkRuns, commitStatuses)
+  ));
+  const missingChecks = checkResults.filter((check) => check.state === "missing").map((check) => check.context);
+  const pendingChecks = checkResults.filter((check) => check.state === "pending").map((check) => check.context);
+  const failedChecks = checkResults.filter((check) => check.state === "failed").map((check) => check.context);
+  const blockers = [];
+  if (pullRequest.state !== "open" || pullRequest.merged === true) blockers.push("pull request is not open");
+  if (pullRequest.draft === true) blockers.push("pull request is a draft");
+  if (pullRequest.mergeable !== true) blockers.push(`mergeable=${String(pullRequest.mergeable)}`);
+  const mergeableState = typeof pullRequest.mergeable_state === "string" ? pullRequest.mergeable_state : "unknown";
+  if (["dirty", "blocked", "behind", "draft", "unknown", "unstable"].includes(mergeableState)) {
+    blockers.push(`mergeable_state=${mergeableState}`);
+  }
+  if (!reviewData.complete) blockers.push("review history exceeded the bounded 1000-review audit window");
+  if (changesRequested.length) {
+    blockers.push(`changes requested by ${changesRequested.map((review) => review.user?.login || "unknown").join(", ")}`);
+  }
+  if (approvals.length < requiredApprovals) {
+    blockers.push(`required approvals not met (${approvals.length}/${requiredApprovals})`);
+  }
+  if (missingChecks.length) blockers.push(`missing required checks: ${missingChecks.join(", ")}`);
+  if (pendingChecks.length) blockers.push(`pending required checks: ${pendingChecks.join(", ")}`);
+  if (failedChecks.length) blockers.push(`failed required checks: ${failedChecks.join(", ")}`);
+  if (protection?.required_conversation_resolution?.enabled === true) {
+    blockers.push("required conversation resolution cannot be proven through this REST audit");
+  }
+  return {
+    ready: blockers.length === 0,
+    headSha,
+    baseBranch,
+    state: pullRequest.state || "unknown",
+    draft: pullRequest.draft === true,
+    merged: pullRequest.merged === true,
+    mergeable: pullRequest.mergeable === true,
+    mergeableState,
+    branchProtectionConfigured: Boolean(protection),
+    reviewsInspected: reviewData.reviews.length,
+    reviewHistoryComplete: reviewData.complete,
+    requiredApprovals,
+    approvals: approvals.map((review) => review.user?.login || "unknown"),
+    changesRequested: changesRequested.map((review) => review.user?.login || "unknown"),
+    requiredChecks: checkResults,
+    missingChecks,
+    pendingChecks,
+    failedChecks,
+    requiredConversationResolution: protection?.required_conversation_resolution?.enabled === true,
+    blockers,
+  };
+}
+
+async function githubPullRequestReviewsForReadiness(baseUrl, token, fetchImpl, repository, number, signal) {
+  const reviews = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const url = githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "pulls", String(number), "reviews");
+    url.searchParams.set("per_page", "100");
+    if (page > 1) url.searchParams.set("page", String(page));
+    const body = await requestJson(
+      fetchImpl,
+      url,
+      { headers: githubHeaders(token), signal },
+      "GitHub pull request reviews",
+    );
+    const pageReviews = requiredArray(body, "GitHub pull request reviews");
+    reviews.push(...pageReviews);
+    if (pageReviews.length < 100) return { reviews, complete: true };
+  }
+  return { reviews, complete: false };
+}
+
+async function githubCommitStatuses(baseUrl, token, fetchImpl, repository, headSha, signal) {
+  const url = githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "commits", headSha, "status");
+  url.searchParams.set("per_page", "100");
+  const body = await requestJson(fetchImpl, url, { headers: githubHeaders(token), signal }, "GitHub commit statuses");
+  return requiredArray(body?.statuses, "GitHub commit statuses").slice(0, 100);
+}
+
+function githubLatestReviews(reviews) {
+  const latestByUser = new Map();
+  for (const review of reviews) {
+    const user = typeof review?.user?.login === "string" ? review.user.login.toLowerCase() : "";
+    const state = typeof review?.state === "string" ? review.state.toUpperCase() : "";
+    if (!user || state === "PENDING") continue;
+    const current = latestByUser.get(user);
+    const currentTime = Date.parse(current?.submitted_at || 0) || 0;
+    const reviewTime = Date.parse(review.submitted_at || 0) || 0;
+    if (!current || reviewTime >= currentTime) latestByUser.set(user, { ...review, state });
+  }
+  return [...latestByUser.values()].filter((review) => review.state !== "DISMISSED");
+}
+
+function githubRequiredChecks(protection) {
+  const statusChecks = protection?.required_status_checks;
+  if (!statusChecks) return [];
+  const checks = [];
+  const modernContexts = new Set();
+  if (Array.isArray(statusChecks.checks)) {
+    for (const check of statusChecks.checks) {
+      if (typeof check?.context !== "string" || !check.context.trim()) continue;
+      const context = check.context.trim();
+      modernContexts.add(context);
+      checks.push({
+        context,
+        appId: Number.isInteger(check.app_id) && check.app_id >= 0 ? check.app_id : null,
+      });
+    }
+  }
+  if (Array.isArray(statusChecks.contexts)) {
+    for (const value of statusChecks.contexts) {
+      if (typeof value !== "string" || !value.trim() || modernContexts.has(value.trim())) continue;
+      checks.push({ context: value.trim(), appId: null });
+    }
+  }
+  return checks;
+}
+
+function githubRequiredCheckResult(requiredCheck, checkRuns, commitStatuses) {
+  const matchingRuns = checkRuns.filter((check) => (
+    check?.name === requiredCheck.context
+      && (requiredCheck.appId === null || requiredCheck.appId === check.app?.id)
+  ));
+  const latestRun = matchingRuns.sort((left, right) => (
+    Date.parse(right.completed_at || right.started_at || 0) - Date.parse(left.completed_at || left.started_at || 0)
+      || (Number(right.id) || 0) - (Number(left.id) || 0)
+  ))[0];
+  if (latestRun) {
+    if (latestRun.status !== "completed") return { ...requiredCheck, state: "pending", source: "check_run" };
+    const conclusion = typeof latestRun.conclusion === "string" ? latestRun.conclusion.toLowerCase() : "";
+    return {
+      ...requiredCheck,
+      state: ["success", "neutral", "skipped"].includes(conclusion) ? "passed" : "failed",
+      source: "check_run",
+      conclusion: conclusion || "unknown",
+    };
+  }
+  if (requiredCheck.appId === null) {
+    const status = commitStatuses.find((item) => item?.context === requiredCheck.context);
+    if (status) {
+      const state = typeof status.state === "string" ? status.state.toLowerCase() : "unknown";
+      return {
+        ...requiredCheck,
+        state: state === "success" ? "passed" : state === "pending" ? "pending" : "failed",
+        source: "commit_status",
+        conclusion: state,
+      };
+    }
+  }
+  return { ...requiredCheck, state: "missing", source: "none" };
+}
+
+function formatMergeReadiness(repository, number, report) {
+  const requiredChecks = report.requiredChecks.length
+    ? report.requiredChecks.map((check) => `${check.context}=${check.state}`).join(", ")
+    : "none";
+  return buildString([
+    `${repository.slug}#${number} merge readiness`,
+    `ready=${report.ready}`,
+    `state=${report.state} draft=${report.draft} merged=${report.merged}`,
+    `mergeable=${report.mergeable} mergeable_state=${report.mergeableState}`,
+    `head_sha=${report.headSha}`,
+    `base=${report.baseBranch} branch_protection=${report.branchProtectionConfigured ? "configured" : "not_configured"}`,
+    `reviews_inspected=${report.reviewsInspected} review_history_complete=${report.reviewHistoryComplete}`,
+    `approvals=${report.approvals.length}/${report.requiredApprovals}${report.approvals.length ? ` (${report.approvals.join(", ")})` : ""}`,
+    `changes_requested=${report.changesRequested.length ? report.changesRequested.join(", ") : "none"}`,
+    `required_checks=${requiredChecks}`,
+    `required_conversation_resolution=${report.requiredConversationResolution}`,
+    report.blockers.length ? `blockers:\n${report.blockers.map((blocker) => `- ${blocker}`).join("\n")}` : "blockers=none",
+  ]);
+}
+
 async function githubMergePullRequest(baseUrl, token, fetchImpl, repository, number, args, signal) {
   const expectedHeadSha = githubCommitSha(requiredString(args, "expected_head_sha", 64), "expected_head_sha");
   const mergeMethod = optionalEnum(args.merge_method, null, ["merge", "squash", "rebase"]);
@@ -694,6 +1199,18 @@ async function githubMergePullRequest(baseUrl, token, fetchImpl, repository, num
   }
   if (pullRequest.merged === true || pullRequest.state !== "open") {
     throw httpError(409, `Pull request ${repository.slug}#${number} is not open and mergeable by this operation`);
+  }
+  const readiness = await githubPullRequestMergeReadinessData(
+    baseUrl,
+    token,
+    fetchImpl,
+    repository,
+    number,
+    signal,
+    pullRequest,
+  );
+  if (!readiness.ready) {
+    throw httpError(409, `Pull request ${repository.slug}#${number} is not ready to merge: ${readiness.blockers.join("; ")}`);
   }
   const body = await githubMutation(
     baseUrl,
@@ -1186,6 +1703,24 @@ function stringArraySchema(description, maxItems) {
   };
 }
 
+function githubReviewCommentsSchema() {
+  return {
+    type: "array",
+    description: "Optional line-level comments for submit_pull_request_review; each needs path, body, and either position or line plus side",
+    minItems: 1,
+    maxItems: 50,
+    items: objectSchema({
+      path: stringSchema("Repository-relative file path"),
+      body: stringSchema("Line-level review comment body"),
+      position: integerSchema("Diff position for an older GitHub review-comment form", 1, 1_000_000),
+      line: integerSchema("Line number in the pull-request diff", 1, 1_000_000),
+      side: enumSchema("Diff side for line; LEFT or RIGHT", ["LEFT", "RIGHT"]),
+      start_line: integerSchema("Optional first line for a multi-line comment", 1, 1_000_000),
+      start_side: enumSchema("Diff side for start_line; LEFT or RIGHT", ["LEFT", "RIGHT"]),
+    }, ["path", "body"]),
+  };
+}
+
 function integerSchema(description, minimum, maximum) {
   return { type: "integer", description, minimum, maximum };
 }
@@ -1267,6 +1802,21 @@ function githubNumber(args) {
   return number;
 }
 
+function githubActionId(value, name) {
+  const id = boundedInteger(value, null, 1, Number.MAX_SAFE_INTEGER);
+  if (id === null) throw httpError(400, `${name} is required`);
+  return id;
+}
+
+function githubBranch(value, name = "branch", statusCode = 400) {
+  if (typeof value !== "string") throw httpError(statusCode, `${name} is required`);
+  const branch = value.trim();
+  if (!branch || branch.length > 255 || /[\0-\x20~^:?*\\[\\]/.test(branch) || branch.includes("..") || branch.endsWith(".") || branch.endsWith("/")) {
+    throw httpError(statusCode, `${name} is invalid`);
+  }
+  return branch;
+}
+
 function githubCommitSha(value, name, statusCode = 400) {
   if (typeof value !== "string" || !/^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/.test(value)) {
     throw httpError(statusCode, `${name} must be a 40- or 64-character hexadecimal commit SHA`);
@@ -1287,6 +1837,77 @@ function githubActorList(value, name, maxItems) {
   });
   if (new Set(actors).size !== actors.length) throw httpError(400, `${name} must not contain duplicates`);
   return actors;
+}
+
+function githubReviewCommentList(value) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length < 1 || value.length > 50) {
+    throw httpError(400, "comments must contain 1 to 50 entries");
+  }
+  return value.map((comment, index) => {
+    const prefix = `comments[${index}]`;
+    if (!comment || typeof comment !== "object" || Array.isArray(comment)) {
+      throw httpError(400, `${prefix} must be an object`);
+    }
+    const allowed = new Set(["path", "body", "position", "line", "side", "start_line", "start_side"]);
+    if (Object.keys(comment).some((key) => !allowed.has(key))) {
+      throw httpError(400, `${prefix} contains an unsupported field`);
+    }
+    const path = githubFilePath(comment.path).value;
+    const body = requiredString(comment, "body", 65_536);
+    const position = optionalPositiveInteger(comment.position, `${prefix}.position`);
+    const line = optionalPositiveInteger(comment.line, `${prefix}.line`);
+    const side = optionalEnum(comment.side, "", ["LEFT", "RIGHT"]);
+    const startLine = optionalPositiveInteger(comment.start_line, `${prefix}.start_line`);
+    const startSide = optionalEnum(comment.start_side, "", ["LEFT", "RIGHT"]);
+    if (position !== null && line !== null) {
+      throw httpError(400, `${prefix} cannot set both position and line`);
+    }
+    if (position === null && line === null) {
+      throw httpError(400, `${prefix} requires position or line`);
+    }
+    if (line !== null && !side) throw httpError(400, `${prefix}.side is required with line`);
+    if (position !== null && (side || startLine !== null || startSide)) {
+      throw httpError(400, `${prefix} position comments cannot set side, start_line, or start_side`);
+    }
+    if (startLine !== null && !startSide) throw httpError(400, `${prefix}.start_side is required with start_line`);
+    if (startLine === null && startSide) throw httpError(400, `${prefix}.start_line is required with start_side`);
+    if (startLine !== null && (line === null || startLine >= line)) {
+      throw httpError(400, `${prefix}.start_line must be before line`);
+    }
+    return {
+      path,
+      body,
+      ...(position !== null ? { position } : {}),
+      ...(line !== null ? { line, side } : {}),
+      ...(startLine !== null ? { start_line: startLine, start_side: startSide } : {}),
+    };
+  });
+}
+
+function optionalPositiveInteger(value, name) {
+  if (value === undefined || value === null) return null;
+  if (!Number.isInteger(value) || value < 1 || value > 1_000_000) {
+    throw httpError(400, `${name} must be an integer from 1 to 1000000`);
+  }
+  return value;
+}
+
+function formatBranchProtection(protection) {
+  const statusChecks = protection?.required_status_checks || null;
+  const reviewPolicy = protection?.required_pull_request_reviews || null;
+  const requiredChecks = githubRequiredChecks(protection).map((check) => check.context);
+  return buildString([
+    `required_checks=${requiredChecks.length ? requiredChecks.join(", ") : "none"}`,
+    statusChecks?.strict === true ? "require_branches_up_to_date=true" : "",
+    `required_approvals=${Number.isInteger(reviewPolicy?.required_approving_review_count) ? reviewPolicy.required_approving_review_count : 0}`,
+    reviewPolicy?.dismiss_stale_reviews === true ? "dismiss_stale_reviews=true" : "",
+    reviewPolicy?.require_code_owner_reviews === true ? "require_code_owner_reviews=true" : "",
+    protection?.required_conversation_resolution?.enabled === true ? "required_conversation_resolution=true" : "",
+    protection?.enforce_admins?.enabled === true ? "enforce_admins=true" : "",
+    protection?.required_linear_history?.enabled === true ? "required_linear_history=true" : "",
+    protection?.required_signatures?.enabled === true ? "required_signatures=true" : "",
+  ]);
 }
 
 function firstLine(value) {
@@ -1367,10 +1988,32 @@ async function requestJson(fetchImpl, url, options, operation) {
     }
   }
   if (!response.ok) {
-    const providerMessage = body?.message || body?.error?.message || body?.error || text || `HTTP ${response.status}`;
-    throw httpError(502, `${operation} failed with HTTP ${response.status}: ${truncate(String(providerMessage), 1_000)}`);
+    const providerMessage = githubProviderMessage(body, text) || `HTTP ${response.status}`;
+    const error = httpError(502, `${operation} failed with HTTP ${response.status}: ${truncate(String(providerMessage), 1_000)}`);
+    error.providerStatus = response.status;
+    throw error;
   }
   return body;
+}
+
+async function requestJsonAllowNotFound(fetchImpl, url, options, operation) {
+  try {
+    return await requestJson(fetchImpl, url, options, operation);
+  } catch (error) {
+    if (error?.providerStatus === 404) return null;
+    throw error;
+  }
+}
+
+function githubProviderMessage(body, fallback = "") {
+  if (typeof body === "string") {
+    try {
+      return githubProviderMessage(JSON.parse(body), body);
+    } catch {
+      return body;
+    }
+  }
+  return body?.message || body?.error?.message || body?.error || fallback || "";
 }
 
 function upstreamGraphqlError(operation, errors) {

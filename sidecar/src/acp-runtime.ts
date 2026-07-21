@@ -240,7 +240,7 @@ export class AcpRuntimeManager {
           fs: { readTextFile: false, writeTextFile: false },
           terminal: false,
         },
-        clientInfo: { name: "CodeAgent", title: "CodeAgent for JetBrains", version: "0.7.28" },
+        clientInfo: { name: "CodeAgent", title: "CodeAgent for JetBrains", version: "0.7.29" },
       }));
       if (initialized.protocolVersion !== acp.PROTOCOL_VERSION) {
         throw new Error(`Unsupported ACP protocol version ${initialized.protocolVersion}; expected ${acp.PROTOCOL_VERSION}`);

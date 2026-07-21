@@ -20,6 +20,8 @@ test("reports missing integration credentials and rejects execution explicitly",
   assert.match(tools.find((tool) => tool.name === "github_search").unavailableReason, /GITHUB_TOKEN/);
   assert.equal(tools.find((tool) => tool.name === "github_manage").risk, "mutating");
   assert.match(tools.find((tool) => tool.name === "github_manage").unavailableReason, /write access/);
+  assert.equal(tools.find((tool) => tool.name === "github_actions_manage").risk, "mutating");
+  assert.match(tools.find((tool) => tool.name === "github_actions_manage").unavailableReason, /Actions write access/);
   assert.equal(tools.find((tool) => tool.name === "github_merge_pull_request").risk, "mutating");
   assert.match(tools.find((tool) => tool.name === "github_merge_pull_request").unavailableReason, /Pull requests write access/);
   assert.equal(tools.find((tool) => tool.name === "subagent").available, false);
@@ -376,6 +378,15 @@ test("executes approval-classified GitHub writes with bounded standard REST payl
     number: 52,
     event: "REQUEST_CHANGES",
     body: "Please add the merge-race test.",
+    commit_id: PR_HEAD_SHA,
+    comments: [{
+      path: "backend/src/integration-tools.mjs",
+      body: "Reject an out-of-date head before merging.",
+      line: 704,
+      side: "RIGHT",
+      start_line: 700,
+      start_side: "RIGHT",
+    }],
   });
   const reviewers = await registry.execute("github_manage", {
     operation: "request_reviewers",
@@ -409,6 +420,15 @@ test("executes approval-classified GitHub writes with bounded standard REST payl
   assert.deepEqual(JSON.parse(calls[4].options.body), {
     event: "REQUEST_CHANGES",
     body: "Please add the merge-race test.",
+    commit_id: PR_HEAD_SHA,
+    comments: [{
+      path: "backend/src/integration-tools.mjs",
+      body: "Reject an out-of-date head before merging.",
+      line: 704,
+      side: "RIGHT",
+      start_line: 700,
+      start_side: "RIGHT",
+    }],
   });
   assert.deepEqual(JSON.parse(calls[5].options.body), {
     reviewers: ["octocat"],
@@ -447,6 +467,16 @@ test("executes approval-classified GitHub writes with bounded standard REST payl
   );
   await assert.rejects(
     registry.execute("github_manage", {
+      operation: "submit_pull_request_review",
+      repository: "codeagent/idea",
+      number: 52,
+      event: "COMMENT",
+      comments: [{ path: "src/main.kt", body: "Cannot use both forms.", position: 2, line: 12, side: "RIGHT" }],
+    }),
+    (error) => error.statusCode === 400 && /cannot set both position and line/.test(error.message),
+  );
+  await assert.rejects(
+    registry.execute("github_manage", {
       operation: "request_reviewers",
       repository: "codeagent/idea",
       number: 52,
@@ -480,8 +510,21 @@ test("merges only the explicitly approved live GitHub pull-request head", async 
         number: 52,
         state: "open",
         merged: false,
+        draft: false,
+        mergeable: true,
+        mergeable_state: "clean",
+        base: { ref: "main" },
         head: { sha: PR_HEAD_SHA },
       });
+    }
+    if (call.url === "https://github.example.test/api/v3/repos/codeagent/idea/pulls/52/reviews?per_page=100") {
+      return jsonResponse([]);
+    }
+    if (call.url === "https://github.example.test/api/v3/repos/codeagent/idea/branches/main/protection") {
+      return jsonResponse({ message: "Branch not protected" }, 404);
+    }
+    if (call.url === `https://github.example.test/api/v3/repos/codeagent/idea/commits/${PR_HEAD_SHA}/check-runs?per_page=100`) {
+      return jsonResponse({ check_runs: [] });
     }
     if (call.url === "https://github.example.test/api/v3/repos/codeagent/idea/pulls/52/merge" && options.method === "PUT") {
       return jsonResponse({ merged: true, sha: MERGE_COMMIT_SHA, message: "Pull Request successfully merged" });
@@ -505,8 +548,8 @@ test("merges only the explicitly approved live GitHub pull-request head", async 
   assert.match(merged.output, /Merged codeagent\/idea#52/);
   assert.match(merged.output, new RegExp(`approved_head_sha=${PR_HEAD_SHA}`));
   assert.match(merged.output, new RegExp(`merge_commit_sha=${MERGE_COMMIT_SHA}`));
-  assert.equal(calls.length, 2);
-  assert.deepEqual(JSON.parse(calls[1].options.body), {
+  assert.equal(calls.length, 5);
+  assert.deepEqual(JSON.parse(calls[4].options.body), {
     sha: PR_HEAD_SHA,
     merge_method: "squash",
     commit_title: "GitHub PR review support (#52)",
@@ -522,7 +565,7 @@ test("merges only the explicitly approved live GitHub pull-request head", async 
     }),
     (error) => error.statusCode === 400 && /commit SHA/.test(error.message),
   );
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 5);
 
   const mismatchCalls = [];
   const mismatchRegistry = createIntegrationToolRegistryFromEnv({ GITHUB_TOKEN: "github-merge-token" }, async (url, options = {}) => {
@@ -540,13 +583,29 @@ test("merges only the explicitly approved live GitHub pull-request head", async 
   );
   assert.equal(mismatchCalls.length, 1);
 
-  let rejectedCallCount = 0;
-  const rejectedRegistry = createIntegrationToolRegistryFromEnv({ GITHUB_TOKEN: "github-merge-token" }, async () => {
-    rejectedCallCount += 1;
-    if (rejectedCallCount === 1) {
-      return jsonResponse({ number: 52, state: "open", merged: false, head: { sha: PR_HEAD_SHA } });
+  const rejectedCalls = [];
+  const rejectedRegistry = createIntegrationToolRegistryFromEnv({ GITHUB_TOKEN: "github-merge-token" }, async (url, options = {}) => {
+    const requestUrl = String(url);
+    rejectedCalls.push({ url: requestUrl, options });
+    if (requestUrl.endsWith("/pulls/52")) {
+      return jsonResponse({
+        number: 52,
+        state: "open",
+        merged: false,
+        draft: false,
+        mergeable: true,
+        mergeable_state: "clean",
+        base: { ref: "main" },
+        head: { sha: PR_HEAD_SHA },
+      });
     }
-    return jsonResponse({ merged: false, sha: null, message: "Required checks have not passed" });
+    if (requestUrl.endsWith("/pulls/52/reviews?per_page=100")) return jsonResponse([]);
+    if (requestUrl.endsWith("/branches/main/protection")) return jsonResponse({ message: "Branch not protected" }, 404);
+    if (requestUrl.endsWith(`/commits/${PR_HEAD_SHA}/check-runs?per_page=100`)) return jsonResponse({ check_runs: [] });
+    if (requestUrl.endsWith("/pulls/52/merge") && options.method === "PUT") {
+      return jsonResponse({ merged: false, sha: null, message: "Required checks have not passed" });
+    }
+    throw new Error(`Unexpected request: ${requestUrl}`);
   }, {});
   await assert.rejects(
     rejectedRegistry.execute("github_merge_pull_request", {
@@ -557,7 +616,147 @@ test("merges only the explicitly approved live GitHub pull-request head", async 
     }),
     (error) => error.statusCode === 409 && /Required checks have not passed/.test(error.message),
   );
-  assert.equal(rejectedCallCount, 2);
+  assert.equal(rejectedCalls.length, 5);
+});
+
+test("reads GitHub Actions, policy, rulesets, logs, and merge readiness", async () => {
+  const calls = [];
+  const registry = createIntegrationToolRegistryFromEnv({
+    GITHUB_TOKEN: "github-read-token",
+    GITHUB_API_URL: "https://github.example.test/api/v3",
+  }, async (url, options = {}) => {
+    const requestUrl = String(url);
+    calls.push({ url: requestUrl, options });
+    if (requestUrl.endsWith("/pulls/7")) {
+      return jsonResponse({
+        number: 7,
+        state: "open",
+        merged: false,
+        draft: false,
+        mergeable: true,
+        mergeable_state: "clean",
+        base: { ref: "main" },
+        head: { sha: PR_HEAD_SHA },
+      });
+    }
+    if (requestUrl.endsWith(`/actions/runs?head_sha=${PR_HEAD_SHA}&per_page=1`)) {
+      return jsonResponse({ workflow_runs: [{ id: 19, name: "CI", status: "completed", conclusion: "success", html_url: "https://github.example.test/actions/runs/19" }] });
+    }
+    if (requestUrl.endsWith("/actions/runs/19/jobs?per_page=1")) {
+      return jsonResponse({ jobs: [{ id: 29, name: "test", status: "completed", conclusion: "success", steps: [{ number: 1, name: "npm test", status: "completed", conclusion: "success" }] }] });
+    }
+    if (requestUrl.endsWith("/actions/jobs/29/logs")) {
+      return new Response(null, { status: 302, headers: { location: "https://logs.example.test/job-29.zip?token=short-lived" } });
+    }
+    if (requestUrl.endsWith("/branches/main/protection")) {
+      return jsonResponse({
+        required_status_checks: { strict: true, checks: [{ context: "CI", app_id: 123 }] },
+        required_pull_request_reviews: { required_approving_review_count: 1, dismiss_stale_reviews: true },
+        required_conversation_resolution: { enabled: false },
+      });
+    }
+    if (requestUrl.endsWith("/rulesets")) {
+      return jsonResponse([{ id: 4, name: "main policy", target: "branch", enforcement: "active", rules: [{ type: "required_status_checks" }] }]);
+    }
+    if (requestUrl.endsWith("/pulls/7/reviews?per_page=100")) {
+      return jsonResponse([{ user: { login: "maintainer" }, state: "APPROVED", commit_id: PR_HEAD_SHA, submitted_at: "2026-07-21T03:00:00Z" }]);
+    }
+    if (requestUrl.endsWith(`/commits/${PR_HEAD_SHA}/check-runs?per_page=100`)) {
+      return jsonResponse({ check_runs: [{ id: 31, name: "CI", status: "completed", conclusion: "success", app: { id: 123 } }] });
+    }
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  }, {});
+
+  const runs = await registry.execute("github_search", { operation: "list_pull_request_workflow_runs", repository: "codeagent/idea", number: 7, limit: 1 });
+  const jobs = await registry.execute("github_search", { operation: "list_workflow_jobs", repository: "codeagent/idea", run_id: 19, limit: 1 });
+  const logs = await registry.execute("github_search", { operation: "get_workflow_job_logs", repository: "codeagent/idea", job_id: 29 });
+  const protection = await registry.execute("github_search", { operation: "get_branch_protection", repository: "codeagent/idea", branch: "main" });
+  const rulesets = await registry.execute("github_search", { operation: "list_repository_rulesets", repository: "codeagent/idea" });
+  const readiness = await registry.execute("github_search", { operation: "get_pull_request_merge_readiness", repository: "codeagent/idea", number: 7 });
+
+  assert.match(runs.output, /run_id=19/);
+  assert.match(jobs.output, /npm test/);
+  assert.match(logs.output, /short-lived/);
+  assert.match(protection.output, /required_approvals=1/);
+  assert.match(rulesets.output, /main policy/);
+  assert.match(readiness.output, /ready=true/);
+  assert.match(readiness.output, /CI=passed/);
+
+  const blockedRegistry = createIntegrationToolRegistryFromEnv({ GITHUB_TOKEN: "github-read-token" }, async (url) => {
+    const requestUrl = String(url);
+    if (requestUrl.endsWith("/pulls/7")) return jsonResponse({ number: 7, state: "open", merged: false, draft: false, mergeable: true, mergeable_state: "blocked", base: { ref: "main" }, head: { sha: PR_HEAD_SHA } });
+    if (requestUrl.endsWith("/pulls/7/reviews?per_page=100")) return jsonResponse([]);
+    if (requestUrl.endsWith("/branches/main/protection")) return jsonResponse({ message: "not protected" }, 404);
+    if (requestUrl.endsWith(`/commits/${PR_HEAD_SHA}/check-runs?per_page=100`)) return jsonResponse({ check_runs: [] });
+    throw new Error(`Unexpected blocked-readiness request: ${requestUrl}`);
+  }, {});
+  const blocked = await blockedRegistry.execute("github_search", { operation: "get_pull_request_merge_readiness", repository: "codeagent/idea", number: 7 });
+  assert.match(blocked.output, /ready=false/);
+  assert.match(blocked.output, /mergeable_state=blocked/);
+  assert.equal(calls.length, 10);
+});
+
+test("does not send a merge request when GitHub branch policy is not satisfied", async () => {
+  const calls = [];
+  const registry = createIntegrationToolRegistryFromEnv({ GITHUB_TOKEN: "github-merge-token" }, async (url, options = {}) => {
+    const requestUrl = String(url);
+    calls.push({ url: requestUrl, options });
+    if (requestUrl.endsWith("/pulls/52")) {
+      return jsonResponse({ number: 52, state: "open", merged: false, draft: false, mergeable: true, mergeable_state: "clean", base: { ref: "main" }, head: { sha: PR_HEAD_SHA } });
+    }
+    if (requestUrl.endsWith("/pulls/52/reviews?per_page=100")) {
+      return jsonResponse([
+        { id: 1, user: { login: "former-reviewer" }, state: "APPROVED", submitted_at: "2026-07-21T01:00:00Z" },
+        { id: 2, user: { login: "former-reviewer" }, state: "DISMISSED", submitted_at: "2026-07-21T02:00:00Z" },
+      ]);
+    }
+    if (requestUrl.endsWith("/branches/main/protection")) {
+      return jsonResponse({
+        required_status_checks: { checks: [{ context: "Plugin Verifier", app_id: 123 }] },
+        required_pull_request_reviews: { required_approving_review_count: 1 },
+      });
+    }
+    if (requestUrl.endsWith(`/commits/${PR_HEAD_SHA}/check-runs?per_page=100`)) {
+      return jsonResponse({ check_runs: [{ id: 1, name: "Plugin Verifier", status: "completed", conclusion: "failure", app: { id: 123 } }] });
+    }
+    throw new Error(`Unexpected merge-readiness request: ${requestUrl}`);
+  }, {});
+
+  await assert.rejects(
+    registry.execute("github_merge_pull_request", {
+      repository: "codeagent/idea",
+      number: 52,
+      expected_head_sha: PR_HEAD_SHA,
+      merge_method: "squash",
+    }),
+    (error) => error.statusCode === 409 && /required approvals not met/.test(error.message) && /failed required checks/.test(error.message),
+  );
+  assert.equal(calls.some((call) => call.url.endsWith("/pulls/52/merge")), false);
+  assert.equal(calls.length, 4);
+});
+
+test("executes approval-gated GitHub Actions controls", async () => {
+  const calls = [];
+  const registry = createIntegrationToolRegistryFromEnv({ GITHUB_TOKEN: "github-actions-token", GITHUB_API_URL: "https://github.example.test/api/v3" }, async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    return new Response(null, { status: 202 });
+  }, {});
+  const capability = registry.list().find((tool) => tool.name === "github_actions_manage");
+  assert.equal(capability.risk, "mutating");
+  const operations = [
+    ["rerun_workflow", { run_id: 19 }],
+    ["rerun_failed_jobs", { run_id: 19 }],
+    ["cancel_workflow", { run_id: 19 }],
+    ["force_cancel_workflow", { run_id: 19 }],
+    ["rerun_job", { job_id: 29 }],
+  ];
+  for (const [operation, ids] of operations) {
+    const result = await registry.execute("github_actions_manage", { operation, repository: "codeagent/idea", ...ids });
+    assert.match(result.output, /codeagent\/idea/);
+  }
+  assert.deepEqual(calls.map((call) => call.options.method), ["POST", "POST", "POST", "POST", "POST"]);
+  assert.match(calls[0].url, /actions\/runs\/19\/rerun$/);
+  assert.match(calls[4].url, /actions\/jobs\/29\/rerun$/);
 });
 
 test("executes configured HTTP integration adapters and normalizes real provider results", async () => {
@@ -641,7 +840,7 @@ test("executes configured HTTP integration adapters and normalizes real provider
     SUPABASE_TABLES: "tickets,projects",
   }, fetchImpl, modelGateway);
 
-  assert.equal(registry.list().filter((tool) => tool.available).length, 11);
+  assert.equal(registry.list().filter((tool) => tool.available).length, 12);
   assert.match((await registry.execute("web_search", { query: "web" })).output, /Web result/);
   assert.match((await registry.execute("github_search", { query: "bug" })).output, /GitHub issue/);
   assert.match((await registry.execute("linear_search", { query: "linear" })).output, /ENG-1/);
