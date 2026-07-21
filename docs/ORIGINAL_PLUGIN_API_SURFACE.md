@@ -306,6 +306,7 @@ Extracted action-type strings from `Store-*.js` (subset of product domains).
 | Original family | Scale | CodeAgent status |
 | --- | --- | --- |
 | Sidecar `/api/ide/*` + `/api/sse/*` | 13 routes | **Replaced** by JVM tools + bridge events (no sidecar IDE HTTP) |
+| Sidecar launch/list/read/write/kill process tools | 5 tools | **Implemented** as approval-aware project services with stable process IDs, bounded output cursors, stdin, wait, graceful/forced termination, and project-disposal cleanup |
 | Sidecar `/api/acp/*` | 9 routes | **Implemented by the ACP v1 sidecar runtime** (official SDK, stdio agents, sessions, prompt/update/cancel) |
 | Cloud chat-stream + node-typed requests | large DTO graph | **Replaced** by `POST /v1/runs` + simple messages[] |
 | Remote tools / MCP / OAuth / billing | large | **Typed backend tools plus managed MCP and provider OAuth; billing remains backend/account dependent** |

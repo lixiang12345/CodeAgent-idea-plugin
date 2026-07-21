@@ -544,6 +544,7 @@ Logical operations (capability gateway owned):
 - expose automatic-index state, last duration, and changed/deleted file counts
 - retrieve packed context under token budget
 - text/symbol search helpers as implemented by vendor ContextEngine
+ - launch, list, read, write, wait for, and terminate bounded project-root process sessions with stable IDs and capped output buffers
  - manage MCP stdio, Streamable HTTP, and legacy SSE transport lifecycle
  - discover and refresh namespaced MCP tools using the official TypeScript SDK
  - run MCP health checks, bounded reconnects, calls, timeout enforcement, and graceful shutdown

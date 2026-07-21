@@ -79,6 +79,12 @@
     remove_files: "file-minus",
     apply_patch: "file-diff",
     run_terminal: "square-terminal",
+    launch_process: "square-terminal",
+    list_processes: "square-terminal",
+    read_process: "square-terminal",
+    write_process: "square-terminal",
+    wait_process: "square-terminal",
+    kill_process: "square-terminal",
     open_file: "external-link",
     open_browser: "external-link",
     web_fetch: "globe",
@@ -100,6 +106,7 @@
     render_mermaid: "workflow",
     ask_user: "message-circle",
   };
+  const managedProcessToolNames = new Set(["launch_process", "read_process", "write_process", "wait_process", "kill_process"]);
 
   const builtInAgentProfiles = [
     { id: "general", name: "General Agent", description: "Balanced implementation and verification", agentType: "general", source: "Built in" },
@@ -1434,6 +1441,12 @@
       write_file: "Creating",
       replace_text: "Editing",
       run_terminal: "Terminal",
+      launch_process: "Launch Process",
+      list_processes: "Managed Processes",
+      read_process: "Read Process Output",
+      write_process: "Write Process Input",
+      wait_process: "Wait for Process",
+      kill_process: "Stop Process",
       open_file: "Open in Editor",
       diagnostics: "Diagnostics",
       git_history: "Git Commit Retrieval",
@@ -1482,6 +1495,27 @@
     if (terminalTimedOut(tool)) return "timed out";
     const exitCode = terminalExitCode(tool);
     return exitCode === null ? statusLabel(tool.status) : `exit ${exitCode}`;
+  }
+
+  function isManagedProcessTool(tool: ToolRun) {
+    return managedProcessToolNames.has(tool.name);
+  }
+
+  function managedProcessMetadata(tool: ToolRun) {
+    return (tool.detail ?? "").split("\n\n", 1)[0].split("\n").filter((line) => !line.startsWith("command=")).join("\n");
+  }
+
+  function managedProcessCommand(tool: ToolRun) {
+    return tool.detail?.match(/^command=(.*)$/m)?.[1] ?? "";
+  }
+
+  function managedProcessOutput(tool: ToolRun) {
+    const separator = tool.detail?.indexOf("\n\n") ?? -1;
+    return separator >= 0 ? tool.detail?.slice(separator + 2).trimEnd() ?? "" : "";
+  }
+
+  function managedProcessState(tool: ToolRun) {
+    return tool.detail?.match(/^state=(.*)$/m)?.[1] ?? statusLabel(tool.status);
   }
 
   function changeTools() {
@@ -1879,6 +1913,35 @@
                                     </section>
                                   {/if}
                                   <button class="secondary-action" onclick={() => sendCommand("openTerminal")}><Icon name="square-terminal" size={13} />Show Terminal</button>
+                                </div>
+                              {:else if isManagedProcessTool(tool)}
+                                <div class="shell-details">
+                                  {#if managedProcessCommand(tool)}
+                                    <section>
+                                      <header>
+                                        <strong>Command</strong>
+                                        <button title="Copy command" aria-label="Copy command" onclick={() => copyText(managedProcessCommand(tool), "Command copied")}><Icon name="copy" size={12} /></button>
+                                      </header>
+                                      <pre><span>$</span> {managedProcessCommand(tool)}</pre>
+                                    </section>
+                                  {/if}
+                                  <section>
+                                    <header>
+                                      <strong>Process</strong>
+                                      <i>{managedProcessState(tool)}</i>
+                                      <button title="Copy process details" aria-label="Copy process details" onclick={() => copyText(managedProcessMetadata(tool), "Process details copied")}><Icon name="copy" size={12} /></button>
+                                    </header>
+                                    <pre>{managedProcessMetadata(tool)}</pre>
+                                  </section>
+                                  {#if managedProcessOutput(tool)}
+                                    <section>
+                                      <header>
+                                        <strong>Output</strong>
+                                        <button title="Copy output" aria-label="Copy output" onclick={() => copyText(managedProcessOutput(tool), "Process output copied")}><Icon name="copy" size={12} /></button>
+                                      </header>
+                                      <pre>{managedProcessOutput(tool)}</pre>
+                                    </section>
+                                  {/if}
                                 </div>
                               {:else if tool.name === "render_mermaid" && tool.detail}
                                 <span class="detail-label">Details</span>

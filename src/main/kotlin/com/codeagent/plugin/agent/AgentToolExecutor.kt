@@ -55,6 +55,7 @@ internal class AgentToolExecutor(
     private val conversations = project.service<ConversationStore>()
     private val mcpRuntime = project.service<McpRuntimeService>()
     private val acpRuntime = project.service<AcpRuntimeService>()
+    private val managedProcesses = project.service<ManagedProcessService>()
     private val remoteTools = remoteCapabilities.filter(RemoteToolCapability::available).associateBy(RemoteToolCapability::name)
     private val json = Json { ignoreUnknownKeys = true }
     private val executor = AppExecutorUtil.getAppExecutorService()
@@ -199,7 +200,45 @@ internal class AgentToolExecutor(
                 ),
                 required = listOf("command"),
             )))
+            add(tool("launch_process", "Start a long-running shell process in the project root and return a stable process_id. Use read_process to consume output, write_process for stdin, wait_process for completion, and kill_process when cleanup is required", schema(
+                properties = mapOf(
+                    "command" to stringProperty("Shell command to start"),
+                    "name" to stringProperty("Optional short process label"),
+                ),
+                required = listOf("command"),
+            )))
+            add(tool("write_process", "Write bounded UTF-8 input to one running managed process. This may change process or project state and requires approval", schema(
+                properties = mapOf(
+                    "process_id" to stringProperty("Managed process ID returned by launch_process"),
+                    "input" to stringProperty("Input text to write"),
+                    "append_newline" to booleanProperty("Append a newline after the input; defaults to true"),
+                ),
+                required = listOf("process_id", "input"),
+            )))
+            add(tool("kill_process", "Stop one managed process and release its operating-system resources. Graceful termination is attempted before force is used", schema(
+                properties = mapOf(
+                    "process_id" to stringProperty("Managed process ID returned by launch_process"),
+                    "force" to booleanProperty("Terminate forcibly without the graceful wait"),
+                ),
+                required = listOf("process_id"),
+            )))
         }
+        add(tool("list_processes", "List managed project processes with IDs, commands, state, PID, start time, and exit status", schema(emptyMap())))
+        add(tool("read_process", "Read bounded output from a managed process without blocking. Pass the returned next_offset on later reads to consume only new output", schema(
+            properties = mapOf(
+                "process_id" to stringProperty("Managed process ID returned by launch_process"),
+                "offset" to integerProperty("Absolute output offset to start reading", 0, 1_000_000_000),
+                "max_chars" to integerProperty("Maximum output characters", 1, 40_000),
+            ),
+            required = listOf("process_id"),
+        )))
+        add(tool("wait_process", "Wait up to a bounded timeout for one managed process to exit, then report its current state", schema(
+            properties = mapOf(
+                "process_id" to stringProperty("Managed process ID returned by launch_process"),
+                "timeout_seconds" to integerProperty("Maximum wait in seconds", 1, 60),
+            ),
+            required = listOf("process_id"),
+        )))
         remoteTools.values.forEach { remote ->
             add(AgentToolDefinition(remote.name, remote.description, remote.parameters, toolRiskFromWire(remote.risk)))
         }
@@ -227,7 +266,7 @@ internal class AgentToolExecutor(
 
     override fun risk(toolName: String): ToolRisk =
         when (toolName) {
-            "write_file", "replace_text", "remove_files", "apply_patch", "run_terminal" -> ToolRisk.MUTATING
+            "write_file", "replace_text", "remove_files", "apply_patch", "run_terminal", "launch_process", "write_process", "kill_process" -> ToolRisk.MUTATING
             "add_tasks", "update_tasks", "reorg_tasks", "ask_user", "open_browser", "open_file", "render_mermaid" -> ToolRisk.LOCAL_STATE
             else -> when {
                 activePluginTools.containsKey(toolName) -> risk(requireNotNull(activePluginTools[toolName]).target)
@@ -264,6 +303,12 @@ internal class AgentToolExecutor(
             "remove_files" -> removeFiles(args)
             "apply_patch" -> applyPatch(args)
             "run_terminal" -> runTerminal(args)
+            "launch_process" -> launchProcess(args)
+            "list_processes" -> listProcesses()
+            "read_process" -> readProcess(args)
+            "write_process" -> writeProcess(args)
+            "wait_process" -> waitProcess(args)
+            "kill_process" -> killProcess(args)
             "ask_user" -> askUser(args)
             "open_file" -> openFile(args)
             else -> activePluginTools[call.name]?.let { alias ->
@@ -524,6 +569,72 @@ internal class AgentToolExecutor(
         }.takeLast(20_000)
         val result = "exit=${output.exitCode}${if (output.isTimeout) " timeout=true" else ""}\n$combined"
         return ToolExecutionResult(result, "$command (exit ${output.exitCode})", result.take(MAX_DETAIL_CHARS))
+    }
+
+    private fun launchProcess(args: JsonObject): ToolExecutionResult {
+        val process = managedProcesses.launch(args.requiredString("command"), args.string("name"))
+        val output = formatProcess(process)
+        return ToolExecutionResult(output, "Launched ${process.name} (${process.id})", output)
+    }
+
+    private fun listProcesses(): ToolExecutionResult {
+        val processes = managedProcesses.list()
+        val output = processes.joinToString("\n\n", transform = ::formatProcess).ifEmpty { "No managed processes" }
+        val running = processes.count { it.state == "running" }
+        return ToolExecutionResult(output, "$running running / ${processes.size} managed processes", output.take(MAX_DETAIL_CHARS))
+    }
+
+    private fun readProcess(args: JsonObject): ToolExecutionResult {
+        val id = args.requiredString("process_id")
+        val offset = args["offset"]?.jsonPrimitive?.intOrNull?.toLong() ?: 0L
+        val maxChars = args["max_chars"]?.jsonPrimitive?.intOrNull ?: 20_000
+        val read = managedProcesses.read(id, offset, maxChars)
+        val output = buildString {
+            append(formatProcess(read.process))
+            append("\nnext_offset=${read.nextOffset}")
+            if (read.truncatedBeforeOffset) append("\ntruncated_before_offset=true")
+            append("\n\n")
+            append(read.output.ifEmpty { "No new output" })
+        }
+        return ToolExecutionResult(output, "Read ${read.output.length} chars from ${read.process.name}", output.take(MAX_DETAIL_CHARS))
+    }
+
+    private fun writeProcess(args: JsonObject): ToolExecutionResult {
+        val id = args.requiredString("process_id")
+        val input = args.requiredString("input", allowEmpty = true)
+        val appendNewline = args["append_newline"]?.jsonPrimitive?.booleanOrNull ?: true
+        val process = managedProcesses.write(id, input, appendNewline)
+        val output = formatProcess(process)
+        return ToolExecutionResult(output, "Wrote ${input.length} chars to ${process.name}", output)
+    }
+
+    private fun waitProcess(args: JsonObject): ToolExecutionResult {
+        val process = managedProcesses.waitFor(
+            args.requiredString("process_id"),
+            args["timeout_seconds"]?.jsonPrimitive?.intOrNull ?: 30,
+        )
+        val output = formatProcess(process)
+        return ToolExecutionResult(output, "${process.name}: ${process.state}", output)
+    }
+
+    private fun killProcess(args: JsonObject): ToolExecutionResult {
+        val process = managedProcesses.kill(
+            args.requiredString("process_id"),
+            args["force"]?.jsonPrimitive?.booleanOrNull ?: false,
+        )
+        val output = formatProcess(process)
+        return ToolExecutionResult(output, "Stopped ${process.name}", output)
+    }
+
+    private fun formatProcess(process: ManagedProcessSnapshot): String = buildString {
+        append("process_id=${process.id}\n")
+        append("name=${process.name}\n")
+        append("state=${process.state}\n")
+        append("pid=${process.pid}\n")
+        append("started_at=${process.startedAt}\n")
+        process.exitCode?.let { append("exit=$it\n") }
+        append("output_offsets=${process.outputStartOffset}-${process.outputEndOffset}\n")
+        append("command=${process.command}")
     }
 
     private fun conversationRetrieval(args: JsonObject): ToolExecutionResult {

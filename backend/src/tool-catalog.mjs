@@ -5,7 +5,7 @@ const PROFILE_CORE_TOOLS = {
   search: new Set(["codebase_retrieval", "search_text", "read_file", "web_search", "web_fetch", "conversation_retrieval"]),
   context: new Set(["codebase_retrieval", "read_file", "diagnostics"]),
   prompt: new Set(["codebase_retrieval", "read_file", "conversation_retrieval"]),
-  loop: new Set(["codebase_retrieval", "read_file", "diagnostics", "apply_patch", "run_terminal", "view_tasks", "update_tasks", "ask_user"]),
+  loop: new Set(["codebase_retrieval", "read_file", "diagnostics", "apply_patch", "run_terminal", "launch_process", "read_process", "view_tasks", "update_tasks", "ask_user"]),
 };
 
 const DISCOVER_TOOLS_DEFINITION = Object.freeze({
@@ -16,7 +16,7 @@ const DISCOVER_TOOLS_DEFINITION = Object.freeze({
     type: "object",
     additionalProperties: false,
     properties: {
-      query: { type: "string", description: "Capability needed, such as Git history, browser access, file mutation, or terminal verification", maxLength: 500 },
+      query: { type: "string", description: "Capability needed, such as Git history, browser access, file mutation, terminal verification, or long-running process control", maxLength: 500 },
       names: { type: "array", description: "Exact tool names to activate when already known", items: { type: "string" }, maxItems: 12 },
       limit: { type: "integer", description: "Maximum matching tools to return and activate", minimum: 1, maximum: 12, default: 8 },
     },

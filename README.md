@@ -66,6 +66,8 @@ That command requires a clean worktree, increments the patch version across the 
 
 ContextEngine is pinned as a Git submodule and bundled into the local Node sidecar. The JVM connects through an authenticated loopback Protobuf/gRPC stream; its SQLite index and file watcher run on each developer machine. Lexical, symbol, path, graph, and Git-lineage retrieval need no model. CodeAgent does not install or start a local embedding or reranker model; semantic retrieval is an explicit opt-in to an operator- or organization-hosted OpenAI-compatible endpoint and requires an explicit index rebuild. Its MIT license is included in the plugin distribution; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
+Long-running development commands use project-scoped managed process sessions rather than blocking the Agent turn. The IDE owns launch/list/read/write/wait/kill operations, caps retained output, requires approval for process mutations, and terminates remaining children when the project closes.
+
 CodeAgent plugins are bounded declarative JSON manifests, not executable IDEA plugins. Account configuration records synchronize the source, exact version, integrity pin, and granted capabilities; each IDE installation explicitly validates and caches the manifest before activation. The runtime consumes explicitly granted namespaced commands and prompt templates plus read-only rules and selectable skills. Reserved execution capabilities do not load JVM, Node.js, shell, MCP, or tool-handler code.
 
 ## Verify

@@ -264,6 +264,28 @@ test("starts with a focused tool set and activates only matched catalog tools", 
   assert.match(discovery.output, /IDE approval and risk policy still apply/);
 });
 
+test("loop agents expose the managed process lifecycle progressively", () => {
+  const catalog = createToolCatalog(builtInAgentProfile("loop"), [
+    { name: "run_terminal", description: "Run a bounded command", parameters: {}, risk: "mutating" },
+    { name: "launch_process", description: "Start a long-running process", parameters: {}, risk: "mutating" },
+    { name: "read_process", description: "Read managed process output", parameters: {}, risk: "read_only" },
+    { name: "list_processes", description: "List managed processes", parameters: {}, risk: "read_only" },
+    { name: "write_process", description: "Write managed process input", parameters: {}, risk: "mutating" },
+    { name: "wait_process", description: "Wait for process exit", parameters: {}, risk: "read_only" },
+    { name: "kill_process", description: "Stop a managed process", parameters: {}, risk: "mutating" },
+  ]);
+
+  const active = catalog.activeDefinitions().map((tool) => tool.name);
+  assert.ok(active.includes("run_terminal"));
+  assert.ok(active.includes("launch_process"));
+  assert.ok(active.includes("read_process"));
+  assert.equal(active.includes("write_process"), false);
+  assert.equal(active.includes("kill_process"), false);
+
+  const discovery = catalog.discover(JSON.stringify({ names: ["write_process", "wait_process", "kill_process"] }));
+  assert.deepEqual(discovery.activated, ["kill_process", "wait_process", "write_process"]);
+});
+
 test("activates a hidden tool through discovery before forwarding it to the IDE", async () => {
   const exposed = [];
   const systemPrompts = [];
