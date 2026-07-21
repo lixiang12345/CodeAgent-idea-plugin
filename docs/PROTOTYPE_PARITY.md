@@ -71,7 +71,7 @@ The build also supports a managed Node 22 runtime manifest for darwin, win32, an
 
 The original Augment package's private protobuf definitions, `classic-level.node`, and roughly 115 MB of generated protocol dependencies are not copied. CodeAgent now uses its own versioned Protobuf/gRPC contract for the authenticated JVM-to-sidecar boundary, plus a documented HTTP/SSE backend, a typed JVM bridge, the official MCP/ACP runtimes, and the open ContextEngine implementation. This is protocol-level architectural alignment, not a claim of wire compatibility with private Augment services. Cloud integrations remain configuration-dependent and are reported unavailable until their credentials and endpoints are present.
 
-Plugin Verifier currently runs against IntelliJ IDEA Community 2025.2.6.2. PyCharm, WebStorm, CLion, and other JetBrains products remain an explicit verification matrix to execute before claiming cross-product coverage; the build does not report unverified products as passed.
+Plugin Verifier runs against the targeted IntelliJ IDEA Community 2025.2.6.2 platform and any configured local JetBrains IDEs. The current release has also passed PyCharm 2026.1.2 (`PY-261.24374.152`) with the same result: compatible, with only the 12 expected Inline Completion experimental-API notices. Additional local products can be added through `-PcodeagentVerifierIdePaths=/path/to/IDE,/path/to/another/IDE`; WebStorm, CLion, and products not present in the executed matrix remain explicitly unverified.
 
 ## Tool catalog
 

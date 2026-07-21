@@ -13,6 +13,13 @@ version = providers.gradleProperty("version").get()
 
 val grpcVersion = "1.73.0"
 val protobufVersion = "4.33.5"
+val configuredVerifierIdePaths = providers.gradleProperty("codeagentVerifierIdePaths")
+    .orNull
+    ?.split(',', ';')
+    ?.map(String::trim)
+    ?.filter(String::isNotEmpty)
+    .orEmpty()
+val localVerifierIdePaths = (configuredVerifierIdePaths + listOf("/Applications/PyCharm.app")).distinct()
 
 dependencies {
     implementation("io.grpc:grpc-netty-shaded:$grpcVersion")
@@ -83,6 +90,15 @@ intellijPlatform {
                 .map { listOf(it) }
                 .orElse(listOf("default")),
         )
+    }
+    pluginVerification {
+        ides {
+            current()
+            localVerifierIdePaths
+                .map(::file)
+                .filter { it.isDirectory }
+                .forEach(::local)
+        }
     }
 }
 

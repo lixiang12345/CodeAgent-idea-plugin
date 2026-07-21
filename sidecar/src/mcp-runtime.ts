@@ -259,7 +259,7 @@ export class McpRuntimeManager {
       validateEnvironment(runtime.config);
       const transport = this.createTransport(runtime);
       const client = new Client(
-        { name: "CodeAgent", version: "0.7.21" },
+        { name: "CodeAgent", version: "0.7.22" },
         { capabilities: {} },
       );
       runtime.transport = transport;

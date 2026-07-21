@@ -78,7 +78,13 @@ cd vendor/context-engine && npm test && npm run build && cd ../..
 ./gradlew test buildPlugin verifyPlugin
 ```
 
-The first Gradle verification run downloads the target IntelliJ IDEA distribution and Plugin Verifier, so it is substantially slower than subsequent runs.
+The verifier always checks the targeted IntelliJ IDEA Community platform. On macOS it also adds an installed `/Applications/PyCharm.app`; additional local products can be supplied as a comma- or semicolon-separated Gradle property:
+
+```bash
+./gradlew verifyPlugin -PcodeagentVerifierIdePaths="/Applications/WebStorm.app,/Applications/CLion.app"
+```
+
+The first Gradle verification run downloads the target IntelliJ IDEA distribution and Plugin Verifier, so it is substantially slower than subsequent runs. Verification output is authoritative only for the products listed by `./gradlew verifyPlugin --list-ides`.
 
 ## Release
 

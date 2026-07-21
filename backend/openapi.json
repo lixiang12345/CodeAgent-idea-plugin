@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CodeAgent Backend API",
-    "version": "0.7.21",
+    "version": "0.7.22",
     "description": "Protocol version 1 API used by the CodeAgent IDEA capability gateway."
   },
   "servers": [
