@@ -553,41 +553,45 @@ test("requires Loop Agent verification after a successful mutation", async () =>
   assert.equal(events.at(-1).type, "run.completed");
 });
 
-test("does not require local project verification after an approved remote-state mutation", async () => {
-  const turns = [
-    {
-      content: "Posting the approved comment",
-      toolCalls: [{
-        id: "github-1",
-        name: "github_manage",
-        arguments: JSON.stringify({
-          operation: "add_comment",
-          repository: "codeagent/idea",
-          number: 51,
-          body: "Verified in the linked build.",
-        }),
-      }],
-    },
-    { content: "Comment posted", toolCalls: [] },
+test("does not require local project verification after approved GitHub remote-state mutations", async () => {
+  const cases = [
+    ["github_manage", {
+      operation: "add_comment",
+      repository: "codeagent/idea",
+      number: 51,
+      body: "Verified in the linked build.",
+    }],
+    ["github_merge_pull_request", {
+      repository: "codeagent/idea",
+      number: 52,
+      expected_head_sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      merge_method: "squash",
+    }],
   ];
-  const events = [];
-  const runner = new AgentRunner({ modelGateway: { async stream() { return turns.shift(); } } });
+  for (const [toolName, args] of cases) {
+    const turns = [
+      { content: "Applying approved GitHub operation", toolCalls: [{ id: "github-1", name: toolName, arguments: JSON.stringify(args) }] },
+      { content: "GitHub operation completed", toolCalls: [] },
+    ];
+    const events = [];
+    const runner = new AgentRunner({ modelGateway: { async stream() { return turns.shift(); } } });
 
-  await runner.run({
-    request: {
-      mode: "agent",
-      messages: [{ role: "user", content: "Post the GitHub comment" }],
-      tools: [{ name: "github_manage", description: "Write GitHub state", parameters: {}, risk: "mutating" }],
-      workspace: {},
-    },
-    agentProfile: { ...builtInAgentProfile("loop"), maxTurns: 4 },
-    emit: (type, data) => events.push({ type, data }),
-    awaitToolResult: async () => ({ status: "completed", output: "commented", summary: "Commented" }),
-    signal: new AbortController().signal,
-  });
+    await runner.run({
+      request: {
+        mode: "agent",
+        messages: [{ role: "user", content: "Apply the approved GitHub operation" }],
+        tools: [{ name: toolName, description: "Write GitHub state", parameters: {}, risk: "mutating" }],
+        workspace: {},
+      },
+      agentProfile: { ...builtInAgentProfile("loop"), maxTurns: 4 },
+      emit: (type, data) => events.push({ type, data }),
+      awaitToolResult: async () => ({ status: "completed", output: "completed", summary: "Completed" }),
+      signal: new AbortController().signal,
+    });
 
-  assert.equal(events.some((event) => event.type === "verification.updated"), false);
-  assert.equal(events.at(-1).type, "run.completed");
+    assert.equal(events.some((event) => event.type === "verification.updated"), false, toolName);
+    assert.equal(events.at(-1).type, "run.completed");
+  }
 });
 
 test("does not require post-mutation verification for read-only terminal inspection", async () => {

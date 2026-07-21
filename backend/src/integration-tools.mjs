@@ -43,6 +43,7 @@ export function createIntegrationToolRegistryFromEnv(
     createWebSearchTool(env, fetchImpl),
     createGitHubTool(env, fetchImpl),
     createGitHubManageTool(env, fetchImpl),
+    createGitHubMergeTool(env, fetchImpl),
     createLinearTool(env, fetchImpl),
     createNotionTool(env, fetchImpl),
     createJiraTool(env, fetchImpl),
@@ -118,13 +119,17 @@ function createGitHubTool(env, fetchImpl) {
   return tool({
     name: "github_search",
     catalogId: "github",
-    description: "Search GitHub repositories, issues, pull requests, or code; read one issue, pull request, its files or comments, or a UTF-8 repository file",
+    description: "Search GitHub; inspect issues, pull requests, commits, reviews, line comments, checks, and files; or read a UTF-8 repository file",
     parameters: objectSchema({
       operation: enumSchema("GitHub operation; defaults to search", [
         "search",
         "get_issue",
         "get_pull_request",
         "list_pull_request_files",
+        "list_pull_request_commits",
+        "list_pull_request_reviews",
+        "list_review_comments",
+        "list_pull_request_checks",
         "list_comments",
         "read_file",
       ]),
@@ -134,7 +139,7 @@ function createGitHubTool(env, fetchImpl) {
       number: integerSchema("Issue or pull request number", 1, 1_000_000),
       path: stringSchema("Repository-relative UTF-8 file path; required for read_file"),
       ref: stringSchema("Optional Git ref, branch, tag, or commit for read_file"),
-      limit: integerSchema("Maximum search results, changed files, or comments", 1, 100),
+      limit: integerSchema("Maximum search results, files, commits, reviews, comments, or checks", 1, 100),
     }),
     available: Boolean(token),
     unavailableReason: "Set GITHUB_TOKEN on the backend",
@@ -145,6 +150,10 @@ function createGitHubTool(env, fetchImpl) {
         "get_issue",
         "get_pull_request",
         "list_pull_request_files",
+        "list_pull_request_commits",
+        "list_pull_request_reviews",
+        "list_review_comments",
+        "list_pull_request_checks",
         "list_comments",
         "read_file",
       ]);
@@ -153,6 +162,18 @@ function createGitHubTool(env, fetchImpl) {
       if (operation === "read_file") return githubFile(baseUrl, token, fetchImpl, repository, args, signal);
       if (operation === "list_pull_request_files") {
         return githubPullRequestFiles(baseUrl, token, fetchImpl, repository, args, signal);
+      }
+      if (operation === "list_pull_request_commits") {
+        return githubPullRequestCommits(baseUrl, token, fetchImpl, repository, args, signal);
+      }
+      if (operation === "list_pull_request_reviews") {
+        return githubPullRequestReviews(baseUrl, token, fetchImpl, repository, args, signal);
+      }
+      if (operation === "list_review_comments") {
+        return githubReviewComments(baseUrl, token, fetchImpl, repository, args, signal);
+      }
+      if (operation === "list_pull_request_checks") {
+        return githubPullRequestChecks(baseUrl, token, fetchImpl, repository, args, signal);
       }
       if (operation === "list_comments") return githubComments(baseUrl, token, fetchImpl, repository, args, signal);
       return githubWorkItem(baseUrl, token, fetchImpl, repository, args, signal, operation);
@@ -166,32 +187,88 @@ function createGitHubManageTool(env, fetchImpl) {
   return tool({
     name: "github_manage",
     catalogId: "github",
-    description: "Create a GitHub issue, comment on an issue or pull request, or change an issue or pull-request state. Every operation writes remote state and requires approval",
+    description: "Create GitHub issues or pull requests, comment, change state, submit a PR review, or request reviewers. Every operation writes remote state and requires approval",
     parameters: objectSchema({
-      operation: enumSchema("GitHub write operation", ["create_issue", "add_comment", "set_issue_state"]),
+      operation: enumSchema("GitHub write operation", [
+        "create_issue",
+        "add_comment",
+        "set_issue_state",
+        "create_pull_request",
+        "submit_pull_request_review",
+        "request_reviewers",
+      ]),
       repository: stringSchema("Repository in owner/name form"),
-      number: integerSchema("Issue or pull request number; required for add_comment and set_issue_state", 1, 1_000_000),
-      title: stringSchema("Issue title; required for create_issue"),
-      body: stringSchema("Issue or comment body; required for add_comment and optional for create_issue"),
+      number: integerSchema("Issue or pull request number; required for item-specific operations", 1, 1_000_000),
+      title: stringSchema("Issue or pull-request title"),
+      body: stringSchema("Issue, pull-request, comment, or review body"),
       state: enumSchema("Target state for set_issue_state", ["open", "closed"]),
       state_reason: enumSchema("Optional GitHub state reason", ["completed", "not_planned", "reopened"]),
+      head: stringSchema("Head branch for create_pull_request, optionally owner:branch"),
+      base: stringSchema("Base branch for create_pull_request"),
+      draft: booleanSchema("Whether a new pull request is a draft"),
+      event: enumSchema("Review decision for submit_pull_request_review", ["APPROVE", "REQUEST_CHANGES", "COMMENT"]),
+      reviewers: stringArraySchema("GitHub users to request as reviewers", 15),
+      team_reviewers: stringArraySchema("GitHub team slugs to request as reviewers", 15),
     }, ["operation", "repository"]),
     risk: "mutating",
     available: Boolean(token),
     unavailableReason: "Set GITHUB_TOKEN with GitHub Issues or Pull requests write access on the backend",
     requiredEnvironment: ["GITHUB_TOKEN"],
     execute: async (args, { signal }) => {
-      const operation = optionalEnum(args.operation, null, ["create_issue", "add_comment", "set_issue_state"]);
+      const operation = optionalEnum(args.operation, null, [
+        "create_issue",
+        "add_comment",
+        "set_issue_state",
+        "create_pull_request",
+        "submit_pull_request_review",
+        "request_reviewers",
+      ]);
       if (!operation) throw httpError(400, "operation is required");
       const repository = githubRepository(args.repository);
       if (operation === "create_issue") {
         return githubCreateIssue(baseUrl, token, fetchImpl, repository, args, signal);
       }
+      if (operation === "create_pull_request") {
+        return githubCreatePullRequest(baseUrl, token, fetchImpl, repository, args, signal);
+      }
       const number = githubNumber(args);
       if (operation === "add_comment") {
         return githubAddComment(baseUrl, token, fetchImpl, repository, number, args, signal);
       }
-      return githubSetIssueState(baseUrl, token, fetchImpl, repository, number, args, signal);
+      if (operation === "set_issue_state") {
+        return githubSetIssueState(baseUrl, token, fetchImpl, repository, number, args, signal);
+      }
+      if (operation === "submit_pull_request_review") {
+        return githubSubmitPullRequestReview(baseUrl, token, fetchImpl, repository, number, args, signal);
+      }
+      return githubRequestReviewers(baseUrl, token, fetchImpl, repository, number, args, signal);
+    },
+  });
+}
+
+function createGitHubMergeTool(env, fetchImpl) {
+  const token = setting(env, "GITHUB_TOKEN");
+  const baseUrl = setting(env, "GITHUB_API_URL") || "https://api.github.com";
+  return tool({
+    name: "github_merge_pull_request",
+    catalogId: "github",
+    description: "Merge a GitHub pull request only when its live head SHA matches the explicitly approved SHA",
+    parameters: objectSchema({
+      repository: stringSchema("Repository in owner/name form"),
+      number: integerSchema("Pull request number", 1, 1_000_000),
+      expected_head_sha: stringSchema("Exact 40- or 64-character pull-request head commit SHA approved for merge"),
+      merge_method: enumSchema("GitHub merge method", ["merge", "squash", "rebase"]),
+      commit_title: stringSchema("Optional merge commit title"),
+      commit_message: stringSchema("Optional merge commit message"),
+    }, ["repository", "number", "expected_head_sha", "merge_method"]),
+    risk: "mutating",
+    available: Boolean(token),
+    unavailableReason: "Set GITHUB_TOKEN with Pull requests write access on the backend",
+    requiredEnvironment: ["GITHUB_TOKEN"],
+    execute: async (args, { signal }) => {
+      const repository = githubRepository(args.repository);
+      const number = githubNumber(args);
+      return githubMergePullRequest(baseUrl, token, fetchImpl, repository, number, args, signal);
     },
   });
 }
@@ -257,6 +334,7 @@ async function githubWorkItem(baseUrl, token, fetchImpl, repository, args, signa
       operation === "get_pull_request" && typeof body.merged === "boolean" ? `merged=${body.merged}` : "",
       operation === "get_pull_request" && body.base?.ref ? `base=${body.base.ref}` : "",
       operation === "get_pull_request" && body.head?.ref ? `head=${body.head.ref}` : "",
+      operation === "get_pull_request" && body.head?.sha ? `head_sha=${body.head.sha}` : "",
       operation === "get_pull_request" && Number.isInteger(body.changed_files) ? `changed_files=${body.changed_files}` : "",
     ].filter(Boolean).join("\n"),
     "",
@@ -323,6 +401,114 @@ async function githubComments(baseUrl, token, fetchImpl, repository, args, signa
   };
 }
 
+async function githubPullRequestCommits(baseUrl, token, fetchImpl, repository, args, signal) {
+  const number = githubNumber(args);
+  const limit = boundedInteger(args.limit, 30, 1, 100);
+  const url = githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "pulls", String(number), "commits");
+  url.searchParams.set("per_page", String(limit));
+  const body = await requestJson(fetchImpl, url, { headers: githubHeaders(token), signal }, "GitHub pull request commits");
+  const commits = requiredArray(body, "GitHub pull request commits").slice(0, limit);
+  const output = commits.length
+    ? commits.map((commit, index) => buildString([
+      `${index + 1}. ${commit.sha || "unknown SHA"} ${firstLine(commit.commit?.message) || "No commit message"}`,
+      [
+        `author=${commit.author?.login || commit.commit?.author?.name || "unknown"}`,
+        commit.commit?.author?.date ? `authored_at=${commit.commit.author.date}` : "",
+      ].filter(Boolean).join(" "),
+      commit.html_url,
+      commit.commit?.message ? truncate(commit.commit.message, 4_000) : "",
+    ])).join("\n\n")
+    : `No commits found for ${repository.slug}#${number}`;
+  return {
+    output: truncate(output),
+    summary: `Read ${commits.length} commit${commits.length === 1 ? "" : "s"} from ${repository.slug}#${number}`,
+    detail: truncate(output),
+  };
+}
+
+async function githubPullRequestReviews(baseUrl, token, fetchImpl, repository, args, signal) {
+  const number = githubNumber(args);
+  const limit = boundedInteger(args.limit, 30, 1, 100);
+  const url = githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "pulls", String(number), "reviews");
+  url.searchParams.set("per_page", String(limit));
+  const body = await requestJson(fetchImpl, url, { headers: githubHeaders(token), signal }, "GitHub pull request reviews");
+  const reviews = requiredArray(body, "GitHub pull request reviews").slice(0, limit);
+  const output = reviews.length
+    ? reviews.map((review, index) => buildString([
+      `${index + 1}. ${review.user?.login || "unknown"}: ${review.state || "UNKNOWN"}`,
+      [
+        review.submitted_at ? `submitted_at=${review.submitted_at}` : "",
+        review.commit_id ? `commit=${review.commit_id}` : "",
+      ].filter(Boolean).join(" "),
+      review.html_url,
+      review.body ? truncate(review.body, 8_000) : "No review body.",
+    ])).join("\n\n")
+    : `No reviews found for ${repository.slug}#${number}`;
+  return {
+    output: truncate(output),
+    summary: `Read ${reviews.length} review${reviews.length === 1 ? "" : "s"} from ${repository.slug}#${number}`,
+    detail: truncate(output),
+  };
+}
+
+async function githubReviewComments(baseUrl, token, fetchImpl, repository, args, signal) {
+  const number = githubNumber(args);
+  const limit = boundedInteger(args.limit, 30, 1, 100);
+  const url = githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "pulls", String(number), "comments");
+  url.searchParams.set("per_page", String(limit));
+  const body = await requestJson(fetchImpl, url, { headers: githubHeaders(token), signal }, "GitHub review comments");
+  const comments = requiredArray(body, "GitHub review comments").slice(0, limit);
+  const output = comments.length
+    ? comments.map((comment, index) => buildString([
+      `${index + 1}. ${comment.user?.login || "unknown"} on ${comment.path || "unknown file"}`,
+      [
+        Number.isInteger(comment.line) ? `line=${comment.line}` : "",
+        comment.side ? `side=${comment.side}` : "",
+        Number.isInteger(comment.original_line) ? `original_line=${comment.original_line}` : "",
+        comment.commit_id ? `commit=${comment.commit_id}` : "",
+        comment.created_at ? `created_at=${comment.created_at}` : "",
+      ].filter(Boolean).join(" "),
+      comment.html_url,
+      comment.body ? truncate(comment.body, 8_000) : "No comment body.",
+    ])).join("\n\n")
+    : `No line-level review comments found for ${repository.slug}#${number}`;
+  return {
+    output: truncate(output),
+    summary: `Read ${comments.length} line-level review comment${comments.length === 1 ? "" : "s"} from ${repository.slug}#${number}`,
+    detail: truncate(output),
+  };
+}
+
+async function githubPullRequestChecks(baseUrl, token, fetchImpl, repository, args, signal) {
+  const number = githubNumber(args);
+  const limit = boundedInteger(args.limit, 30, 1, 100);
+  const pullRequest = await githubPullRequestMetadata(baseUrl, token, fetchImpl, repository, number, signal);
+  const headSha = githubCommitSha(pullRequest.head?.sha, "GitHub pull request head SHA", 502);
+  const url = githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "commits", headSha, "check-runs");
+  url.searchParams.set("per_page", String(limit));
+  const body = await requestJson(fetchImpl, url, { headers: githubHeaders(token), signal }, "GitHub check runs");
+  const checks = requiredArray(body?.check_runs, "GitHub check runs").slice(0, limit);
+  const output = checks.length
+    ? checks.map((check, index) => buildString([
+      `${index + 1}. ${check.name || "Unnamed check"}`,
+      [
+        `status=${check.status || "unknown"}`,
+        check.conclusion ? `conclusion=${check.conclusion}` : "",
+        check.app?.slug ? `app=${check.app.slug}` : "",
+        check.started_at ? `started_at=${check.started_at}` : "",
+        check.completed_at ? `completed_at=${check.completed_at}` : "",
+      ].filter(Boolean).join(" "),
+      check.details_url,
+      check.output?.summary ? truncate(check.output.summary, 4_000) : "",
+    ])).join("\n\n")
+    : `No check runs found for ${repository.slug}#${number} at ${headSha}`;
+  return {
+    output: truncate(buildString([`head_sha=${headSha}`, output])),
+    summary: `Read ${checks.length} check run${checks.length === 1 ? "" : "s"} from ${repository.slug}#${number}`,
+    detail: truncate(buildString([`head_sha=${headSha}`, output])),
+  };
+}
+
 async function githubCreateIssue(baseUrl, token, fetchImpl, repository, args, signal) {
   const title = requiredString(args, "title", 256);
   const bodyText = optionalString(args.body, "", 65_536);
@@ -345,6 +531,35 @@ async function githubCreateIssue(baseUrl, token, fetchImpl, repository, args, si
     `state=${body.state || "open"}`,
   ]);
   return { output, summary: `Created GitHub issue ${repository.slug}#${body.number}`, detail: output };
+}
+
+async function githubCreatePullRequest(baseUrl, token, fetchImpl, repository, args, signal) {
+  const title = requiredString(args, "title", 256);
+  const head = requiredString(args, "head", 255);
+  const base = requiredString(args, "base", 255);
+  const bodyText = optionalString(args.body, "", 65_536);
+  const draft = optionalBoolean(args.draft, false, "draft");
+  const body = await githubMutation(
+    baseUrl,
+    token,
+    fetchImpl,
+    repository,
+    ["pulls"],
+    { title, head, base, ...(bodyText ? { body: bodyText } : {}), draft },
+    signal,
+    "GitHub pull request creation",
+  );
+  if (!Number.isInteger(body.number) || body.number < 1 || typeof body.html_url !== "string") {
+    throw httpError(502, "GitHub pull request creation returned an unexpected response shape");
+  }
+  const output = buildString([
+    `Created pull request ${repository.slug}#${body.number}: ${body.title || title}`,
+    body.html_url,
+    `state=${body.state || "open"}`,
+    `draft=${typeof body.draft === "boolean" ? body.draft : draft}`,
+    body.head?.sha ? `head_sha=${body.head.sha}` : "",
+  ]);
+  return { output, summary: `Created GitHub pull request ${repository.slug}#${body.number}`, detail: output };
 }
 
 async function githubAddComment(baseUrl, token, fetchImpl, repository, number, args, signal) {
@@ -401,6 +616,128 @@ async function githubSetIssueState(baseUrl, token, fetchImpl, repository, number
     body.state_reason ? `state_reason=${body.state_reason}` : "",
   ]);
   return { output, summary: `Updated GitHub item ${repository.slug}#${body.number || number}`, detail: output };
+}
+
+async function githubSubmitPullRequestReview(baseUrl, token, fetchImpl, repository, number, args, signal) {
+  const event = optionalEnum(args.event, null, ["APPROVE", "REQUEST_CHANGES", "COMMENT"]);
+  if (!event) throw httpError(400, "event is required");
+  const reviewBody = optionalString(args.body, "", 65_536);
+  if (event !== "APPROVE" && !reviewBody) {
+    throw httpError(400, `body is required when event=${event}`);
+  }
+  const body = await githubMutation(
+    baseUrl,
+    token,
+    fetchImpl,
+    repository,
+    ["pulls", String(number), "reviews"],
+    { event, ...(reviewBody ? { body: reviewBody } : {}) },
+    signal,
+    "GitHub pull request review submission",
+  );
+  if (!Number.isInteger(body.id) || body.id < 1 || typeof body.state !== "string") {
+    throw httpError(502, "GitHub pull request review submission returned an unexpected response shape");
+  }
+  const output = buildString([
+    `Submitted ${event} review on ${repository.slug}#${number}`,
+    body.html_url,
+    `state=${body.state}`,
+    body.commit_id ? `commit=${body.commit_id}` : "",
+  ]);
+  return { output, summary: `Submitted GitHub review on ${repository.slug}#${number}`, detail: output };
+}
+
+async function githubRequestReviewers(baseUrl, token, fetchImpl, repository, number, args, signal) {
+  const reviewers = githubActorList(args.reviewers, "reviewers", 15);
+  const teams = githubActorList(args.team_reviewers, "team_reviewers", 15);
+  if (!reviewers.length && !teams.length) {
+    throw httpError(400, "At least one reviewer or team_reviewer is required");
+  }
+  const body = await githubMutation(
+    baseUrl,
+    token,
+    fetchImpl,
+    repository,
+    ["pulls", String(number), "requested_reviewers"],
+    { ...(reviewers.length ? { reviewers } : {}), ...(teams.length ? { team_reviewers: teams } : {}) },
+    signal,
+    "GitHub reviewer request",
+  );
+  if (!Number.isInteger(body.number) || body.number < 1) {
+    throw httpError(502, "GitHub reviewer request returned an unexpected response shape");
+  }
+  const requestedUsers = Array.isArray(body.requested_reviewers)
+    ? body.requested_reviewers.map((reviewer) => reviewer?.login).filter(Boolean)
+    : reviewers;
+  const requestedTeams = Array.isArray(body.requested_teams)
+    ? body.requested_teams.map((team) => team?.slug).filter(Boolean)
+    : teams;
+  const output = buildString([
+    `Requested reviewers for ${repository.slug}#${number}`,
+    body.html_url,
+    requestedUsers.length ? `reviewers=${requestedUsers.join(", ")}` : "",
+    requestedTeams.length ? `team_reviewers=${requestedTeams.join(", ")}` : "",
+  ]);
+  return { output, summary: `Requested GitHub reviewers for ${repository.slug}#${number}`, detail: output };
+}
+
+async function githubMergePullRequest(baseUrl, token, fetchImpl, repository, number, args, signal) {
+  const expectedHeadSha = githubCommitSha(requiredString(args, "expected_head_sha", 64), "expected_head_sha");
+  const mergeMethod = optionalEnum(args.merge_method, null, ["merge", "squash", "rebase"]);
+  if (!mergeMethod) throw httpError(400, "merge_method is required");
+  const commitTitle = optionalString(args.commit_title, "", 256);
+  const commitMessage = optionalString(args.commit_message, "", 65_536);
+  const pullRequest = await githubPullRequestMetadata(baseUrl, token, fetchImpl, repository, number, signal);
+  const liveHeadSha = githubCommitSha(pullRequest.head?.sha, "GitHub pull request head SHA", 502);
+  if (liveHeadSha.toLowerCase() !== expectedHeadSha.toLowerCase()) {
+    throw httpError(409, `Pull request head changed: expected ${expectedHeadSha}, found ${liveHeadSha}`);
+  }
+  if (pullRequest.merged === true || pullRequest.state !== "open") {
+    throw httpError(409, `Pull request ${repository.slug}#${number} is not open and mergeable by this operation`);
+  }
+  const body = await githubMutation(
+    baseUrl,
+    token,
+    fetchImpl,
+    repository,
+    ["pulls", String(number), "merge"],
+    {
+      sha: expectedHeadSha,
+      merge_method: mergeMethod,
+      ...(commitTitle ? { commit_title: commitTitle } : {}),
+      ...(commitMessage ? { commit_message: commitMessage } : {}),
+    },
+    signal,
+    "GitHub pull request merge",
+    "PUT",
+  );
+  if (body.merged !== true || typeof body.sha !== "string") {
+    if (body.merged === false) {
+      throw httpError(409, `GitHub did not merge ${repository.slug}#${number}: ${body.message || "merge rejected"}`);
+    }
+    throw httpError(502, "GitHub pull request merge returned an unexpected response shape");
+  }
+  const output = buildString([
+    `Merged ${repository.slug}#${number}`,
+    `merge_method=${mergeMethod}`,
+    `approved_head_sha=${expectedHeadSha}`,
+    `merge_commit_sha=${body.sha}`,
+    body.message,
+  ]);
+  return { output, summary: `Merged GitHub pull request ${repository.slug}#${number}`, detail: output };
+}
+
+async function githubPullRequestMetadata(baseUrl, token, fetchImpl, repository, number, signal) {
+  const body = await requestJson(
+    fetchImpl,
+    githubApiUrl(baseUrl, "repos", repository.owner, repository.name, "pulls", String(number)),
+    { headers: githubHeaders(token), signal },
+    "GitHub pull request",
+  );
+  if (!body || typeof body !== "object" || Array.isArray(body) || !Number.isInteger(body.number)) {
+    throw httpError(502, "GitHub pull request returned an unexpected response shape");
+  }
+  return body;
 }
 
 async function githubMutation(
@@ -834,6 +1171,21 @@ function stringSchema(description) {
   return { type: "string", description };
 }
 
+function booleanSchema(description) {
+  return { type: "boolean", description };
+}
+
+function stringArraySchema(description, maxItems) {
+  return {
+    type: "array",
+    description,
+    items: { type: "string" },
+    minItems: 1,
+    maxItems,
+    uniqueItems: true,
+  };
+}
+
 function integerSchema(description, minimum, maximum) {
   return { type: "integer", description, minimum, maximum };
 }
@@ -854,6 +1206,12 @@ function optionalString(value, fallback, maxLength) {
   if (typeof value !== "string") throw httpError(400, "Expected a string value");
   if (value.length > maxLength) throw httpError(400, `String value must be at most ${maxLength} characters`);
   return value.trim();
+}
+
+function optionalBoolean(value, fallback, name) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== "boolean") throw httpError(400, `${name} must be a boolean`);
+  return value;
 }
 
 function optionalEnum(value, fallback, allowed) {
@@ -907,6 +1265,32 @@ function githubNumber(args) {
   const number = boundedInteger(args.number, null, 1, 1_000_000);
   if (number === null) throw httpError(400, "number is required");
   return number;
+}
+
+function githubCommitSha(value, name, statusCode = 400) {
+  if (typeof value !== "string" || !/^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/.test(value)) {
+    throw httpError(statusCode, `${name} must be a 40- or 64-character hexadecimal commit SHA`);
+  }
+  return value;
+}
+
+function githubActorList(value, name, maxItems) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length < 1 || value.length > maxItems) {
+    throw httpError(400, `${name} must contain 1 to ${maxItems} entries`);
+  }
+  const actors = value.map((actor) => {
+    if (typeof actor !== "string" || !/^[A-Za-z0-9_.-]{1,100}$/.test(actor)) {
+      throw httpError(400, `${name} entries must be GitHub login or team-slug values`);
+    }
+    return actor;
+  });
+  if (new Set(actors).size !== actors.length) throw httpError(400, `${name} must not contain duplicates`);
+  return actors;
+}
+
+function firstLine(value) {
+  return typeof value === "string" ? value.split(/\r?\n/, 1)[0].trim() : "";
 }
 
 function isBinary(bytes) {

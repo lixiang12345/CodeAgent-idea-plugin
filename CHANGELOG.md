@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added bounded GitHub pull-request commit, review, line-comment, and head-SHA Check Run reads; approval-gated PR creation, review submission, and reviewer requests; and a separately approved merge tool with live head-SHA race protection.
 - Added approval-gated GitHub issue creation, issue/pull-request comments, and state changes as a separate remote-state tool, plus bounded pull-request file and discussion-comment reads.
 - Added approval-aware project process sessions with the original `terminal_id`/`input_text` contract, backward-compatible aliases, project-contained working directories, incremental bounded output, stdin, wait/list/read controls, interactive-input detection, full process-tree termination, and automatic cleanup when a project closes.
 - Published the account conversation list/create/read/update/delete contract in OpenAPI, including normalized timeline schemas and optimistic `If-Match` conflict handling.

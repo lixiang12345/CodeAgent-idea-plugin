@@ -369,7 +369,7 @@ function isMutationCall(call, risk) {
 }
 
 function isRemoteStateMutation(call) {
-  return call.name === "github_manage";
+  return call.name === "github_manage" || call.name === "github_merge_pull_request";
 }
 
 function isReadOnlyTerminalCall(call) {

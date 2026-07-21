@@ -286,7 +286,17 @@ Executes one configured backend-owned tool. Credentials remain in backend enviro
 
 Success returns `{ "output": "…", "summary": "…", "detail": "…" }`. Missing configuration returns `503 { "error": "…" }`; provider failures or invalid provider responses return `502`; unknown tools return `404`.
 
-Current adapters: `web_search`, `github_search` (search plus issue, pull-request, changed-file, comment, and repository-file reads), approval-gated `github_manage` (issue creation, issue/pull-request comments, and state changes), `linear_search`, `notion_search`, `jira_search`, `confluence_search`, `glean_search`, `supabase_query`, and synchronous model-only `subagent`.
+Current adapters: `web_search`, `github_search`, approval-gated `github_manage`, separately approval-gated `github_merge_pull_request`, `linear_search`, `notion_search`, `jira_search`, `confluence_search`, `glean_search`, `supabase_query`, and synchronous model-only `subagent`.
+
+GitHub operations are split by effect and risk:
+
+| Tool | Operations | Guardrails |
+| --- | --- | --- |
+| `github_search` | Search; read issues, pull requests, changed files, commits, discussion comments, reviews, line-level review comments, head-SHA Check Runs, and bounded UTF-8 repository files | Read-only; list operations are bounded to 100 results and file reads to 512,000 bytes |
+| `github_manage` | Create issues and pull requests, add comments, change issue/PR state, submit `APPROVE`/`REQUEST_CHANGES`/`COMMENT` reviews, and request user or team reviewers | Mutating; every call requires IDE approval and sends a bounded REST payload |
+| `github_merge_pull_request` | Merge using `merge`, `squash`, or `rebase` | Separate mutating approval; requires an explicit 40- or 64-character `expected_head_sha`, re-reads the live PR before mutation, rejects a changed/closed head, sends the same SHA to GitHub, and only reports success when GitHub returns `merged: true` |
+
+The adapter preserves `GITHUB_API_URL` for GitHub Enterprise Server and sends `X-GitHub-Api-Version: 2022-11-28`. A token must provide Metadata, Issues, Pull requests, Contents, and Checks read access for the complete read surface; write operations additionally require the corresponding Issues or Pull requests write permissions. Configuration alone does not imply that production credentials have been provisioned.
 
 ### 3.5 `POST /v1/enhance`
 

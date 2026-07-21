@@ -1,7 +1,7 @@
 {
   "name": "codeagent-backend",
   "private": true,
-  "version": "0.7.27",
+  "version": "0.7.28",
   "type": "module",
   "scripts": {
     "start": "node --env-file-if-exists=.env src/server.mjs",

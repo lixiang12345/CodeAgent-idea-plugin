@@ -6,6 +6,9 @@ import {
 } from "../src/integration-tools.mjs";
 import { createCodeAgentServer } from "../src/server.mjs";
 
+const PR_HEAD_SHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const MERGE_COMMIT_SHA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
 test("reports missing integration credentials and rejects execution explicitly", async () => {
   const registry = createIntegrationToolRegistryFromEnv({}, async () => {
     throw new Error("fetch must not run for unavailable tools");
@@ -17,6 +20,8 @@ test("reports missing integration credentials and rejects execution explicitly",
   assert.match(tools.find((tool) => tool.name === "github_search").unavailableReason, /GITHUB_TOKEN/);
   assert.equal(tools.find((tool) => tool.name === "github_manage").risk, "mutating");
   assert.match(tools.find((tool) => tool.name === "github_manage").unavailableReason, /write access/);
+  assert.equal(tools.find((tool) => tool.name === "github_merge_pull_request").risk, "mutating");
+  assert.match(tools.find((tool) => tool.name === "github_merge_pull_request").unavailableReason, /Pull requests write access/);
   assert.equal(tools.find((tool) => tool.name === "subagent").available, false);
   await assert.rejects(
     registry.execute("web_search", { query: "CodeAgent" }),
@@ -76,7 +81,7 @@ test("reads GitHub issues, pull requests, and text files through a scoped standa
         state: "closed",
         merged: true,
         base: { ref: "main" },
-        head: { ref: "feature" },
+        head: { ref: "feature", sha: PR_HEAD_SHA },
         changed_files: 3,
         body: "Pull request body",
       });
@@ -102,6 +107,57 @@ test("reads GitHub issues, pull requests, and text files through a scoped standa
         html_url: "https://github.example.test/codeagent/idea/pull/7#issuecomment-1",
         body: "Please cover the error path.",
       }]);
+    }
+    if (requestUrl === "https://github.example.test/api/v3/repos/codeagent/idea/pulls/7/commits?per_page=1") {
+      return jsonResponse([{
+        sha: PR_HEAD_SHA,
+        html_url: `https://github.example.test/codeagent/idea/commit/${PR_HEAD_SHA}`,
+        author: { login: "developer" },
+        commit: {
+          message: "Add PR review support\n\nCover checks and review comments.",
+          author: { name: "Developer", date: "2026-07-21T02:00:00Z" },
+        },
+      }]);
+    }
+    if (requestUrl === "https://github.example.test/api/v3/repos/codeagent/idea/pulls/7/reviews?per_page=1") {
+      return jsonResponse([{
+        id: 17,
+        user: { login: "maintainer" },
+        state: "APPROVED",
+        submitted_at: "2026-07-21T03:00:00Z",
+        commit_id: PR_HEAD_SHA,
+        html_url: "https://github.example.test/codeagent/idea/pull/7#pullrequestreview-17",
+        body: "The failure path is covered.",
+      }]);
+    }
+    if (requestUrl === "https://github.example.test/api/v3/repos/codeagent/idea/pulls/7/comments?per_page=1") {
+      return jsonResponse([{
+        id: 18,
+        user: { login: "maintainer" },
+        path: "src/main.kt",
+        line: 12,
+        side: "RIGHT",
+        commit_id: PR_HEAD_SHA,
+        created_at: "2026-07-21T03:01:00Z",
+        html_url: "https://github.example.test/codeagent/idea/pull/7#discussion_r18",
+        body: "Keep this branch exhaustive.",
+      }]);
+    }
+    if (requestUrl === `https://github.example.test/api/v3/repos/codeagent/idea/commits/${PR_HEAD_SHA}/check-runs?per_page=1`) {
+      return jsonResponse({
+        total_count: 1,
+        check_runs: [{
+          id: 19,
+          name: "Plugin Verifier",
+          status: "completed",
+          conclusion: "success",
+          app: { slug: "github-actions" },
+          started_at: "2026-07-21T03:02:00Z",
+          completed_at: "2026-07-21T03:05:00Z",
+          details_url: "https://github.example.test/codeagent/idea/actions/runs/19",
+          output: { summary: "IDEA and PyCharm checks passed." },
+        }],
+      });
     }
     if (requestUrl === "https://github.example.test/api/v3/repos/codeagent/idea/contents/src/main.kt?ref=main") {
       return jsonResponse({
@@ -158,11 +214,36 @@ test("reads GitHub issues, pull requests, and text files through a scoped standa
     number: 7,
     limit: 1,
   });
+  const commits = await registry.execute("github_search", {
+    operation: "list_pull_request_commits",
+    repository: "codeagent/idea",
+    number: 7,
+    limit: 1,
+  });
+  const reviews = await registry.execute("github_search", {
+    operation: "list_pull_request_reviews",
+    repository: "codeagent/idea",
+    number: 7,
+    limit: 1,
+  });
+  const reviewComments = await registry.execute("github_search", {
+    operation: "list_review_comments",
+    repository: "codeagent/idea",
+    number: 7,
+    limit: 1,
+  });
+  const checks = await registry.execute("github_search", {
+    operation: "list_pull_request_checks",
+    repository: "codeagent/idea",
+    number: 7,
+    limit: 1,
+  });
 
   assert.match(issue.output, /Issue body/);
   assert.match(issue.output, /labels=bug/);
   assert.match(pullRequest.output, /merged=true/);
   assert.match(pullRequest.output, /changed_files=3/);
+  assert.match(pullRequest.output, new RegExp(`head_sha=${PR_HEAD_SHA}`));
   assert.match(file.output, /fun main\(\) = Unit/);
   assert.match(binary.output, /Binary file content is not included/);
   assert.match(pullRequestFiles.output, /src\/main\.kt/);
@@ -170,7 +251,15 @@ test("reads GitHub issues, pull requests, and text files through a scoped standa
   assert.match(pullRequestFiles.output, /patch:/);
   assert.match(comments.output, /reviewer/);
   assert.match(comments.output, /Please cover the error path/);
-  assert.equal(calls.length, 6);
+  assert.match(commits.output, /Add PR review support/);
+  assert.match(commits.output, /author=developer/);
+  assert.match(reviews.output, /maintainer: APPROVED/);
+  assert.match(reviewComments.output, /src\/main\.kt/);
+  assert.match(reviewComments.output, /line=12/);
+  assert.match(checks.output, /Plugin Verifier/);
+  assert.match(checks.output, /conclusion=success/);
+  assert.match(checks.output, new RegExp(`head_sha=${PR_HEAD_SHA}`));
+  assert.equal(calls.length, 11);
   assert.equal(calls[0].options.headers.authorization, "Bearer github-token");
   assert.equal(calls[0].options.headers["x-github-api-version"], "2022-11-28");
 
@@ -219,6 +308,32 @@ test("executes approval-classified GitHub writes with bounded standard REST payl
         html_url: "https://github.example.test/codeagent/idea/issues/51",
       });
     }
+    if (call.url === "https://github.example.test/api/v3/repos/codeagent/idea/pulls" && options.method === "POST") {
+      return jsonResponse({
+        number: 52,
+        title: "Add GitHub PR review support",
+        state: "open",
+        draft: true,
+        html_url: "https://github.example.test/codeagent/idea/pull/52",
+        head: { sha: PR_HEAD_SHA },
+      }, 201);
+    }
+    if (call.url === "https://github.example.test/api/v3/repos/codeagent/idea/pulls/52/reviews" && options.method === "POST") {
+      return jsonResponse({
+        id: 20,
+        state: "CHANGES_REQUESTED",
+        html_url: "https://github.example.test/codeagent/idea/pull/52#pullrequestreview-20",
+        commit_id: PR_HEAD_SHA,
+      }, 200);
+    }
+    if (call.url === "https://github.example.test/api/v3/repos/codeagent/idea/pulls/52/requested_reviewers" && options.method === "POST") {
+      return jsonResponse({
+        number: 52,
+        html_url: "https://github.example.test/codeagent/idea/pull/52",
+        requested_reviewers: [{ login: "octocat" }],
+        requested_teams: [{ slug: "platform" }],
+      }, 201);
+    }
     throw new Error(`Unexpected request: ${call.url}`);
   }, {});
 
@@ -246,16 +361,59 @@ test("executes approval-classified GitHub writes with bounded standard REST payl
     state: "closed",
     state_reason: "completed",
   });
+  const pullRequest = await registry.execute("github_manage", {
+    operation: "create_pull_request",
+    repository: "codeagent/idea",
+    title: "Add GitHub PR review support",
+    body: "Adds checks and review endpoints.",
+    head: "feature/github-reviews",
+    base: "main",
+    draft: true,
+  });
+  const review = await registry.execute("github_manage", {
+    operation: "submit_pull_request_review",
+    repository: "codeagent/idea",
+    number: 52,
+    event: "REQUEST_CHANGES",
+    body: "Please add the merge-race test.",
+  });
+  const reviewers = await registry.execute("github_manage", {
+    operation: "request_reviewers",
+    repository: "codeagent/idea",
+    number: 52,
+    reviewers: ["octocat"],
+    team_reviewers: ["platform"],
+  });
 
   assert.match(issue.output, /Created codeagent\/idea#51/);
   assert.match(comment.output, /Commented on codeagent\/idea#51/);
   assert.match(state.output, /state_reason=completed/);
+  assert.match(pullRequest.output, /Created pull request codeagent\/idea#52/);
+  assert.match(pullRequest.output, /draft=true/);
+  assert.match(review.output, /Submitted REQUEST_CHANGES review/);
+  assert.match(reviewers.output, /reviewers=octocat/);
+  assert.match(reviewers.output, /team_reviewers=platform/);
   assert.deepEqual(JSON.parse(calls[0].options.body), {
     title: "Regression in login flow",
     body: "Steps to reproduce",
   });
   assert.deepEqual(JSON.parse(calls[1].options.body), { body: "Fixed by #52" });
   assert.deepEqual(JSON.parse(calls[2].options.body), { state: "closed", state_reason: "completed" });
+  assert.deepEqual(JSON.parse(calls[3].options.body), {
+    title: "Add GitHub PR review support",
+    head: "feature/github-reviews",
+    base: "main",
+    body: "Adds checks and review endpoints.",
+    draft: true,
+  });
+  assert.deepEqual(JSON.parse(calls[4].options.body), {
+    event: "REQUEST_CHANGES",
+    body: "Please add the merge-race test.",
+  });
+  assert.deepEqual(JSON.parse(calls[5].options.body), {
+    reviewers: ["octocat"],
+    team_reviewers: ["platform"],
+  });
   assert.equal(calls[0].options.headers.authorization, "Bearer github-write-token");
   assert.equal(calls[0].options.headers["content-type"], "application/json");
 
@@ -278,6 +436,23 @@ test("executes approval-classified GitHub writes with bounded standard REST payl
     }),
     (error) => error.statusCode === 400 && /body is required/.test(error.message),
   );
+  await assert.rejects(
+    registry.execute("github_manage", {
+      operation: "submit_pull_request_review",
+      repository: "codeagent/idea",
+      number: 52,
+      event: "COMMENT",
+    }),
+    (error) => error.statusCode === 400 && /body is required when event=COMMENT/.test(error.message),
+  );
+  await assert.rejects(
+    registry.execute("github_manage", {
+      operation: "request_reviewers",
+      repository: "codeagent/idea",
+      number: 52,
+    }),
+    (error) => error.statusCode === 400 && /At least one reviewer/.test(error.message),
+  );
   const malformedRegistry = createIntegrationToolRegistryFromEnv({ GITHUB_TOKEN: "github-write-token" }, async () => (
     jsonResponse({ status: "ok" }, 201)
   ), {});
@@ -289,7 +464,100 @@ test("executes approval-classified GitHub writes with bounded standard REST payl
     }),
     (error) => error.statusCode === 502 && /unexpected response shape/.test(error.message),
   );
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 6);
+});
+
+test("merges only the explicitly approved live GitHub pull-request head", async () => {
+  const calls = [];
+  const registry = createIntegrationToolRegistryFromEnv({
+    GITHUB_TOKEN: "github-merge-token",
+    GITHUB_API_URL: "https://github.example.test/api/v3",
+  }, async (url, options = {}) => {
+    const call = { url: String(url), options };
+    calls.push(call);
+    if (call.url === "https://github.example.test/api/v3/repos/codeagent/idea/pulls/52" && !options.method) {
+      return jsonResponse({
+        number: 52,
+        state: "open",
+        merged: false,
+        head: { sha: PR_HEAD_SHA },
+      });
+    }
+    if (call.url === "https://github.example.test/api/v3/repos/codeagent/idea/pulls/52/merge" && options.method === "PUT") {
+      return jsonResponse({ merged: true, sha: MERGE_COMMIT_SHA, message: "Pull Request successfully merged" });
+    }
+    throw new Error(`Unexpected request: ${call.url}`);
+  }, {});
+
+  const capability = registry.list().find((tool) => tool.name === "github_merge_pull_request");
+  assert.equal(capability.risk, "mutating");
+  assert.deepEqual(capability.parameters.required, ["repository", "number", "expected_head_sha", "merge_method"]);
+
+  const merged = await registry.execute("github_merge_pull_request", {
+    repository: "codeagent/idea",
+    number: 52,
+    expected_head_sha: PR_HEAD_SHA,
+    merge_method: "squash",
+    commit_title: "GitHub PR review support (#52)",
+    commit_message: "Verified with backend integration tests.",
+  });
+
+  assert.match(merged.output, /Merged codeagent\/idea#52/);
+  assert.match(merged.output, new RegExp(`approved_head_sha=${PR_HEAD_SHA}`));
+  assert.match(merged.output, new RegExp(`merge_commit_sha=${MERGE_COMMIT_SHA}`));
+  assert.equal(calls.length, 2);
+  assert.deepEqual(JSON.parse(calls[1].options.body), {
+    sha: PR_HEAD_SHA,
+    merge_method: "squash",
+    commit_title: "GitHub PR review support (#52)",
+    commit_message: "Verified with backend integration tests.",
+  });
+
+  await assert.rejects(
+    registry.execute("github_merge_pull_request", {
+      repository: "codeagent/idea",
+      number: 52,
+      expected_head_sha: "invalid",
+      merge_method: "merge",
+    }),
+    (error) => error.statusCode === 400 && /commit SHA/.test(error.message),
+  );
+  assert.equal(calls.length, 2);
+
+  const mismatchCalls = [];
+  const mismatchRegistry = createIntegrationToolRegistryFromEnv({ GITHUB_TOKEN: "github-merge-token" }, async (url, options = {}) => {
+    mismatchCalls.push({ url: String(url), options });
+    return jsonResponse({ number: 52, state: "open", merged: false, head: { sha: PR_HEAD_SHA } });
+  }, {});
+  await assert.rejects(
+    mismatchRegistry.execute("github_merge_pull_request", {
+      repository: "codeagent/idea",
+      number: 52,
+      expected_head_sha: "cccccccccccccccccccccccccccccccccccccccc",
+      merge_method: "rebase",
+    }),
+    (error) => error.statusCode === 409 && /Pull request head changed/.test(error.message),
+  );
+  assert.equal(mismatchCalls.length, 1);
+
+  let rejectedCallCount = 0;
+  const rejectedRegistry = createIntegrationToolRegistryFromEnv({ GITHUB_TOKEN: "github-merge-token" }, async () => {
+    rejectedCallCount += 1;
+    if (rejectedCallCount === 1) {
+      return jsonResponse({ number: 52, state: "open", merged: false, head: { sha: PR_HEAD_SHA } });
+    }
+    return jsonResponse({ merged: false, sha: null, message: "Required checks have not passed" });
+  }, {});
+  await assert.rejects(
+    rejectedRegistry.execute("github_merge_pull_request", {
+      repository: "codeagent/idea",
+      number: 52,
+      expected_head_sha: PR_HEAD_SHA,
+      merge_method: "merge",
+    }),
+    (error) => error.statusCode === 409 && /Required checks have not passed/.test(error.message),
+  );
+  assert.equal(rejectedCallCount, 2);
 });
 
 test("executes configured HTTP integration adapters and normalizes real provider results", async () => {
@@ -373,7 +641,7 @@ test("executes configured HTTP integration adapters and normalizes real provider
     SUPABASE_TABLES: "tickets,projects",
   }, fetchImpl, modelGateway);
 
-  assert.equal(registry.list().filter((tool) => tool.available).length, 10);
+  assert.equal(registry.list().filter((tool) => tool.available).length, 11);
   assert.match((await registry.execute("web_search", { query: "web" })).output, /Web result/);
   assert.match((await registry.execute("github_search", { query: "bug" })).output, /GitHub issue/);
   assert.match((await registry.execute("linear_search", { query: "linear" })).output, /ENG-1/);
