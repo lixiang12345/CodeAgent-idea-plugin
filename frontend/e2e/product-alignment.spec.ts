@@ -126,6 +126,131 @@ test("mutating tool approval remains explicit", async ({ page }, testInfo) => {
   await expect(approval.getByRole("button", { name: "Approve" })).toBeVisible();
   await expectViewportIntegrity(page);
   await captureShell(page, "tool-approval.png");
+  await page.getByRole("button", { name: "Generation status" }).click();
+  await expect(page.getByRole("button", { name: "Stop generation" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+  await page.getByRole("button", { name: "Generation status" }).click();
   await approval.getByRole("button", { name: "Approve" }).click();
   await expect(page.getByText("Waiting for user input")).toBeHidden();
+});
+
+test("long conversations preserve reading position and expose request navigation", async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    const now = Date.now();
+    const messages = Array.from({ length: 12 }, (_, index) => {
+      const runId = `long-run-${index}`;
+      return [
+        {
+          id: `long-user-${index}`,
+          role: "user" as const,
+          content: `Request ${index + 1}: inspect the implementation boundary and verify the relevant behavior.`,
+          createdAt: now - (12 - index) * 60_000,
+          timelineSequence: index * 3 + 1,
+          runId,
+          turnIndex: index,
+        },
+        {
+          id: `long-assistant-${index}`,
+          role: "assistant" as const,
+          content: `Response ${index + 1}: the implementation was inspected and the evidence was recorded. `.repeat(4),
+          createdAt: now - (12 - index) * 60_000 + 20_000,
+          timelineSequence: index * 3 + 3,
+          runId,
+          turnIndex: index,
+        },
+      ];
+    }).flat();
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      runState: "running",
+      agentRun: {
+        ...snapshot.agentRun,
+        phase: "tools",
+        turnIndex: 11,
+        activeToolNames: ["read_file"],
+        activeToolCount: 1,
+        toolBatchTotal: 1,
+        toolBatchCompleted: 0,
+      },
+      messages,
+      tools: [{
+        id: "long-running-tool",
+        name: "read_file",
+        summary: "frontend/src/App.svelte",
+        status: "running",
+        detail: "Inspecting the long-conversation navigation boundary.",
+        canRevert: false,
+        runId: "long-run-11",
+        turnIndex: 11,
+        createdAt: now,
+        timelineSequence: 35,
+      }],
+      messageQueue: [{ id: "long-queued", text: "Run the final responsive regression checks.", mode: "agent" }],
+      tasks: [],
+    });
+  });
+
+  await expect(page.locator("[data-request-boundary]")).toHaveCount(12);
+  await expect(page.getByText("12 / 12 requests", { exact: true })).toBeVisible();
+  await expect(page.getByText("Run the final responsive regression checks.", { exact: true })).toBeVisible();
+
+  const conversation = page.locator(".conversation");
+  await conversation.evaluate((element) => {
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event("scroll"));
+  });
+  await expect(page.getByRole("button", { name: "Jump to latest" }).last()).toBeVisible();
+  await expect(page.getByText("1 / 12 requests", { exact: true })).toBeVisible();
+  const readingPosition = await conversation.evaluate((element) => element.scrollTop);
+
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      runState: "awaiting_approval",
+      agentRun: { ...snapshot.agentRun, phase: "approval" },
+      tools: snapshot.tools.map((tool) => tool.id === "long-running-tool"
+        ? { ...tool, status: "approval" as const, detail: `${tool.detail}\nApproval is now required.` }
+        : tool),
+    });
+  });
+  await expect.poll(() => conversation.evaluate((element) => element.scrollTop)).toBe(readingPosition);
+  if (testInfo.project.name === "tool-window-420") await captureShell(page, "long-conversation-navigation.png");
+
+  await page.getByRole("button", { name: "Next request" }).click();
+  await expect(page.getByText("2 / 12 requests", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Jump to latest" }).last().click();
+  await expect.poll(() => conversation.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(48);
+  await expect(page.getByText("12 / 12 requests", { exact: true })).toBeVisible();
+  await expect(page.locator(".conversation > .conversation-navigation .jump-latest")).toBeHidden();
+  await expectViewportIntegrity(page);
+});
+
+test("Threads exposes active approval and failure states", async ({ page }) => {
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      runState: "awaiting_approval",
+      agentRun: { ...snapshot.agentRun, phase: "approval" },
+    });
+  });
+  await page.getByRole("button", { name: "Threads", exact: true }).first().click();
+  await expect(page.locator(".thread-row.active .thread-activity")).toHaveText("Needs approval");
+
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      runState: "failed",
+      agentRun: { ...snapshot.agentRun, phase: "failed" },
+    });
+  });
+  await expect(page.locator(".thread-row.active .thread-activity")).toHaveText("Failed");
+  await expectViewportIntegrity(page);
 });

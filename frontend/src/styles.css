@@ -137,6 +137,25 @@ button { color: inherit; }
 .context-compaction-strip.complete .context-compaction-track > i { background: #5ca66f; }
 
 .conversation { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #44484f transparent; }
+.conversation-navigation { position: sticky; z-index: 18; bottom: 8px; width: max-content; max-width: calc(100% - 16px); min-height: 30px; margin: -2px 8px 8px auto; padding: 3px; display: flex; align-items: center; gap: 3px; border: 1px solid #454a51; border-radius: 7px; color: #aab1ba; background: rgba(35,37,41,.96); box-shadow: 0 5px 18px rgba(0,0,0,.34); backdrop-filter: blur(8px); }
+.request-navigation { height: 24px; display: inline-flex; align-items: center; gap: 1px; }
+.request-navigation button, .conversation-navigation > button, .generation-button { height: 24px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border: 0; border-radius: 4px; color: #9fa7b1; background: transparent; font-size: 9px; cursor: pointer; }
+.request-navigation button { width: 24px; padding: 0; }
+.request-navigation button:hover:not(:disabled), .conversation-navigation > button:hover, .generation-button:hover, .generation-button[aria-expanded="true"] { color: #e0e4e9; background: rgba(255,255,255,.07); }
+.request-navigation button:disabled { opacity: .28; cursor: default; }
+.request-navigation span { min-width: 74px; color: #8e969f; font: 8.5px var(--mono); text-align: center; white-space: nowrap; }
+.jump-latest { border-left: 1px solid #484c52 !important; border-radius: 0 4px 4px 0 !important; color: #a9bfd9 !important; }
+.generation-control { position: relative; }
+.generation-button svg { color: #91abc7; animation: status-spin .9s linear infinite; }
+.generation-button.approval svg { color: #d0a05b; animation: none; }
+.generation-menu { position: absolute; right: 0; bottom: 29px; width: min(250px, calc(100vw - 30px)); padding: 5px; border: 1px solid #50555c; border-radius: 6px; background: #292c31; box-shadow: 0 8px 24px rgba(0,0,0,.46); }
+.generation-menu header { min-height: 40px; padding: 5px 6px 7px; display: flex; align-items: flex-start; gap: 7px; border-bottom: 1px solid #3c4046; }
+.generation-menu header > svg { margin-top: 2px; color: #91abc7; }
+.generation-menu header span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.generation-menu strong { color: #d5d9df; font-size: 10px; font-weight: 500; }
+.generation-menu small { overflow: hidden; color: #858d97; font: 8.5px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.generation-menu > button { width: 100%; min-height: 28px; padding: 4px 6px; display: flex; align-items: center; gap: 7px; border: 0; border-radius: 4px; color: #b5bbc3; background: transparent; font-size: 9.5px; text-align: left; cursor: pointer; }
+.generation-menu > button:hover { color: #e0e3e7; background: rgba(255,255,255,.06); }
 .empty-state { min-height: 100%; padding: 42px 22px 160px; display: flex; flex-direction: column; align-items: stretch; justify-content: center; }
 .empty-logo { align-self: center; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 7px; background: transparent; color: var(--bright); }
 .empty-state h1 { margin: 12px 0 3px; text-align: center; font-size: 15px; font-weight: 600; }
@@ -645,6 +664,12 @@ button { color: inherit; }
 .thread-row:hover, .thread-row.active { background: #2d3137; }
 .thread-select { min-width: 0; min-height: 42px; flex: 1; padding: 3px; display: flex; align-items: center; gap: 6px; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .thread-select > span { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.thread-select > .thread-indicators { flex: 0 0 auto; align-items: flex-end; }
+.thread-activity { padding: 2px 5px; display: inline-flex; align-items: center; gap: 3px; border-radius: 99px; color: #9db7d2; background: #293746; font: 8px var(--mono); white-space: nowrap; text-transform: capitalize; }
+.thread-activity svg { animation: status-spin .9s linear infinite; }
+.thread-activity.approval { color: #dabd7c; background: #403721; }
+.thread-activity.approval svg, .thread-activity.failed svg { animation: none; }
+.thread-activity.failed { color: #df8c92; background: #42282c; }
 .thread-list strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 500; }
 .thread-list small { color: var(--muted); font-size: 10px; }
 .thread-list i, .thread-list .tag { padding: 2px 6px; border-radius: 99px; font: normal 9px var(--mono); text-transform: capitalize; }

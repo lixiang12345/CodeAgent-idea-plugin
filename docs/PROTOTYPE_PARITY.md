@@ -53,7 +53,7 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | Surface | Status | Real behavior in the current build |
 | --- | --- | --- |
 | Main panel | Implemented | 420 px IDEA tool window, interleaved user/assistant/tool timeline, context strip, tool cards, approvals, composer, stop/send states |
-| Threads | Implemented | Create, select, search, mode tags, pin ordering, confirmed delete, and Markdown import/export work |
+| Threads | Implemented | Create, select, search, mode tags, active run/approval/failure indicators, pin ordering, confirmed delete, and Markdown import/export work |
 | Composer | Implemented | Modes, attachments, Skills, model picker, queue/stop/send, slash menu, @ mention menu, Auto, and real prompt enhancement via backend `/v1/enhance` |
 | Tools | Conditional | Local tools remain IDEA-owned; bounded foreground commands plus managed launch/list/read/write/wait/kill process sessions use the original terminal argument contract, support project-contained working directories and interactive-input detection, backend-owned discovery/execution connects configured cloud adapters and subagents, and the local MCP gateway contributes dynamically discovered namespaced tools under the same policy |
 | Agent edits | Implemented | Native Diff, undo, keep/discard, Agent Edits overlay, and local checkpoints with restore |

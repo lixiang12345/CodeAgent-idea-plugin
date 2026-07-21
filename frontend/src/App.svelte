@@ -207,6 +207,9 @@
   let conversationElement: HTMLDivElement | undefined;
   let followConversation = true;
   let forceConversationFollow = true;
+  let visibleRequestIndex = 0;
+  let requestCount = 0;
+  let generationMenuOpen = false;
   let visibleThreadId: string | undefined;
   let pendingUserMessages: ChatMessage[] = [];
   let pendingThreadDeletes = new Set<string>();
@@ -233,6 +236,7 @@
   });
 
   $: reconcileToastTimers(notice, error, autoDismissNotifications);
+  $: requestCount = snapshot ? conversationRequestCount(snapshot, pendingUserMessages) : 0;
 
   function handleEvent(event: EventEnvelope) {
     if (event.type === "snapshot") {
@@ -242,6 +246,8 @@
       const forceFollow = forceConversationFollow || nextThreadId !== visibleThreadId;
       if (threadChanged) {
         pendingUserMessages = [];
+        visibleRequestIndex = 0;
+        generationMenuOpen = false;
         hideContextCompaction();
       } else {
         reconcilePendingUserMessages(nextSnapshot.messages);
@@ -385,6 +391,7 @@
     if (!conversationElement) return;
     const distanceFromBottom = conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight;
     followConversation = distanceFromBottom <= 48;
+    updateVisibleRequest();
   }
 
   function scrollConversationToBottom(force = false) {
@@ -393,7 +400,43 @@
       if (!conversationElement || (!force && !followConversation)) return;
       conversationElement.scrollTop = conversationElement.scrollHeight;
       followConversation = true;
+      updateVisibleRequest();
     });
+  }
+
+  function requestBoundaries() {
+    if (!conversationElement) return [];
+    return Array.from(conversationElement.querySelectorAll<HTMLElement>("[data-request-boundary]"));
+  }
+
+  function updateVisibleRequest() {
+    if (!conversationElement) return;
+    const boundaries = requestBoundaries();
+    if (boundaries.length === 0) {
+      visibleRequestIndex = 0;
+      return;
+    }
+    const viewportTop = conversationElement.getBoundingClientRect().top + 12;
+    let nextIndex = 0;
+    boundaries.forEach((boundary, index) => {
+      if (boundary.getBoundingClientRect().top <= viewportTop) nextIndex = index;
+    });
+    if (followConversation) nextIndex = boundaries.length - 1;
+    visibleRequestIndex = nextIndex;
+  }
+
+  function navigateToRequest(index: number) {
+    const boundaries = requestBoundaries();
+    if (boundaries.length === 0) return;
+    const targetIndex = Math.max(0, Math.min(index, boundaries.length - 1));
+    followConversation = false;
+    visibleRequestIndex = targetIndex;
+    boundaries[targetIndex].scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function jumpToLatest() {
+    generationMenuOpen = false;
+    scrollConversationToBottom(true);
   }
 
   function reconcileToastTimers(currentNotice: string, currentError: string, autoDismiss: boolean) {
@@ -432,6 +475,7 @@
     agentMenuOpen = false;
     modelMenuOpen = false;
     skillsOpen = false;
+    generationMenuOpen = false;
     slashOpen = false;
     atOpen = false;
   }
@@ -1076,6 +1120,20 @@
     return labels[phase];
   }
 
+  function threadActivity(currentSnapshot: AppSnapshot, thread: AppSnapshot["threads"][number]) {
+    if (!thread.active) return null;
+    if (currentSnapshot.runState === "awaiting_approval" || currentSnapshot.agentRun.phase === "approval") {
+      return { state: "approval", label: "Needs approval", icon: "circle-alert" };
+    }
+    if (currentSnapshot.runState === "failed" || currentSnapshot.agentRun.phase === "failed") {
+      return { state: "failed", label: "Failed", icon: "circle-alert" };
+    }
+    if (isBusy(currentSnapshot)) {
+      return { state: "running", label: runPhaseLabel(currentSnapshot.agentRun.phase), icon: "circle-dashed" };
+    }
+    return null;
+  }
+
   function visibleThreads(
     threads: AppSnapshot["threads"],
     queryValue: string,
@@ -1581,12 +1639,12 @@
   type TimelineMessage = AppSnapshot["messages"][number];
 
   type TimelineItem =
-    | { kind: "user"; message: TimelineMessage }
-    | { kind: "assistant"; message: TimelineMessage }
-    | { kind: "queued"; message: AppSnapshot["messageQueue"][number]; position: number }
-    | { kind: "tools"; runId?: string; turnIndex: number; tools: ToolRun[] }
-    | { kind: "activity"; label: string; phase: AgentRunPhase }
-    | { kind: "tasks" };
+    | { kind: "user"; message: TimelineMessage; requestIndex?: number }
+    | { kind: "assistant"; message: TimelineMessage; requestIndex?: number }
+    | { kind: "queued"; message: AppSnapshot["messageQueue"][number]; position: number; requestIndex?: number }
+    | { kind: "tools"; runId?: string; turnIndex: number; tools: ToolRun[]; requestIndex?: number }
+    | { kind: "activity"; label: string; phase: AgentRunPhase; requestIndex?: number }
+    | { kind: "tasks"; requestIndex?: number };
 
   function nextConversationTimelineSequence(currentSnapshot: AppSnapshot) {
     return Math.max(
@@ -1649,7 +1707,28 @@
     }
     currentSnapshot.messageQueue.forEach((message, index) => items.push({ kind: "queued", message, position: index + 1 }));
     if (currentSnapshot.tasks.length > 0) items.push({ kind: "tasks" });
-    return items;
+
+    const requestByRunId = new Map<string, number>();
+    let requestIndex = -1;
+    items.forEach((item) => {
+      if (item.kind !== "user") return;
+      requestIndex += 1;
+      if (item.message.runId) requestByRunId.set(item.message.runId, requestIndex);
+    });
+    requestIndex = -1;
+    return items.map((item) => {
+      if (item.kind === "user") requestIndex += 1;
+      const runId = item.kind === "user" || item.kind === "assistant"
+        ? item.message.runId
+        : item.kind === "tools"
+          ? item.runId
+          : undefined;
+      return { ...item, requestIndex: runId ? (requestByRunId.get(runId) ?? requestIndex) : Math.max(0, requestIndex) };
+    });
+  }
+
+  function conversationRequestCount(currentSnapshot: AppSnapshot, optimisticMessages: ChatMessage[]) {
+    return conversationTimeline(currentSnapshot, optimisticMessages).filter((item) => item.kind === "user").length;
   }
 </script>
 
@@ -1804,13 +1883,13 @@
             <div class="message-list">
               {#each conversationTimeline(snapshot, pendingUserMessages) as item (item.kind === "user" || item.kind === "assistant" || item.kind === "queued" ? item.message.id : item.kind === "tools" ? `tools-${item.runId ?? "legacy"}-${item.turnIndex}` : item.kind)}
                 {#if item.kind === "user"}
-                  <article class="user-message">
+                  <article class="user-message request-boundary" data-request-boundary data-request-index={item.requestIndex} data-run-id={item.message.runId}>
                     {#if showTimestamps}<time>{formatTime(item.message.createdAt)}</time>{/if}
                     <div class="user-message-content">{item.message.content}</div>
                   </article>
                 {:else if item.kind === "assistant"}
                   {#if item.message.content}
-                    <section class="assistant-turn">
+                    <section class="assistant-turn" data-request-index={item.requestIndex} data-run-id={item.message.runId}>
                       <div class="assistant-message">
                         <MarkdownMessage
                           content={item.message.content}
@@ -1837,7 +1916,7 @@
                 {:else if item.kind === "activity"}
                   <div class="generation-status {item.phase}" role="status" aria-live="polite" title={snapshot.agentRun.retryMessage ?? snapshot.agentRun.activeToolNames.join(", ")}><Icon name="circle-dashed" size={13} /><span>{item.label}</span></div>
                 {:else if item.kind === "tools"}
-                  <section class="agent-turn tools-turn">
+                  <section class="agent-turn tools-turn" data-request-index={item.requestIndex} data-run-id={item.runId}>
                     <header class="tool-pass-header">
                       <span class="tool-pass-title"><Icon name="wrench" size={12} /><strong>Agent tool pass</strong></span>
                       <span class="tool-pass-copy">
@@ -1966,6 +2045,35 @@
                 {/if}
               {/each}
             </div>
+          {/if}
+
+          {#if requestCount > 1 || !followConversation || isBusy(snapshot)}
+            <nav class="conversation-navigation" aria-label="Conversation navigation">
+              {#if isBusy(snapshot)}
+                <div class="generation-control">
+                  <button class="generation-button {snapshot.agentRun.phase}" aria-label="Generation status" aria-expanded={generationMenuOpen} onclick={() => generationMenuOpen = !generationMenuOpen}>
+                    <Icon name="circle-dashed" size={12} /><span>{runPhaseLabel(snapshot.agentRun.phase)}</span>
+                  </button>
+                  {#if generationMenuOpen}
+                    <div class="generation-menu">
+                      <header><Icon name="activity" size={13} /><span><strong>{runActivityLabel(snapshot)}</strong><small>{snapshot.agentRun.activeToolNames.join(", ") || "Preparing the next response"}</small></span></header>
+                      <button onclick={() => { sendCommand("cancelRun"); generationMenuOpen = false; }}><Icon name="square" size={11} />Stop generation</button>
+                      <button onclick={jumpToLatest}><Icon name="arrow-down" size={12} />Jump to latest</button>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+              {#if requestCount > 1}
+                <div class="request-navigation" role="group" aria-label="Request navigation">
+                  <button title="Previous request" aria-label="Previous request" disabled={visibleRequestIndex <= 0} onclick={() => navigateToRequest(visibleRequestIndex - 1)}><Icon name="chevron-up" size={13} /></button>
+                  <span aria-live="polite">{Math.min(requestCount, visibleRequestIndex + 1)} / {requestCount} requests</span>
+                  <button title="Next request" aria-label="Next request" disabled={visibleRequestIndex >= requestCount - 1} onclick={() => navigateToRequest(visibleRequestIndex + 1)}><Icon name="chevron-down" size={13} /></button>
+                </div>
+              {/if}
+              {#if !followConversation}
+                <button class="jump-latest" onclick={jumpToLatest}><Icon name="arrow-down" size={12} /><span>Jump to latest</span></button>
+              {/if}
+            </nav>
           {/if}
         </div>
 
@@ -2988,10 +3096,14 @@
         <label class="thread-search"><Icon name="search" size={13} /><input bind:value={threadSearch} placeholder="Search threads…" /></label>
         <div class="thread-list">
           {#each visibleThreads(snapshot?.threads ?? [], threadSearch, pendingThreadPins) as thread (thread.id)}
+            {@const activity = threadActivity(snapshot, thread)}
             <div class="thread-row" class:active={thread.active}>
               <button class="thread-select" onclick={() => selectThread(thread.id)}>
                 <span><strong>{thread.title}</strong><small>{formatTime(thread.updatedAt)}</small></span>
-                <i class="tag {thread.mode}">{modeLabel(thread.mode)}</i>
+                <span class="thread-indicators">
+                  {#if activity}<span class="thread-activity {activity.state}"><Icon name={activity.icon} size={10} />{activity.label}</span>{/if}
+                  <i class="tag {thread.mode}">{modeLabel(thread.mode)}</i>
+                </span>
               </button>
               <button class="icon-button compact" class:pinned={thread.pinned} title={pendingThreadPins[thread.id] !== undefined ? "Updating pin" : thread.pinned ? "Unpin thread" : "Pin thread"} disabled={pendingThreadPins[thread.id] !== undefined} onclick={() => toggleThreadPinned(thread.id, thread.pinned)}><Icon name="pin" size={12} /></button>
               <button class="icon-button compact delete-thread" title={pendingThreadDeletes.has(thread.id) ? "Deleting thread" : "Delete thread"} disabled={pendingThreadDeletes.has(thread.id)} onclick={() => deleteThread(thread.id)}><Icon name="trash-2" size={12} /></button>

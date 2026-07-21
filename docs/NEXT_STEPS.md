@@ -68,6 +68,24 @@ remote mutation is approval-gated.
 
 ## Completed Gates
 
+### Long-Conversation Product Alignment
+
+**Status:** implemented on 2026-07-22.
+
+Conversation items are grouped into request boundaries using the public
+`runId`, `turnIndex`, and timeline sequence fields. The tool window exposes
+previous/next request navigation, a current request count, and a jump-to-latest
+control that appears only while the reader is away from the bottom. Incoming
+tool, approval, queue, and response updates auto-follow only when the reader was
+already at the latest content. The Threads drawer derives running, approval,
+and failed indicators for the active thread, while the generation menu exposes
+the current tool batch, stop, and jump-to-latest actions.
+
+The Playwright suite covers a 12-request conversation, queued work, approval
+updates while reading history, request navigation, new-content scroll
+preservation, and responsive behavior at 360, 420, and 640 px. A canonical
+420 px visual reference records the long-conversation navigation state.
+
 ### Browser Product Alignment
 
 **Status:** implemented on 2026-07-22.
