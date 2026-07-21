@@ -98,18 +98,21 @@ function main() {
   run(process.execPath, ["scripts/bump-version.mjs", "--check"]);
 
   run("npm", ["run", "check", "--prefix", "frontend"]);
+  run("npm", ["run", "test:e2e", "--prefix", "frontend"]);
   run("npm", ["test", "--prefix", "sidecar"]);
   run("npm", ["test", "--prefix", "backend"]);
   run("npm", ["test", "--prefix", "vendor/context-engine"]);
   run("npm", ["run", "build", "--prefix", "vendor/context-engine"]);
+  run(process.execPath, ["scripts/evaluate-parity.mjs"]);
+  run(process.execPath, ["scripts/evaluate-retrieval.mjs"]);
   run("./gradlew", [
     "clean",
     "test",
     "buildPlugin",
     "verifyPluginStructure",
-    "verifyPlugin",
     "--stacktrace",
   ]);
+  run(process.execPath, ["scripts/verify-ides.mjs"]);
 
   const artifactPath = findArtifact(version);
   console.log("\nRelease build completed.");

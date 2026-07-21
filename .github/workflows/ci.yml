@@ -57,6 +57,24 @@ jobs:
         run: npm run check
         working-directory: frontend
 
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: Verify frontend product alignment
+        run: npm run test:e2e
+        working-directory: frontend
+
+      - name: Upload frontend alignment report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodeAgent-frontend-alignment
+          path: |
+            build/reports/playwright
+            build/test-results/playwright
+          if-no-files-found: error
+
       - name: Test sidecar
         run: npm test
         working-directory: sidecar
@@ -72,6 +90,28 @@ jobs:
       - name: Build ContextEngine
         run: npm run build
         working-directory: vendor/context-engine
+
+      - name: Evaluate prototype parity
+        run: node scripts/evaluate-parity.mjs
+
+      - name: Upload prototype parity report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodeAgent-prototype-parity
+          path: build/reports/prototype-parity.json
+          if-no-files-found: error
+
+      - name: Evaluate repository retrieval
+        run: node scripts/evaluate-retrieval.mjs
+
+      - name: Upload retrieval evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodeAgent-retrieval-evaluation
+          path: build/reports/context-retrieval.json
+          if-no-files-found: ignore
 
       - name: Audit production dependencies
         run: npm audit --omit=dev

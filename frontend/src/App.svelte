@@ -5,6 +5,7 @@
   import MarkdownMessage from "./lib/MarkdownMessage.svelte";
   import MermaidCanvas from "./lib/MermaidCanvas.svelte";
   import { ICON_NAMES } from "./lib/icons";
+  import settingsGroupsData from "./lib/settings-sections.json";
   import { MENTION_KINDS, SLASH_COMMANDS, TOOL_CATALOG } from "./lib/tools-catalog";
   import {
     PROTOCOL_VERSION,
@@ -28,45 +29,7 @@
 
   type SettingsItem = { id: string; label: string; icon: string; badge?: string };
   type SettingsGroup = { label: string; items: SettingsItem[] };
-  const settingsGroups: SettingsGroup[] = [
-    { label: "", items: [{ id: "Home", label: "Home", icon: "plugin-icon" }] },
-    {
-      label: "Integrations",
-      items: [
-        { id: "Services", label: "Services", icon: "plug" },
-        { id: "MCP Servers", label: "MCP Servers", icon: "mcp" },
-        { id: "ACP Agents", label: "ACP Agents", icon: "bot" },
-      ],
-    },
-    {
-      label: "Preferences",
-      items: [
-        { id: "Rules & Guidelines", label: "Rules & Guidelines", icon: "pencil-ruler" },
-        { id: "API Keys", label: "API Keys", icon: "key-round" },
-        { id: "Memories", label: "Memories", icon: "brain" },
-        { id: "Commands", label: "Commands", icon: "square-terminal", badge: "Beta" },
-        { id: "Skills", label: "Skills", icon: "wand-sparkles", badge: "Beta" },
-        { id: "Hooks", label: "Hooks", icon: "workflow" },
-        { id: "Agents", label: "Agents", icon: "bot", badge: "Beta" },
-        { id: "Plugins", label: "Plugins", icon: "layers" },
-      ],
-    },
-    {
-      label: "IDE & Workspace",
-      items: [
-        { id: "User Experience", label: "User Experience", icon: "sliders-horizontal" },
-        { id: "Feature Flags", label: "Feature Flags", icon: "flag" },
-        { id: "Beta", label: "Beta", icon: "flask-conical" },
-      ],
-    },
-    {
-      label: "Account",
-      items: [
-        { id: "Account", label: "Account", icon: "user-round" },
-        { id: "Subscription", label: "Subscription", icon: "credit-card" },
-      ],
-    },
-  ];
+  const settingsGroups: SettingsGroup[] = settingsGroupsData;
 
   const toolIcons: Record<string, string> = {
     codebase_retrieval: "augment-logo",

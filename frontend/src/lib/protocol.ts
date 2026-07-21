@@ -1,3 +1,5 @@
+/// <reference types="vite/client" />
+
 export const PROTOCOL_VERSION = 1;
 
 export type Mode = "agent" | "chat" | "ask";
@@ -516,6 +518,10 @@ declare global {
   interface Window {
     codeAgentPost?: (json: string) => void;
     CodeAgent?: { receive: (json: string) => void };
+    CodeAgentDevelopment?: {
+      getSnapshot: () => AppSnapshot | undefined;
+      setSnapshot: (snapshot: AppSnapshot) => void;
+    };
   }
 }
 
@@ -537,6 +543,16 @@ function updateDevelopmentSnapshot(update: (snapshot: AppSnapshot) => AppSnapsho
   if (!developmentSnapshot) return;
   developmentSnapshot = update(developmentSnapshot);
   emitDevelopmentSnapshot();
+}
+
+if (import.meta.env.DEV) {
+  window.CodeAgentDevelopment = {
+    getSnapshot: () => developmentSnapshot ? structuredClone(developmentSnapshot) : undefined,
+    setSnapshot: (snapshot) => {
+      developmentSnapshot = structuredClone(snapshot);
+      emitDevelopmentSnapshot();
+    },
+  };
 }
 
 function startDevelopmentIndex(): void {

@@ -19,7 +19,36 @@ val configuredVerifierIdePaths = providers.gradleProperty("codeagentVerifierIdeP
     ?.map(String::trim)
     ?.filter(String::isNotEmpty)
     .orEmpty()
-val localVerifierIdePaths = (configuredVerifierIdePaths + listOf("/Applications/PyCharm.app")).distinct()
+val supportedLocalIdeNames = setOf(
+    "PyCharm.app",
+    "WebStorm.app",
+    "CLion.app",
+    "GoLand.app",
+    "PhpStorm.app",
+    "Rider.app",
+)
+
+fun discoverLocalVerifierIdePaths(): List<String> {
+    val home = System.getProperty("user.home")
+    val roots = listOf(
+        file("/Applications"),
+        file("$home/Applications"),
+        file("$home/Library/Application Support/JetBrains/Toolbox/apps"),
+    )
+    return roots
+        .filter(File::isDirectory)
+        .flatMap { root ->
+            root.walkTopDown()
+                .maxDepth(8)
+                .filter { candidate -> candidate.isDirectory && candidate.name in supportedLocalIdeNames }
+                .map(File::getAbsolutePath)
+                .toList()
+        }
+}
+
+val localVerifierIdePaths = (
+    configuredVerifierIdePaths + discoverLocalVerifierIdePaths()
+).distinct()
 
 dependencies {
     implementation("io.grpc:grpc-netty-shaded:$grpcVersion")

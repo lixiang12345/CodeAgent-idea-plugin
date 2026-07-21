@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added Playwright product-alignment coverage with 360/420/640 px viewport checks and visual references for the Agent workspace, Threads, Agent Edits, Tasks, MCP Settings, and mutation approval.
+- Added a machine-readable prototype-parity contract and CI/release gate for IDEA registrations, Settings, tool catalogs, OpenAPI paths, bridge commands, and evidence ownership.
+- Added automatic local JetBrains IDE discovery and versioned Plugin Verifier evidence for release verification.
+- Added a repository-specific ContextEngine quality gate with versioned architecture, symbol, Git-history, and multi-root goldens; committed baseline comparison; query and incremental-index timing; and explicit no-model enforcement in CI and release verification.
 - Added a single next-steps and release-gates document for live GitHub acceptance, broader JetBrains verification, retrieval evaluation, and integration operations readiness.
 - Added GitHub pull-request workflow-run, job, step, temporary log-download, branch-protection, repository-ruleset, and merge-readiness reads; approval-gated Actions rerun/cancel controls; validated line-level review submission; and branch-policy gates before merge.
 - Added bounded GitHub pull-request commit, review, line-comment, and head-SHA Check Run reads; approval-gated PR creation, review submission, and reviewer requests; and a separately approved merge tool with live head-SHA race protection.

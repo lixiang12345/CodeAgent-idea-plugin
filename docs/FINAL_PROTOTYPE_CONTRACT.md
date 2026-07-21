@@ -43,7 +43,7 @@ Intentionally **not** productized as success paths: Augment sign-in cloud, Exten
 - Attach file/image
 - Skills popover
 - Context Canvas shortcut
-- Prompt enhancer control (visible; disabled until backend capability exists)
+- Prompt enhancer control (connected through the backend capability; explicit unavailable state when offline)
 - Auto-run toggle
 - Send / Queue / Stop
 - Message queue panel
@@ -60,8 +60,11 @@ Intentionally **not** productized as success paths: Augment sign-in cloud, Exten
 
 Home, Services, MCP Servers, Rules & Guidelines, API Keys, Commands, Skills, Hooks, Agents, Plugins, User Experience, Feature Flags, Beta, Account, Subscription, plus the settings-header System Audit action.
 
-Connected in plugin today: Home (partial), Services, API Keys (gateway token), Rules, Skills, Context index actions.  
-Others: visible shell + **Not connected** (no fake success).
+This document defines the stable UI requirement rather than tracking live
+implementation status. Current status is maintained exclusively in
+`docs/PROTOTYPE_PARITY.md` and `evaluation/parity-codeagent.json`. A section may
+remain visible while its provider is unconfigured, but it must render an
+explicit unavailable state and never claim success.
 
 ## Resource packing
 

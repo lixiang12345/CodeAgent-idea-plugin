@@ -2,6 +2,14 @@
 
 `prototypes/augment-v9-tools-native.html` is the product acceptance baseline. Earlier prototypes and the extracted `0.482.3` plugin are supporting evidence only. CodeAgent keeps its own name, deployment configuration, and security policy, but reproduces the prototype's page structure, icon vocabulary, information density, states, and workflows.
 
+This document is the only human-readable source of current implementation
+status. Its machine-readable companion is `evaluation/parity-codeagent.json`;
+`node scripts/evaluate-parity.mjs` checks stable structural contracts and writes
+`build/reports/prototype-parity.json`. The structural gate does not replace the
+native IDE smoke, Plugin Verifier, or live provider acceptance evidence. The
+browser-level 360/420/640 px references live under
+`frontend/e2e/__screenshots__` and run through `npm run test:e2e --prefix frontend`.
+
 ## Deployment boundary
 
 ```mermaid
@@ -63,7 +71,7 @@ This table is the release gate. `Partial` means the visible surface exists but a
 
 ## Native parity and intentional architecture differences
 
-The current plugin registers the original action and extension surface that is meaningful in this product boundary: **33 IDEA Actions** and **26 IntelliJ extension/listener registrations**, including the standalone settings sections, sign-in/sign-out, account management, log export, cloud conversation recovery, sync report, BYOK actions, FileBasedIndex, inline-completion element manipulation, OAuth/MCP callback handlers, lifecycle listeners, and error/performance/client telemetry services.
+The current plugin registers the original action and extension surface that is meaningful in this product boundary: **33 IDEA Actions**, **26 IntelliJ extensions**, and **4 application/project listeners**, including the standalone settings sections, sign-in/sign-out, account management, log export, cloud conversation recovery, sync report, BYOK actions, FileBasedIndex, inline-completion element manipulation, OAuth/MCP callback handlers, lifecycle listeners, and error/performance/client telemetry services.
 
 ACP is implemented through the official `@agentclientprotocol/sdk` v1 runtime in the sidecar, with agent discovery, capability negotiation, `session/new`, `session/load`, prompt/update/cancel handling, persisted session state, and explicit permission denial as the default safety boundary.
 

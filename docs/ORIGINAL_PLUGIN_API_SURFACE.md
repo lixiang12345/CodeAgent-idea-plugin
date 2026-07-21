@@ -316,14 +316,14 @@ Extracted action-type strings from `Store-*.js` (subset of product domains).
 | History load/save/delete cloud | request/response pairs | **Implemented** with account-isolated backend persistence, local-first debounced synchronization, optimistic-version conflict resolution, deletion tombstones, explicit recovery, and Markdown import/export |
 | gRPC intake/allowlist | 2 clients | **Replaced by the typed HTTP/SSE backend contract and JVM bridge; proprietary binary services are intentionally not bundled** |
 
-### CodeAgent implemented count (for contrast)
+### Current CodeAgent surface evidence
 
-| Channel | Count |
-| --- | --- |
-| Backend HTTP | **5** (`/health`, `/v1/models`, `/v1/runs`, tool-results, cancel) + optional `/docs` `/openapi.json` |
-| Bridge commands | **~50** |
-| Bridge events | **~8** primary types |
-| Local tools | **~15** |
+Live CodeAgent counts do not belong in this historical inventory. The current
+action, extension, listener, Settings, tool-catalog, bridge-command, and OpenAPI
+contracts are versioned in `evaluation/parity-codeagent.json` and checked by
+`scripts/evaluate-parity.mjs`. See `docs/API_INTERFACE_CATALOG.md` for the
+current interface descriptions and `docs/PROTOTYPE_PARITY.md` for release
+status.
 
 ---
 

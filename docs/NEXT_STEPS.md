@@ -1,9 +1,10 @@
 # Next Steps and Release Gates
 
 This document is the single backlog for work that is still required after the
-GitHub pull-request workflow release. It does not relabel implemented
-surfaces as pending, and it does not treat configuration-dependent integrations
-as connected before credentials and live acceptance evidence exist.
+GitHub pull-request workflow release, followed by completed release-gate
+evidence. It does not relabel implemented surfaces as pending, and it does not
+treat configuration-dependent integrations as connected before credentials and
+live acceptance evidence exist.
 
 ## Priority 0: Live GitHub Acceptance
 
@@ -48,18 +49,11 @@ stream an Agent run, approve a local edit, inspect a Diff, use inline
 completion, open Settings, and recover a persisted conversation. Resolve API
 or layout incompatibilities before listing that product as verified.
 
-## Priority 2: Repository-Specific Retrieval Evaluation
-
-**Status:** ready.
-
-Create a small, versioned golden-query suite for this repository. Track path
-accuracy, MRR, recall, latency, and incremental-index timing for architecture,
-symbol, Git-history, and multi-root queries. A release should compare its
-results against the previous baseline and explain meaningful regressions.
-
-This is an evaluation and quality gate. It must not introduce a hidden local
-embedding or reranker model; semantic retrieval remains opt-in and
-operator-hosted.
+Run `node scripts/verify-ides.mjs` after installing an additional product. The
+runner discovers standard macOS and JetBrains Toolbox installations and writes
+the exact product build and Plugin Verifier report path to
+`build/reports/jetbrains-verifier.json`. This automates compatibility evidence;
+the interactive smoke workflow remains a separate required acceptance step.
 
 ## Priority 3: Integration Operations Readiness
 
@@ -71,6 +65,47 @@ model providers, maintain one isolated test configuration per provider. Verify
 that missing credentials remain explicit, successful operations are correctly
 reported, failures preserve provider status without leaking secrets, and every
 remote mutation is approval-gated.
+
+## Completed Gates
+
+### Browser Product Alignment
+
+**Status:** implemented on 2026-07-22.
+
+The Playwright suite runs the deterministic frontend host at 360, 420, and 640
+px. It checks viewport integrity and committed visual references for the main
+Agent workspace, Threads, Agent Edits, Tasks, MCP Settings, and explicit
+mutation approval. CI and release verification upload the HTML report, failure
+screenshots, video, and trace. The suite is informed by the locally supplied
+Augment 0.482.3 UI source-map inventory but contains only CodeAgent-owned tests
+and fixtures. Native smoke in each additional IDE remains required above.
+
+### Machine-Readable Prototype Parity
+
+**Status:** implemented on 2026-07-22.
+
+`evaluation/parity-codeagent.json` is the versioned companion to the canonical
+implementation table in `docs/PROTOTYPE_PARITY.md`. The evaluator checks IDEA
+registrations, Settings sections, tool catalogs, OpenAPI paths, bridge-command
+coverage, surface evidence, and document ownership, then writes
+`build/reports/prototype-parity.json`. CI and release verification upload the
+report. This structural gate does not replace the outstanding visual smoke or
+live acceptance work above.
+
+### Repository-Specific Retrieval Evaluation
+
+**Status:** implemented on 2026-07-21.
+
+The versioned `evaluation/context-codeagent.json` suite covers architecture,
+symbol, Git-history, and multi-root queries. `scripts/evaluate-retrieval.mjs`
+tracks Top-1 path accuracy, MRR, Recall@K, symbol hits, query latency, full
+indexing, no-change indexing, and a one-file incremental add/remove cycle. CI,
+release verification, and the local release builder compare every run with the
+committed baseline and fail on configured quality or latency regressions.
+
+The runner creates a fresh temporary index and explicitly disables embeddings
+and neural reranking. See `docs/RETRIEVAL_EVALUATION.md` for the baseline review
+and regression-explanation procedure.
 
 ## Explicit Non-Goals
 

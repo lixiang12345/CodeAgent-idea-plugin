@@ -2,7 +2,7 @@
 
 CodeAgent is an IDE-native AI coding agent for IntelliJ IDEA and other JetBrains IDEs. It combines a separately deployed Agent backend with the open [ContextEngine](https://github.com/lixiang12345/ContextEngine-plugin) retrieval component running locally beside the IDE.
 
-The IDEA plugin is a capability gateway: it owns project access, ContextEngine, approvals, editor actions, terminal execution, and Diff/revert. The deployable backend in `backend/` owns prompts, model credentials, streamed model calls, and tool-call orchestration. See the [prototype parity contract](docs/PROTOTYPE_PARITY.md), [next steps and release gates](docs/NEXT_STEPS.md), [product definition](docs/PRODUCT.md), [Rules and Skills guide](docs/RULES_AND_SKILLS.md), [prompt architecture](docs/PROMPT_ARCHITECTURE.md), [declarative plugins guide](docs/PLUGINS.md), [ContextEngine deployment guide](docs/CONTEXT_ENGINE.md), [provider and data flow](docs/PROVIDER_AND_DATA_FLOW.md), and [architecture analysis](docs/ARCHITECTURE.md).
+The IDEA plugin is a capability gateway: it owns project access, ContextEngine, approvals, editor actions, terminal execution, and Diff/revert. The deployable backend in `backend/` owns prompts, model credentials, streamed model calls, and tool-call orchestration. See the [prototype parity contract](docs/PROTOTYPE_PARITY.md), [parity evaluation guide](docs/PROTOTYPE_PARITY_EVALUATION.md), [next steps and release gates](docs/NEXT_STEPS.md), [product definition](docs/PRODUCT.md), [Rules and Skills guide](docs/RULES_AND_SKILLS.md), [prompt architecture](docs/PROMPT_ARCHITECTURE.md), [declarative plugins guide](docs/PLUGINS.md), [ContextEngine deployment guide](docs/CONTEXT_ENGINE.md), [retrieval evaluation guide](docs/RETRIEVAL_EVALUATION.md), [provider and data flow](docs/PROVIDER_AND_DATA_FLOW.md), and [architecture analysis](docs/ARCHITECTURE.md).
 
 ## Run the backend
 
@@ -74,17 +74,55 @@ CodeAgent plugins are bounded declarative JSON manifests, not executable IDEA pl
 
 ```bash
 cd frontend && npm run check && cd ..
+cd frontend && npx playwright install chromium && npm run test:e2e && cd ..
 cd sidecar && npm test && cd ..
 cd backend && npm test && cd ..
 cd vendor/context-engine && npm test && npm run build && cd ../..
+node scripts/evaluate-parity.mjs
+node scripts/evaluate-retrieval.mjs
 ./gradlew test buildPlugin verifyPlugin
 ```
 
-The verifier always checks the targeted IntelliJ IDEA Community platform. On macOS it also adds an installed `/Applications/PyCharm.app`; additional local products can be supplied as a comma- or semicolon-separated Gradle property:
+The parity command compares the versioned surface contract with the IDEA
+plugin registrations, Settings navigation, tool catalogs, OpenAPI, bridge
+commands, and evidence files. It writes
+`build/reports/prototype-parity.json`; see the
+[parity evaluation guide](docs/PROTOTYPE_PARITY_EVALUATION.md) before changing
+expected values.
+
+The Playwright suite runs the deterministic browser development host at 360,
+420, and 640 px widths. It compares committed screenshots for the main Agent
+workspace, Threads, Agent Edits, Tasks, MCP Settings, and mutation approval;
+it also fails on global viewport overflow. HTML and failure artifacts are
+written under `build/reports/playwright` and `build/test-results/playwright`.
+
+The retrieval command compares the repository-specific golden-query suite with
+the committed baseline and writes a detailed report to
+`build/reports/context-retrieval.json`. See the
+[retrieval evaluation guide](docs/RETRIEVAL_EVALUATION.md) before intentionally
+updating that baseline.
+
+The verifier always checks the targeted IntelliJ IDEA Community platform. On
+macOS it also discovers installed PyCharm, WebStorm, CLion, GoLand, PhpStorm,
+and Rider applications in standard system, user, and JetBrains Toolbox
+locations. Additional local products can be supplied as a comma- or
+semicolon-separated Gradle property:
 
 ```bash
 ./gradlew verifyPlugin -PcodeagentVerifierIdePaths="/Applications/WebStorm.app,/Applications/CLion.app"
 ```
+
+To discover supported local JetBrains products and record each product's build
+number and verifier report path, run:
+
+```bash
+node scripts/verify-ides.mjs
+```
+
+The script scans standard macOS and JetBrains Toolbox locations, accepts an
+optional `CODEAGENT_VERIFIER_IDE_PATHS` override, and writes evidence to
+`build/reports/jetbrains-verifier.json`. A missing local product is reported as
+undiscovered; it is never represented as a passing verification result.
 
 The first Gradle verification run downloads the target IntelliJ IDEA distribution and Plugin Verifier, so it is substantially slower than subsequent runs. Verification output is authoritative only for the products listed by `./gradlew verifyPlugin --list-ides`.
 

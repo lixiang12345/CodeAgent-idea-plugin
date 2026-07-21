@@ -48,6 +48,10 @@ jobs:
           npm ci --prefix backend
           npm ci --prefix vendor/context-engine
 
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
       - name: Validate release tag
         env:
           REF_NAME: ${{ github.ref_name }}
@@ -59,11 +63,40 @@ jobs:
       - name: Verify release
         run: |
           npm run check --prefix frontend
+          npm run test:e2e --prefix frontend
           npm test --prefix sidecar
           npm test --prefix backend
           npm test --prefix vendor/context-engine
           npm run build --prefix vendor/context-engine
+          node scripts/evaluate-parity.mjs
+          node scripts/evaluate-retrieval.mjs
           ./gradlew test buildPlugin verifyPlugin --stacktrace
+
+      - name: Upload frontend alignment report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodeAgent-frontend-alignment-${{ github.ref_name }}
+          path: |
+            build/reports/playwright
+            build/test-results/playwright
+          if-no-files-found: error
+
+      - name: Upload prototype parity report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodeAgent-prototype-parity-${{ github.ref_name }}
+          path: build/reports/prototype-parity.json
+          if-no-files-found: error
+
+      - name: Upload retrieval evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodeAgent-retrieval-evaluation-${{ github.ref_name }}
+          path: build/reports/context-retrieval.json
+          if-no-files-found: ignore
 
       - name: Publish signed plugin
         env:

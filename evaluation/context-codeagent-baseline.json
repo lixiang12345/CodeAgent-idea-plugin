@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "suite": "codeagent-repository-retrieval",
+  "suiteDigest": "b59a50b86a7fbb04d9debab7ed20c873ebf427f01054c908360850188c41c236",
+  "recordedAt": "2026-07-21T15:25:20.010Z",
+  "sourceRevision": "ac223ebea1cdfa59e5b544dbf840b5f51f1fe31a",
+  "engineRevision": "b65655817bab1928663bae727d51e200d353918e",
+  "metrics": {
+    "pathAccuracy": 0.875,
+    "meanRecallAtK": 1,
+    "meanMrr": 0.922,
+    "symbolAccuracy": 1,
+    "meanLatencyMs": 8.925,
+    "p95LatencyMs": 29.961,
+    "fullIndexMs": 732.216,
+    "incrementalNoChangeMs": 92,
+    "incrementalOneFileMs": 103
+  }
+}
