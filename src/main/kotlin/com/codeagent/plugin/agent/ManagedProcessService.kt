@@ -21,10 +21,12 @@ internal data class ManagedProcessSnapshot(
     val id: String,
     val name: String,
     val command: String,
+    val workingDirectory: String,
     val pid: Long,
     val startedAt: Instant,
     val state: String,
     val exitCode: Int?,
+    val waitingForInput: Boolean,
     val outputStartOffset: Long,
     val outputEndOffset: Long,
 )
@@ -40,16 +42,18 @@ internal class ManagedProcessRegistry(
     private val root: Path,
     private val executor: Executor = AppExecutorUtil.getAppExecutorService(),
     private val maxOutputChars: Int = DEFAULT_MAX_OUTPUT_CHARS,
+    private val inputPromptIdleMillis: Long = INPUT_PROMPT_IDLE_MILLIS,
 ) : AutoCloseable {
     private val processes = ConcurrentHashMap<String, ManagedProcessEntry>()
     private val sequence = AtomicLong()
     private val lifecycleLock = Any()
 
-    fun launch(command: String, name: String? = null): ManagedProcessSnapshot {
+    fun launch(command: String, name: String? = null, cwd: String? = null): ManagedProcessSnapshot {
         val normalizedCommand = command.trim()
         require(normalizedCommand.isNotEmpty()) { "command is required" }
         require(normalizedCommand.length <= MAX_COMMAND_CHARS) { "command exceeds $MAX_COMMAND_CHARS characters" }
         require(Files.isDirectory(root)) { "Project root is unavailable" }
+        val workingDirectory = resolveWorkingDirectory(cwd)
         val entry = synchronized(lifecycleLock) {
             cleanupCompletedLocked()
             require(processes.values.count { it.process.isAlive } < MAX_RUNNING_PROCESSES) {
@@ -59,10 +63,18 @@ internal class ManagedProcessRegistry(
             val id = "process-${sequence.incrementAndGet()}"
             val label = name?.trim()?.takeIf(String::isNotEmpty)?.take(MAX_NAME_CHARS) ?: id
             val process = ProcessBuilder(shellCommand(normalizedCommand))
-                .directory(root.toFile())
+                .directory(workingDirectory.toFile())
                 .redirectErrorStream(true)
                 .start()
-            ManagedProcessEntry(id, label, normalizedCommand, process, maxOutputChars).also {
+            ManagedProcessEntry(
+                id,
+                label,
+                normalizedCommand,
+                workingDirectory,
+                process,
+                maxOutputChars,
+                inputPromptIdleMillis,
+            ).also {
                 processes[id] = it
             }
         }
@@ -83,6 +95,7 @@ internal class ManagedProcessRegistry(
         require(entry.process.isAlive) { "Managed process '$id' is not running" }
         val payload = if (appendNewline) "$input\n" else input
         synchronized(entry.writeLock) {
+            entry.resetWaitingForInput()
             entry.process.outputStream.write(payload.toByteArray(StandardCharsets.UTF_8))
             entry.process.outputStream.flush()
         }
@@ -91,8 +104,10 @@ internal class ManagedProcessRegistry(
 
     fun waitFor(id: String, timeoutSeconds: Int): ManagedProcessSnapshot {
         val entry = entry(id)
-        if (entry.process.isAlive) {
-            entry.process.waitFor(timeoutSeconds.coerceIn(1, MAX_WAIT_SECONDS).toLong(), TimeUnit.SECONDS)
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds.coerceIn(1, MAX_WAIT_SECONDS).toLong())
+        while (entry.process.isAlive && !entry.checkForInputPrompt() && System.nanoTime() < deadline) {
+            val remainingMillis = TimeUnit.NANOSECONDS.toMillis((deadline - System.nanoTime()).coerceAtLeast(0))
+            entry.process.waitFor(remainingMillis.coerceIn(1, PROCESS_WAIT_POLL_MILLIS), TimeUnit.MILLISECONDS)
         }
         if (!entry.process.isAlive) entry.awaitOutput()
         return entry.snapshot()
@@ -126,6 +141,18 @@ internal class ManagedProcessRegistry(
 
     private fun entry(id: String): ManagedProcessEntry =
         processes[id.trim()] ?: error("Unknown managed process: $id")
+
+    private fun resolveWorkingDirectory(cwd: String?): Path {
+        val projectRoot = root.toRealPath()
+        val requested = cwd?.trim()?.takeIf(String::isNotEmpty) ?: return projectRoot
+        require(requested.length <= MAX_CWD_CHARS) { "cwd exceeds $MAX_CWD_CHARS characters" }
+        val requestedPath = Path.of(requested)
+        val candidate = (if (requestedPath.isAbsolute) requestedPath else projectRoot.resolve(requestedPath)).normalize()
+        require(Files.isDirectory(candidate)) { "Working directory does not exist: $requested" }
+        val real = candidate.toRealPath()
+        require(real == projectRoot || real.startsWith(projectRoot)) { "Working directory must stay inside the project" }
+        return real
+    }
 
     private fun cleanupCompletedLocked() {
         if (processes.size < MAX_RETAINED_PROCESSES) return
@@ -179,8 +206,10 @@ internal class ManagedProcessRegistry(
         val id: String,
         val name: String,
         val command: String,
+        val workingDirectory: Path,
         val process: Process,
         private val maxOutputChars: Int,
+        private val inputPromptIdleMillis: Long,
     ) {
         val startedAt: Instant = Instant.now()
         val killRequested = AtomicBoolean(false)
@@ -188,6 +217,8 @@ internal class ManagedProcessRegistry(
         private val outputLock = Any()
         private val outputComplete = CountDownLatch(1)
         private val output = StringBuilder()
+        private val lastOutputTimeMillis = AtomicLong(System.currentTimeMillis())
+        private val waitingForInput = AtomicBoolean(false)
         private var outputStartOffset = 0L
 
         fun captureOutput() {
@@ -199,6 +230,8 @@ internal class ManagedProcessRegistry(
                         if (count < 0) break
                         synchronized(outputLock) {
                             output.append(buffer, 0, count)
+                            lastOutputTimeMillis.set(System.currentTimeMillis())
+                            waitingForInput.set(false)
                             val overflow = output.length - maxOutputChars
                             if (overflow > 0) {
                                 output.delete(0, overflow)
@@ -222,6 +255,19 @@ internal class ManagedProcessRegistry(
             runCatching { process.errorStream.close() }
         }
 
+        fun resetWaitingForInput() {
+            waitingForInput.set(false)
+            lastOutputTimeMillis.set(System.currentTimeMillis())
+        }
+
+        fun checkForInputPrompt(): Boolean {
+            if (!process.isAlive) return false
+            if (waitingForInput.get()) return true
+            if (System.currentTimeMillis() - lastOutputTimeMillis.get() < inputPromptIdleMillis) return false
+            val tail = synchronized(outputLock) { output.takeLast(MAX_PROMPT_TAIL_CHARS).toString() }
+            return outputEndsWithPrompt(tail).also { waitingForInput.set(it) }
+        }
+
         fun snapshot(): ManagedProcessSnapshot {
             val running = process.isAlive
             val exitCode = if (running) null else runCatching(process::exitValue).getOrNull()
@@ -236,10 +282,12 @@ internal class ManagedProcessRegistry(
                 id = id,
                 name = name,
                 command = command,
+                workingDirectory = workingDirectory.toString(),
                 pid = process.pid(),
                 startedAt = startedAt,
                 state = state,
                 exitCode = exitCode,
+                waitingForInput = checkForInputPrompt(),
                 outputStartOffset = offsets.first,
                 outputEndOffset = offsets.second,
             )
@@ -261,6 +309,7 @@ internal class ManagedProcessRegistry(
 
     companion object {
         private const val MAX_COMMAND_CHARS = 20_000
+        private const val MAX_CWD_CHARS = 2_000
         private const val MAX_NAME_CHARS = 120
         private const val MAX_INPUT_CHARS = 20_000
         private const val MAX_RUNNING_PROCESSES = 16
@@ -273,14 +322,30 @@ internal class ManagedProcessRegistry(
         private const val FORCED_KILL_SECONDS = 2L
         private const val OUTPUT_DRAIN_SECONDS = 2L
         private const val PROCESS_POLL_MILLIS = 25L
+        private const val PROCESS_WAIT_POLL_MILLIS = 100L
+        private const val INPUT_PROMPT_IDLE_MILLIS = 3_000L
+        private const val MAX_PROMPT_TAIL_CHARS = 4_096
     }
 }
+
+internal fun outputEndsWithPrompt(output: String): Boolean {
+    if (output.isEmpty() || output.endsWith('\n') || output.endsWith('\r')) return false
+    val line = output.substringAfterLast('\n').substringAfterLast('\r').trim()
+    if (line.length !in 2..80 || (!line.endsWith(':') && !line.endsWith('?'))) return false
+    return NON_PROMPT_PATTERNS.none { it.containsMatchIn(line) }
+}
+
+private val NON_PROMPT_PATTERNS = listOf(
+    Regex("[0-9]+%"),
+    Regex("[0-9]+/[0-9]+"),
+    Regex("://[^\\s'\"]*$"),
+)
 
 @Service(Service.Level.PROJECT)
 class ManagedProcessService(project: Project) : Disposable {
     private val registry = ManagedProcessRegistry(Path.of(requireNotNull(project.basePath)).toAbsolutePath().normalize())
 
-    internal fun launch(command: String, name: String?): ManagedProcessSnapshot = registry.launch(command, name)
+    internal fun launch(command: String, name: String?, cwd: String?): ManagedProcessSnapshot = registry.launch(command, name, cwd)
 
     internal fun list(): List<ManagedProcessSnapshot> = registry.list()
 

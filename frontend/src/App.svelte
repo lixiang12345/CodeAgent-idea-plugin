@@ -1515,6 +1515,7 @@
   }
 
   function managedProcessState(tool: ToolRun) {
+    if (/^waiting_for_input=true$/m.test(tool.detail ?? "")) return "waiting for input";
     return tool.detail?.match(/^state=(.*)$/m)?.[1] ?? statusLabel(tool.status);
   }
 

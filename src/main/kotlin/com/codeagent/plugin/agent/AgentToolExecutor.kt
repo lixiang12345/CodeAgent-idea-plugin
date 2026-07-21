@@ -204,6 +204,9 @@ internal class AgentToolExecutor(
                 properties = mapOf(
                     "command" to stringProperty("Shell command to start"),
                     "name" to stringProperty("Optional short process label"),
+                    "cwd" to stringProperty("Optional project-relative working directory; paths outside the project are rejected"),
+                    "wait" to booleanProperty("Wait for completion or an interactive input prompt before returning; defaults to false"),
+                    "max_wait_seconds" to integerProperty("Maximum launch wait in seconds", 1, 60),
                 ),
                 required = listOf("command"),
             )))
@@ -229,6 +232,8 @@ internal class AgentToolExecutor(
                 "process_id" to stringProperty("Managed process ID returned by launch_process"),
                 "offset" to integerProperty("Absolute output offset to start reading", 0, 1_000_000_000),
                 "max_chars" to integerProperty("Maximum output characters", 1, 40_000),
+                "wait" to booleanProperty("Wait for completion or an interactive input prompt before reading; defaults to false"),
+                "max_wait_seconds" to integerProperty("Maximum read wait in seconds", 1, 60),
             ),
             required = listOf("process_id"),
         )))
@@ -572,8 +577,20 @@ internal class AgentToolExecutor(
     }
 
     private fun launchProcess(args: JsonObject): ToolExecutionResult {
-        val process = managedProcesses.launch(args.requiredString("command"), args.string("name"))
-        val output = formatProcess(process)
+        var process = managedProcesses.launch(args.requiredString("command"), args.string("name"), args.string("cwd"))
+        val wait = args["wait"]?.jsonPrimitive?.booleanOrNull ?: false
+        if (wait) {
+            process = managedProcesses.waitFor(
+                process.id,
+                args["max_wait_seconds"]?.jsonPrimitive?.intOrNull ?: 30,
+            )
+        }
+        val output = if (wait) {
+            val read = managedProcesses.read(process.id, process.outputStartOffset, 20_000)
+            formatProcess(read.process) + "\nnext_offset=${read.nextOffset}\n\n" + read.output.ifEmpty { "No output" }
+        } else {
+            formatProcess(process)
+        }
         return ToolExecutionResult(output, "Launched ${process.name} (${process.id})", output)
     }
 
@@ -586,6 +603,9 @@ internal class AgentToolExecutor(
 
     private fun readProcess(args: JsonObject): ToolExecutionResult {
         val id = args.requiredString("process_id")
+        if (args["wait"]?.jsonPrimitive?.booleanOrNull == true) {
+            managedProcesses.waitFor(id, args["max_wait_seconds"]?.jsonPrimitive?.intOrNull ?: 30)
+        }
         val offset = args["offset"]?.jsonPrimitive?.intOrNull?.toLong() ?: 0L
         val maxChars = args["max_chars"]?.jsonPrimitive?.intOrNull ?: 20_000
         val read = managedProcesses.read(id, offset, maxChars)
@@ -632,6 +652,8 @@ internal class AgentToolExecutor(
         append("state=${process.state}\n")
         append("pid=${process.pid}\n")
         append("started_at=${process.startedAt}\n")
+        append("working_directory=${process.workingDirectory}\n")
+        append("waiting_for_input=${process.waitingForInput}\n")
         process.exitCode?.let { append("exit=$it\n") }
         append("output_offsets=${process.outputStartOffset}-${process.outputEndOffset}\n")
         append("command=${process.command}")

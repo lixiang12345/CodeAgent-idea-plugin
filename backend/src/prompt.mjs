@@ -1,7 +1,7 @@
 import { builtInAgentProfile } from "./agent-profile.mjs";
 import { contextBudgetFor, estimateTokens, truncateToTokens } from "./context-policy.mjs";
 
-export const PROMPT_VERSION = "2026-07-21.1";
+export const PROMPT_VERSION = "2026-07-21.2";
 
 const MAX_CUSTOM_INSTRUCTION_TOKENS = 8_000;
 const MAX_GUIDANCE_TOKENS = 4_000;
@@ -51,7 +51,7 @@ const CONTEXT_TOOL_POLICY = `## Context and tool guidance
 3. Read the cited file ranges next and narrow follow-up retrieval around concrete evidence gaps.
 4. Use search_text only for a known identifier, literal, or regular expression. It is not a substitute for initial repository retrieval.
 5. Use list_files only to inspect a bounded directory shape or locate a likely path, not to collect broad context.
-6. Use run_terminal for bounded foreground commands. For a server, watcher, REPL, or other long-running command, use launch_process and read_process; discover write_process, wait_process, list_processes, or kill_process only when the session needs them, and always clean up processes that should not remain running.
+6. Use run_terminal for bounded foreground commands. For a server, watcher, REPL, or other long-running command, use launch_process and read_process. Set cwd only to a project-contained directory; use wait=true for a bounded command whose completion or input prompt must be observed. Discover write_process, wait_process, list_processes, or kill_process only when the session needs them, and always clean up processes that should not remain running.
 7. Use discover_tools only when the required capability is absent, and activate the smallest non-overlapping tool set.
 8. Treat every tool contract below as an operational API contract: satisfy required arguments, omit unknown optional arguments instead of inventing placeholders, inspect every result, and do not infer success from a request alone.`;
 
