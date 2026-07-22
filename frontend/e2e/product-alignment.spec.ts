@@ -55,6 +55,102 @@ test("main Agent workspace stays dense and bounded", async ({ page }) => {
   await captureShell(page, "main-agent-workspace.png");
 });
 
+test("Context Window Usage exposes live telemetry in a bounded modal", async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      agentRun: {
+        ...snapshot.agentRun,
+        estimatedInputTokens: 48_000,
+        toolDefinitionTokens: 16_000,
+        contextWindowTokens: 128_000,
+        targetInputTokens: 86_400,
+        reservedOutputTokens: 8_000,
+        retrievalBudgetTokens: 12_000,
+        compactedToolResults: 3,
+        truncatedMessages: 6,
+        activeToolCount: 2,
+        discoverableToolCount: 11,
+        catalogToolCount: 12,
+      },
+    });
+  });
+
+  const contextButton = page.getByRole("button", { name: "Context Window Usage", exact: true });
+  await expect(contextButton).toBeVisible();
+  await expect(contextButton).toHaveAttribute("data-usage-percent", "50");
+  await expect(contextButton).toHaveAttribute("title", "Context Window Usage · 64.0k / 128.0k tokens");
+  await expect(contextButton.locator(".context-usage-ring-fill.warning")).toHaveCount(1);
+  await contextButton.click();
+
+  const dialog = page.getByRole("dialog", { name: "Context Window Usage" });
+  await expect(dialog).toBeVisible();
+  const closeButton = page.getByRole("button", { name: "Close", exact: true });
+  await expect(closeButton).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(dialog.locator(".context-usage-section-header").last()).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(closeButton).toBeFocused();
+  await expect(dialog.getByText("64.0k / 128.0k tokens", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Input / History Estimate", { exact: true }).first()).toBeVisible();
+  await expect(dialog.getByText("Built-in Tools", { exact: true }).first()).toBeVisible();
+  await expect(dialog.getByText("102.4k tokens", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("8.0k tokens", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("12.0k tokens", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Compacted tool results", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Truncated messages", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "Show Built-in Tools details", exact: true }).click();
+  await expect(dialog.getByText("Tools ready", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Discoverable tools", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Catalog tools", { exact: true })).toBeVisible();
+  await expectViewportIntegrity(page);
+  if (testInfo.project.name === "tool-window-420") await captureShell(page, "context-window-usage.png");
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(contextButton).toBeFocused();
+
+  const composer = page.getByPlaceholder("Type a message or command...");
+  const messageCount = await page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messages.length);
+  await composer.fill("Do not submit behind the context modal");
+  await contextButton.click();
+  await page.keyboard.press("Control+Enter");
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messages.length)).toBe(messageCount);
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.runState)).toBe("idle");
+  await page.keyboard.press("Escape");
+  await composer.fill("");
+
+  await contextButton.click();
+  await closeButton.click();
+  await expect(dialog).toBeHidden();
+
+  await contextButton.click();
+  await page.getByRole("button", { name: "Close context usage", exact: true }).click({ position: { x: 2, y: 2 } });
+  await expect(dialog).toBeHidden();
+
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      agentRun: {
+        ...snapshot.agentRun,
+        estimatedInputTokens: 0,
+        toolDefinitionTokens: 0,
+        contextWindowTokens: 0,
+      },
+    });
+  });
+  await expect(contextButton.locator(".context-usage-ring-fill")).toHaveCount(0);
+  await contextButton.click();
+  await expect(dialog.getByText("No context usage data available. Send a message to see context usage.", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expectViewportIntegrity(page);
+});
+
 test("messages can be edited, rewound, and resent while the composer adapts", async ({ page }, testInfo) => {
   await page.evaluate(() => {
     const snapshot = window.CodeAgentDevelopment?.getSnapshot();

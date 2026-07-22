@@ -100,8 +100,6 @@ button { color: inherit; }
 .chip.green { color: var(--ds-color-green-11); border-color: rgba(48,164,108,.35); background: #499c5418; }
 @keyframes status-spin { to { transform: rotate(360deg); } }
 .chip.accent { color: var(--ds-color-accent-11); border-color: rgba(59,130,246,.35); background: rgba(59,130,246,.12); }
-.context-meter { height: 22px; padding: 0 5px; border: 0; background: transparent; color: var(--dim); font-size: 10px; cursor: default; display: inline-flex; align-items: center; gap: 3px; }
-.context-meter b { color: #75c78d; font-weight: 500; }
 .repository-strip, .multi-repo { height: 32px; flex: 0 0 32px; padding: 0 8px; display: flex; align-items: center; gap: 5px; overflow: hidden; border-bottom: 1px solid var(--border); background: #222222; }
 .repository-strip button, .repository-strip .chip, .multi-repo .chip { min-width: 0; height: 22px; padding: 0 7px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 99px; color: #aab0b8; background: #292c31; font-size: 10px; cursor: pointer; }
 .repository-strip button span, .multi-repo .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -325,6 +323,13 @@ button { color: inherit; }
 .composer-toolbar .model-select > span { overflow: hidden; text-overflow: ellipsis; }
  .composer-toolbar .model-select > svg { flex: 0 0 auto; color: #6f7680; }
  .composer-toolbar .model-select:hover > svg, .composer-toolbar .model-select.active > svg { color: #d8dce2; }
+.composer-toolbar > .context-usage-button { width: 25px; flex: 0 0 25px; color: #484c52; }
+.composer-toolbar > .context-usage-button:hover, .composer-toolbar > .context-usage-button.active { color: #5b6068; }
+.context-usage-ring { display: block; transform: rotate(-90deg); }
+.context-usage-ring-fill { transition: stroke-dashoffset .3s ease, stroke .3s ease; }
+.context-usage-ring-fill.success { stroke: var(--ds-color-green-9); }
+.context-usage-ring-fill.warning { stroke: #d39e52; }
+.context-usage-ring-fill.error { stroke: var(--ds-color-red-9); }
 .composer-toolbar .agent-select { width: auto; max-width: 132px; height: 24px; padding: 0 6px; display: flex; align-items: center; gap: 5px; overflow: hidden; border: 0; border-radius: var(--ds-radius-2); color: #9ba7bd; background: transparent; font-size: 10px; white-space: nowrap; cursor: pointer; }
 .composer-toolbar .agent-select:hover, .composer-toolbar .agent-select.active { color: #dbe5f4; background: #292c31; }
 .composer-toolbar .agent-select > span { overflow: hidden; text-overflow: ellipsis; }
@@ -835,7 +840,6 @@ button { color: inherit; }
 }
 
 @container (max-width: 370px) {
-  .thread-header .context-meter { display: none; }
   .thread-header .chat-zoom-value { display: none; }
   .repository-strip button:nth-child(2) { display: none; }
   .message-list { padding-inline: 7px; }
@@ -847,6 +851,7 @@ button { color: inherit; }
   .composer-toolbar .mode-button { min-width: 62px; padding-inline: 5px; }
   .composer-toolbar .model-select,
   .composer-toolbar .agent-select { width: 23px; max-width: 23px; }
+  .composer-toolbar > .context-usage-button { width: 23px; flex-basis: 23px; }
   .composer-toolbar > .auto-toggle { width: auto; min-width: 23px; padding-inline: 4px; }
   .composer-toolbar > .send-button { width: 24px; flex-basis: 24px; }
 }
@@ -1135,6 +1140,10 @@ button { color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   .settings-navigation {
+    transition: none;
+  }
+
+  .context-usage-ring-fill {
     transition: none;
   }
 }

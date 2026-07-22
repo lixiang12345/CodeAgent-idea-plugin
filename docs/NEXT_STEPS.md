@@ -72,7 +72,8 @@ the interactive smoke workflow remains a separate required acceptance step.
 **Status:** completed for locally available and contracted capabilities on
 2026-07-22.
 
-The local Augment source-map audit is complete. Rules lifecycle, workspace
+The Advanced Settings portion of the local Augment source-map audit is
+complete. Rules lifecycle, workspace
 guidelines, memories, inline BYOK management, Settings Home index operations,
 MCP lifecycle, Commands, Hooks, Agents, Plugins, User Experience, Account, and
 Subscription now use real local or backend contracts. Feature Flags and Beta
@@ -167,6 +168,25 @@ retrieval mode, watcher state/error, and last-indexed time, with direct paths to
 Rules & Guidelines and Skills. Playwright verifies both index commands and a
 420 px reference covers the completed Home state.
 
+### Context Window Usage Alignment
+
+**Status:** implemented on 2026-07-22.
+
+The passive thread-header percentage was replaced with the original plugin's
+model-adjacent composer control: a 20 px circular usage indicator whose success,
+warning, and error thresholds follow the source-map behavior. It opens a bounded
+`Context Window Usage` dialog and restores focus when closed by its Close button,
+Escape, or the backdrop.
+
+The modal reads the current run's real `agentRun` telemetry. It presents only
+the locally supported `Input / History Estimate` and `Built-in Tools` token
+segments instead of inventing the original cloud service's seven-category
+breakdown. CodeAgent's real compaction threshold, reserved-output and retrieval
+budgets, compaction counts, and tool availability are separated under Runtime
+Budget. Playwright covers the interaction and viewport bounds at 360, 420, and
+640 px; the canonical 420 px reference records the expanded tool-definition
+details.
+
 ### Integration Readiness Gate
 
 **Status:** implemented on 2026-07-22.
@@ -236,9 +256,10 @@ preservation, and responsive behavior at 360, 420, and 640 px. A canonical
 
 The Playwright suite runs the deterministic frontend host at 360, 420, and 640
 px. It checks viewport integrity and committed visual references for the main
-Agent workspace, Threads with unread state, long-conversation navigation, Agent
-Edits, Tasks, MCP Settings, explicit mutation approval, and specialized
-file/search/Web/integration/task/subagent/diagnostics result cards. CI and
+Agent workspace, Context Window Usage, Threads with unread state,
+long-conversation navigation, Agent Edits, Tasks, MCP Settings, explicit
+mutation approval, and specialized file/search/Web/integration/task/subagent/
+diagnostics result cards. CI and
 release verification upload the HTML report, failure screenshots, video, and
 trace. The suite is informed by the locally supplied
 Augment 0.482.3 UI source-map inventory but contains only CodeAgent-owned tests

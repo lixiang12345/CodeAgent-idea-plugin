@@ -32,7 +32,7 @@ The deployed backend owns prompts, model credentials, the bounded agent loop, st
 
 | Surface | Required prototype behavior |
 | --- | --- |
-| Main panel | Native tool-window header, active-thread header, context/repository strip, dense transcript, streamed thinking/answer states, bottom composer |
+| Main panel | Native tool-window header, active-thread header, context/repository strip, dense transcript, streamed thinking/answer states, and a bottom composer with model-adjacent Context Window Usage |
 | Threads | Overlay drawer, search, time/pinned groups, Agent/Chat/Ask tags, create/select, row rename/pin/delete menus, confirmed group cleanup, and export/import entry points |
 | Composer | Agent/Chat/Ask selector, attachments, mentions, commands, Skills, model/auto controls, queue/stop/send states, adaptive input, and user-message edit/resend |
 | Tools | Prototype card anatomy, expandable details, phase/status, approvals, file paths, Diff/open/revert, terminal actions |
@@ -52,7 +52,7 @@ This table is the release gate. `Partial` means the visible surface exists but a
 
 | Surface | Status | Real behavior in the current build |
 | --- | --- | --- |
-| Main panel | Implemented | 420 px IDEA tool window, interleaved user/assistant/tool timeline, context strip, tool cards, approvals, composer, stop/send states |
+| Main panel | Implemented | 420 px IDEA tool window, interleaved user/assistant/tool timeline, context strip, tool cards, approvals, composer, stop/send states, and a clickable Context Window Usage ring with a bounded telemetry modal |
 | Threads | Implemented | Create, select, search, pinned/time groups, mode tags, row-level rename/pin/delete menus, confirmed row/group deletion, active run/approval/failure indicators, persisted unread reply counts, pin ordering, and Markdown import/export work. Task List `Continue in New Chat` clones task state and thread customization without copying transcript history |
 | Composer | Implemented | Modes, attachments, Skills, model picker, queue/stop/send, slash menu, @ mention menu, Auto, real prompt enhancement via backend `/v1/enhance`, adaptive input height, and persisted user-message edit/resend that safely rewinds later transcript/tool history before rerunning |
 | Tools | Conditional | Local tools remain IDEA-owned; dedicated detail presentations preserve file/diff, retrieval/search, Web, provider integration, task, subagent/Ask User, diagnostics, terminal/process, and Mermaid result structure. Bounded foreground commands plus managed launch/list/read/write/wait/kill process sessions use the original terminal argument contract, support project-contained working directories and interactive-input detection, backend-owned discovery/execution connects configured cloud adapters and subagents, and the local MCP gateway contributes dynamically discovered namespaced tools under the same policy |
@@ -94,7 +94,7 @@ Backend tools are discovered through authenticated `GET /v1/tools`. The JVM adve
 - Reuse the provided prototype status, service, and product image resources when licensing permits redistribution.
 - Use prototype design tokens: compact 10/12/14 px type, JetBrains Mono for tool data, neutral IntelliJ surfaces (`--bg/#1e1e1e`, `--panel/#252526`, `--chrome/#3c3f41`, accent `#3574f0`), and 4-8 px radii.
 - Validate at a 420 px tool-window viewport first (`--tw: 420px`), then 360 px and wider docked widths.
-- Page chrome mirrors v9: tool-window header, chat header with context meter + zoom, repository chip strip, composer action bar (mode/model/canvas/@/slash/attach/enhance/auto/send), threads drawer, and overlay pages for Tasks / Git Changes / Context Canvas / Settings.
+- Page chrome mirrors v9: tool-window header, chat header with zoom, repository chip strip, composer action bar (mode/model/context usage/canvas/@/slash/attach/enhance/auto/send), threads drawer, and overlay pages for Tasks / Git Changes / Context Canvas / Settings. Context Window Usage uses aggregate `agentRun` telemetry for its two truthful token categories and keeps CodeAgent-specific compaction, output, retrieval, and tool statistics in a separate runtime-budget section.
 
 ## No-fake rule
 

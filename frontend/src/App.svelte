@@ -2,6 +2,7 @@
   import { afterUpdate, onMount, tick } from "svelte";
   import Icon from "./lib/Icon.svelte";
   import ConfigurationSettings from "./lib/ConfigurationSettings.svelte";
+  import ContextUsageModal from "./lib/ContextUsageModal.svelte";
   import MarkdownMessage from "./lib/MarkdownMessage.svelte";
   import MermaidCanvas from "./lib/MermaidCanvas.svelte";
   import ToolDetails from "./lib/ToolDetails.svelte";
@@ -94,6 +95,8 @@
   let settingsSection = "Home";
   let settingsNavigationOpen = false;
   let threadDrawerOpen = false;
+  let contextUsageOpen = false;
+  let contextUsageButton: HTMLButtonElement | null = null;
   let modeMenuOpen = false;
   let agentMenuOpen = false;
   let modelMenuOpen = false;
@@ -739,20 +742,44 @@
     return {
       usedTokens,
       contextWindowTokens: windowTokens,
-      compactionTokens: currentSnapshot.agentRun.targetInputTokens + currentSnapshot.agentRun.toolDefinitionTokens,
       percent: Math.min(100, Math.max(0, Math.round((usedTokens / windowTokens) * 100))),
     };
   }
 
-  function contextMeterText(currentSnapshot: AppSnapshot | null) {
-    const usage = modelContextUsage(currentSnapshot);
-    return usage ? `${usage.percent}%` : "--";
+  const CONTEXT_USAGE_RADIUS = 7;
+  const CONTEXT_USAGE_CIRCUMFERENCE = 2 * Math.PI * CONTEXT_USAGE_RADIUS;
+
+  function formatContextTokenCount(count: number) {
+    return count >= 1000 ? `${(count / 1000).toFixed(1)}k` : count.toLocaleString();
   }
 
-  function contextMeterTitle(currentSnapshot: AppSnapshot | null) {
+  function contextUsageButtonTitle(currentSnapshot: AppSnapshot | null) {
     const usage = modelContextUsage(currentSnapshot);
-    if (!usage) return "Model context usage appears after the first model turn";
-    return `${usage.usedTokens.toLocaleString()} of ${usage.contextWindowTokens.toLocaleString()} model-context tokens used · automatic compaction at ${usage.compactionTokens.toLocaleString()} (80%)`;
+    if (!usage) return "Context Window Usage";
+    return `Context Window Usage · ${formatContextTokenCount(usage.usedTokens)} / ${formatContextTokenCount(usage.contextWindowTokens)} tokens`;
+  }
+
+  function contextUsageTone(currentSnapshot: AppSnapshot | null) {
+    const percent = modelContextUsage(currentSnapshot)?.percent ?? 0;
+    if (percent <= 40) return "success";
+    if (percent <= 60) return "warning";
+    return "error";
+  }
+
+  function contextUsageStrokeOffset(currentSnapshot: AppSnapshot | null) {
+    const percent = modelContextUsage(currentSnapshot)?.percent ?? 0;
+    return CONTEXT_USAGE_CIRCUMFERENCE - (percent / 100) * CONTEXT_USAGE_CIRCUMFERENCE;
+  }
+
+  function openContextUsage() {
+    closeMenus();
+    contextUsageOpen = true;
+  }
+
+  function closeContextUsage() {
+    if (!contextUsageOpen) return;
+    contextUsageOpen = false;
+    void tick().then(() => contextUsageButton?.focus());
   }
 
   function clearContextCompactionTimers() {
@@ -1977,6 +2004,13 @@
 </script>
 
 <svelte:window onkeydown={(event) => {
+  if (contextUsageOpen) {
+    if (event.key === "Escape") {
+      closeContextUsage();
+      event.preventDefault();
+    }
+    return;
+  }
   if (handleChatZoomShortcut(event)) return;
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") submit();
   if (event.key === "Escape") {
@@ -2052,7 +2086,6 @@
             <strong class="thread-title" title="Double-click to rename" ondblclick={beginRename}>{activeThread()?.title ?? "New thread"}</strong>
           {/if}
           <div class="ch-actions">
-            <span class="context-meter" title={contextMeterTitle(snapshot)}><Icon name="gauge" size={12} /> Context <b>{contextMeterText(snapshot)}</b></span>
             <div class="chat-zoom-controls" role="group" aria-label="Chat zoom">
               <button class="icon-button compact" title="Decrease chat zoom (Cmd/Ctrl -)" aria-label="Decrease chat zoom" disabled={chatZoom <= CHAT_ZOOM_MIN} onclick={() => adjustChatZoom(-CHAT_ZOOM_STEP)}><Icon name="minus" size={13} /></button>
               <button class="chat-zoom-value" title="Reset chat zoom (Cmd/Ctrl 0)" aria-label={`Reset chat zoom, currently ${chatZoom}%`} onclick={resetChatZoom}>{chatZoom}%</button>
@@ -2440,6 +2473,35 @@
                   <span>{modelLabel(snapshot.models)}</span>
                 </button>
               </div>
+              <button
+                bind:this={contextUsageButton}
+                type="button"
+                class="context-usage-button"
+                class:active={contextUsageOpen}
+                title={contextUsageButtonTitle(snapshot)}
+                aria-label="Context Window Usage"
+                aria-haspopup="dialog"
+                aria-expanded={contextUsageOpen}
+                data-usage-percent={modelContextUsage(snapshot)?.percent ?? 0}
+                onclick={openContextUsage}
+              >
+                <svg width="20" height="20" viewBox="0 0 20 20" class="context-usage-ring" aria-hidden="true">
+                  <circle cx="10" cy="10" r={CONTEXT_USAGE_RADIUS} fill="none" stroke="currentColor" stroke-width="3"></circle>
+                  {#if modelContextUsage(snapshot)}
+                    <circle
+                      class="context-usage-ring-fill {contextUsageTone(snapshot)}"
+                      cx="10"
+                      cy="10"
+                      r={CONTEXT_USAGE_RADIUS}
+                      fill="none"
+                      stroke-width="3"
+                      stroke-dasharray={CONTEXT_USAGE_CIRCUMFERENCE}
+                      stroke-dashoffset={contextUsageStrokeOffset(snapshot)}
+                      stroke-linecap="round"
+                    ></circle>
+                  {/if}
+                </svg>
+              </button>
               <button title="Context Canvas" onclick={() => openWorkspaceView("images")}><Icon name="layers-2" size={14} /></button>
               <button title="@ mention" onclick={seedMention}><Icon name="at-sign" size={14} /></button>
               <button title="Slash commands" onclick={seedSlash}><Icon name="square-terminal" size={14} /></button>
@@ -3373,6 +3435,10 @@
     {/if}
     {#if currentView !== "chat" && notice}
       <div class="global-banner notice-banner"><Icon name="circle-check" size={13} /><span>{notice}</span><button title="Dismiss" onclick={() => notice = ""}><Icon name="x" size={13} /></button></div>
+    {/if}
+
+    {#if contextUsageOpen}
+      <ContextUsageModal telemetry={snapshot.agentRun} onclose={closeContextUsage} />
     {/if}
 
     {#if threadDrawerOpen}

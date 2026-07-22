@@ -9,7 +9,7 @@
     "originalInventory": "docs/ORIGINAL_PLUGIN_API_SURFACE.md"
   },
   "surfaces": [
-    { "id": "main-panel", "status": "implemented", "evidence": ["frontend/src/App.svelte", "src/main/kotlin/com/codeagent/plugin/ui/CodeAgentToolWindowFactory.kt"] },
+    { "id": "main-panel", "status": "implemented", "evidence": ["frontend/src/App.svelte", "frontend/src/lib/ContextUsageModal.svelte", "frontend/e2e/product-alignment.spec.ts", "frontend/e2e/__screenshots__/context-window-usage-tool-window-420.png", "src/main/kotlin/com/codeagent/plugin/ui/CodeAgentToolWindowFactory.kt"] },
     { "id": "threads", "status": "implemented", "evidence": ["frontend/src/App.svelte", "src/main/kotlin/com/codeagent/plugin/conversation/ConversationStore.kt"] },
     { "id": "composer", "status": "implemented", "evidence": ["frontend/src/App.svelte", "src/main/kotlin/com/codeagent/plugin/conversation/ConversationStore.kt", "backend/src/server.mjs"] },
     { "id": "tools", "status": "conditional", "evidence": ["frontend/src/lib/ToolDetails.svelte", "frontend/src/lib/tools-catalog.ts", "backend/src/integration-tools.mjs"] },
