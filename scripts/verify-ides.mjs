@@ -7,6 +7,16 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const supportedProducts = ["PyCharm", "WebStorm", "CLion", "GoLand", "PhpStorm", "Rider"];
+const verifierProductNames = {
+  IC: "IntelliJ IDEA Community",
+  IU: "IntelliJ IDEA Ultimate",
+  PY: "PyCharm",
+  WS: "WebStorm",
+  CL: "CLion",
+  GO: "GoLand",
+  PS: "PhpStorm",
+  RD: "Rider",
+};
 const explicitPaths = process.env.CODEAGENT_VERIFIER_IDE_PATHS
   ?.split(/[;,]/)
   .map((value) => value.trim())
@@ -81,6 +91,53 @@ function reportPath(productCode, buildNumber) {
   return existsSync(candidate) ? candidate : null;
 }
 
+function summarizeReport(verifierReport) {
+  if (!verifierReport || !existsSync(verifierReport)) return {
+    result: "report-not-found",
+    verifierStatus: "unknown",
+    experimentalApiUsages: null,
+  };
+  const source = readFileSync(verifierReport, "utf8")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ");
+  const status = /\bIncompatible\b|Compatibility problems/i.test(source)
+    ? "incompatible"
+    : /\bCompatible\b/i.test(source)
+      ? "compatible"
+      : "unknown";
+  const experimentalMatch = source.match(/(\d+) usages? of experimental API/i);
+  return {
+    result: "report-generated",
+    verifierStatus: status,
+    experimentalApiUsages: experimentalMatch ? Number(experimentalMatch[1]) : null,
+  };
+}
+
+function reportEntries() {
+  const root = path.join(repositoryRoot, "build/reports/pluginVerifier");
+  if (!existsSync(root)) return [];
+  return readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => {
+      const match = entry.name.match(/^([A-Z]{2})-(.+)$/);
+      if (!match) return null;
+      const [, productCode, buildNumber] = match;
+      const verifierReport = reportPath(productCode, buildNumber);
+      return {
+        productName: verifierProductNames[productCode] ?? productCode,
+        productCode,
+        buildNumber,
+        verifierReport,
+        ...summarizeReport(verifierReport),
+      };
+    })
+    .filter(Boolean);
+}
+
 let idePaths;
 try {
   idePaths = discoverPaths();
@@ -98,7 +155,7 @@ const verification = spawnSync("./gradlew", gradleArguments, {
 });
 if (verification.error) throw verification.error;
 
-const products = idePaths.map((idePath) => {
+const discoveredProducts = idePaths.map((idePath) => {
   const info = readProductInfo(idePath);
   const verifierReport = reportPath(info.productCode, info.buildNumber);
   return {
@@ -108,8 +165,17 @@ const products = idePaths.map((idePath) => {
     buildNumber: info.buildNumber,
     result: verifierReport ? "report-generated" : "report-not-found",
     verifierReport,
+    ...summarizeReport(verifierReport),
   };
 });
+
+const productsByKey = new Map(discoveredProducts.map((product) => [`${product.productCode}:${product.buildNumber}`, product]));
+for (const report of reportEntries()) {
+  const key = `${report.productCode}:${report.buildNumber}`;
+  productsByKey.set(key, { ...productsByKey.get(key), ...report });
+}
+const products = [...productsByKey.values()];
+const incompatibleProducts = products.filter((product) => product.verifierStatus === "incompatible");
 
 const outputPath = path.join(repositoryRoot, "build/reports/jetbrains-verifier.json");
 mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -118,9 +184,11 @@ writeFileSync(outputPath, `${JSON.stringify({
   command: `./gradlew ${gradleArguments.join(" ")}`,
   verificationExitCode: verification.status ?? 1,
   discoveredProducts: products,
+  compatibilityGate: incompatibleProducts.length === 0 && verification.status === 0 ? "pass" : "fail",
+  incompatibleProducts: incompatibleProducts.map((product) => `${product.productCode}-${product.buildNumber}`),
   note: products.length === 0
     ? "No additional supported JetBrains IDE installation was discovered."
     : undefined,
 }, null, 2)}\n`);
 console.log(`Verifier evidence: ${outputPath}`);
-process.exitCode = verification.status ?? 1;
+process.exitCode = incompatibleProducts.length > 0 || verification.status !== 0 ? 1 : 0;
