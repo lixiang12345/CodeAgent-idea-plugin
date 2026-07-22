@@ -134,6 +134,136 @@ test("mutating tool approval remains explicit", async ({ page }, testInfo) => {
   await expect(page.getByText("Waiting for user input")).toBeHidden();
 });
 
+test("specialized tool cards preserve provider-specific result structure", async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      messages: [snapshot.messages[0]],
+      tools: [
+        {
+          id: "specialized-file",
+          name: "replace_text",
+          summary: "AuthController.java",
+          status: "completed",
+          detail: "@@ authentication handler\n- return null;\n+ return tokenService.issue(request);",
+          changePath: "src/main/java/com/example/auth/AuthController.java",
+          canRevert: true,
+          timelineSequence: 2,
+        },
+        {
+          id: "specialized-search",
+          name: "search_text",
+          summary: "JWT issuer references",
+          status: "completed",
+          detail: "src/main/java/com/example/auth/TokenService.java:41: return jwtIssuer.issue(user);\nsrc/test/java/com/example/auth/AuthControllerTest.java:73: assertThat(token).isNotBlank();",
+          canRevert: false,
+          timelineSequence: 3,
+        },
+        {
+          id: "specialized-web",
+          name: "web_fetch",
+          summary: "Fetched security guidance",
+          status: "completed",
+          detail: "https://example.test/security-guidance\nJWT validation requires issuer, audience, expiration, and signature checks.",
+          canRevert: false,
+          timelineSequence: 4,
+        },
+        {
+          id: "specialized-integration",
+          name: "github_search",
+          summary: "Pull request checks",
+          status: "completed",
+          detail: "lixiang12345/test#1\nstatus=completed conclusion=success\nhttps://github.com/lixiang12345/test/pull/1",
+          canRevert: false,
+          timelineSequence: 5,
+        },
+        {
+          id: "specialized-tasks",
+          name: "update_tasks",
+          summary: "Updated verification task",
+          status: "completed",
+          detail: "1. Inspect authentication flow [completed]\n2. Add invalid-credential coverage [in_progress]",
+          canRevert: false,
+          timelineSequence: 6,
+        },
+        {
+          id: "specialized-agent",
+          name: "subagent",
+          summary: "Security reviewer completed",
+          status: "completed",
+          detail: "The focused review found no missing signature validation. Add an expired-token regression test before release.",
+          canRevert: false,
+          timelineSequence: 7,
+        },
+        {
+          id: "specialized-diagnostics",
+          name: "diagnostics",
+          summary: "SecurityConfig.java",
+          status: "completed",
+          detail: "IntelliJ currently has no registered errors for SecurityConfig.java",
+          canRevert: false,
+          timelineSequence: 8,
+        },
+        {
+          id: "specialized-terminal",
+          name: "run_terminal",
+          summary: "npm test (exit 0)",
+          status: "completed",
+          detail: "exit=0\n18 tests passed",
+          canRevert: false,
+          timelineSequence: 9,
+        },
+        {
+          id: "specialized-process",
+          name: "read_process",
+          summary: "Read 34 chars from frontend watcher",
+          status: "completed",
+          detail: "terminal_id=terminal-1\nprocess_id=terminal-1\nname=frontend watcher\nstate=running\npid=1234\nwaiting_for_input=false\noutput_offsets=0-34\ncommand=npm run dev\n\nVITE ready on http://localhost:5173",
+          canRevert: false,
+          timelineSequence: 10,
+        },
+      ],
+      tasks: [],
+    });
+  });
+
+  const cases = [
+    ["AuthController.java", "file"],
+    ["JWT issuer references", "search"],
+    ["Fetched security guidance", "web"],
+    ["Pull request checks", "integration"],
+    ["Updated verification task", "tasks"],
+    ["Security reviewer completed", "agent"],
+    ["SecurityConfig.java", "diagnostics"],
+    ["npm test (exit 0)", "terminal"],
+    ["Read 34 chars from frontend watcher", "process"],
+  ] as const;
+
+  for (const [summary, kind] of cases) {
+    const card = page.locator(".tool-card").filter({ hasText: summary });
+    await expect(card).toHaveCount(1);
+    await card.locator(".tool-header").click();
+    await expect(card.locator(`[data-tool-kind="${kind}"]`)).toBeVisible();
+  }
+
+  const integrationCard = page.locator(".tool-card").filter({ hasText: "Pull request checks" });
+  await expect(integrationCard.getByText("GitHub", { exact: true })).toBeVisible();
+  const fileCard = page.locator(".tool-card").filter({ hasText: "AuthController.java" });
+  await expect(fileCard.getByRole("button", { name: "View Diff" })).toBeVisible();
+  await expect(fileCard.getByRole("button", { name: "Undo" })).toBeVisible();
+  const diagnosticsCard = page.locator(".tool-card").filter({ hasText: "SecurityConfig.java" });
+  await expect(diagnosticsCard.locator(".diagnostic-result")).not.toHaveClass(/failed/);
+  const processCard = page.locator(".tool-card").filter({ hasText: "Read 34 chars from frontend watcher" });
+  await expect(processCard.getByText("VITE ready on http://localhost:5173", { exact: true })).toBeVisible();
+  await expectViewportIntegrity(page);
+  if (testInfo.project.name === "tool-window-420") {
+    await integrationCard.scrollIntoViewIfNeeded();
+    await captureShell(page, "specialized-tool-cards.png");
+  }
+});
+
 test("long conversations preserve reading position and expose request navigation", async ({ page }, testInfo) => {
   await page.evaluate(() => {
     const snapshot = window.CodeAgentDevelopment?.getSnapshot();

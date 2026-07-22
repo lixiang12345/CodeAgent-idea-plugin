@@ -12,7 +12,7 @@
     { "id": "main-panel", "status": "implemented", "evidence": ["frontend/src/App.svelte", "src/main/kotlin/com/codeagent/plugin/ui/CodeAgentToolWindowFactory.kt"] },
     { "id": "threads", "status": "implemented", "evidence": ["frontend/src/App.svelte", "src/main/kotlin/com/codeagent/plugin/conversation/ConversationStore.kt"] },
     { "id": "composer", "status": "implemented", "evidence": ["frontend/src/App.svelte", "backend/src/server.mjs"] },
-    { "id": "tools", "status": "conditional", "evidence": ["frontend/src/lib/tools-catalog.ts", "backend/src/integration-tools.mjs"] },
+    { "id": "tools", "status": "conditional", "evidence": ["frontend/src/lib/ToolDetails.svelte", "frontend/src/lib/tools-catalog.ts", "backend/src/integration-tools.mjs"] },
     { "id": "agent-edits", "status": "implemented", "evidence": ["frontend/src/App.svelte", "src/main/kotlin/com/codeagent/plugin/agent/ChangeReviewService.kt"] },
     { "id": "tasks", "status": "implemented", "evidence": ["frontend/src/App.svelte", "src/main/kotlin/com/codeagent/plugin/conversation/ConversationStore.kt"] },
     { "id": "git", "status": "implemented", "evidence": ["frontend/src/App.svelte", "src/main/kotlin/com/codeagent/plugin/agent/GitWorkspaceService.kt"] },

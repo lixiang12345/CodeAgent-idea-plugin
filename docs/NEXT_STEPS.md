@@ -108,9 +108,10 @@ preservation, and responsive behavior at 360, 420, and 640 px. A canonical
 The Playwright suite runs the deterministic frontend host at 360, 420, and 640
 px. It checks viewport integrity and committed visual references for the main
 Agent workspace, Threads with unread state, long-conversation navigation, Agent
-Edits, Tasks, MCP Settings, and explicit mutation approval. CI and release
-verification upload the HTML report, failure screenshots, video, and trace. The
-suite is informed by the locally supplied
+Edits, Tasks, MCP Settings, explicit mutation approval, and specialized
+file/search/Web/integration/task/subagent/diagnostics result cards. CI and
+release verification upload the HTML report, failure screenshots, video, and
+trace. The suite is informed by the locally supplied
 Augment 0.482.3 UI source-map inventory but contains only CodeAgent-owned tests
 and fixtures. Native smoke in each additional IDE remains required above.
 

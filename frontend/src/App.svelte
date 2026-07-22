@@ -4,6 +4,7 @@
   import ConfigurationSettings from "./lib/ConfigurationSettings.svelte";
   import MarkdownMessage from "./lib/MarkdownMessage.svelte";
   import MermaidCanvas from "./lib/MermaidCanvas.svelte";
+  import ToolDetails from "./lib/ToolDetails.svelte";
   import { ICON_NAMES } from "./lib/icons";
   import settingsGroupsData from "./lib/settings-sections.json";
   import { MENTION_KINDS, SLASH_COMMANDS, TOOL_CATALOG } from "./lib/tools-catalog";
@@ -75,8 +76,6 @@
     render_mermaid: "workflow",
     ask_user: "message-circle",
   };
-  const managedProcessToolNames = new Set(["launch_process", "read_process", "write_process", "wait_process", "kill_process"]);
-
   const builtInAgentProfiles = [
     { id: "general", name: "General Agent", description: "Balanced implementation and verification", agentType: "general", source: "Built in" },
     { id: "search", name: "Search Agent", description: "Evidence-first repository and service research", agentType: "search", source: "Built in" },
@@ -1514,56 +1513,6 @@
     return status;
   }
 
-  function terminalCommand(tool: ToolRun) {
-    return tool.summary.replace(/\s+\(exit -?\d+\)$/, "").trim() || "Command";
-  }
-
-  function terminalOutput(tool: ToolRun) {
-    return (tool.detail ?? "").replace(/^exit=-?\d+(?: timeout=true)?\n?/, "").trimEnd();
-  }
-
-  function terminalExitCode(tool: ToolRun) {
-    const match = tool.detail?.match(/^exit=(-?\d+)/);
-    return match ? Number(match[1]) : null;
-  }
-
-  function terminalTimedOut(tool: ToolRun) {
-    return /^exit=-?\d+ timeout=true/.test(tool.detail ?? "");
-  }
-
-  function terminalFailed(tool: ToolRun) {
-    const exitCode = terminalExitCode(tool);
-    return terminalTimedOut(tool) || (exitCode !== null && exitCode !== 0);
-  }
-
-  function terminalStatus(tool: ToolRun) {
-    if (terminalTimedOut(tool)) return "timed out";
-    const exitCode = terminalExitCode(tool);
-    return exitCode === null ? statusLabel(tool.status) : `exit ${exitCode}`;
-  }
-
-  function isManagedProcessTool(tool: ToolRun) {
-    return managedProcessToolNames.has(tool.name);
-  }
-
-  function managedProcessMetadata(tool: ToolRun) {
-    return (tool.detail ?? "").split("\n\n", 1)[0].split("\n").filter((line) => !line.startsWith("command=")).join("\n");
-  }
-
-  function managedProcessCommand(tool: ToolRun) {
-    return tool.detail?.match(/^command=(.*)$/m)?.[1] ?? "";
-  }
-
-  function managedProcessOutput(tool: ToolRun) {
-    const separator = tool.detail?.indexOf("\n\n") ?? -1;
-    return separator >= 0 ? tool.detail?.slice(separator + 2).trimEnd() ?? "" : "";
-  }
-
-  function managedProcessState(tool: ToolRun) {
-    if (/^waiting_for_input=true$/m.test(tool.detail ?? "")) return "waiting for input";
-    return tool.detail?.match(/^state=(.*)$/m)?.[1] ?? statusLabel(tool.status);
-  }
-
   function changeTools() {
     return snapshot?.tools.filter((tool) => Boolean(tool.changePath)) ?? [];
   }
@@ -1960,71 +1909,14 @@
                           </button>
                           {#if toolsExpanded.has(tool.id)}
                             <div class="tool-detail">
-                              {#if tool.name === "run_terminal"}
-                                <div class="shell-details">
-                                  <section>
-                                    <header>
-                                      <strong>Command</strong>
-                                      <button title="Copy command" aria-label="Copy command" onclick={() => copyText(terminalCommand(tool), "Command copied")}><Icon name="copy" size={12} /></button>
-                                    </header>
-                                    <pre><span>$</span> {terminalCommand(tool)}</pre>
-                                  </section>
-                                  {#if tool.detail}
-                                    <section class:error={terminalFailed(tool)}>
-                                      <header>
-                                        <strong>{terminalFailed(tool) ? "Error" : "Output"}</strong>
-                                        <i>{terminalStatus(tool)}</i>
-                                        <button title="Copy output" aria-label="Copy output" onclick={() => copyText(terminalOutput(tool), "Terminal output copied")}><Icon name="copy" size={12} /></button>
-                                      </header>
-                                      <pre>{terminalOutput(tool) || "Command completed without output."}</pre>
-                                    </section>
-                                  {/if}
-                                  <button class="secondary-action" onclick={() => sendCommand("openTerminal")}><Icon name="square-terminal" size={13} />Show Terminal</button>
-                                </div>
-                              {:else if isManagedProcessTool(tool)}
-                                <div class="shell-details">
-                                  {#if managedProcessCommand(tool)}
-                                    <section>
-                                      <header>
-                                        <strong>Command</strong>
-                                        <button title="Copy command" aria-label="Copy command" onclick={() => copyText(managedProcessCommand(tool), "Command copied")}><Icon name="copy" size={12} /></button>
-                                      </header>
-                                      <pre><span>$</span> {managedProcessCommand(tool)}</pre>
-                                    </section>
-                                  {/if}
-                                  <section>
-                                    <header>
-                                      <strong>Process</strong>
-                                      <i>{managedProcessState(tool)}</i>
-                                      <button title="Copy process details" aria-label="Copy process details" onclick={() => copyText(managedProcessMetadata(tool), "Process details copied")}><Icon name="copy" size={12} /></button>
-                                    </header>
-                                    <pre>{managedProcessMetadata(tool)}</pre>
-                                  </section>
-                                  {#if managedProcessOutput(tool)}
-                                    <section>
-                                      <header>
-                                        <strong>Output</strong>
-                                        <button title="Copy output" aria-label="Copy output" onclick={() => copyText(managedProcessOutput(tool), "Process output copied")}><Icon name="copy" size={12} /></button>
-                                      </header>
-                                      <pre>{managedProcessOutput(tool)}</pre>
-                                    </section>
-                                  {/if}
-                                </div>
-                              {:else if tool.name === "render_mermaid" && tool.detail}
-                                <span class="detail-label">Details</span>
-                                <MermaidCanvas source={tool.detail} compact />
-                                <button class="secondary-action" onclick={() => openMermaid(tool)}><Icon name="maximize-2" size={13} />Open Canvas</button>
-                              {:else}
-                                <span class="detail-label">Details</span>
-                                {#if tool.detail}<pre>{tool.detail}</pre>{:else}<p>No additional output.</p>{/if}
-                              {/if}
-                              {#if tool.changePath}
-                                <div class="file-actions">
-                                  <span>{tool.changePath}</span>
-                                  <button onclick={() => sendCommand("openDiff", { toolId: tool.id })}><Icon name="file-diff" size={13} />View Diff</button>
-                                  {#if tool.canRevert}<button onclick={() => sendCommand("revertChange", { toolId: tool.id })}><Icon name="undo-2" size={13} />Undo</button>{/if}
-                                </div>
-                              {/if}
+                              <ToolDetails
+                                {tool}
+                                onCopy={copyText}
+                                onOpenTerminal={() => sendCommand("openTerminal")}
+                                onOpenMermaid={openMermaid}
+                                onOpenDiff={(selected) => sendCommand("openDiff", { toolId: selected.id })}
+                                onRevert={(selected) => sendCommand("revertChange", { toolId: selected.id })}
+                              />
                             </div>
                           {/if}
                           {#if tool.status === "approval"}
