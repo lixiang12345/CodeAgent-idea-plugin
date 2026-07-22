@@ -96,10 +96,24 @@ preservation, and responsive behavior at 360, 420, and 640 px. A canonical
 The Playwright suite runs the deterministic frontend host at 360, 420, and 640
 px. It checks viewport integrity and committed visual references for the main
 Agent workspace, Threads with unread state, long-conversation navigation, Agent
-Edits, Tasks, MCP Settings, and explicit mutation approval. CI and release verification upload the HTML report, failure
-screenshots, video, and trace. The suite is informed by the locally supplied
+Edits, Tasks, MCP Settings, and explicit mutation approval. CI and release
+verification upload the HTML report, failure screenshots, video, and trace. The
+suite is informed by the locally supplied
 Augment 0.482.3 UI source-map inventory but contains only CodeAgent-owned tests
 and fixtures. Native smoke in each additional IDE remains required above.
+
+### Installed IDE Verifier Evidence
+
+**Status:** refreshed on 2026-07-22.
+
+The latest `node scripts/verify-ides.mjs` run completed successfully against
+the targeted IntelliJ IDEA Community `IC-252.28539.54` platform and the
+installed PyCharm `PY-261.24374.152` build. Both Plugin Verifier reports are
+`Compatible`; the only findings are the 12 expected Inline Completion
+experimental-API usages. The machine has no WebStorm, CLion, GoLand, PhpStorm,
+or Rider installation, so those products remain unverified. The machine-readable
+evidence is written to `build/reports/jetbrains-verifier.json` and the per-IDE
+HTML reports under `build/reports/pluginVerifier/`.
 
 ### Machine-Readable Prototype Parity
 
