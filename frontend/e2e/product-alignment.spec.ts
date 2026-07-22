@@ -251,6 +251,12 @@ test("Rules editor validates Markdown and protects unsaved changes", async ({ pa
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByRole("button", { name: "Discard", exact: true }).click();
   await expect(page.getByRole("button", { name: "New Rule", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh rules" })).toBeVisible();
+  const testingRule = page.locator(".rule-list > div").filter({ hasText: "Testing" });
+  await testingRule.getByTitle("Delete rule").click();
+  await expect(testingRule).toBeVisible();
+  await testingRule.getByTitle("Confirm delete rule").click();
+  await expect(testingRule).toBeHidden();
   await expectViewportIntegrity(page);
 });
 

@@ -1213,6 +1213,17 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     emitDevelopmentSnapshot();
     return;
   }
+  if (command.type === "deleteRule") {
+    const ruleId = String((command.payload as { ruleId?: string } | undefined)?.ruleId ?? "");
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      customization: {
+        ...snapshot.customization,
+        rules: snapshot.customization.rules.filter((rule) => rule.id !== ruleId),
+      },
+    }));
+    return;
+  }
   if (
     command.type === "browseImageDirectory"
     || command.type === "commitGit"

@@ -78,6 +78,26 @@ internal class WorkspaceCustomizationService(project: Project) {
         return requireNotNull(cached?.rules?.firstOrNull { it.path == relative })
     }
 
+    @Synchronized
+    fun deleteRule(fileName: String) {
+        val normalizedName = fileName.trim().removePrefix(".codeagent/rules/")
+        require(RULE_FILE_NAME.matches(normalizedName)) { "Rule file name is invalid" }
+        val root = projectRoot?.toRealPath() ?: error("Project root is unavailable")
+        val directory = root.resolve(".codeagent/rules")
+        val file = directory.resolve(normalizedName).normalize()
+        require(file.parent == directory) { "Nested rule paths are not supported" }
+        require(Files.deleteIfExists(file)) { "Rule file does not exist: $normalizedName" }
+        val relative = root.relativize(file).toString().replace('\\', '/')
+        val metadata = loadRuleMetadata(root)
+        metadata.triggers.remove(relative)
+        metadata.descriptions.remove(relative)
+        Files.writeString(root.resolve(RULE_METADATA_PATH), json.encodeToString(metadata) + "\n")
+        LocalFileSystem.getInstance().refreshAndFindFileByNioFile(directory)?.let {
+            VfsUtil.markDirtyAndRefresh(false, false, false, it)
+        }
+        cached = loader.load()
+    }
+
     private fun loadRuleMetadata(root: Path): RuleMetadata = runCatching {
         json.decodeFromString<RuleMetadata>(Files.readString(root.resolve(RULE_METADATA_PATH)))
     }.getOrDefault(RuleMetadata())

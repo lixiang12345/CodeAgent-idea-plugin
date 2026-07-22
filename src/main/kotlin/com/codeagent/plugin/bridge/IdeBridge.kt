@@ -697,6 +697,18 @@ class IdeBridge(
                 syncActiveConversation()
                 emitSnapshot()
             }
+            "deleteRule" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<RulePayload>(it) }
+                val rule = availableCustomization().rules.firstOrNull { it.id == request.ruleId }
+                    ?: error("Unknown workspace rule: ${request.ruleId}")
+                require(rule.source == "workspace") { "Plugin rules are read-only" }
+                customizations.deleteRule(rule.path)
+                synchronized(stateLock) {
+                    conversations.setSelectedRules(conversations.active().selectedRuleIds - rule.id)
+                }
+                syncActiveConversation()
+                emitSnapshot()
+            }
             "refreshCustomization" -> {
                 val customization = availableCustomization(refreshWorkspace = true)
                 val availableIds = customization.skills.mapTo(mutableSetOf()) { it.id }
@@ -2968,6 +2980,9 @@ class IdeBridge(
         val trigger: String,
         val description: String = "",
     )
+
+    @Serializable
+    private data class RulePayload(val ruleId: String)
 
     @Serializable
     private data class TaskStatePayload(val taskId: String, val state: String)

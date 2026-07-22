@@ -112,6 +112,7 @@
   let ruleLeaveConfirm = false;
   let ruleValidationError = "";
   let ruleEditorBaseline = { fileName: "", content: "", trigger: "always" as WorkspaceRule["trigger"], description: "" };
+  let confirmingRuleDeleteId: string | null = null;
   let toolsExpanded = new Set<string>();
   let resolvingApprovalIds = new Set<string>();
   let backendUrl = "";
@@ -1671,6 +1672,15 @@
     ruleEditorOpen = false;
   }
 
+  function requestRuleDelete(rule: WorkspaceRule) {
+    if (confirmingRuleDeleteId === rule.id) {
+      confirmingRuleDeleteId = null;
+      sendCommand("deleteRule", { ruleId: rule.id });
+    } else {
+      confirmingRuleDeleteId = rule.id;
+    }
+  }
+
   function saveRule() {
     const fileName = ruleFileName.trim();
     const description = ruleDescription.trim();
@@ -2625,6 +2635,7 @@
               {:else}
                 <div class="section-title">
                   <div><h1>Rules & Guidelines</h1><p class="settings-lead">Repository instructions validated by the IDEA capability gateway.</p></div>
+                  <button title="Refresh rules" aria-label="Refresh rules" onclick={() => sendCommand("refreshCustomization")}><Icon name="refresh-ccw" size={13} /></button>
                   <button onclick={() => editRule()}><Icon name="plus" size={13} />New Rule</button>
                 </div>
                 <section class="settings-block rule-list">
@@ -2638,6 +2649,7 @@
                       {/if}
                       {#if rule.source === undefined || rule.source === "workspace"}
                         <button class="icon-button compact" title="Edit rule" onclick={() => editRule(rule)}><Icon name="file-pen" size={13} /></button>
+                        <button class="icon-button compact danger" title={confirmingRuleDeleteId === rule.id ? "Confirm delete rule" : "Delete rule"} onclick={() => requestRuleDelete(rule)}><Icon name="trash-2" size={13} /></button>
                       {/if}
                     </div>
                   {:else}

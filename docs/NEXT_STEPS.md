@@ -119,7 +119,10 @@ Rule creation and editing validates Markdown filenames, non-empty content, and
 description length before crossing the bridge. Back, Cancel, and Settings
 navigation preserve dirty editor state behind an explicit Keep editing /
 Discard confirmation; successful saves reset the editor baseline. The 420 px
-Playwright workflow covers invalid input and both discard branches.
+Playwright workflow covers invalid input and both discard branches. The Rules
+list also supports refresh and two-step workspace-rule deletion; deletion is
+path constrained, removes stale trigger/description metadata, and rejects
+plugin-owned rules as read-only.
 
 ### Composer and Message Lifecycle Alignment
 

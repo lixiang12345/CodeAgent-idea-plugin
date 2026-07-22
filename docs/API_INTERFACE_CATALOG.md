@@ -89,6 +89,7 @@ Transport:
 | `deleteThread` | `{ threadId: string }` | `snapshot` |
 | `deleteThreads` | `{ threadIds: string[] }` | `snapshot` |
 | `renameThread` | `{ threadId: string, title: string }` | `snapshot` |
+| `deleteRule` | `{ ruleId: string }` | refreshed customization `snapshot` |
 | `copyThread` | none | `notice` |
 | `exportThread` | none | folder chooser + `notice`/`error` |
 | `importThread` | none | file chooser + `snapshot`/`error` |

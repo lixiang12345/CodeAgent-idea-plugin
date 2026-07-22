@@ -28,6 +28,7 @@ Envelope version: `1`
 | `deleteThread` | `{ threadId }` | Confirmed delete |
 | `deleteThreads` | `{ threadIds }` | Confirmed time-group delete |
 | `renameThread` | `{ threadId, title }` | Rename active/history title |
+| `deleteRule` | `{ ruleId }` | Delete a workspace-owned Markdown rule and its metadata |
 | `copyThread` | — | Copy Markdown to clipboard |
 | `exportThread` | — | Save Markdown via folder chooser |
 | `importThread` | — | Import Markdown thread |
