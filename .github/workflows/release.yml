@@ -69,6 +69,7 @@ jobs:
           npm test --prefix vendor/context-engine
           npm run build --prefix vendor/context-engine
           node scripts/evaluate-parity.mjs
+          node scripts/validate-github-live-evidence.mjs
           node scripts/evaluate-retrieval.mjs
           ./gradlew test buildPlugin verifyPlugin --stacktrace
 
@@ -88,6 +89,14 @@ jobs:
         with:
           name: CodeAgent-prototype-parity-${{ github.ref_name }}
           path: build/reports/prototype-parity.json
+          if-no-files-found: error
+
+      - name: Upload GitHub live acceptance validation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodeAgent-github-live-acceptance-${{ github.ref_name }}
+          path: build/reports/github-live-evidence-validation.json
           if-no-files-found: error
 
       - name: Upload retrieval evaluation report

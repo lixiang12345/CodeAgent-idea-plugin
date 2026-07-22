@@ -8,7 +8,8 @@ live acceptance evidence exist.
 
 ## Priority 0: Live GitHub Acceptance
 
-**Status:** blocked on a dedicated test repository and fine-grained
+**Status:** live behavior passed on 2026-07-22 against `lixiang12345/test`;
+final acceptance remains blocked on a repository-scoped fine-grained
 `GITHUB_TOKEN`.
 
 Use a non-production GitHub repository with a protected base branch. Grant only
@@ -34,6 +35,14 @@ Acceptance evidence must cover:
 The deployed backend intentionally reports GitHub tooling as unavailable until
 `GITHUB_TOKEN` is configured. Unit coverage alone is not a substitute for this
 acceptance gate.
+
+The live run covered all read, review, Actions, and merge-blocker behaviors
+listed above, including a real line-level review, requested-changes review,
+failed Check Run, cancellation, force-cancellation, and dirty merge state. See
+`docs/GITHUB_LIVE_ACCEPTANCE.md` and
+`evaluation/github-live-acceptance.json`. The available GitHub CLI credential
+was a broad classic PAT, so this evidence is intentionally marked `partial`
+until the same suite is repeated with the required fine-grained token.
 
 ## Priority 1: Broaden Deployment Verification
 

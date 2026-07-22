@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "executedAt": "2026-07-22T00:44:44Z",
+  "repository": "lixiang12345/test",
+  "defaultBranch": "main",
+  "pullRequest": {
+    "number": 1,
+    "url": "https://github.com/lixiang12345/test/pull/1",
+    "headBranch": "codeagent/live-acceptance-20260722",
+    "testedReviewHeadSha": "2d15faf0c9fe8f864157a35b8e8ee9d1a7f0f2f1",
+    "conflictingHeadSha": "ce192502d86a30f943e7df6e96f85d689ff7551e",
+    "finalState": "open"
+  },
+  "githubApiVersion": "2022-11-28",
+  "credential": {
+    "source": "GitHub CLI keyring",
+    "type": "classic-personal-access-token",
+    "tokenRecorded": false,
+    "leastPrivilegeCompliant": false,
+    "oauthScopes": [
+      "admin:enterprise",
+      "admin:gpg_key",
+      "admin:org",
+      "admin:org_hook",
+      "admin:public_key",
+      "admin:repo_hook",
+      "admin:ssh_signing_key",
+      "audit_log",
+      "codespace",
+      "copilot",
+      "delete:packages",
+      "delete_repo",
+      "gist",
+      "notifications",
+      "project",
+      "repo",
+      "user",
+      "workflow",
+      "write:discussion",
+      "write:network_configurations",
+      "write:packages"
+    ],
+    "acceptedRepositoryScope": "repo"
+  },
+  "repositoryPolicy": {
+    "strictRequiredStatusChecks": [
+      "acceptance"
+    ],
+    "requiredApprovals": 1,
+    "dismissStaleReviews": true,
+    "requiredConversationResolution": true,
+    "enforceAdmins": true,
+    "ruleset": {
+      "id": 19503691,
+      "name": "CodeAgent acceptance policy",
+      "enforcement": "active"
+    }
+  },
+  "requestOutcomes": {
+    "pullRequestRead": "pass",
+    "filesAndCommitsRead": "pass",
+    "reviewsAndLineCommentsRead": "pass",
+    "discussionCommentsRead": "pass",
+    "headShaCheckRunsRead": "pass",
+    "workflowRunsAndJobsRead": "pass",
+    "failedStepsRead": "pass",
+    "temporaryLogRedirectRead": "pass-no-url-recorded",
+    "branchProtectionRead": "pass",
+    "repositoryRulesetsRead": "pass",
+    "mergeReadinessRead": "pass",
+    "lineLevelCommentReview": "pass-original-head-and-line-4",
+    "discussionCommentMutation": "pass",
+    "rerunWorkflow": "pass",
+    "rerunFailedJobs": "pass",
+    "rerunSingleJob": "pass",
+    "cancelWorkflow": "pass",
+    "forceCancelWorkflow": "pass",
+    "staleHeadBlocked": "pass",
+    "draftBlocked": "pass",
+    "requestedChangesBlocked": "pass",
+    "insufficientApprovalsBlocked": "pass",
+    "missingRequiredCheckBlocked": "pass",
+    "failedRequiredCheckBlocked": "pass",
+    "dirtyMergeBlocked": "pass",
+    "requiredConversationResolutionBlocked": "pass"
+  },
+  "workflowEvidence": {
+    "successfulRequiredCheckRun": 29880838124,
+    "failedRequiredCheckRun": 29880798951,
+    "failedWorkflowRerun": 29880612876,
+    "cancelledWorkflowRun": 29880654806,
+    "forceCancelledWorkflowRun": 29880688308,
+    "requestedChangesWorkflowRun": 29880959207
+  },
+  "gate": {
+    "liveApiBehavior": "pass",
+    "leastPrivilegeCredential": "blocked",
+    "overall": "partial",
+    "remainingRequirement": "Repeat the same suite with a repository-scoped fine-grained token and record its exact repository permissions."
+  }
+}

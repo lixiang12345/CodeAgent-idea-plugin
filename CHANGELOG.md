@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added sanitized live GitHub acceptance evidence for PR reads, line-level review, Actions controls, branch policy, rulesets, and merge blockers against a disposable repository; least-privilege token acceptance remains explicitly partial.
 - Added request-level long-conversation navigation, bottom-aware auto-follow, generation controls, active thread status, and persisted unread reply cursors that survive cloud-history merges.
 - Added Playwright product-alignment coverage with 360/420/640 px viewport checks and visual references for the Agent workspace, Threads, Agent Edits, Tasks, MCP Settings, and mutation approval.
 - Added a machine-readable prototype-parity contract and CI/release gate for IDEA registrations, Settings, tool catalogs, OpenAPI paths, bridge commands, and evidence ownership.

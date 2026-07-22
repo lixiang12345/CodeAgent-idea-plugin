@@ -79,6 +79,7 @@ cd sidecar && npm test && cd ..
 cd backend && npm test && cd ..
 cd vendor/context-engine && npm test && npm run build && cd ../..
 node scripts/evaluate-parity.mjs
+node scripts/validate-github-live-evidence.mjs
 node scripts/evaluate-retrieval.mjs
 ./gradlew test buildPlugin verifyPlugin
 ```
@@ -89,6 +90,11 @@ commands, and evidence files. It writes
 `build/reports/prototype-parity.json`; see the
 [parity evaluation guide](docs/PROTOTYPE_PARITY_EVALUATION.md) before changing
 expected values.
+
+The GitHub evidence validator checks the committed, sanitized live-acceptance
+record for complete outcomes, consistent partial/pass credential status, and
+accidental PAT, authorization-header, or temporary-log URL disclosure. See the
+[live acceptance evidence](docs/GITHUB_LIVE_ACCEPTANCE.md).
 
 The Playwright suite runs the deterministic browser development host at 360,
 420, and 640 px widths. It compares committed screenshots for the main Agent

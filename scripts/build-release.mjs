@@ -104,6 +104,7 @@ function main() {
   run("npm", ["test", "--prefix", "vendor/context-engine"]);
   run("npm", ["run", "build", "--prefix", "vendor/context-engine"]);
   run(process.execPath, ["scripts/evaluate-parity.mjs"]);
+  run(process.execPath, ["scripts/validate-github-live-evidence.mjs"]);
   run(process.execPath, ["scripts/evaluate-retrieval.mjs"]);
   run("./gradlew", [
     "clean",
