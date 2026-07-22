@@ -237,6 +237,26 @@ Cancel, edit-and-resend, later-history removal, original-content resend,
 adaptive Composer height, and viewport integrity at 360, 420, and 640 px. A
 canonical 420 px reference records the inline edit state.
 
+### Message Queue Lifecycle Alignment
+
+**Status:** implemented on 2026-07-23.
+
+Queued prompts now belong to their local conversation instead of a transient
+global Bridge list. The composer-adjacent panel matches the original workflow:
+it provides an expandable FIFO list, collapsed next-message preview,
+pause/resume, in-composer editing with Enter/Escape, delete, and Send now.
+Normal Enter queues while a run or queue is active; Command/Ctrl+Enter and Send
+now interrupt the current generation without discarding the remaining queue.
+Stop preserves all queued prompts and pauses automatic drain.
+
+The JVM persists at most ten bounded prompts per thread and isolates them across
+thread switches. Restored queues always start paused after an IDE restart so
+stale work cannot execute without a new user action; queue state remains local
+and is not uploaded with cloud conversation history. Kotlin tests cover FIFO,
+editing, removal, thread isolation, persistence, and restart pause behavior.
+Playwright covers the full lifecycle and viewport integrity at 360, 420, and
+640 px, with a canonical paused-queue reference at 420 px.
+
 ### Long-Conversation Product Alignment
 
 **Status:** implemented on 2026-07-22.
@@ -245,7 +265,7 @@ Conversation items are grouped into request boundaries using the public
 `runId`, `turnIndex`, and timeline sequence fields. The tool window exposes
 previous/next request navigation, a current request count, and a jump-to-latest
 control that appears only while the reader is away from the bottom. Incoming
-tool, approval, queue, and response updates auto-follow only when the reader was
+tool, approval, and response updates auto-follow only when the reader was
 already at the latest content. The Threads drawer derives running, approval,
 and failed indicators for the active thread, plus unread reply counts backed by
 a persisted per-thread timeline cursor. Reaching the latest content marks only
@@ -265,7 +285,7 @@ preservation, and responsive behavior at 360, 420, and 640 px. A canonical
 The Playwright suite runs the deterministic frontend host at 360, 420, and 640
 px. It checks viewport integrity and committed visual references for the main
 Agent workspace, Context Window Usage, Threads with unread state,
-long-conversation navigation, Agent Edits, Tasks, MCP Settings, explicit
+Message Queue lifecycle, long-conversation navigation, Agent Edits, Tasks, MCP Settings, explicit
 mutation approval, and specialized file/search/Web/integration/task/subagent/
 diagnostics result cards. CI and
 release verification upload the HTML report, failure screenshots, video, and

@@ -78,8 +78,12 @@ Transport:
 | `bootstrap` | none | `snapshot` + health/models refresh |
 | `sendMessage` | `{ text: string, mode: "agent"\|"chat"\|"ask" }` | run starts; stream via events |
 | `queueMessage` | `{ text: string, mode }` | `snapshot` with queue |
+| `sendMessageNow` | `{ text: string, mode }` | interrupt current run and start priority message |
+| `updateQueuedMessage` | `{ messageId: string, text: string }` | `snapshot` with updated queue item |
+| `setMessageQueuePaused` | `{ paused: boolean }` | pause or resume FIFO queue drain |
+| `sendQueuedMessageNow` | `{ messageId: string }` | interrupt current run and start selected queue item |
 | `removeQueuedMessage` | `{ messageId: string }` | `snapshot` |
-| `cancelRun` | none | `snapshot` runState idle |
+| `cancelRun` | none | `snapshot` runState idle; queued prompts retained and paused |
 | `setMode` | `{ mode }` | `snapshot` |
 | `selectModel` | `{ modelId: string }` | `snapshot.models` |
 | `newThread` | `{ mode?: string }` | `snapshot` |
@@ -158,6 +162,7 @@ Errors for failed commands: event `error` with `{ message: string }`.
 | `threads` | `ThreadSummary[]` | Thread list |
 | `tasks` | `TaskItem[]` | Active thread tasks |
 | `messageQueue` | `QueuedMessage[]` | Queued prompts |
+| `messageQueuePaused` | boolean | Whether automatic FIFO queue drain is paused |
 | `attachments` | `ContextItem[]` | Composer chips |
 | `settings` | object | Backend/context connection settings plus chatZoom, showTimestamps, showRunTelemetry, desktopNotifications, and autoDismissNotifications |
 | `account` | object | authentication state, identity, session mode, usage, and label |

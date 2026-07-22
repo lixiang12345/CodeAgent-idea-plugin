@@ -4,6 +4,7 @@
   import ConfigurationSettings from "./lib/ConfigurationSettings.svelte";
   import ContextUsageModal from "./lib/ContextUsageModal.svelte";
   import MarkdownMessage from "./lib/MarkdownMessage.svelte";
+  import MessageQueuePanel from "./lib/MessageQueuePanel.svelte";
   import MermaidCanvas from "./lib/MermaidCanvas.svelte";
   import ToolDetails from "./lib/ToolDetails.svelte";
   import { ICON_NAMES } from "./lib/icons";
@@ -90,6 +91,8 @@
   let composerTextarea: HTMLTextAreaElement | null = null;
   let editingMessageId: string | null = null;
   let editingMessageText = "";
+  let editingQueuedMessageId: string | null = null;
+  let resumeQueueAfterQueuedEdit = false;
   type WorkspaceView = "chat" | "settings" | "mermaid" | "git" | "tasks" | "jobs" | "images" | "tools" | "icons" | "edits" | "feedback";
   let currentView: WorkspaceView = "chat";
   let settingsSection = "Home";
@@ -310,6 +313,9 @@
       }
       if (editingMessageId && nextSnapshot.messages.every((message) => message.id !== editingMessageId)) {
         cancelMessageEdit();
+      }
+      if (editingQueuedMessageId && nextSnapshot.messageQueue.every((message) => message.id !== editingQueuedMessageId)) {
+        cancelQueuedMessageEdit(!threadChanged);
       }
       pendingThreadDeletes = new Set();
       if (pendingReadThreadId) {
@@ -561,7 +567,11 @@
     confirmingThreadGroupDelete = null;
   }
 
-  function submit() {
+  function submit(immediate = false) {
+    if (editingQueuedMessageId) {
+      applyQueuedMessageEdit();
+      return;
+    }
     const text = prompt.trim();
     if (!text || !snapshot) return;
     if (runLocalSlash(text)) {
@@ -569,8 +579,9 @@
       return;
     }
     const busy = isBusy(snapshot);
+    const willQueue = !immediate && (busy || snapshot.messageQueue.length > 0);
     const clientMessageId = crypto.randomUUID();
-    if (!busy) {
+    if (!busy && !willQueue) {
       const optimisticMessage: ChatMessage = {
         id: clientMessageId,
         role: "user",
@@ -584,7 +595,68 @@
     closeMenus();
     forceConversationFollow = true;
     scrollConversationToBottom(true);
-    sendCommand(busy ? "queueMessage" : "sendMessage", { text, mode: snapshot.mode, clientMessageId });
+    sendCommand(immediate ? "sendMessageNow" : willQueue ? "queueMessage" : "sendMessage", {
+      text,
+      mode: snapshot.mode,
+      clientMessageId,
+    });
+  }
+
+  function beginQueuedMessageEdit(message: AppSnapshot["messageQueue"][number]) {
+    if (!snapshot) return;
+    editingQueuedMessageId = message.id;
+    resumeQueueAfterQueuedEdit = !snapshot.messageQueuePaused;
+    if (resumeQueueAfterQueuedEdit) sendCommand("setMessageQueuePaused", { paused: true });
+    prompt = message.text;
+    closeMenus();
+    void tick().then(() => {
+      resizeComposer();
+      composerTextarea?.focus();
+      composerTextarea?.setSelectionRange(composerTextarea.value.length, composerTextarea.value.length);
+    });
+  }
+
+  function clearQueuedMessageEdit() {
+    editingQueuedMessageId = null;
+    resumeQueueAfterQueuedEdit = false;
+    prompt = "";
+    void tick().then(() => {
+      resizeComposer();
+      composerTextarea?.focus();
+    });
+  }
+
+  function cancelQueuedMessageEdit(resumeQueue = true) {
+    const shouldResume = resumeQueue && resumeQueueAfterQueuedEdit;
+    clearQueuedMessageEdit();
+    if (shouldResume) sendCommand("setMessageQueuePaused", { paused: false });
+  }
+
+  function applyQueuedMessageEdit() {
+    const text = prompt.trim();
+    if (!editingQueuedMessageId || !text) return;
+    const messageId = editingQueuedMessageId;
+    const resumeQueue = resumeQueueAfterQueuedEdit;
+    clearQueuedMessageEdit();
+    sendCommand("updateQueuedMessage", { messageId, text, resumeQueue });
+  }
+
+  function deleteQueuedMessage(message: AppSnapshot["messageQueue"][number]) {
+    const wasEditing = editingQueuedMessageId === message.id;
+    const resumeQueue = wasEditing && resumeQueueAfterQueuedEdit;
+    if (wasEditing) clearQueuedMessageEdit();
+    sendCommand("removeQueuedMessage", { messageId: message.id, resumeQueue });
+  }
+
+  function sendQueuedMessageNow(message: AppSnapshot["messageQueue"][number]) {
+    if (editingQueuedMessageId === message.id) cancelQueuedMessageEdit();
+    forceConversationFollow = true;
+    sendCommand("sendQueuedMessageNow", { messageId: message.id });
+  }
+
+  function cancelRun() {
+    if (editingQueuedMessageId) resumeQueueAfterQueuedEdit = false;
+    sendCommand("cancelRun");
   }
 
   function beginMessageEdit(message: ChatMessage) {
@@ -1425,6 +1497,45 @@
     toolsExpanded = next;
   }
 
+  type TurnSummaryEntry = { icon: string; value: number; singular: string; plural: string };
+
+  // Runtime ToolRun.name values are the backend's snake_case tool names (the
+  // same vocabulary toolIcons/toolTitle switch on), not the catalog ids.
+  const CHANGE_TOOL_NAMES = new Set(["replace_text", "write_file"]);
+  const EXAMINE_TOOL_NAMES = new Set(["read_file", "list_files", "search_text"]);
+  const INDEX_TOOL_NAMES = new Set(["codebase_retrieval"]);
+
+  // Mirrors the original plugin's per-turn c-turn-summary strip: a compact,
+  // completed-turn recap counting changed/examined/indexed files, total tools,
+  // and elapsed seconds. Categories are derived from CodeAgent's own ToolRun
+  // records rather than the cloud service's private telemetry.
+  function turnSummary(tools: ToolRun[]): TurnSummaryEntry[] {
+    const settled = tools.filter((tool) => tool.status !== "running" && tool.status !== "approval");
+    if (settled.length === 0) return [];
+    const distinctPaths = (predicate: (tool: ToolRun) => boolean) => {
+      const paths = new Set<string>();
+      settled.forEach((tool) => {
+        if (predicate(tool) && tool.changePath) paths.add(tool.changePath);
+      });
+      return paths.size;
+    };
+    const changed = distinctPaths((tool) => CHANGE_TOOL_NAMES.has(tool.name));
+    const examined = settled.filter((tool) => EXAMINE_TOOL_NAMES.has(tool.name)).length;
+    const indexed = settled.filter((tool) => INDEX_TOOL_NAMES.has(tool.name)).length;
+    const created = tools.map((tool) => tool.createdAt ?? 0).filter((value) => value > 0);
+    const updated = tools.map((tool) => tool.updatedAt ?? tool.createdAt ?? 0).filter((value) => value > 0);
+    const startedAt = created.length > 0 ? Math.min(...created) : 0;
+    const endedAt = updated.length > 0 ? Math.max(...updated) : startedAt;
+    const seconds = endedAt > startedAt ? Math.round((endedAt - startedAt) / 1000) : 0;
+    const entries: TurnSummaryEntry[] = [];
+    if (changed > 0) entries.push({ icon: "file-diff", value: changed, singular: "File Changed", plural: "Files Changed" });
+    if (examined > 0) entries.push({ icon: "file-search-2", value: examined, singular: "File Examined", plural: "Files Examined" });
+    if (indexed > 0) entries.push({ icon: "database", value: indexed, singular: "File Indexed", plural: "Files Indexed" });
+    entries.push({ icon: "wrench", value: settled.length, singular: "Tool Used", plural: "Tools Used" });
+    if (seconds > 0) entries.push({ icon: "clock", value: seconds, singular: "Second", plural: "Seconds" });
+    return entries;
+  }
+
   function hasRunTelemetry(currentSnapshot: AppSnapshot | null) {
     if (!currentSnapshot) return false;
     const telemetry = currentSnapshot.agentRun;
@@ -1932,7 +2043,6 @@
   type TimelineItem =
     | { kind: "user"; message: TimelineMessage; requestIndex?: number }
     | { kind: "assistant"; message: TimelineMessage; requestIndex?: number }
-    | { kind: "queued"; message: AppSnapshot["messageQueue"][number]; position: number; requestIndex?: number }
     | { kind: "tools"; runId?: string; turnIndex: number; tools: ToolRun[]; requestIndex?: number }
     | { kind: "activity"; label: string; phase: AgentRunPhase; requestIndex?: number }
     | { kind: "tasks"; requestIndex?: number };
@@ -1996,7 +2106,6 @@
         phase: currentSnapshot.agentRun.phase,
       });
     }
-    currentSnapshot.messageQueue.forEach((message, index) => items.push({ kind: "queued", message, position: index + 1 }));
     if (currentSnapshot.tasks.length > 0) items.push({ kind: "tasks" });
 
     const requestByRunId = new Map<string, number>();
@@ -2032,7 +2141,10 @@
     return;
   }
   if (handleChatZoomShortcut(event)) return;
-  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") submit();
+  if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && document.activeElement === composerTextarea) {
+    event.preventDefault();
+    submit(true);
+  }
   if (event.key === "Escape") {
     const settingsDrawerWasOpen = currentView === "settings" && settingsNavigationOpen;
     threadDrawerOpen = false;
@@ -2177,7 +2289,7 @@
             </div>
           {:else}
             <div class="message-list">
-              {#each conversationTimeline(snapshot, pendingUserMessages) as item (item.kind === "user" || item.kind === "assistant" || item.kind === "queued" ? item.message.id : item.kind === "tools" ? `tools-${item.runId ?? "legacy"}-${item.turnIndex}` : item.kind)}
+              {#each conversationTimeline(snapshot, pendingUserMessages) as item (item.kind === "user" || item.kind === "assistant" ? item.message.id : item.kind === "tools" ? `tools-${item.runId ?? "legacy"}-${item.turnIndex}` : item.kind)}
                 {#if item.kind === "user"}
                   <article class="user-message request-boundary" data-request-boundary data-request-index={item.requestIndex} data-run-id={item.message.runId}>
                     {#if showTimestamps}<time>{formatTime(item.message.createdAt)}</time>{/if}
@@ -2233,12 +2345,6 @@
                       </div>
                     </section>
                   {/if}
-                {:else if item.kind === "queued"}
-                  <article class="user-message queued-message">
-                    <header><span>Queued</span><span class="queued-position">#{item.position} · sends after the current run</span><Icon name="clock" size={14} /></header>
-                    <div>{item.message.text}</div>
-                    <footer><button title="Remove queued message" onclick={() => sendCommand("removeQueuedMessage", { messageId: item.message.id })}><Icon name="x" size={12} />Remove</button></footer>
-                  </article>
                 {:else if item.kind === "activity"}
                   <div class="generation-status {item.phase}" role="status" aria-live="polite" title={snapshot.agentRun.retryMessage ?? snapshot.agentRun.activeToolNames.join(", ")}><Icon name="circle-dashed" size={13} /><span>{item.label}</span></div>
                 {:else if item.kind === "tools"}
@@ -2286,6 +2392,17 @@
                         </section>
                       {/each}
                     </div>
+                    {#if turnSummary(item.tools).length > 0}
+                      <footer class="turn-summary" aria-label="Turn summary">
+                        {#each turnSummary(item.tools) as entry (entry.singular)}
+                          <span class="turn-summary-item" title={`${entry.value} ${entry.value === 1 ? entry.singular : entry.plural}`}>
+                            <Icon name={entry.icon} size={11} />
+                            <b>{entry.value}</b>
+                            <i>{entry.value === 1 ? entry.singular : entry.plural}</i>
+                          </span>
+                        {/each}
+                      </footer>
+                    {/if}
                   </section>
                 {:else if item.kind === "tasks"}
                   <section class="task-panel">
@@ -2326,7 +2443,7 @@
                   {#if generationMenuOpen}
                     <div class="generation-menu">
                       <header><Icon name="activity" size={13} /><span><strong>{runActivityLabel(snapshot)}</strong><small>{snapshot.agentRun.activeToolNames.join(", ") || "Preparing the next response"}</small></span></header>
-                      <button onclick={() => { sendCommand("cancelRun"); generationMenuOpen = false; }}><Icon name="square" size={11} />Stop generation</button>
+                      <button onclick={() => { cancelRun(); generationMenuOpen = false; }}><Icon name="square" size={11} />Stop generation</button>
                       <button onclick={jumpToLatest}><Icon name="arrow-down" size={12} />Jump to latest</button>
                     </div>
                   {/if}
@@ -2374,6 +2491,16 @@
               <button class="chip" onclick={() => sendCommand("pickContext")}><Icon name="plus" size={12} /> context</button>
             </div>
           {/if}
+          <MessageQueuePanel
+            messages={snapshot.messageQueue}
+            paused={snapshot.messageQueuePaused}
+            editingMessageId={editingQueuedMessageId}
+            onpausechange={(paused) => sendCommand("setMessageQueuePaused", { paused })}
+            onedit={beginQueuedMessageEdit}
+            onsendnow={sendQueuedMessageNow}
+            ondelete={deleteQueuedMessage}
+            oncancel={cancelQueuedMessageEdit}
+          />
           <div class="composer comp" class:busy={isBusy(snapshot)}>
             {#if snapshot.mode === "ask"}
               <div class="ask-badge"><Icon name="message-circle" size={12} /> Ask Mode (read-only)<button class="icon-button compact" title="Switch to Agent" onclick={() => setMode("agent")}><Icon name="x" size={11} /></button></div>
@@ -2421,7 +2548,7 @@
             <textarea
               bind:this={composerTextarea}
               bind:value={prompt}
-              placeholder="Type a message or command..."
+              placeholder={editingQueuedMessageId ? "Edit queued message..." : "Type a message or command..."}
               oninput={() => {
                 resizeComposer();
                 if (prompt.startsWith("/")) {
@@ -2432,8 +2559,20 @@
                 }
               }}
               onkeydown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); }
-                if (event.key === "Escape") { slashOpen = false; atOpen = false; }
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  submit((event.metaKey || event.ctrlKey) && !editingQueuedMessageId);
+                }
+                if (event.key === "Escape") {
+                  if (editingQueuedMessageId) {
+                    event.preventDefault();
+                    cancelQueuedMessageEdit();
+                  } else {
+                    slashOpen = false;
+                    atOpen = false;
+                  }
+                }
               }}
             ></textarea>
             <div class="composer-toolbar abar">
@@ -2551,11 +2690,13 @@
               </div>
               <span class="toolbar-spacer sp"></span>
               <button class="auto-toggle" class:active={autoApproveReadOnly} title={autoApproveReadOnly ? "Auto ON — read-only tools run without approval" : "Auto OFF — require approval for most commands"} onclick={toggleAutoRun}><span class="auto-label">Auto </span>{autoApproveReadOnly ? "ON" : "OFF"}</button>
-              {#if isBusy(snapshot)}
-                <button class="send-button queue-send" title="Queue message" disabled={!prompt.trim()} onclick={submit}><Icon name="send-horizontal" size={13} /></button>
-                <button class="send-button stop" title="Stop" onclick={() => sendCommand("cancelRun")}><Icon name="square" size={13} /></button>
+              {#if editingQueuedMessageId}
+                <button class="send-button apply" title="Apply queued edit" aria-label="Apply queued edit" disabled={!prompt.trim()} onclick={applyQueuedMessageEdit}><Icon name="check" size={14} /></button>
+              {:else if isBusy(snapshot)}
+                <button class="send-button queue-send" title="Queue message" disabled={!prompt.trim()} onclick={() => submit()}><Icon name="send-horizontal" size={13} /></button>
+                <button class="send-button stop" title="Stop" onclick={cancelRun}><Icon name="square" size={13} /></button>
               {:else}
-                <button class="send-button" title="Send" disabled={!prompt.trim()} onclick={submit}><Icon name="send-horizontal" size={15} /></button>
+                <button class="send-button" title="Send" disabled={!prompt.trim()} onclick={() => submit()}><Icon name="send-horizontal" size={15} /></button>
               {/if}
             </div>
           </div>

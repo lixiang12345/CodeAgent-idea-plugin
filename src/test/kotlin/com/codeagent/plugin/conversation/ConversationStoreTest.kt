@@ -2,6 +2,7 @@ package com.codeagent.plugin.conversation
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -151,6 +152,97 @@ class ConversationStoreTest {
         restored.addMessage("user", "Recalculate after this request")
         assertEquals(null, restored.contextUsage(first.id))
         assertEquals(2_000, restored.contextUsage(second.id)?.estimatedInputTokens)
+    }
+
+    @Test
+    fun `persists bounded message queues per thread and pauses them after restart`() {
+        val store = ConversationStore()
+        val first = store.active()
+        store.enqueueMessage(ConversationQueuedMessage("queue-1", "Run focused tests", "agent"))
+        store.enqueueMessage(ConversationQueuedMessage("queue-2", "Review the result", "ask"))
+        store.updateQueuedMessage("queue-2", "Review the final result")
+
+        assertEquals(listOf("queue-1", "queue-2"), store.messageQueue().messages.map { it.id })
+        assertEquals("Review the final result", store.messageQueue().messages.last().text)
+        assertFalse(store.messageQueue().paused)
+
+        val second = store.newThread("chat")
+        assertTrue(store.messageQueue().messages.isEmpty())
+        assertTrue(store.messageQueue(first.id).paused)
+        store.enqueueMessage(ConversationQueuedMessage("queue-3", "Summarize the change", "chat"))
+        store.setMessageQueuePaused(true)
+
+        store.select(first.id)
+        assertEquals(listOf("queue-1", "queue-2"), store.messageQueue().messages.map { it.id })
+        assertEquals(listOf("queue-3"), store.messageQueue(second.id).messages.map { it.id })
+
+        val restored = ConversationStore()
+        restored.loadState(store.state)
+        assertTrue(restored.messageQueue(first.id).paused)
+        assertTrue(restored.messageQueue(second.id).paused)
+    }
+
+    @Test
+    fun `message queue pause and dequeue operations preserve FIFO without losing failed starts`() {
+        val store = ConversationStore()
+        val first = ConversationQueuedMessage("queue-1", "First", "agent")
+        val second = ConversationQueuedMessage("queue-2", "Second", "chat")
+        store.enqueueMessage(first)
+        store.enqueueMessage(second)
+
+        store.setMessageQueuePaused(true)
+        assertEquals(null, store.takeNextQueuedMessage())
+        store.setMessageQueuePaused(false)
+        assertEquals(first, store.takeNextQueuedMessage())
+        assertEquals(listOf(second), store.messageQueue().messages)
+
+        store.requeueMessageFirst(first)
+        assertEquals(listOf(first, second), store.messageQueue().messages)
+        assertEquals(second, store.removeQueuedMessage(second.id))
+        assertEquals(first, store.takeNextQueuedMessage())
+        assertTrue(store.messageQueue().messages.isEmpty())
+        assertFalse(store.messageQueue().paused)
+    }
+
+    @Test
+    fun `message queue enforces bounded valid prompts`() {
+        val store = ConversationStore()
+        repeat(10) { index ->
+            store.enqueueMessage(ConversationQueuedMessage("queue-$index", "Prompt $index", "agent"))
+        }
+
+        assertFailsWith<IllegalArgumentException> {
+            store.enqueueMessage(ConversationQueuedMessage("queue-overflow", "Overflow", "agent"))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            store.updateQueuedMessage("queue-0", "   ")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            ConversationStore().enqueueMessage(ConversationQueuedMessage("queue-invalid", "Prompt", "invalid"))
+        }
+    }
+
+    @Test
+    fun `cloud history replacement preserves local queue and context telemetry`() {
+        val store = ConversationStore()
+        val local = store.active()
+        store.enqueueMessage(ConversationQueuedMessage("queue-local", "Run local verification", "agent"))
+        store.setMessageQueuePaused(true)
+        store.setContextUsage(ConversationContextUsage(contextWindowTokens = 128_000, estimatedInputTokens = 12_000))
+
+        store.mergeCloudSnapshot(
+            listOf(
+                local.copy(
+                    title = "Cloud title",
+                    updatedAt = local.updatedAt + 1_000,
+                    messages = listOf(ConversationMessage("cloud-user", "user", "Cloud history", local.updatedAt + 500)),
+                ),
+            ),
+        )
+
+        assertEquals(listOf("queue-local"), store.messageQueue().messages.map { it.id })
+        assertTrue(store.messageQueue().paused)
+        assertEquals(12_000, store.contextUsage(local.id)?.estimatedInputTokens)
     }
 
     @Test

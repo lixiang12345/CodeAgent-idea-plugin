@@ -173,6 +173,21 @@ class BridgeProtocolTest {
     }
 
     @Test
+    fun `encodes paused message queue state in the application snapshot`() {
+        val encoded = json.encodeToString(
+            AppSnapshotDto(
+                projectName = "sample-project",
+                threads = emptyList(),
+                messageQueue = listOf(QueuedMessageDto("queue-1", "Run tests", "agent")),
+                messageQueuePaused = true,
+            ),
+        )
+
+        assertTrue(encoded.contains("\"messageQueue\":[{\"id\":\"queue-1\""))
+        assertTrue(encoded.contains("\"messageQueuePaused\":true"))
+    }
+
+    @Test
     fun `fresh install targets the local Docker backend`() {
         assertEquals("http://127.0.0.1:8788", DEFAULT_BACKEND_URL)
         assertEquals(DEFAULT_BACKEND_URL, CodeAgentSettingsState().backendUrl)

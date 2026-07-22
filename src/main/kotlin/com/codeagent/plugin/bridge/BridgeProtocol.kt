@@ -568,6 +568,7 @@ data class AppSnapshotDto(
     val threads: List<ThreadSummaryDto>,
     val tasks: List<TaskDto> = emptyList(),
     val messageQueue: List<QueuedMessageDto> = emptyList(),
+    val messageQueuePaused: Boolean = false,
     val attachments: List<ContextItemDto> = emptyList(),
     val settings: SettingsSnapshotDto = SettingsSnapshotDto(),
     val account: AccountSnapshotDto = AccountSnapshotDto(),

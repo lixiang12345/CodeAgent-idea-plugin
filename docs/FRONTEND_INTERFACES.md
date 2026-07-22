@@ -17,8 +17,12 @@ Envelope version: `1`
 | `bootstrap` | — | Emit full snapshot + health/models refresh |
 | `sendMessage` | `{ text, mode }` | Start agent run or fail if invalid |
 | `queueMessage` | `{ text, mode }` | Queue while busy |
+| `sendMessageNow` | `{ text, mode }` | Interrupt the active run and start this composer message without discarding the queue |
+| `updateQueuedMessage` | `{ messageId, text }` | Update one queued prompt in place |
+| `setMessageQueuePaused` | `{ paused }` | Pause automatic queue drain or resume FIFO execution |
+| `sendQueuedMessageNow` | `{ messageId }` | Remove one queued prompt, interrupt the active run, and start it immediately |
 | `removeQueuedMessage` | `{ messageId }` | Drop queued item |
-| `cancelRun` | — | Abort active run |
+| `cancelRun` | — | Abort the active run and pause any queued prompts without deleting them |
 | `setMode` | `{ mode }` | `agent` \| `chat` \| `ask` |
 | `selectModel` | `{ modelId }` | Persist per-thread model |
 | `newThread` | `{ mode? }` | Create + activate thread |
@@ -64,7 +68,7 @@ Envelope version: `1`
 
 ## 2. AppSnapshot (UI model)
 
-Core fields: `projectName`, `mode`, `runState`, `messages[]`, `tools[]`, `threads[]`, `tasks[]`, `messageQueue[]`, `attachments[]`, `settings`, `context`, `backendHealth`, `models`, `customization`. Assistant messages and tool runs include persisted run/turn identity where available. Tool records carry `createdAt` and `updatedAt` so restored cards retain start time and duration.
+Core fields: `projectName`, `mode`, `runState`, `messages[]`, `tools[]`, `threads[]`, `tasks[]`, `messageQueue[]`, `messageQueuePaused`, `attachments[]`, `settings`, `context`, `backendHealth`, `models`, `customization`. Assistant messages and tool runs include persisted run/turn identity where available. Tool records carry `createdAt` and `updatedAt` so restored cards retain start time and duration. Message queues are local, per-thread state and restore paused after an IDE restart.
 
 Tool card statuses: `running` \| `approval` \| `completed` \| `failed` \| `rejected`.
 

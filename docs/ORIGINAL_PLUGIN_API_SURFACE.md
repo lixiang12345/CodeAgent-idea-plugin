@@ -310,7 +310,7 @@ Extracted action-type strings from `Store-*.js` (subset of product domains).
 | Sidecar `/api/acp/*` | 9 routes | **Implemented by the ACP v1 sidecar runtime** (official SDK, stdio agents, sessions, prompt/update/cancel) |
 | Cloud chat-stream + node-typed requests | large DTO graph | **Replaced** by `POST /v1/runs` + simple messages[] |
 | Remote tools / MCP / OAuth / billing | large | **Typed backend tools plus managed MCP and provider OAuth; billing remains backend/account dependent** |
-| Completions ACP | 3 routes + rich recency blobs | **Inline completion is implemented with bounded context, LRU/TTL cache, install listener, element manipulator, cancellation, and telemetry** |
+| Completions ACP | 3 routes + rich recency blobs | **Inline completion is implemented with bounded context, LRU/TTL cache, install listener, element manipulator, cancellation, telemetry, an enable toggle, and the original comma-separated Disable Completion By Language extension filter** |
 | Webview `tools/*` state machine | 30+ actions | **Collapsed** into `ToolRun` statuses + approvals |
 | `postToolUseMessagesByToolId` | first-class | **Implemented by run/turn identity**: each model turn persists as its own assistant message and is interleaved with the tool batch by stable timeline sequence |
 | History load/save/delete cloud | request/response pairs | **Implemented** with account-isolated backend persistence, local-first debounced synchronization, optimistic-version conflict resolution, deletion tombstones, explicit recovery, and Markdown import/export |
