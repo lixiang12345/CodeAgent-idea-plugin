@@ -165,6 +165,14 @@ data class CheckpointSummaryDto(
     val createdAt: Long,
     val changeCount: Int,
     val paths: List<String> = emptyList(),
+    val files: List<CheckpointFileSummaryDto> = emptyList(),
+)
+
+@Serializable
+data class CheckpointFileSummaryDto(
+    val path: String,
+    val added: Int,
+    val removed: Int,
 )
 
 @Serializable

@@ -3556,11 +3556,17 @@
                       </button>
                       <button onclick={() => sendCommand("restoreCheckpoint", { checkpointId: checkpoint.id })}>Restore</button>
                     </div>
-                    {#if expandedCheckpoints.has(checkpoint.id) && checkpoint.paths.length > 0}
+                    {#if expandedCheckpoints.has(checkpoint.id) && (checkpoint.files?.length || checkpoint.paths.length) > 0}
                       <ul class="checkpoint-files" aria-label="Checkpoint files">
-                        {#each checkpoint.paths as path (path)}
-                          <li><Icon name="file" size={12} /><span title={path}>{path}</span></li>
-                        {/each}
+                        {#if checkpoint.files?.length}
+                          {#each checkpoint.files as file (file.path)}
+                            <li><Icon name="file" size={12} /><span title={file.path}>{file.path}</span><span class="checkpoint-file-stats">{#if file.added > 0}<b class="added">+{file.added}</b>{/if}{#if file.removed > 0}<b class="removed">-{file.removed}</b>{/if}</span></li>
+                          {/each}
+                        {:else}
+                          {#each checkpoint.paths as path (path)}
+                            <li><Icon name="file" size={12} /><span title={path}>{path}</span></li>
+                          {/each}
+                        {/if}
                       </ul>
                     {/if}
                   {/each}

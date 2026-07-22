@@ -1325,6 +1325,10 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       createdAt: Date.now(),
       changeCount: 2,
       paths: ["src/main/java/com/example/auth/AuthController.java", "src/main/java/com/example/auth/TokenService.java"],
+      files: [
+        { path: "src/main/java/com/example/auth/AuthController.java", added: 12, removed: 3 },
+        { path: "src/main/java/com/example/auth/TokenService.java", added: 5, removed: 0 },
+      ],
     }]);
     return;
   }

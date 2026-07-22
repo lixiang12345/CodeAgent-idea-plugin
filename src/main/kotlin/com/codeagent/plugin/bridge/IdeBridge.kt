@@ -3127,6 +3127,7 @@ class IdeBridge(
         createdAt = createdAt,
         changeCount = changeCount,
         paths = paths,
+        files = files.map { CheckpointFileSummaryDto(path = it.path, added = it.added, removed = it.removed) },
     )
 
     @Serializable

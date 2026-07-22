@@ -212,12 +212,38 @@ class ChangeReviewService(private val project: Project) {
             createdAt = createdAt,
             changeCount = changes.size,
             paths = changes.map { it.change.path }.distinct(),
+            files = changes
+                .groupBy { it.change.path }
+                // A tool may touch the same path more than once in a turn; keep the
+                // last recorded change so the summary reflects the checkpointed state.
+                .map { (path, group) -> lineChangeSummary(path, group.last().change) },
         )
     }
 
     companion object {
         private const val MAX_CHANGES = 100
         private const val MAX_CHECKPOINTS = 20
+
+        // Counts added/removed lines between the recorded before/after content so the
+        // UI can show a per-file diff summary without reopening each change. New files
+        // count every line as added; deletions count every prior line as removed.
+        internal fun lineChangeSummary(path: String, change: FileChange): CheckpointFileSummary {
+            val beforeLines = change.before?.let(::splitLines) ?: emptyList()
+            val afterLines = splitLines(change.after)
+            val beforeCounts = beforeLines.groupingBy { it }.eachCount()
+            val afterCounts = afterLines.groupingBy { it }.eachCount()
+            val keys = beforeCounts.keys + afterCounts.keys
+            var added = 0
+            var removed = 0
+            for (key in keys) {
+                val delta = (afterCounts[key] ?: 0) - (beforeCounts[key] ?: 0)
+                if (delta > 0) added += delta else if (delta < 0) removed += -delta
+            }
+            return CheckpointFileSummary(path = path, added = added, removed = removed)
+        }
+
+        private fun splitLines(text: String): List<String> =
+            if (text.isEmpty()) emptyList() else text.split("\n")
     }
 }
 
@@ -227,4 +253,11 @@ data class CheckpointSummary(
     val createdAt: Long,
     val changeCount: Int,
     val paths: List<String>,
+    val files: List<CheckpointFileSummary> = emptyList(),
+)
+
+data class CheckpointFileSummary(
+    val path: String,
+    val added: Int,
+    val removed: Int,
 )
