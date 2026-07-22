@@ -264,6 +264,13 @@ internal class WorkspaceGuidanceLoader(private val projectRoot: Path?) {
         buildList {
             readGuidanceFile(root, root.resolve("AGENTS.md"))?.let { add("AGENTS.md:\n$it") }
             readGuidanceFile(root, root.resolve(".codeagent/guidelines.md"))?.let { add("Workspace guidelines:\n$it") }
+            // Honor rule files authored for other AI coding tools so migrating
+            // projects keep their existing guidance without a manual copy. These
+            // layer last, as lower-priority workspace context after CodeAgent's
+            // own instruction files.
+            for ((relative, label) in FOREIGN_RULE_FILES) {
+                readGuidanceFile(root, root.resolve(relative))?.let { add("$label:\n$it") }
+            }
         }.joinToString("\n\n").trim().take(MAX_GUIDANCE_CHARS).takeIf(String::isNotEmpty)
     }.getOrNull()
 
@@ -276,5 +283,16 @@ internal class WorkspaceGuidanceLoader(private val projectRoot: Path?) {
 
     companion object {
         private const val MAX_GUIDANCE_CHARS = 16_000
+
+        // Common instruction files written by other AI coding tools. When present
+        // in a project, CodeAgent layers them into lower-priority workspace context
+        // so users migrating from those tools keep their existing rules honored.
+        private val FOREIGN_RULE_FILES = listOf(
+            "CLAUDE.md" to "CLAUDE.md",
+            ".cursorrules" to "Cursor rules",
+            ".windsurfrules" to "Windsurf rules",
+            ".clinerules" to "Cline rules",
+            ".github/copilot-instructions.md" to "Copilot instructions",
+        )
     }
 }
