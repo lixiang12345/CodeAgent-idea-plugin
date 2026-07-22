@@ -149,6 +149,18 @@ only across the Webview-to-JVM bridge; the JVM writes them to JetBrains
 Password Safe and snapshots never contain secret values. A responsive Playwright
 reference covers the Anthropic edit, cancel, save, and redacted configured state.
 
+### Settings Home Index Operations
+
+**Status:** implemented on 2026-07-22.
+
+Project Home now separates the non-mutating index status refresh from an
+explicit full rebuild. The previous Rebuild label incorrectly sent only the
+refresh command once an index existed. The page now renders real ContextEngine
+file/chunk counts, watched roots, pending changes, automatic-run count,
+retrieval mode, watcher state/error, and last-indexed time, with direct paths to
+Rules & Guidelines and Skills. Playwright verifies both index commands and a
+420 px reference covers the completed Home state.
+
 ### Conversation Memory Management
 
 **Status:** implemented on 2026-07-22.

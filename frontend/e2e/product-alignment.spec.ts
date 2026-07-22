@@ -223,6 +223,17 @@ test("Settings exposes connected and conditional capabilities", async ({ page },
   requireReferenceViewport(testInfo);
   await page.getByTitle("Settings").click();
   await expect(page.getByText("Project Home", { exact: true })).toBeVisible();
+  await expect(page.getByText("Codebase Index", { exact: true })).toBeVisible();
+  await expect(page.getByText("Chunks", { exact: true })).toBeVisible();
+  await expect(page.getByText("Roots watched", { exact: true })).toBeVisible();
+  await page.getByTitle("Refresh index status").click();
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.context.state)).toBe("ready");
+  const lastIndexedAt = await page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.context.lastIndexedAt);
+  await page.waitForTimeout(20);
+  await page.getByRole("button", { name: "Rebuild index", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.context.lastIndexedAt)).not.toBe(lastIndexedAt);
+  await expectViewportIntegrity(page);
+  await captureShell(page, "settings-home.png");
   await page.getByRole("button", { name: "All settings" }).click();
   await page.getByRole("button", { name: "MCP Servers", exact: true }).click();
   await expect(page.getByRole("heading", { name: "MCP Servers", exact: true })).toBeVisible();

@@ -1083,9 +1083,12 @@
     sendSettingsUpdate();
   }
 
-  function updateContext() {
-    const state = snapshot?.context.state;
-    sendCommand(state === "not_indexed" || state === "error" || state === "unavailable" ? "indexWorkspace" : "refreshContextIndex");
+  function refreshContextIndex() {
+    sendCommand("refreshContextIndex");
+  }
+
+  function rebuildContextIndex() {
+    sendCommand("indexWorkspace");
   }
 
   function contextIndexState(currentSnapshot: AppSnapshot | null) {
@@ -2080,7 +2083,7 @@
           <button class="chip" title="Open Git workspace" onclick={() => openWorkspaceView("git")}><Icon name="git-branch" size={12} /><span>{snapshot.projectName}</span></button>
           <button class="chip accent" title="Repository guidelines" onclick={() => openSettings("Rules & Guidelines")}><Icon name="book-open" size={12} /><span>Guidelines</span></button>
           <span class="repository-spacer"></span>
-          <button class="chip index-state {contextIndexState(snapshot)}" title={`${contextIndexTitle(snapshot)} · Click to check sync now`} disabled={contextIndexState(snapshot) === "indexing" || contextIndexState(snapshot) === "checking"} onclick={updateContext}>
+          <button class="chip index-state {contextIndexState(snapshot)}" title={`${contextIndexTitle(snapshot)} · Click to check sync now`} disabled={contextIndexState(snapshot) === "indexing" || contextIndexState(snapshot) === "checking"} onclick={refreshContextIndex}>
             <Icon name={snapshot.context.watching ? "refresh-cw" : "database"} size={12} /><span>{contextIndexLabel(snapshot)}</span>
           </button>
         </div>
@@ -2508,17 +2511,29 @@
                 <article><strong>{snapshot.context.files ?? "--"}</strong><span><Icon name="folders" size={12} /> Files indexed</span></article>
                 <article><strong>{snapshot.threads.length}</strong><span><Icon name="wand-sparkles" size={12} /> Threads</span></article>
               </div>
-              <section class="settings-block">
-                <header><strong>Codebase Indexing</strong><button onclick={updateContext}>Rebuild Index</button></header>
-                <p>{snapshot.context.label}</p>
-                {#if snapshot.context.state === "ready"}
-                  <div class="context-signals">
-                    <span><Icon name={snapshot.context.watching ? "refresh-cw" : "pause"} size={11} />{snapshot.context.watching ? "File changes sync automatically" : "Automatic sync unavailable"}</span>
-                    <span><Icon name="folders" size={11} />{snapshot.context.watchedRoots ?? 0}/{snapshot.context.roots ?? 1} roots watched</span>
-                    <span><Icon name={snapshot.context.hasEmbeddings ? "sparkles" : "search"} size={11} />{snapshot.context.hasEmbeddings ? "Hybrid semantic retrieval" : "Lexical and symbol retrieval"}</span>
-                  </div>
-                {/if}
-                <div class="progress"><span class:ready={snapshot.context.state === "ready"}></span></div>
+              <section class="settings-block context-home">
+                <header>
+                  <strong>Codebase Index</strong>
+                  <button title="Refresh index status" aria-label="Refresh index status" disabled={snapshot.context.state === "checking" || snapshot.context.state === "indexing"} onclick={refreshContextIndex}><Icon name="refresh-ccw" size={12} /></button>
+                  <button disabled={snapshot.context.state === "indexing"} onclick={rebuildContextIndex}>Rebuild index</button>
+                </header>
+                <div class="context-home-state">
+                  <span class="service-status {contextIndexState(snapshot)}"></span>
+                  <span><strong>{contextIndexLabel(snapshot)}</strong><small>{snapshot.context.label}</small></span>
+                </div>
+                <div class="progress" class:indexing={contextIndexState(snapshot) === "indexing" || contextIndexState(snapshot) === "checking"}><span class:ready={snapshot.context.state === "ready" && (snapshot.context.pendingChanges ?? 0) === 0}></span></div>
+                <div class="context-home-metrics">
+                  <span><small>Chunks</small><strong>{(snapshot.context.chunks ?? 0).toLocaleString()}</strong></span>
+                  <span><small>Roots watched</small><strong>{snapshot.context.watchedRoots ?? 0}/{snapshot.context.roots ?? 0}</strong></span>
+                  <span><small>Pending changes</small><strong>{snapshot.context.pendingChanges ?? 0}</strong></span>
+                  <span><small>Automatic runs</small><strong>{snapshot.context.automaticIndexRuns ?? 0}</strong></span>
+                </div>
+                <div class="context-signals">
+                  <span><Icon name={snapshot.context.watching ? "refresh-cw" : "pause"} size={11} />{snapshot.context.watching ? "File changes sync automatically" : "Automatic sync unavailable"}</span>
+                  <span><Icon name={snapshot.context.hasEmbeddings ? "sparkles" : "search"} size={11} />{snapshot.context.hasEmbeddings ? "Hybrid semantic retrieval" : "Lexical and symbol retrieval"}</span>
+                  <span><Icon name="clock" size={11} />Last indexed {formatJobTime(snapshot.context.lastIndexedAt)}</span>
+                </div>
+                {#if snapshot.context.watchError}<p class="context-home-error" role="alert">{snapshot.context.watchError}</p>{/if}
               </section>
               <section class="settings-block">
                 <header>
@@ -2533,6 +2548,11 @@
               <section class="settings-block">
                 <header><strong>Workspace</strong></header>
                 <div class="workspace-row"><Icon name="folder" size={15} /><span>{snapshot.projectName}</span><i>active</i></div>
+              </section>
+              <section class="settings-block home-customization">
+                <header><strong>Agent Customization</strong></header>
+                <button onclick={() => chooseSettingsSection("Rules & Guidelines")}><Icon name="pencil-ruler" size={14} /><span><strong>Rules & Guidelines</strong><small>{snapshot.customization.rules.length} rules · workspace guidance {snapshot.customization.guidelines ? "configured" : "empty"}</small></span><Icon name="chevron-right" size={13} /></button>
+                <button onclick={() => chooseSettingsSection("Skills")}><Icon name="wand-sparkles" size={14} /><span><strong>Skills</strong><small>{snapshot.customization.skills.length} available · {snapshot.customization.skills.filter((skill) => skill.selected).length} selected</small></span><Icon name="chevron-right" size={13} /></button>
               </section>
             {:else if settingsSection === "Audit"}
               <div class="section-title">

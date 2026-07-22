@@ -113,6 +113,7 @@ System prompts and provider credentials **never** leave the backend process.
 | Plugins | typed account configuration CRUD plus device-local install, validate, update, uninstall, runtime state, permission display, namespaced command and prompt contributions, and read-only rule/skill context |
 | Account / Subscription | real backend identity, session state, and metered usage; no simulated billing actions |
 | API Keys | Inline per-provider Add/Update forms for OpenAI, Anthropic, and AWS Bedrock; Enter saves, Escape cancels, validation runs before Password Safe writes, and snapshots stay redacted |
+| Settings Home | Live ContextEngine file/chunk/root/sync metrics with separate status refresh and full rebuild commands, plus direct customization navigation |
 | Feature Flags / Beta | read-only live capability and maturity reports |
 | Unconfigured cloud tools | explicit **Not connected** states |
 
