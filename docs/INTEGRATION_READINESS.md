@@ -29,6 +29,14 @@ to be configured:
 node scripts/evaluate-integration-readiness.mjs --strict
 ```
 
+Provider acceptance should normally select one catalog. `--catalog` may be
+repeated and limits both the report and strict result:
+
+```bash
+node scripts/evaluate-integration-readiness.mjs --catalog linear --strict
+node scripts/evaluate-integration-readiness.mjs --catalog jira --catalog confluence --strict
+```
+
 Strict mode still does not perform live provider calls. Live acceptance remains
 a separate, provider-scoped operation requiring an isolated tenant, minimum
 permissions, and explicit mutation approval. The CI and release workflows run

@@ -174,8 +174,9 @@ Rules & Guidelines and Skills. Playwright verifies both index commands and a
 The backend registry now has a credential-safe evaluator that distinguishes
 configured and unavailable adapters without contacting providers. It checks
 the missing-credential 503 contract for all tools, never writes secret values
-to its report, and supports strict mode for a fully provisioned acceptance
-environment. Provider live runs remain a separate gate and are not simulated.
+to its report, and supports catalog-scoped strict mode for independently
+provisioned acceptance environments. Provider live runs remain a separate gate
+and are not simulated.
 
 ### Conversation Memory Management
 

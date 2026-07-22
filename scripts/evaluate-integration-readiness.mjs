@@ -11,12 +11,28 @@ const reportPath = path.join(repositoryRoot, "build", "reports", "integration-re
 const backendEnvPath = path.join(repositoryRoot, "backend", ".env");
 
 function parseArguments(argv) {
-  const strict = argv.includes("--strict");
-  const unknown = argv.filter((argument) => argument !== "--strict");
-  if (unknown.length > 0) {
-    throw new Error(`Unknown argument: ${unknown.join(", ")}`);
+  let strict = false;
+  const catalogIds = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--strict") {
+      strict = true;
+    } else if (argument === "--catalog") {
+      const value = argv[index + 1];
+      if (!value || value.startsWith("--")) throw new Error("--catalog requires a catalog ID");
+      catalogIds.push(value);
+      index += 1;
+    } else if (argument.startsWith("--catalog=")) {
+      catalogIds.push(argument.slice("--catalog=".length));
+    } else {
+      throw new Error(`Unknown argument: ${argument}`);
+    }
   }
-  return { strict };
+  const normalizedCatalogIds = [...new Set(catalogIds.map((value) => value.trim()).filter(Boolean))];
+  if (normalizedCatalogIds.some((value) => !/^[a-z0-9-]+$/.test(value))) {
+    throw new Error("Catalog IDs may contain only lowercase letters, numbers, and hyphens");
+  }
+  return { strict, catalogIds: normalizedCatalogIds };
 }
 
 function configured(value) {
@@ -36,10 +52,15 @@ async function probeUnavailableTool(registry, tool) {
   }
 }
 
-export async function evaluateIntegrationReadiness(env = process.env) {
+export async function evaluateIntegrationReadiness(env = process.env, { catalogIds = [] } = {}) {
   const registry = createIntegrationToolRegistryFromEnv(env);
+  const selectedCatalogIds = new Set(catalogIds);
+  const selectedTools = registry.list().filter((tool) => selectedCatalogIds.size === 0 || selectedCatalogIds.has(tool.catalogId));
+  if (selectedTools.length === 0) {
+    throw new Error(`No integration tools matched catalog selection: ${catalogIds.join(", ")}`);
+  }
   const tools = [];
-  for (const tool of registry.list()) {
+  for (const tool of selectedTools) {
     const requirements = tool.requiredEnvironment.map((name) => ({
       name,
       configured: configured(env[name]),
@@ -68,6 +89,10 @@ export async function evaluateIntegrationReadiness(env = process.env) {
     version: 1,
     generatedAt: new Date().toISOString(),
     networkRequestsMade: false,
+    selection: {
+      catalogIds,
+      matchedTools: tools.map((tool) => tool.name),
+    },
     tools,
     summary: {
       total: tools.length,
@@ -81,9 +106,9 @@ export async function evaluateIntegrationReadiness(env = process.env) {
 }
 
 async function main() {
-  const { strict } = parseArguments(process.argv.slice(2));
+  const { strict, catalogIds } = parseArguments(process.argv.slice(2));
   if (existsSync(backendEnvPath)) process.loadEnvFile(backendEnvPath);
-  const report = await evaluateIntegrationReadiness();
+  const report = await evaluateIntegrationReadiness(process.env, { catalogIds });
   mkdirSync(path.dirname(reportPath), { recursive: true });
   writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
 

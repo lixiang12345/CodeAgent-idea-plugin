@@ -26,3 +26,12 @@ test("readiness report exposes configured state without serializing credential v
   assert.equal(report.summary.available, 1);
   assert.equal(JSON.stringify(report).includes(secret), false);
 });
+
+test("readiness can enforce one provider catalog independently", async () => {
+  const report = await evaluateIntegrationReadiness({}, { catalogIds: ["github"] });
+
+  assert.deepEqual(report.selection.catalogIds, ["github"]);
+  assert.equal(report.summary.total, 4);
+  assert.ok(report.tools.every((tool) => tool.catalogId === "github"));
+  assert.ok(report.tools.every((tool) => tool.missingCredentialProbe.status === 503));
+});
