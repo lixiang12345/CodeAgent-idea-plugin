@@ -63,6 +63,12 @@ class ConversationSummaryService(private val project: Project) : Disposable {
         summarizedFingerprints.remove(conversationId)
     }
 
+    fun suppress(snapshot: ConversationSnapshot) {
+        scheduled.remove(snapshot.id)?.cancel(false)
+        inFlight.remove(snapshot.id)
+        summarizedFingerprints[snapshot.id] = fingerprint(snapshot)
+    }
+
     fun reset() {
         lifecycleGeneration.incrementAndGet()
         scheduled.values.forEach { it.cancel(false) }
@@ -119,6 +125,7 @@ class ConversationSummaryService(private val project: Project) : Disposable {
                 schedule(latest)
                 return@whenComplete
             }
+            if (summarizedFingerprints[conversationId] == currentFingerprint) return@whenComplete
             val updated = conversations.setSummary(conversationId, content)
             summarizedFingerprints[conversationId] = currentFingerprint
             listener?.invoke(updated)

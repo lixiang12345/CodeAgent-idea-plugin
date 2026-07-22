@@ -260,6 +260,38 @@ test("Rules editor validates Markdown and protects unsaved changes", async ({ pa
   await expectViewportIntegrity(page);
 });
 
+test("Memories exposes stored summaries and clears them without deleting threads", async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      threads: snapshot.threads.map((thread, index) => index < 2 ? {
+        ...thread,
+        summary: index === 0
+          ? "JWT authentication was implemented with focused regression coverage and native Diff review remaining."
+          : "Repository architecture was reviewed and the main runtime boundaries were recorded.",
+        messageCount: index === 0 ? 12 : 6,
+      } : thread),
+    });
+  });
+  await page.getByTitle("Settings").click();
+  const allSettings = page.getByRole("button", { name: "All settings" });
+  if (await allSettings.isVisible()) await allSettings.click();
+  await page.getByRole("button", { name: "Memories", exact: true }).click();
+  await expect(page.getByText("2 saved", { exact: true })).toBeVisible();
+  const firstMemory = page.locator(".memory-summary-row").filter({ hasText: "Implement login flow with JWT" });
+  await expect(firstMemory.getByText("12 messages · agent", { exact: true })).toBeVisible();
+  await firstMemory.getByTitle("Clear summary").click();
+  await expect(firstMemory).toBeVisible();
+  await firstMemory.getByTitle("Confirm clear summary").click();
+  await expect(firstMemory).toBeHidden();
+  await expect(page.getByText("1 saved", { exact: true })).toBeVisible();
+  await expect(page.getByText("Review repository architecture", { exact: true })).toBeVisible();
+  await expectViewportIntegrity(page);
+  if (testInfo.project.name === "tool-window-420") await captureShell(page, "memory-management.png");
+});
+
 test("mutating tool approval remains explicit", async ({ page }, testInfo) => {
   requireReferenceViewport(testInfo);
   await page.evaluate(() => {

@@ -94,6 +94,7 @@ Transport:
 | `exportThread` | none | folder chooser + `notice`/`error` |
 | `importThread` | none | file chooser + `snapshot`/`error` |
 | `continueTasksInNewThread` | none | cloned task-list `snapshot` |
+| `clearConversationSummary` | `{ threadId: string }` | updated thread-memory `snapshot` |
 | `pickContext` | none | IDE file picker + `snapshot.attachments` |
 | `removeContext` | `{ id: string }` | `snapshot` |
 | `toggleSkill` | `{ skillId: string, selected: boolean }` | `snapshot` |

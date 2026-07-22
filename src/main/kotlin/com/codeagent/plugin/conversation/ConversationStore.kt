@@ -143,6 +143,16 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     }
 
     @Synchronized
+    fun clearSummary(threadId: String): ConversationSnapshot {
+        val thread = requireNotNull(data.threads.firstOrNull { it.id == threadId }) { "Unknown conversation: $threadId" }
+        if (thread.summary.isNotBlank()) {
+            thread.summary = ""
+            thread.updatedAt = System.currentTimeMillis()
+        }
+        return thread.toSnapshot()
+    }
+
+    @Synchronized
     fun deleteThread(threadId: String): ConversationSnapshot {
         return requireNotNull(deleteThreadIfPresent(threadId)) { "Unknown conversation: $threadId" }
     }

@@ -86,6 +86,8 @@ export interface ThreadSummary {
   mode: Mode;
   pinned: boolean;
   unreadCount?: number;
+  summary?: string;
+  messageCount?: number;
 }
 
 export interface TaskItem {
@@ -1311,6 +1313,14 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       threads: snapshot.threads.map((thread) => thread.id === request?.threadId
         ? { ...thread, unreadCount: 0 }
         : thread),
+    }));
+    return;
+  }
+  if (command.type === "clearConversationSummary") {
+    const threadId = String((command.payload as { threadId?: string } | undefined)?.threadId ?? "");
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      threads: snapshot.threads.map((thread) => thread.id === threadId ? { ...thread, summary: undefined } : thread),
     }));
     return;
   }

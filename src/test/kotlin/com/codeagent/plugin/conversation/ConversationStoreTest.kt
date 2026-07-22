@@ -545,6 +545,21 @@ class ConversationStoreTest {
     }
 
     @Test
+    fun `clears one persisted summary without deleting its transcript`() {
+        val store = ConversationStore()
+        val threadId = store.active().id
+        store.addMessage("user", "Inspect memory behavior")
+        store.addMessage("assistant", "Memory behavior inspected")
+        store.setSummary(threadId, "The memory behavior was inspected.")
+
+        val cleared = store.clearSummary(threadId)
+
+        assertEquals(null, cleared.summary)
+        assertEquals(2, cleared.messages.size)
+        assertEquals(listOf("Inspect memory behavior", "Memory behavior inspected"), cleared.messages.map { it.content })
+    }
+
+    @Test
     fun `keeps deleted cloud threads tombstoned until remote deletion succeeds`() {
         val store = ConversationStore()
         store.addMessage("user", "Delete this synced thread")

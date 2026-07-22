@@ -124,6 +124,19 @@ list also supports refresh and two-step workspace-rule deletion; deletion is
 path constrained, removes stale trigger/description metadata, and rejects
 plugin-owned rules as read-only.
 
+### Conversation Memory Management
+
+**Status:** implemented on 2026-07-22.
+
+The Memories Settings page now lists persisted thread summaries with their
+thread, mode, and message count instead of showing only a capability report.
+Each summary has a two-step clear action that preserves the transcript and
+thread. Clearing suppresses an in-flight or scheduled summary for the same
+conversation fingerprint, preventing stale asynchronous work from immediately
+restoring a memory the user removed; a later transcript change can generate a
+new summary. JVM coverage verifies transcript preservation, and Playwright
+covers the workflow at 360, 420, and 640 px with a canonical 420 px reference.
+
 ### Composer and Message Lifecycle Alignment
 
 **Status:** implemented on 2026-07-22.

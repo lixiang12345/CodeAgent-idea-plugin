@@ -635,6 +635,13 @@ class IdeBridge(
                 conversations.markReadIfPresent(request.threadId, request.throughTimelineSequence)
                 emitSnapshot()
             }
+            "clearConversationSummary" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPayload>(it) }
+                val updated = conversations.clearSummary(request.threadId)
+                conversationSummaries.suppress(updated)
+                syncConversation(updated)
+                emitSnapshot()
+            }
             "toggleThreadPinned" -> {
                 val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPinPayload>(it) }
                 val updated = selection.pinned?.let { conversations.setPinnedIfPresent(selection.threadId, it) }
@@ -1354,6 +1361,8 @@ class IdeBridge(
                         thread.mode,
                         thread.pinned,
                         conversations.unreadCount(thread.id),
+                        thread.summary,
+                        thread.messages.size,
                     )
                 },
                 tasks = active.tasks.map { task -> TaskDto(task.id, task.name, task.state) },

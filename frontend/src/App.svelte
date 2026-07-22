@@ -113,6 +113,7 @@
   let ruleValidationError = "";
   let ruleEditorBaseline = { fileName: "", content: "", trigger: "always" as WorkspaceRule["trigger"], description: "" };
   let confirmingRuleDeleteId: string | null = null;
+  let confirmingSummaryClearId: string | null = null;
   let toolsExpanded = new Set<string>();
   let resolvingApprovalIds = new Set<string>();
   let backendUrl = "";
@@ -1681,6 +1682,15 @@
     }
   }
 
+  function requestSummaryClear(thread: AppSnapshot["threads"][number]) {
+    if (confirmingSummaryClearId === thread.id) {
+      confirmingSummaryClearId = null;
+      sendCommand("clearConversationSummary", { threadId: thread.id });
+    } else {
+      confirmingSummaryClearId = thread.id;
+    }
+  }
+
   function saveRule() {
     const fileName = ruleFileName.trim();
     const description = ruleDescription.trim();
@@ -2595,11 +2605,21 @@
               {/if}
             {:else if settingsSection === "Memories"}
               <h1>Memories</h1>
-              <p class="settings-lead">Conversation continuity is derived from compact, factual summaries and stays subordinate to the current request and workspace rules.</p>
+              <p class="settings-lead">Conversation continuity stays factual and subordinate to the current request and workspace rules. Clear a stored summary without deleting the transcript.</p>
+              <section class="settings-block memory-summary-list">
+                <header><strong>Stored thread summaries</strong><span>{snapshot.threads.filter((thread) => thread.summary).length} saved</span></header>
+                {#each snapshot.threads.filter((thread) => thread.summary) as thread (thread.id)}
+                  <article class="memory-summary-row">
+                    <div><strong>{thread.title}</strong><small>{thread.messageCount ?? 0} messages · {thread.mode}</small><p>{thread.summary}</p></div>
+                    <button class="icon-button compact danger" title={confirmingSummaryClearId === thread.id ? "Confirm clear summary" : "Clear summary"} onclick={() => requestSummaryClear(thread)}><Icon name="trash-2" size={13} /></button>
+                  </article>
+                {:else}
+                  <div class="memory-empty"><Icon name="brain" size={18} /><strong>No stored summaries</strong><span>Long conversations create a bounded summary when context compaction requires it.</span></div>
+                {/each}
+              </section>
               <section class="settings-block capability-list">
-                <div><Icon name="brain" size={14} /><span class="capability-copy"><strong>Thread summaries</strong><small>Long conversations are compacted into bounded continuity context when the model budget reaches its threshold.</small></span><i class:ready={snapshot.threads.length > 0}>{snapshot.threads.length} threads</i></div>
-                <div><Icon name="shield" size={14} /><span class="capability-copy"><strong>Instruction safety</strong><small>Remembered text is treated as historical evidence, never as higher-priority instruction.</small></span><i class="ready">Enforced</i></div>
-                <div><Icon name="cloud" size={14} /><span class="capability-copy"><strong>Cloud recovery</strong><small>Signed-in accounts can restore conversation summaries together with the durable thread state.</small></span><i class:ready={snapshot.account.state === "signed_in"}>{snapshot.account.state === "signed_in" ? "Available" : "Sign in"}</i></div>
+                <div><Icon name="shield" size={14} /><span class="capability-copy"><strong>Instruction safety</strong><small>Remembered text is historical evidence, never higher-priority instruction.</small></span><i class="ready">Enforced</i></div>
+                <div><Icon name="cloud" size={14} /><span class="capability-copy"><strong>Cloud recovery</strong><small>Signed-in accounts restore summaries with durable thread state.</small></span><i class:ready={snapshot.account.state === "signed_in"}>{snapshot.account.state === "signed_in" ? "Available" : "Sign in"}</i></div>
               </section>
             {:else if settingsSection === "Rules & Guidelines"}
               {#if ruleEditorOpen}

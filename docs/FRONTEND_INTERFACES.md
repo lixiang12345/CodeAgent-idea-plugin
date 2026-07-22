@@ -33,6 +33,7 @@ Envelope version: `1`
 | `exportThread` | — | Save Markdown via folder chooser |
 | `importThread` | — | Import Markdown thread |
 | `continueTasksInNewThread` | — | Clone the active task list and thread customization into a fresh conversation |
+| `clearConversationSummary` | `{ threadId }` | Clear one stored summary without deleting transcript history |
 | `pickContext` / `removeContext` | path/id | Attachments |
 | `toggleSkill` / `toggleRule` | selection | Composer/rules selection |
 | `saveRule` / `refreshCustomization` | rule fields | Rules/Skills disk |
