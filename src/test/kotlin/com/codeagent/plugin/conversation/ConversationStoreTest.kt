@@ -37,6 +37,64 @@ class ConversationStoreTest {
     }
 
     @Test
+    fun `rewinds messages tools summary and read cursor from a user request`() {
+        val store = ConversationStore()
+        val firstUser = store.addMessage("user", "First request", messageId = "user-1")
+        val firstReply = store.addMessage("assistant", "First reply")
+        val secondUser = store.addMessage("user", "Second request", messageId = "user-2")
+        store.upsertTool(
+            ConversationTool(
+                id = "later-tool",
+                name = "read_file",
+                summary = "Read later file",
+                status = "completed",
+                canRevert = false,
+                createdAt = 1_000,
+                updatedAt = 1_100,
+            ),
+        )
+        store.addMessage("assistant", "Second reply")
+        store.setSummary(store.active().id, "Summary that includes both requests")
+        store.markReadIfPresent(store.active().id, store.active().messages.last().timelineSequence)
+
+        val rewound = store.rewindFromUserMessage(secondUser.id)
+
+        assertEquals(secondUser, rewound)
+        assertEquals(listOf(firstUser.id, firstReply.id), store.active().messages.map { it.id })
+        assertTrue(store.active().tools.isEmpty())
+        assertEquals(null, store.active().summary)
+        assertEquals(firstReply.timelineSequence, store.state.threads.single().lastReadTimelineSequence)
+    }
+
+    @Test
+    fun `refuses rewind atomically when later file changes remain revertible`() {
+        val store = ConversationStore()
+        val target = store.addMessage("user", "Change auth", messageId = "user-change")
+        store.upsertTool(
+            ConversationTool(
+                id = "change-tool",
+                name = "replace_text",
+                summary = "Changed Auth.kt",
+                status = "completed",
+                changePath = "src/Auth.kt",
+                canRevert = true,
+                createdAt = 1_000,
+                updatedAt = 1_100,
+            ),
+        )
+        store.addMessage("assistant", "Change complete")
+        store.setSummary(store.active().id, "Auth was changed")
+        val before = store.active()
+
+        val failure = assertFailsWith<IllegalArgumentException> {
+            store.rewindFromUserMessage(target.id)
+        }
+
+        assertTrue(failure.message.orEmpty().contains("Keep or discard"))
+        assertEquals(before, store.active())
+    }
+
+    @Test
     fun `creates titles and switches persisted threads`() {
         val store = ConversationStore()
         val first = store.active()

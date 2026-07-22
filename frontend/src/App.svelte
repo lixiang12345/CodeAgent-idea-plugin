@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { afterUpdate, onMount, tick } from "svelte";
   import Icon from "./lib/Icon.svelte";
   import ConfigurationSettings from "./lib/ConfigurationSettings.svelte";
   import MarkdownMessage from "./lib/MarkdownMessage.svelte";
@@ -86,6 +86,9 @@
 
   let snapshot: AppSnapshot | null = null;
   let prompt = "";
+  let composerTextarea: HTMLTextAreaElement | null = null;
+  let editingMessageId: string | null = null;
+  let editingMessageText = "";
   type WorkspaceView = "chat" | "settings" | "mermaid" | "git" | "tasks" | "jobs" | "images" | "tools" | "icons" | "edits" | "feedback";
   let currentView: WorkspaceView = "chat";
   let settingsSection = "Home";
@@ -257,6 +260,9 @@
         reconcilePendingUserMessages(nextSnapshot.messages);
       }
       snapshot = nextSnapshot;
+      if (editingMessageId && nextSnapshot.messages.every((message) => message.id !== editingMessageId)) {
+        cancelMessageEdit();
+      }
       pendingThreadDeletes = new Set();
       if (pendingReadThreadId) {
         const pendingThread = nextSnapshot.threads.find((thread) => thread.id === pendingReadThreadId);
@@ -525,6 +531,39 @@
     scrollConversationToBottom(true);
     sendCommand(busy ? "queueMessage" : "sendMessage", { text, mode: snapshot.mode, clientMessageId });
   }
+
+  function beginMessageEdit(message: ChatMessage) {
+    if (isBusy(snapshot)) return;
+    editingMessageId = message.id;
+    editingMessageText = message.content;
+    void tick().then(() => {
+      const editor = document.querySelector<HTMLTextAreaElement>(`[data-message-editor="${CSS.escape(message.id)}"]`);
+      editor?.focus();
+      editor?.setSelectionRange(editor.value.length, editor.value.length);
+    });
+  }
+
+  function cancelMessageEdit() {
+    editingMessageId = null;
+    editingMessageText = "";
+  }
+
+  function editAndResendMessage(message: ChatMessage, text = editingMessageText) {
+    const next = text.trim();
+    if (!next || !snapshot || isBusy(snapshot)) return;
+    cancelMessageEdit();
+    followConversation = true;
+    forceConversationFollow = true;
+    sendCommand("editAndResendMessage", { messageId: message.id, text: next });
+  }
+
+  function resizeComposer() {
+    if (!composerTextarea) return;
+    composerTextarea.style.height = "auto";
+    composerTextarea.style.height = `${Math.min(110, Math.max(38, composerTextarea.scrollHeight))}px`;
+  }
+
+  afterUpdate(resizeComposer);
 
   function resolveApproval(toolId: string, approved: boolean) {
     if (resolvingApprovalIds.has(toolId)) return;
@@ -1855,7 +1894,37 @@
                 {#if item.kind === "user"}
                   <article class="user-message request-boundary" data-request-boundary data-request-index={item.requestIndex} data-run-id={item.message.runId}>
                     {#if showTimestamps}<time>{formatTime(item.message.createdAt)}</time>{/if}
-                    <div class="user-message-content">{item.message.content}</div>
+                    {#if editingMessageId === item.message.id}
+                      <div class="user-message-editor">
+                        <textarea
+                          data-message-editor={item.message.id}
+                          bind:value={editingMessageText}
+                          aria-label="Edit message"
+                          onkeydown={(event) => {
+                            if (event.key === "Escape") {
+                              event.preventDefault();
+                              cancelMessageEdit();
+                            } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                              event.preventDefault();
+                              editAndResendMessage(item.message);
+                            }
+                          }}
+                        ></textarea>
+                        <div class="user-message-edit-actions">
+                          <button type="button" onclick={cancelMessageEdit}>Cancel</button>
+                          <button type="button" class="primary" disabled={!editingMessageText.trim()} onclick={() => editAndResendMessage(item.message)}>Apply &amp; Resend</button>
+                        </div>
+                      </div>
+                    {:else}
+                      <div class="user-message-content">{item.message.content}</div>
+                      {#if !isBusy(snapshot)}
+                        <div class="user-message-actions">
+                          <button type="button" title="Copy message" aria-label="Copy message" onclick={() => copyText(item.message.content, "Message copied")}><Icon name="copy" size={12} /></button>
+                          <button type="button" title="Edit message" aria-label="Edit message" onclick={() => beginMessageEdit(item.message)}><Icon name="pencil" size={12} /></button>
+                          <button type="button" title="Resend message" aria-label="Resend message" onclick={() => editAndResendMessage(item.message, item.message.content)}><Icon name="refresh-ccw" size={12} /></button>
+                        </div>
+                      {/if}
+                    {/if}
                   </article>
                 {:else if item.kind === "assistant"}
                   {#if item.message.content}
@@ -2063,9 +2132,11 @@
               </div>
             {/if}
             <textarea
+              bind:this={composerTextarea}
               bind:value={prompt}
               placeholder="Type a message or command..."
               oninput={() => {
+                resizeComposer();
                 if (prompt.startsWith("/")) {
                   slashOpen = true;
                   atOpen = false;

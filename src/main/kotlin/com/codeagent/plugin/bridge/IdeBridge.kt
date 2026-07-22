@@ -349,6 +349,9 @@ class IdeBridge(
             }
             "newThread" -> newThread(command.payload)
             "sendMessage", "queueMessage" -> submitMessage(requireNotNull(command.payload) { "${command.type} requires payload" })
+            "editAndResendMessage" -> editAndResendMessage(
+                requireNotNull(command.payload) { "editAndResendMessage requires payload" },
+            )
             "removeQueuedMessage" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<QueuedMessagePayload>(it) }
                 synchronized(stateLock) {
@@ -887,6 +890,33 @@ class IdeBridge(
             emitSnapshot()
             if (drainQueue) startNextQueuedMessage()
         }
+    }
+
+    private fun editAndResendMessage(payload: JsonElement) {
+        val edit = json.decodeFromJsonElement<EditAndResendPayload>(payload)
+        val active = conversations.active()
+        val prepared = prepareMessage(
+            SendMessagePayload(
+                text = edit.text,
+                mode = active.mode,
+                clientMessageId = edit.messageId,
+            ),
+        )
+        require(prepared.text.isNotBlank()) { "Message must not be blank" }
+        prepared.agentProfileId?.let { agentProfileId ->
+            require(isKnownAgentProfile(agentProfileId)) { "Unknown Agent profile: $agentProfileId" }
+        }
+        attachmentResolver.resolve(synchronized(stateLock) { attachments.values.toList() })
+        synchronized(stateLock) {
+            require(!isRunBusy()) { "Cannot edit or resend a message while the agent is running" }
+            require(messageQueue.isEmpty()) { "Remove queued messages before editing or resending history" }
+            conversations.rewindFromUserMessage(edit.messageId)
+            val persisted = conversations.active()
+            tools.keys.retainAll(persisted.tools.mapTo(mutableSetOf()) { it.id })
+            messageTurns.keys.retainAll(persisted.messages.mapTo(mutableSetOf()) { it.id })
+        }
+        syncActiveConversation()
+        startMessage(json.encodeToJsonElement(prepared))
     }
 
     private fun startMessage(payload: JsonElement, fromQueue: Boolean = false) {
@@ -2865,6 +2895,12 @@ class IdeBridge(
         val mode: String,
         val agentProfileId: String? = null,
         val clientMessageId: String? = null,
+    )
+
+    @Serializable
+    private data class EditAndResendPayload(
+        val messageId: String,
+        val text: String,
     )
 
     @Serializable

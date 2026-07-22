@@ -50,9 +50,81 @@ test("main Agent workspace stays dense and bounded", async ({ page }) => {
   await expect(page.getByText("Implement login flow with JWT", { exact: true })).toBeVisible();
   await expect(page.getByText("JWT login is implemented and the focused tests pass.", { exact: false })).toBeVisible();
   await expect(page.getByPlaceholder("Type a message or command...")).toBeVisible();
-  await expect(page.getByTitle("Send")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
   await expectViewportIntegrity(page);
   await captureShell(page, "main-agent-workspace.png");
+});
+
+test("messages can be edited, rewound, and resent while the composer adapts", async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    const now = Date.now();
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      runState: "idle",
+      agentRun: { ...snapshot.agentRun, phase: "idle", activeToolNames: [], activeToolCount: 0 },
+      messages: [
+        { id: "editable-user", role: "user", content: "Inspect the current authentication boundary.", createdAt: now - 40_000, timelineSequence: 1, runId: "edit-run-1" },
+        { id: "editable-assistant", role: "assistant", content: "The authentication boundary currently accepts a bearer token.", createdAt: now - 30_000, timelineSequence: 3, runId: "edit-run-1" },
+        { id: "later-user", role: "user", content: "Then verify the old integration path.", createdAt: now - 20_000, timelineSequence: 4, runId: "edit-run-2" },
+        { id: "later-assistant", role: "assistant", content: "The old integration path was verified.", createdAt: now - 10_000, timelineSequence: 6, runId: "edit-run-2" },
+      ],
+      tools: [
+        { id: "editable-read", name: "read_file", summary: "AuthService.kt", status: "completed", detail: "Read authentication boundary", canRevert: false, timelineSequence: 2, runId: "edit-run-1" },
+        { id: "later-search", name: "search_text", summary: "Legacy integration path", status: "completed", detail: "Found two references", canRevert: false, timelineSequence: 5, runId: "edit-run-2" },
+      ],
+      messageQueue: [],
+    });
+  });
+
+  const composer = page.getByPlaceholder("Type a message or command...");
+  const compactHeight = await composer.evaluate((element) => element.getBoundingClientRect().height);
+  await composer.fill("First line\nSecond line\nThird line\nFourth line");
+  await expect.poll(() => composer.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(compactHeight);
+  await composer.fill("");
+  await expect.poll(() => composer.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThanOrEqual(compactHeight + 1);
+
+  const firstMessage = page.locator(".user-message").filter({ hasText: "Inspect the current authentication boundary." });
+  await firstMessage.hover();
+  await firstMessage.getByRole("button", { name: "Edit message" }).click();
+  const editor = page.getByRole("textbox", { name: "Edit message" });
+  await editor.fill("Inspect and replace the authentication boundary.");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByText("Inspect the current authentication boundary.", { exact: true })).toBeVisible();
+  await expect(editor).toBeHidden();
+
+  await firstMessage.hover();
+  await firstMessage.getByRole("button", { name: "Edit message" }).click();
+  await page.getByRole("textbox", { name: "Edit message" }).fill("Inspect and replace the authentication boundary.");
+  if (testInfo.project.name === "tool-window-420") await captureShell(page, "message-edit-resend.png");
+  await page.getByRole("button", { name: "Apply & Resend", exact: true }).click();
+
+  await expect(page.getByText("Inspect and replace the authentication boundary.", { exact: true })).toBeVisible();
+  await expect(page.getByText("The authentication boundary currently accepts a bearer token.", { exact: true })).toBeHidden();
+  await expect(page.getByText("Then verify the old integration path.", { exact: true })).toBeHidden();
+  await expect(page.getByText("The old integration path was verified.", { exact: true })).toBeHidden();
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.runState)).toBe("running");
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messages.map((message) => message.id))).toEqual(["editable-user"]);
+
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      runState: "idle",
+      agentRun: { ...snapshot.agentRun, phase: "idle", activeToolNames: [], activeToolCount: 0 },
+      tools: snapshot.tools.map((tool) => ({ ...tool, status: "completed" as const, canRevert: false })),
+    });
+  });
+  const editedMessage = page.locator(".user-message").filter({ hasText: "Inspect and replace the authentication boundary." });
+  await editedMessage.hover();
+  await editedMessage.getByRole("button", { name: "Resend message" }).click();
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.runState)).toBe("running");
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messages.map((message) => `${message.id}:${message.content}`))).toEqual([
+    "editable-user:Inspect and replace the authentication boundary.",
+  ]);
+  await expectViewportIntegrity(page);
 });
 
 test("Threads drawer supports scanning and search", async ({ page }, testInfo) => {

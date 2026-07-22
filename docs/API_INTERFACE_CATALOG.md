@@ -84,6 +84,7 @@ Transport:
 | `selectModel` | `{ modelId: string }` | `snapshot.models` |
 | `newThread` | `{ mode?: string }` | `snapshot` |
 | `selectThread` | `{ threadId: string }` | `snapshot` |
+| `editAndResendMessage` | `{ messageId: string, text: string }` | rewind + `snapshot`/streamed run events |
 | `toggleThreadPinned` | `{ threadId: string }` | `snapshot` |
 | `deleteThread` | `{ threadId: string }` | `snapshot` |
 | `renameThread` | `{ threadId: string, title: string }` | `snapshot` |

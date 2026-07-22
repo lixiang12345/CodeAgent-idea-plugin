@@ -284,6 +284,28 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     }
 
     @Synchronized
+    fun rewindFromUserMessage(messageId: String): ConversationMessage {
+        val thread = mutableActive()
+        val target = requireNotNull(thread.messages.firstOrNull { it.id == messageId }) {
+            "Unknown message: $messageId"
+        }
+        require(target.role == "user") { "Only user messages can be edited or resent" }
+        val targetSequence = target.timelineSequence
+        require(thread.tools.none { it.timelineSequence > targetSequence && it.canRevert }) {
+            "Keep or discard pending file changes before editing this message"
+        }
+
+        val original = target.toDomain()
+        thread.messages.removeIf { it.timelineSequence >= targetSequence }
+        thread.tools.removeIf { it.timelineSequence > targetSequence }
+        thread.summary = ""
+        val latestRemainingMessage = thread.messages.maxOfOrNull { it.timelineSequence } ?: 0
+        thread.lastReadTimelineSequence = thread.lastReadTimelineSequence.coerceIn(0, latestRemainingMessage)
+        thread.updatedAt = System.currentTimeMillis()
+        return original
+    }
+
+    @Synchronized
     fun upsertTool(tool: ConversationTool): ConversationTool {
         require(tool.id.isNotBlank()) { "Tool ID must not be blank" }
         require(tool.name.isNotBlank()) { "Tool name must not be blank" }

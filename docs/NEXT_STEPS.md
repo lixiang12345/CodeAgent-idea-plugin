@@ -67,6 +67,18 @@ the exact product build and Plugin Verifier report path to
 `build/reports/jetbrains-verifier.json`. This automates compatibility evidence;
 the interactive smoke workflow remains a separate required acceptance step.
 
+## Priority 2: Advanced Thread Management Alignment
+
+**Status:** next implementation stage.
+
+Replace the current `Continue in New Chat` empty-thread shortcut with a real
+persisted fork at the selected request boundary. Preserve the source thread,
+copy only history that precedes the branch point, reset unread/run state, and
+retain the selected mode, model, Agent profile, Skills, and Rules. Add explicit
+per-row rename and export actions without making the drawer less scannable, and
+cover fork, rename, pin ordering, delete confirmation, import/export, unread
+state, and active-run guards at 360, 420, and 640 px.
+
 ## Priority 3: Integration Operations Readiness
 
 **Status:** blocked until each provider supplies a test tenant and scoped
@@ -79,6 +91,24 @@ reported, failures preserve provider status without leaking secrets, and every
 remote mutation is approval-gated.
 
 ## Completed Gates
+
+### Composer and Message Lifecycle Alignment
+
+**Status:** implemented on 2026-07-22.
+
+Idle user messages expose Copy, Edit, and Resend actions. Edit uses an inline
+textarea with Cancel, Apply & Resend, Escape, and Command/Ctrl+Enter behavior.
+Applying or resending reuses the original message identity, removes the target
+request and all later transcript/tool history, clears the stale conversation
+summary, clamps the persisted read cursor, and starts a real Agent run with the
+thread's current mode and customization selections. The rewind is atomic and
+fails closed while later revertible file changes or queued messages remain.
+The main Composer now grows with multiline input up to its bounded maximum.
+
+JVM tests cover successful rewind and atomic rejection. Playwright covers
+Cancel, edit-and-resend, later-history removal, original-content resend,
+adaptive Composer height, and viewport integrity at 360, 420, and 640 px. A
+canonical 420 px reference records the inline edit state.
 
 ### Long-Conversation Product Alignment
 

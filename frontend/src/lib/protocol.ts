@@ -1239,6 +1239,30 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     startDevelopmentMessage((command.payload ?? {}) as DevelopmentMessageRequest);
     return;
   }
+  if (command.type === "editAndResendMessage") {
+    const request = (command.payload ?? {}) as { messageId?: string; text?: string };
+    const messageId = String(request.messageId ?? "");
+    const text = String(request.text ?? "").trim();
+    const target = developmentSnapshot?.messages.find((message) => message.id === messageId && message.role === "user");
+    if (!developmentSnapshot || !target || !text) return;
+    if (developmentSnapshot.runState === "starting" || developmentSnapshot.runState === "running" || developmentSnapshot.runState === "awaiting_approval") return;
+    if (developmentSnapshot.messageQueue.length > 0) return;
+    const hasRevertibleChanges = developmentSnapshot.tools.some((tool) =>
+      (tool.timelineSequence ?? 0) > (target.timelineSequence ?? 0) && tool.canRevert,
+    );
+    if (hasRevertibleChanges) {
+      emitDevelopmentEvent("error", { message: "Keep or discard pending file changes before editing this message" });
+      return;
+    }
+    developmentRunGeneration += 1;
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      messages: snapshot.messages.filter((message) => (message.timelineSequence ?? 0) < (target.timelineSequence ?? 0)),
+      tools: snapshot.tools.filter((tool) => (tool.timelineSequence ?? 0) <= (target.timelineSequence ?? 0)),
+    }));
+    startDevelopmentMessage({ text, mode: developmentSnapshot.mode, clientMessageId: messageId });
+    return;
+  }
   if (command.type === "newThread") {
     const mode = (command.payload as { mode?: Mode } | undefined)?.mode ?? "agent";
     const threadId = crypto.randomUUID();

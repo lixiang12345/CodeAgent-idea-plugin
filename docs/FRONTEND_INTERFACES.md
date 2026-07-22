@@ -23,6 +23,7 @@ Envelope version: `1`
 | `selectModel` | `{ modelId }` | Persist per-thread model |
 | `newThread` | `{ mode? }` | Create + activate thread |
 | `selectThread` | `{ threadId }` | Switch thread |
+| `editAndResendMessage` | `{ messageId, text }` | Rewind from a user message and rerun it with edited or original content |
 | `toggleThreadPinned` | `{ threadId }` | Pin ordering |
 | `deleteThread` | `{ threadId }` | Confirmed delete |
 | `renameThread` | `{ threadId, title }` | Rename active/history title |
