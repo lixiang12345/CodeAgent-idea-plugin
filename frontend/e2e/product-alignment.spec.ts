@@ -413,6 +413,18 @@ test("Agent Edits and task workspace preserve review-first controls", async ({ p
   await expect(page.getByText("Agent Edits", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Keep all" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Discard all" })).toBeVisible();
+
+  // Checkpoints expose a per-checkpoint file breakdown, mirroring the original
+  // c-checkpoint-collapsible anatomy. The Agent Edits view lists checkpoints on
+  // open; expanding one reveals the files captured in that checkpoint.
+  const checkpointRow = page.locator(".checkpoint-row").first();
+  if (await checkpointRow.count()) {
+    const toggle = checkpointRow.locator(".checkpoint-toggle");
+    if (await toggle.isEnabled()) {
+      await toggle.click();
+      await expect(page.locator(".checkpoint-files li").first()).toBeVisible();
+    }
+  }
   await expectViewportIntegrity(page);
   await captureShell(page, "agent-edits.png");
 

@@ -618,6 +618,14 @@ button { color: inherit; }
 .workspace-file strong { overflow: hidden; text-overflow: ellipsis; color: #cdd1d6; font: 8.5px var(--mono); white-space: nowrap; }
 .workspace-file small { color: var(--muted); font-size: 7.5px; text-transform: capitalize; }
 .workspace-file .icon-button { width: 23px; padding: 0; }
+.checkpoint-row { padding-right: 6px; }
+.checkpoint-toggle { min-width: 0; flex: 1; display: flex; align-items: center; gap: 6px; padding: 0; border: 0; color: inherit; background: transparent; cursor: pointer; text-align: left; }
+.checkpoint-toggle:disabled { cursor: default; }
+.checkpoint-toggle > svg { flex: 0 0 auto; color: #8f969f; }
+.checkpoint-toggle span { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.checkpoint-files { margin: 0; padding: 2px 6px 6px 26px; list-style: none; border-top: 1px solid #303339; background: rgba(255,255,255,.02); }
+.checkpoint-files li { min-height: 20px; display: flex; align-items: center; gap: 5px; overflow: hidden; color: #aab0b8; font: 8px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.checkpoint-files li svg { flex: 0 0 auto; color: #7d848d; }
 .workspace-list-empty { min-height: 54px; display: grid; place-items: center; color: #737981; font-size: 8.5px; }
 .workspace-empty { min-height: 230px; padding: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--muted); text-align: center; }
 .workspace-empty strong { margin-top: 8px; color: #ced1d5; font-size: 10px; }

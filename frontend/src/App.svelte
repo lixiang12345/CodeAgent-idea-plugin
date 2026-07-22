@@ -220,6 +220,7 @@
   let renameTitle = "";
   let enhancing = false;
   let checkpoints: Array<{ id: string; label: string; createdAt: number; changeCount: number; paths: string[] }> = [];
+  let expandedCheckpoints = new Set<string>();
   let noticeTimer: number | undefined;
   let errorTimer: number | undefined;
   type ContextCompactionState = "idle" | "running" | "complete";
@@ -1564,6 +1565,13 @@
     settingsNavigationOpen = false;
     currentView = "settings";
     closeMenus();
+  }
+
+  function toggleCheckpoint(checkpointId: string) {
+    const next = new Set(expandedCheckpoints);
+    if (next.has(checkpointId)) next.delete(checkpointId);
+    else next.add(checkpointId);
+    expandedCheckpoints = next;
   }
 
   function openWorkspaceView(view: WorkspaceView) {
@@ -3536,11 +3544,25 @@
                 <header><strong>Checkpoints</strong><button class="btn sm" onclick={() => sendCommand("listCheckpoints")}>Refresh</button></header>
                 <div class="workspace-list">
                   {#each checkpoints as checkpoint}
-                    <div class="workspace-file">
-                      <Icon name="history" size={14} />
-                      <span><strong>{checkpoint.label}</strong><small>{checkpoint.changeCount} files · {formatTime(checkpoint.createdAt)}</small></span>
+                    <div class="workspace-file checkpoint-row">
+                      <button
+                        class="checkpoint-toggle"
+                        aria-expanded={expandedCheckpoints.has(checkpoint.id)}
+                        disabled={checkpoint.paths.length === 0}
+                        onclick={() => toggleCheckpoint(checkpoint.id)}
+                      >
+                        {#if checkpoint.paths.length > 0}<Icon name={expandedCheckpoints.has(checkpoint.id) ? "chevron-down" : "chevron-right"} size={13} />{:else}<Icon name="history" size={14} />{/if}
+                        <span><strong>{checkpoint.label}</strong><small>{checkpoint.changeCount} {checkpoint.changeCount === 1 ? "file" : "files"} · {formatTime(checkpoint.createdAt)}</small></span>
+                      </button>
                       <button onclick={() => sendCommand("restoreCheckpoint", { checkpointId: checkpoint.id })}>Restore</button>
                     </div>
+                    {#if expandedCheckpoints.has(checkpoint.id) && checkpoint.paths.length > 0}
+                      <ul class="checkpoint-files" aria-label="Checkpoint files">
+                        {#each checkpoint.paths as path (path)}
+                          <li><Icon name="file" size={12} /><span title={path}>{path}</span></li>
+                        {/each}
+                      </ul>
+                    {/if}
                   {/each}
                 </div>
               </section>

@@ -1309,7 +1309,13 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     return;
   }
   if (command.type === "listCheckpoints") {
-    emitDevelopmentEvent("checkpoints", [{ id: "dev-checkpoint", label: "Development snapshot", createdAt: new Date().toISOString() }]);
+    emitDevelopmentEvent("checkpoints", [{
+      id: "dev-checkpoint",
+      label: "Development snapshot",
+      createdAt: Date.now(),
+      changeCount: 2,
+      paths: ["src/main/java/com/example/auth/AuthController.java", "src/main/java/com/example/auth/TokenService.java"],
+    }]);
     return;
   }
   if (command.type === "createCheckpoint" || command.type === "restoreCheckpoint") {

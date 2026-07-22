@@ -51,9 +51,11 @@ now `pass`.
 
 **Status:** ready when the relevant IDE installations are available.
 
-The current release is verified against IntelliJ IDEA Community and PyCharm.
-Extend the Plugin Verifier matrix to installed WebStorm, CLion, GoLand, PhpStorm,
-and Rider builds that the product claims to support. Each product result must be
+The current release is verified against IntelliJ IDEA Community (packaging
+sandbox `IC-252.28539.54`), the installed IntelliJ IDEA Ultimate
+`IU-261.25134.95`, and the installed PyCharm `PY-261.24374.152`. Extend the
+Plugin Verifier matrix to installed WebStorm, CLion, GoLand, PhpStorm, and
+Rider builds that the product claims to support. Each product result must be
 recorded with the IDE build number and the verifier report path.
 
 Run the 420 px tool-window smoke workflow in each added IDE: create a thread,
@@ -295,16 +297,20 @@ and fixtures. Native smoke in each additional IDE remains required above.
 
 ### Installed IDE Verifier Evidence
 
-**Status:** refreshed on 2026-07-22.
+**Status:** refreshed on 2026-07-23.
 
 The latest `node scripts/verify-ides.mjs` run completed successfully against
-the targeted IntelliJ IDEA Community `IC-252.28539.54` platform and the
-installed PyCharm `PY-261.24374.152` build. Both Plugin Verifier reports are
+three targets: the packaging IntelliJ IDEA Community `IC-252.28539.54` platform,
+the installed IntelliJ IDEA Ultimate `IU-261.25134.95` build, and the installed
+PyCharm `PY-261.24374.152` build. All three Plugin Verifier reports are
 `Compatible`; the only findings are the 12 expected Inline Completion
-experimental-API usages. The machine has no WebStorm, CLion, GoLand, PhpStorm,
-or Rider installation, so those products remain unverified. The machine-readable
-evidence is written to `build/reports/jetbrains-verifier.json` and the per-IDE
-HTML reports under `build/reports/pluginVerifier/`.
+experimental-API usages per target. The discovery script now includes
+`IntelliJ IDEA` in its product list, so an installed IDEA Ultimate or Community
+build is auto-discovered and recorded rather than only the packaging sandbox.
+The machine has no WebStorm, CLion, GoLand, PhpStorm, or Rider installation, so
+those products remain unverified. The machine-readable evidence is written to
+`build/reports/jetbrains-verifier.json` and the per-IDE HTML reports under
+`build/reports/pluginVerifier/`.
 
 ### Machine-Readable Prototype Parity
 
