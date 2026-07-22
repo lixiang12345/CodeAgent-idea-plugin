@@ -52,6 +52,7 @@ export interface AgentRunTelemetry {
   reservedOutputTokens: number;
   retrievalBudgetTokens: number;
   toolDefinitionTokens: number;
+  assistantResponseTokens: number;
   compactedToolResults: number;
   truncatedMessages: number;
   compactionApplied: boolean;
@@ -549,6 +550,34 @@ function updateDevelopmentSnapshot(update: (snapshot: AppSnapshot) => AppSnapsho
   emitDevelopmentSnapshot();
 }
 
+function emptyAgentRunTelemetry(): AgentRunTelemetry {
+  return {
+    phase: "idle",
+    turnIndex: 0,
+    estimatedInputTokens: 0,
+    targetInputTokens: 0,
+    contextWindowTokens: 0,
+    reservedOutputTokens: 0,
+    retrievalBudgetTokens: 0,
+    toolDefinitionTokens: 0,
+    assistantResponseTokens: 0,
+    compactedToolResults: 0,
+    truncatedMessages: 0,
+    compactionApplied: false,
+    overBudget: false,
+    activeToolNames: [],
+    activeToolCount: 0,
+    catalogToolCount: 0,
+    discoverableToolCount: 0,
+    activatedToolNames: [],
+    toolBatchTotal: 0,
+    toolBatchCompleted: 0,
+    retryAttempt: 0,
+    retryMaxAttempts: 0,
+    verificationState: "idle",
+  };
+}
+
 if (import.meta.env.DEV) {
   window.CodeAgentDevelopment = {
     getSnapshot: () => developmentSnapshot ? structuredClone(developmentSnapshot) : undefined,
@@ -619,6 +648,7 @@ function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
       reservedOutputTokens: 8_192,
       retrievalBudgetTokens: 17_408,
       toolDefinitionTokens: 1_024,
+      assistantResponseTokens: 0,
       compactedToolResults: simulateCompaction ? 3 : 0,
       truncatedMessages: simulateCompaction ? 6 : 0,
       compactionApplied: simulateCompaction,
@@ -693,6 +723,7 @@ function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
           phase: "idle",
           activeToolNames: [],
           activeToolCount: 0,
+          assistantResponseTokens: Math.ceil((`Development host completed the interaction for: ${text}`.length + 32) / 4),
         },
         messageQueue: queuedMessage ? snapshot.messageQueue.slice(1) : snapshot.messageQueue,
         tools: snapshot.tools,
@@ -1288,9 +1319,12 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
   if (command.type === "newThread") {
     const mode = (command.payload as { mode?: Mode } | undefined)?.mode ?? "agent";
     const threadId = crypto.randomUUID();
+    developmentRunGeneration += 1;
     updateDevelopmentSnapshot((snapshot) => ({
       ...snapshot,
       mode,
+      runState: "idle",
+      agentRun: emptyAgentRunTelemetry(),
       messages: [],
       tools: [],
       tasks: [],
@@ -1307,11 +1341,20 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     const threadId = String((command.payload as { threadId?: string } | undefined)?.threadId ?? "");
     updateDevelopmentSnapshot((snapshot) => {
       const selected = snapshot.threads.find((thread) => thread.id === threadId);
-      return selected ? {
+      if (!selected || selected.active) return snapshot;
+      developmentRunGeneration += 1;
+      return {
         ...snapshot,
         mode: selected.mode,
+        runState: "idle",
+        agentRun: emptyAgentRunTelemetry(),
+        messages: [],
+        tools: [],
+        tasks: [],
+        messageQueue: [],
+        attachments: [],
         threads: snapshot.threads.map((thread) => ({ ...thread, active: thread.id === threadId })),
-      } : snapshot;
+      };
     });
     return;
   }
@@ -1418,7 +1461,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
         messageQueue: [],
         attachments: [],
         runState: "idle",
-        agentRun: { ...snapshot.agentRun, phase: "idle", activeToolNames: [], activeToolCount: 0 },
+        agentRun: emptyAgentRunTelemetry(),
         threads: [
           { id: threadId, title: `${source?.title ?? "New thread"} tasks`.slice(0, 48), updatedAt: now, active: true, mode: snapshot.mode, pinned: false },
           ...snapshot.threads.map((thread) => ({ ...thread, active: false })),
@@ -1497,30 +1540,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     projectName: "sample-project",
     mode: "agent",
     runState: "idle",
-    agentRun: {
-      phase: "idle",
-      turnIndex: 0,
-      estimatedInputTokens: 0,
-      targetInputTokens: 0,
-      contextWindowTokens: 0,
-      reservedOutputTokens: 0,
-      retrievalBudgetTokens: 0,
-      toolDefinitionTokens: 0,
-      compactedToolResults: 0,
-      truncatedMessages: 0,
-      compactionApplied: false,
-      overBudget: false,
-      activeToolNames: [],
-      activeToolCount: 0,
-      catalogToolCount: 0,
-      discoverableToolCount: 0,
-      activatedToolNames: [],
-      toolBatchTotal: 0,
-      toolBatchCompleted: 0,
-      retryAttempt: 0,
-      retryMaxAttempts: 0,
-      verificationState: "idle",
-    },
+    agentRun: emptyAgentRunTelemetry(),
     messages: [
       {
         id: "user-1",

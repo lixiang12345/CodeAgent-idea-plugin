@@ -140,6 +140,7 @@ class BridgeProtocolTest {
             reservedOutputTokens = 8_192,
             retrievalBudgetTokens = 8_192,
             toolDefinitionTokens = 800,
+            assistantResponseTokens = 2_000,
             compactedToolResults = 1,
             truncatedMessages = 2,
             compactionApplied = true,
@@ -166,6 +167,7 @@ class BridgeProtocolTest {
         assertEquals(true, encoded.contains("\"toolBatchTotal\":3"))
         assertEquals(true, encoded.contains("\"retryAttempt\":2"))
         assertEquals(true, encoded.contains("\"retrievalBudgetTokens\":8192"))
+        assertEquals(true, encoded.contains("\"assistantResponseTokens\":2000"))
         assertEquals(true, encoded.contains("\"activatedToolNames\":[\"git_history\"]"))
         assertEquals(true, encoded.contains("\"verificationState\":\"verified\""))
     }

@@ -178,14 +178,22 @@ warning, and error thresholds follow the source-map behavior. It opens a bounded
 `Context Window Usage` dialog and restores focus when closed by its Close button,
 Escape, or the backdrop.
 
-The modal reads the current run's real `agentRun` telemetry. It presents only
-the locally supported `Input / History Estimate` and `Built-in Tools` token
-segments instead of inventing the original cloud service's seven-category
-breakdown. CodeAgent's real compaction threshold, reserved-output and retrieval
-budgets, compaction counts, and tool availability are separated under Runtime
-Budget. Playwright covers the interaction and viewport bounds at 360, 420, and
-640 px; the canonical 420 px reference records the expanded tool-definition
-details.
+The modal reads the current conversation's persisted `agentRun` telemetry. It
+presents only the locally supported `Input / History Estimate` and aggregate
+`Tool Definitions` token segments plus the finalized `Assistant Response`
+estimate. It does not invent the original cloud service's unsupported category
+breakdown. The aggregate label includes every active built-in, backend, MCP,
+ACP, and plugin tool definition. CodeAgent's real compaction threshold, reserved
+output and retrieval budgets, compaction counts, and tool availability are
+separated under Runtime Budget. Playwright covers the interaction and viewport
+bounds at 360, 420, and 640 px; the canonical 420 px reference records the
+expanded tool-definition details.
+
+The backend emits a finalized context snapshot after each assistant response,
+so the displayed estimate includes the completed answer rather than only the
+pre-generation prompt. The JVM stores the latest bounded snapshot separately
+for each local conversation and restores it on thread selection and IDE restart;
+new user history invalidates the old snapshot until the next run reports usage.
 
 ### Integration Readiness Gate
 

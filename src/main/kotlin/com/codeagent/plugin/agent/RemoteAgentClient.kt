@@ -576,10 +576,12 @@ data class RemoteContextUpdated(
     val reservedOutputTokens: Int,
     val retrievalBudgetTokens: Int = 8_192,
     val toolDefinitionTokens: Int,
+    val assistantResponseTokens: Int = 0,
     val compactedToolResults: Int,
     val truncatedMessages: Int,
     val compactionApplied: Boolean = false,
     val overBudget: Boolean,
+    val finalized: Boolean = false,
 )
 
 @Serializable

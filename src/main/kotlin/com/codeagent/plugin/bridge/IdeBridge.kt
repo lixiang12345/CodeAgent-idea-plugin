@@ -31,6 +31,7 @@ import com.codeagent.plugin.agent.RemoteToolCatalogUpdated
 import com.codeagent.plugin.agent.RemoteVerificationUpdated
 import com.codeagent.plugin.agent.WorkspaceCustomization
 import com.codeagent.plugin.agent.WorkspaceCustomizationService
+import com.codeagent.plugin.conversation.ConversationContextUsage
 import com.codeagent.plugin.conversation.ConversationStore
 import com.codeagent.plugin.conversation.ConversationSnapshot
 import com.codeagent.plugin.conversation.ConversationTool
@@ -614,7 +615,6 @@ class IdeBridge(
                         val previous = conversations.active()
                         conversations.select(selection.threadId)
                         restoreConversationPresentation()
-                        agentRun = AgentRunTelemetryDto()
                         attachments.clear()
                         messageQueue.clear()
                         runState = "idle"
@@ -999,7 +999,7 @@ class IdeBridge(
             override fun onContextUpdated(update: RemoteContextUpdated) {
                 if (withCurrentRun(runId) {
                     agentRun = agentRun.copy(
-                        phase = if (update.compactionApplied) "compacting" else "thinking",
+                        phase = if (update.finalized) agentRun.phase else if (update.compactionApplied) "compacting" else "thinking",
                         turnIndex = update.turnIndex,
                         estimatedInputTokens = update.estimatedInputTokens,
                         targetInputTokens = update.targetInputTokens,
@@ -1007,6 +1007,7 @@ class IdeBridge(
                         reservedOutputTokens = update.reservedOutputTokens,
                         retrievalBudgetTokens = update.retrievalBudgetTokens,
                         toolDefinitionTokens = update.toolDefinitionTokens,
+                        assistantResponseTokens = update.assistantResponseTokens,
                         compactedToolResults = update.compactedToolResults,
                         truncatedMessages = update.truncatedMessages,
                         compactionApplied = update.compactionApplied,
@@ -1018,6 +1019,7 @@ class IdeBridge(
                         retryMaxAttempts = 0,
                         retryMessage = null,
                     )
+                    persistContextUsageLocked()
                 }) emitRunSnapshot()
             }
 
@@ -1032,6 +1034,7 @@ class IdeBridge(
                         discoverableToolCount = update.discoverableToolCount,
                         activatedToolNames = update.activated,
                     )
+                    persistContextUsageLocked()
                 }) emitRunSnapshot()
             }
 
@@ -1819,6 +1822,8 @@ class IdeBridge(
             snapshot.messages.forEach { message ->
                 message.turnIndex?.let { messageTurns[message.id] = it }
             }
+            agentRun = conversations.contextUsage(snapshot.id)?.toAgentRunTelemetryDto()
+                ?: AgentRunTelemetryDto()
         }
     }
 
@@ -1857,6 +1862,49 @@ class IdeBridge(
         updatedAt = updatedAt.takeIf { it > 0 } ?: createdAt.takeIf { it > 0 } ?: System.currentTimeMillis(),
         timelineSequence = timelineSequence ?: 0,
     )
+
+    private fun ConversationContextUsage.toAgentRunTelemetryDto() = AgentRunTelemetryDto(
+        phase = "idle",
+        turnIndex = turnIndex,
+        estimatedInputTokens = estimatedInputTokens,
+        targetInputTokens = targetInputTokens,
+        contextWindowTokens = contextWindowTokens,
+        reservedOutputTokens = reservedOutputTokens,
+        retrievalBudgetTokens = retrievalBudgetTokens,
+        toolDefinitionTokens = toolDefinitionTokens,
+        assistantResponseTokens = assistantResponseTokens,
+        compactedToolResults = compactedToolResults,
+        truncatedMessages = truncatedMessages,
+        compactionApplied = compactionApplied,
+        overBudget = overBudget,
+        activeToolCount = activeToolCount,
+        catalogToolCount = catalogToolCount,
+        discoverableToolCount = discoverableToolCount,
+    )
+
+    private fun AgentRunTelemetryDto.toConversationContextUsage() = ConversationContextUsage(
+        turnIndex = turnIndex,
+        estimatedInputTokens = estimatedInputTokens,
+        targetInputTokens = targetInputTokens,
+        contextWindowTokens = contextWindowTokens,
+        reservedOutputTokens = reservedOutputTokens,
+        retrievalBudgetTokens = retrievalBudgetTokens,
+        toolDefinitionTokens = toolDefinitionTokens,
+        assistantResponseTokens = assistantResponseTokens,
+        compactedToolResults = compactedToolResults,
+        truncatedMessages = truncatedMessages,
+        compactionApplied = compactionApplied,
+        overBudget = overBudget,
+        activeToolCount = activeToolCount,
+        catalogToolCount = catalogToolCount,
+        discoverableToolCount = discoverableToolCount,
+    )
+
+    private fun persistContextUsageLocked() {
+        if (agentRun.contextWindowTokens > 0) {
+            conversations.setContextUsage(agentRun.toConversationContextUsage())
+        }
+    }
 
     private fun updateTool(toolId: String, update: (ToolRunDto) -> ToolRunDto): Boolean = synchronized(stateLock) {
         val current = tools[toolId] ?: return@synchronized false

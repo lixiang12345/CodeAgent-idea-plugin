@@ -82,6 +82,16 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     }
 
     @Synchronized
+    fun contextUsage(threadId: String): ConversationContextUsage? {
+        return data.threads.firstOrNull { it.id == threadId }?.contextUsage?.toDomain()
+    }
+
+    @Synchronized
+    fun setContextUsage(usage: ConversationContextUsage) {
+        mutableActive().contextUsage = usage.normalized().toState()
+    }
+
+    @Synchronized
     fun unreadCount(threadId: String): Int {
         val thread = data.threads.firstOrNull { it.id == threadId } ?: return 0
         return thread.messages.count { message ->
@@ -287,6 +297,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
             this.turnIndex = turnIndex ?: -1
             timelineSequence = nextTimelineSequence(thread)
         }
+        if (role == "user") thread.contextUsage = ConversationContextUsageState()
         thread.messages.add(message)
         if (role == "user" && thread.messages.count { it.role == "user" } == 1) {
             thread.title = content.lineSequence().first().trim().take(48).ifEmpty { "New task" }
@@ -336,6 +347,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         thread.messages.removeIf { it.timelineSequence >= targetSequence }
         thread.tools.removeIf { it.timelineSequence > targetSequence }
         thread.summary = ""
+        thread.contextUsage = ConversationContextUsageState()
         val latestRemainingMessage = thread.messages.maxOfOrNull { it.timelineSequence } ?: 0
         thread.lastReadTimelineSequence = thread.lastReadTimelineSequence.coerceIn(0, latestRemainingMessage)
         thread.updatedAt = System.currentTimeMillis()
@@ -655,6 +667,8 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
                 .take(MAX_TASKS_PER_THREAD)
                 .toList()
                 .toMutableList()
+            thread.contextUsage = thread.contextUsage.toDomain()?.normalized()?.toState()
+                ?: ConversationContextUsageState()
             normalizeTimelineSequences(thread)
             if (thread.lastReadTimelineSequence < 0) {
                 thread.lastReadTimelineSequence = thread.messages.maxOfOrNull { it.timelineSequence } ?: 0
@@ -762,6 +776,61 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         timelineSequence = timelineSequence.takeIf { it > 0 } ?: 0,
     )
 
+    private fun ConversationContextUsageState.toDomain(): ConversationContextUsage? {
+        if (contextWindowTokens <= 0) return null
+        return ConversationContextUsage(
+            turnIndex = turnIndex,
+            estimatedInputTokens = estimatedInputTokens,
+            targetInputTokens = targetInputTokens,
+            contextWindowTokens = contextWindowTokens,
+            reservedOutputTokens = reservedOutputTokens,
+            retrievalBudgetTokens = retrievalBudgetTokens,
+            toolDefinitionTokens = toolDefinitionTokens,
+            assistantResponseTokens = assistantResponseTokens,
+            compactedToolResults = compactedToolResults,
+            truncatedMessages = truncatedMessages,
+            compactionApplied = compactionApplied,
+            overBudget = overBudget,
+            activeToolCount = activeToolCount,
+            catalogToolCount = catalogToolCount,
+            discoverableToolCount = discoverableToolCount,
+        )
+    }
+
+    private fun ConversationContextUsage.toState() = ConversationContextUsageState().also { state ->
+        state.turnIndex = turnIndex
+        state.estimatedInputTokens = estimatedInputTokens
+        state.targetInputTokens = targetInputTokens
+        state.contextWindowTokens = contextWindowTokens
+        state.reservedOutputTokens = reservedOutputTokens
+        state.retrievalBudgetTokens = retrievalBudgetTokens
+        state.toolDefinitionTokens = toolDefinitionTokens
+        state.assistantResponseTokens = assistantResponseTokens
+        state.compactedToolResults = compactedToolResults
+        state.truncatedMessages = truncatedMessages
+        state.compactionApplied = compactionApplied
+        state.overBudget = overBudget
+        state.activeToolCount = activeToolCount
+        state.catalogToolCount = catalogToolCount
+        state.discoverableToolCount = discoverableToolCount
+    }
+
+    private fun ConversationContextUsage.normalized() = copy(
+        turnIndex = turnIndex.coerceAtLeast(0),
+        estimatedInputTokens = estimatedInputTokens.coerceIn(0, MAX_CONTEXT_USAGE_TOKENS),
+        targetInputTokens = targetInputTokens.coerceIn(0, MAX_CONTEXT_USAGE_TOKENS),
+        contextWindowTokens = contextWindowTokens.coerceIn(0, MAX_CONTEXT_USAGE_TOKENS),
+        reservedOutputTokens = reservedOutputTokens.coerceIn(0, MAX_CONTEXT_USAGE_TOKENS),
+        retrievalBudgetTokens = retrievalBudgetTokens.coerceIn(0, MAX_CONTEXT_USAGE_TOKENS),
+        toolDefinitionTokens = toolDefinitionTokens.coerceIn(0, MAX_CONTEXT_USAGE_TOKENS),
+        assistantResponseTokens = assistantResponseTokens.coerceIn(0, MAX_CONTEXT_USAGE_TOKENS),
+        compactedToolResults = compactedToolResults.coerceIn(0, MAX_CONTEXT_USAGE_ITEMS),
+        truncatedMessages = truncatedMessages.coerceIn(0, MAX_CONTEXT_USAGE_ITEMS),
+        activeToolCount = activeToolCount.coerceIn(0, MAX_CONTEXT_USAGE_ITEMS),
+        catalogToolCount = catalogToolCount.coerceIn(0, MAX_CONTEXT_USAGE_ITEMS),
+        discoverableToolCount = discoverableToolCount.coerceIn(0, MAX_CONTEXT_USAGE_ITEMS),
+    )
+
     companion object {
         private const val MAX_THREADS = 50
         private const val MAX_MESSAGES_PER_THREAD = 200
@@ -776,6 +845,8 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         private val AGENT_PROFILE_ID = Regex("^[A-Za-z0-9._-]{1,120}$")
         private const val MAX_SUMMARY_CHARS = 20_000
         private const val MAX_CLOUD_TOMBSTONES = 200
+        private const val MAX_CONTEXT_USAGE_TOKENS = 4_000_000
+        private const val MAX_CONTEXT_USAGE_ITEMS = 100_000
         private val TASK_STATES = setOf("not_started", "in_progress", "completed", "cancelled")
         private val TOOL_STATES = setOf("approval", "running", "completed", "failed", "rejected")
         const val MAX_SELECTED_SKILLS = 8
@@ -837,6 +908,24 @@ data class ConversationTool(
     val timelineSequence: Long = 0,
 )
 
+data class ConversationContextUsage(
+    val turnIndex: Int = 0,
+    val estimatedInputTokens: Int = 0,
+    val targetInputTokens: Int = 0,
+    val contextWindowTokens: Int = 0,
+    val reservedOutputTokens: Int = 0,
+    val retrievalBudgetTokens: Int = 0,
+    val toolDefinitionTokens: Int = 0,
+    val assistantResponseTokens: Int = 0,
+    val compactedToolResults: Int = 0,
+    val truncatedMessages: Int = 0,
+    val compactionApplied: Boolean = false,
+    val overBudget: Boolean = false,
+    val activeToolCount: Int = 0,
+    val catalogToolCount: Int = 0,
+    val discoverableToolCount: Int = 0,
+)
+
 class ConversationStoreState {
     var activeThreadId: String = ""
     var threads: MutableList<ConversationThreadState> = mutableListOf()
@@ -855,10 +944,29 @@ class ConversationThreadState {
     var messages: MutableList<ConversationMessageState> = mutableListOf()
     var tasks: MutableList<ConversationTaskState> = mutableListOf()
     var tools: MutableList<ConversationToolState> = mutableListOf()
+    var contextUsage: ConversationContextUsageState = ConversationContextUsageState()
     var summary: String = ""
 
     var pinned: Boolean = false
     var lastReadTimelineSequence: Long = -1
+}
+
+class ConversationContextUsageState {
+    var turnIndex: Int = 0
+    var estimatedInputTokens: Int = 0
+    var targetInputTokens: Int = 0
+    var contextWindowTokens: Int = 0
+    var reservedOutputTokens: Int = 0
+    var retrievalBudgetTokens: Int = 0
+    var toolDefinitionTokens: Int = 0
+    var assistantResponseTokens: Int = 0
+    var compactedToolResults: Int = 0
+    var truncatedMessages: Int = 0
+    var compactionApplied: Boolean = false
+    var overBudget: Boolean = false
+    var activeToolCount: Int = 0
+    var catalogToolCount: Int = 0
+    var discoverableToolCount: Int = 0
 }
 
 class ConversationMessageState {

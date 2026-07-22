@@ -94,7 +94,7 @@ Backend tools are discovered through authenticated `GET /v1/tools`. The JVM adve
 - Reuse the provided prototype status, service, and product image resources when licensing permits redistribution.
 - Use prototype design tokens: compact 10/12/14 px type, JetBrains Mono for tool data, neutral IntelliJ surfaces (`--bg/#1e1e1e`, `--panel/#252526`, `--chrome/#3c3f41`, accent `#3574f0`), and 4-8 px radii.
 - Validate at a 420 px tool-window viewport first (`--tw: 420px`), then 360 px and wider docked widths.
-- Page chrome mirrors v9: tool-window header, chat header with zoom, repository chip strip, composer action bar (mode/model/context usage/canvas/@/slash/attach/enhance/auto/send), threads drawer, and overlay pages for Tasks / Git Changes / Context Canvas / Settings. Context Window Usage uses aggregate `agentRun` telemetry for its two truthful token categories and keeps CodeAgent-specific compaction, output, retrieval, and tool statistics in a separate runtime-budget section.
+- Page chrome mirrors v9: tool-window header, chat header with zoom, repository chip strip, composer action bar (mode/model/context usage/canvas/@/slash/attach/enhance/auto/send), threads drawer, and overlay pages for Tasks / Git Changes / Context Canvas / Settings. Context Window Usage uses finalized, conversation-scoped `agentRun` telemetry for its three truthful token categories and keeps CodeAgent-specific compaction, output, retrieval, and tool statistics in a separate runtime-budget section.
 
 ## No-fake rule
 

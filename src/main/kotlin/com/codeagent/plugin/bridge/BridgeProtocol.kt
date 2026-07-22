@@ -53,6 +53,7 @@ data class AgentRunTelemetryDto(
     val reservedOutputTokens: Int = 0,
     val retrievalBudgetTokens: Int = 0,
     val toolDefinitionTokens: Int = 0,
+    val assistantResponseTokens: Int = 0,
     val compactedToolResults: Int = 0,
     val truncatedMessages: Int = 0,
     val compactionApplied: Boolean = false,

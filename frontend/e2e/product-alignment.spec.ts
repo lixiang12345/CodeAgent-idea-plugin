@@ -63,8 +63,9 @@ test("Context Window Usage exposes live telemetry in a bounded modal", async ({ 
       ...snapshot,
       agentRun: {
         ...snapshot.agentRun,
-        estimatedInputTokens: 48_000,
+        estimatedInputTokens: 44_000,
         toolDefinitionTokens: 16_000,
+        assistantResponseTokens: 4_000,
         contextWindowTokens: 128_000,
         targetInputTokens: 86_400,
         reservedOutputTokens: 8_000,
@@ -95,13 +96,14 @@ test("Context Window Usage exposes live telemetry in a bounded modal", async ({ 
   await expect(closeButton).toBeFocused();
   await expect(dialog.getByText("64.0k / 128.0k tokens", { exact: true })).toBeVisible();
   await expect(dialog.getByText("Input / History Estimate", { exact: true }).first()).toBeVisible();
-  await expect(dialog.getByText("Built-in Tools", { exact: true }).first()).toBeVisible();
+  await expect(dialog.getByText("Tool Definitions", { exact: true }).first()).toBeVisible();
+  await expect(dialog.getByText("Assistant Response", { exact: true }).first()).toBeVisible();
   await expect(dialog.getByText("102.4k tokens", { exact: true })).toBeVisible();
   await expect(dialog.getByText("8.0k tokens", { exact: true })).toBeVisible();
   await expect(dialog.getByText("12.0k tokens", { exact: true })).toBeVisible();
   await expect(dialog.getByText("Compacted tool results", { exact: true })).toBeVisible();
   await expect(dialog.getByText("Truncated messages", { exact: true })).toBeVisible();
-  await dialog.getByRole("button", { name: "Show Built-in Tools details", exact: true }).click();
+  await dialog.getByRole("button", { name: "Show Tool Definitions details", exact: true }).click();
   await expect(dialog.getByText("Tools ready", { exact: true })).toBeVisible();
   await expect(dialog.getByText("Discoverable tools", { exact: true })).toBeVisible();
   await expect(dialog.getByText("Catalog tools", { exact: true })).toBeVisible();
@@ -130,6 +132,8 @@ test("Context Window Usage exposes live telemetry in a bounded modal", async ({ 
   await page.getByRole("button", { name: "Close context usage", exact: true }).click({ position: { x: 2, y: 2 } });
   await expect(dialog).toBeHidden();
 
+  await contextButton.click();
+  await dialog.getByRole("button", { name: "Show Tool Definitions details", exact: true }).focus();
   await page.evaluate(() => {
     const snapshot = window.CodeAgentDevelopment?.getSnapshot();
     if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
@@ -139,15 +143,41 @@ test("Context Window Usage exposes live telemetry in a bounded modal", async ({ 
         ...snapshot.agentRun,
         estimatedInputTokens: 0,
         toolDefinitionTokens: 0,
+        assistantResponseTokens: 0,
         contextWindowTokens: 0,
       },
     });
   });
   await expect(contextButton.locator(".context-usage-ring-fill")).toHaveCount(0);
-  await contextButton.click();
   await expect(dialog.getByText("No context usage data available. Send a message to see context usage.", { exact: true })).toBeVisible();
+  await expect(closeButton).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(closeButton).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
+
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      agentRun: {
+        ...snapshot.agentRun,
+        estimatedInputTokens: 44_000,
+        toolDefinitionTokens: 16_000,
+        assistantResponseTokens: 4_000,
+        contextWindowTokens: 128_000,
+        compactedToolResults: 3,
+        truncatedMessages: 6,
+        compactionApplied: true,
+      },
+      threads: snapshot.threads.map((thread, index) => ({ ...thread, active: index === 1 })),
+    });
+  });
+  await expect(contextButton.locator(".context-usage-ring-fill")).toHaveCount(1);
+  await expect(page.locator(".context-compaction-strip")).toBeHidden();
+  await page.getByRole("button", { name: "New Thread", exact: true }).first().click();
+  await expect(contextButton.locator(".context-usage-ring-fill")).toHaveCount(0);
   await expectViewportIntegrity(page);
 });
 
@@ -238,10 +268,13 @@ test("Threads groups history and task lists continue in a fresh chat", async ({ 
     const snapshot = window.CodeAgentDevelopment?.getSnapshot();
     if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
     const now = Date.now();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    yesterday.setHours(12, 0, 0, 0);
     const threads = [
       { ...snapshot.threads[0], id: "group-pinned", title: "Pinned architecture plan", updatedAt: now - 5_000, active: true, pinned: true },
       { ...snapshot.threads[1], id: "group-today", title: "Today authentication review", updatedAt: now - 60_000, active: false, pinned: false },
-      { ...snapshot.threads[2], id: "group-yesterday", title: "Yesterday integration check", updatedAt: now - 30 * 60 * 60 * 1000, active: false, pinned: false },
+      { ...snapshot.threads[2], id: "group-yesterday", title: "Yesterday integration check", updatedAt: yesterday.getTime(), active: false, pinned: false },
       { id: "group-older-1", title: "Older migration plan", updatedAt: now - 10 * 24 * 60 * 60 * 1000, active: false, mode: "agent" as const, pinned: false },
       { id: "group-older-2", title: "Older release notes", updatedAt: now - 12 * 24 * 60 * 60 * 1000, active: false, mode: "chat" as const, pinned: false },
     ];

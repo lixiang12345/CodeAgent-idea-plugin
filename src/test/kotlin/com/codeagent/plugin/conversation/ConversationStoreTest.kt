@@ -111,6 +111,49 @@ class ConversationStoreTest {
     }
 
     @Test
+    fun `persists context usage per thread and clears it when history changes`() {
+        val store = ConversationStore()
+        val first = store.active()
+        store.addMessage("user", "Inspect context usage")
+        store.setContextUsage(
+            ConversationContextUsage(
+                turnIndex = 2,
+                estimatedInputTokens = 48_000,
+                targetInputTokens = 86_400,
+                contextWindowTokens = 128_000,
+                reservedOutputTokens = 8_000,
+                retrievalBudgetTokens = 12_000,
+                toolDefinitionTokens = 16_000,
+                assistantResponseTokens = 4_000,
+                compactedToolResults = 3,
+                truncatedMessages = 6,
+                compactionApplied = true,
+                activeToolCount = 2,
+                catalogToolCount = 12,
+                discoverableToolCount = 11,
+            ),
+        )
+
+        val second = store.newThread()
+        assertEquals(null, store.contextUsage(second.id))
+        store.setContextUsage(ConversationContextUsage(contextWindowTokens = 256_000, estimatedInputTokens = 2_000))
+
+        store.select(first.id)
+        assertEquals(48_000, store.contextUsage(first.id)?.estimatedInputTokens)
+        assertEquals(16_000, store.contextUsage(first.id)?.toolDefinitionTokens)
+        assertEquals(4_000, store.contextUsage(first.id)?.assistantResponseTokens)
+
+        val restored = ConversationStore()
+        restored.loadState(store.state)
+        assertEquals(48_000, restored.contextUsage(first.id)?.estimatedInputTokens)
+        assertEquals(2_000, restored.contextUsage(second.id)?.estimatedInputTokens)
+
+        restored.addMessage("user", "Recalculate after this request")
+        assertEquals(null, restored.contextUsage(first.id))
+        assertEquals(2_000, restored.contextUsage(second.id)?.estimatedInputTokens)
+    }
+
+    @Test
     fun `continues task list in a new thread without copying conversation messages`() {
         val source = ConversationStore()
         source.setSelectedModel("claude-sonnet-5")

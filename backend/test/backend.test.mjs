@@ -334,8 +334,14 @@ test("activates a hidden tool through discovery before forwarding it to the IDE"
   assert.match(systemPrompts[1], /Description: Inspect Git commit history/);
   assert.deepEqual(toolResults, ["git-1"]);
   const contextEvents = events.filter((event) => event.type === "context.updated");
-  assert.equal(contextEvents.length, 3);
-  assert.ok(contextEvents[1].data.toolDefinitionTokens > contextEvents[0].data.toolDefinitionTokens);
+  assert.equal(contextEvents.length, 6);
+  const initialContextEvents = contextEvents.filter((event) => !event.data.finalized);
+  const finalizedContextEvents = contextEvents.filter((event) => event.data.finalized);
+  assert.equal(initialContextEvents.length, 3);
+  assert.equal(finalizedContextEvents.length, 3);
+  assert.ok(initialContextEvents[1].data.toolDefinitionTokens > initialContextEvents[0].data.toolDefinitionTokens);
+  assert.equal(finalizedContextEvents[2].data.estimatedInputTokens, initialContextEvents[2].data.estimatedInputTokens);
+  assert.ok(finalizedContextEvents[2].data.assistantResponseTokens > 0);
   assert.ok(events.some((event) => event.type === "tool.catalog.updated" && event.data.activated.includes("git_history")));
 });
 
@@ -1163,7 +1169,9 @@ test("serves the public OpenAPI contract", async () => {
     assert.equal(contract.components.schemas.RunStartedEvent.required.includes("contextWindowTokens"), true);
     assert.equal(contract.components.schemas.RunStartedEvent.required.includes("retrievalBudgetTokens"), true);
     assert.equal(contract.components.schemas.ContextUpdatedEvent.required.includes("retrievalBudgetTokens"), true);
+    assert.equal(contract.components.schemas.ContextUpdatedEvent.required.includes("assistantResponseTokens"), true);
     assert.equal(contract.components.schemas.ContextUpdatedEvent.required.includes("overBudget"), true);
+    assert.equal(contract.components.schemas.ContextUpdatedEvent.properties.finalized.type, "boolean");
     assert.equal(contract.components.schemas.ModelRetryingEvent.required.includes("maxAttempts"), true);
     assert.equal(contract.components.schemas.ToolCatalogUpdatedEvent.required.includes("activeToolNames"), true);
     assert.equal(contract.components.schemas.ToolBatchStartedEvent.properties.execution.enum.includes("sequential"), true);

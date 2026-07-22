@@ -3,7 +3,7 @@
   import Icon from "./Icon.svelte";
   import type { AgentRunTelemetry } from "./protocol";
 
-  type CategoryKey = "input" | "tools";
+  type CategoryKey = "input" | "tools" | "assistant";
   type ContextCategory = {
     key: CategoryKey;
     label: string;
@@ -24,7 +24,8 @@
 
   const inputTokens = $derived(Math.max(0, telemetry.estimatedInputTokens));
   const toolDefinitionTokens = $derived(Math.max(0, telemetry.toolDefinitionTokens));
-  const usedTokens = $derived(inputTokens + toolDefinitionTokens);
+  const assistantResponseTokens = $derived(Math.max(0, telemetry.assistantResponseTokens));
+  const usedTokens = $derived(inputTokens + toolDefinitionTokens + assistantResponseTokens);
   const maxContextTokens = $derived(Math.max(0, telemetry.contextWindowTokens));
   const usagePercentage = $derived(maxContextTokens > 0
     ? Math.min(100, Math.max(0, Math.round((usedTokens / maxContextTokens) * 100)))
@@ -33,7 +34,8 @@
   const categories = $derived.by<ContextCategory[]>(() => {
     const values: ContextCategory[] = [
       { key: "input", label: "Input / History Estimate", tokens: inputTokens, color: "#3574f0" },
-      { key: "tools", label: "Built-in Tools", tokens: toolDefinitionTokens, color: "#9b73d1" },
+      { key: "tools", label: "Tool Definitions", tokens: toolDefinitionTokens, color: "#9b73d1" },
+      { key: "assistant", label: "Assistant Response", tokens: assistantResponseTokens, color: "#db5c5c" },
     ];
     return values.filter((category) => category.tokens > 0).sort((left, right) => right.tokens - left.tokens);
   });
@@ -42,6 +44,17 @@
 
   onMount(() => {
     void tick().then(() => closeButton?.focus());
+  });
+
+  $effect.pre(() => {
+    const nextHasUsage = hasUsage;
+    const nextCategoryKeys = new Set(categories.map((category) => category.key));
+    const activeElement = document.activeElement;
+    if (!(activeElement instanceof HTMLElement) || !dialogElement?.contains(activeElement) || activeElement === closeButton) return;
+    const focusedCategory = activeElement.dataset.contextCategory as CategoryKey | undefined;
+    if (!nextHasUsage || (focusedCategory !== undefined && !nextCategoryKeys.has(focusedCategory))) {
+      (closeButton ?? dialogElement).focus();
+    }
   });
 
   function formatTokenCount(count: number): string {
@@ -79,7 +92,15 @@
       first.focus();
     }
   }
+
+  function keepFocusInDialog(event: FocusEvent) {
+    if (!dialogElement || dialogElement.contains(event.target as Node)) return;
+    event.stopPropagation();
+    (closeButton ?? dialogElement).focus();
+  }
 </script>
+
+<svelte:window onfocusin={keepFocusInDialog} />
 
 <div class="context-usage-overlay">
   <button type="button" class="context-usage-backdrop" aria-label="Close context usage" onclick={onclose}></button>
@@ -107,6 +128,7 @@
               style={`--segment-width:${segmentWidth(category.tokens)}%;--segment-color:${category.color}`}
               title={`${category.label}: ${formatTokenCount(category.tokens)} tokens`}
               aria-label={`Show ${category.label} details`}
+              data-context-category={category.key}
               onclick={() => openCategory(category.key)}
             ></button>
           {/each}
@@ -125,6 +147,7 @@
                 type="button"
                 class="context-usage-section-header"
                 aria-expanded={expandedCategories.has(category.key)}
+                data-context-category={category.key}
                 onclick={() => toggleCategory(category.key)}
               >
                 <Icon name={expandedCategories.has(category.key) ? "chevron-down" : "chevron-right"} size={13} />

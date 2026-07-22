@@ -274,16 +274,24 @@
     if (event.type === "snapshot") {
       const nextSnapshot = event.payload as AppSnapshot;
       const nextThreadId = nextSnapshot.threads.find((thread) => thread.active)?.id;
+      const initialSnapshot = snapshot === null;
       const threadChanged = visibleThreadId !== undefined && nextThreadId !== visibleThreadId;
+      const runStarted = snapshot !== null && !isBusy(snapshot) && isBusy(nextSnapshot);
       const forceFollow = forceConversationFollow || nextThreadId !== visibleThreadId;
       if (threadChanged) {
         pendingUserMessages = [];
         visibleRequestIndex = 0;
         generationMenuOpen = false;
         pendingReadThreadId = undefined;
-        hideContextCompaction();
-      } else {
+      } else if (!runStarted) {
         reconcilePendingUserMessages(nextSnapshot.messages);
+      }
+      if (initialSnapshot || threadChanged) {
+        contextCompactionSignature = contextCompactionEventSignature(nextSnapshot, nextThreadId);
+        hideContextCompaction();
+      } else if (runStarted) {
+        contextCompactionSignature = "";
+        hideContextCompaction();
       }
       snapshot = nextSnapshot;
       const persistedGuidelines = nextSnapshot.customization.guidelines ?? "";
@@ -314,7 +322,7 @@
           return thread !== undefined && thread.pinned !== pinned;
         }),
       );
-      reconcileContextCompaction(nextSnapshot, nextThreadId);
+      if (!initialSnapshot && !threadChanged) reconcileContextCompaction(nextSnapshot, nextThreadId);
       visibleThreadId = nextThreadId;
       forceConversationFollow = false;
       resolvingApprovalIds = new Set(
@@ -734,10 +742,16 @@
     return "settings-2";
   }
 
+  function agentRunUsedTokens(telemetry: AppSnapshot["agentRun"]) {
+    return telemetry.estimatedInputTokens
+      + telemetry.toolDefinitionTokens
+      + telemetry.assistantResponseTokens;
+  }
+
   function modelContextUsage(currentSnapshot: AppSnapshot | null) {
     if (!currentSnapshot) return null;
     const windowTokens = currentSnapshot.agentRun.contextWindowTokens;
-    const usedTokens = currentSnapshot.agentRun.estimatedInputTokens + currentSnapshot.agentRun.toolDefinitionTokens;
+    const usedTokens = agentRunUsedTokens(currentSnapshot.agentRun);
     if (windowTokens <= 0 || usedTokens <= 0) return null;
     return {
       usedTokens,
@@ -797,17 +811,23 @@
     contextCompactionProgress = 0;
   }
 
-  function reconcileContextCompaction(nextSnapshot: AppSnapshot, threadId?: string) {
+  function contextCompactionEventSignature(nextSnapshot: AppSnapshot, threadId?: string) {
     const compactedMessages = nextSnapshot.agentRun.truncatedMessages;
     const compactedTools = nextSnapshot.agentRun.compactedToolResults;
-    if (compactedMessages <= 0 && compactedTools <= 0) return;
-    const signature = [
+    if (compactedMessages <= 0 && compactedTools <= 0) return "";
+    return [
       threadId ?? "",
       nextSnapshot.agentRun.turnIndex,
-      nextSnapshot.agentRun.estimatedInputTokens,
       compactedMessages,
       compactedTools,
     ].join(":");
+  }
+
+  function reconcileContextCompaction(nextSnapshot: AppSnapshot, threadId?: string) {
+    const compactedMessages = nextSnapshot.agentRun.truncatedMessages;
+    const compactedTools = nextSnapshot.agentRun.compactedToolResults;
+    const signature = contextCompactionEventSignature(nextSnapshot, threadId);
+    if (!signature) return;
     if (signature === contextCompactionSignature) return;
 
     clearContextCompactionTimers();
@@ -1231,7 +1251,7 @@
       details.push(`${telemetry.activeToolCount} tools ready · ${telemetry.catalogToolCount} catalog`);
     }
     if (telemetry.targetInputTokens > 0) {
-      details.push(`${compactTokenCount(telemetry.estimatedInputTokens + telemetry.toolDefinitionTokens)}/${compactTokenCount(telemetry.contextWindowTokens)} context`);
+      details.push(`${compactTokenCount(agentRunUsedTokens(telemetry))}/${compactTokenCount(telemetry.contextWindowTokens)} context`);
     }
     return details.length > 0 ? `${phase} · ${details.join(" · ")}` : phase;
   }
@@ -2125,7 +2145,7 @@
           <div class="run-telemetry" title={snapshot.agentRun.retryMessage ?? snapshot.agentRun.verificationMessage ?? snapshot.agentRun.activeToolNames.join(", ")}>
             <span><Icon name="activity" size={11} />Turn {snapshot.agentRun.turnIndex + 1}</span>
             {#if isBusy(snapshot)}<span class="run-phase {snapshot.agentRun.phase}">{runPhaseLabel(snapshot.agentRun.phase)}</span>{/if}
-            {#if snapshot.agentRun.targetInputTokens > 0}<span>{compactTokenCount(snapshot.agentRun.estimatedInputTokens + snapshot.agentRun.toolDefinitionTokens)} / {compactTokenCount(snapshot.agentRun.contextWindowTokens)} context · compact at {compactTokenCount(snapshot.agentRun.targetInputTokens + snapshot.agentRun.toolDefinitionTokens)}</span>{/if}
+            {#if snapshot.agentRun.targetInputTokens > 0}<span>{compactTokenCount(agentRunUsedTokens(snapshot.agentRun))} / {compactTokenCount(snapshot.agentRun.contextWindowTokens)} context · compact at {compactTokenCount(snapshot.agentRun.targetInputTokens + snapshot.agentRun.toolDefinitionTokens)}</span>{/if}
             {#if snapshot.agentRun.catalogToolCount > 0}<span title="Tool definitions available to the model, not executed calls">{snapshot.agentRun.activeToolCount} tools ready · {snapshot.agentRun.catalogToolCount} catalog</span>{/if}
             {#if snapshot.agentRun.toolBatchTotal > 0}<span>{snapshot.agentRun.toolBatchCompleted}/{snapshot.agentRun.toolBatchTotal} tools · {snapshot.agentRun.toolBatchExecution ?? "sequential"}</span>{/if}
             {#if snapshot.agentRun.retryAttempt > 0}<i class="retrying">retry {snapshot.agentRun.retryAttempt}/{snapshot.agentRun.retryMaxAttempts}</i>{/if}

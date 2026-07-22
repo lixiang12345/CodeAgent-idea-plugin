@@ -1,6 +1,6 @@
 import { composeSystemPrompt } from "./prompt.mjs";
 import { builtInAgentProfile } from "./agent-profile.mjs";
-import { contextBudgetFor, prepareModelMessages } from "./context-policy.mjs";
+import { contextBudgetFor, estimateTokens, prepareModelMessages } from "./context-policy.mjs";
 import { isRetryableModelError } from "./model-gateway.mjs";
 import { createToolCatalog, DISCOVER_TOOLS_NAME } from "./tool-catalog.mjs";
 
@@ -85,6 +85,16 @@ export class AgentRunner {
         toolCalls: turn.toolCalls.length ? turn.toolCalls : undefined,
       });
       emit("assistant.completed", { content: turn.content, turnIndex });
+      const assistantResponseTokens = estimateTokens(turn.content)
+        + estimateTokens(JSON.stringify(turn.toolCalls || []))
+        + 8;
+      emit("context.updated", {
+        turnIndex,
+        ...prepared.stats,
+        assistantResponseTokens,
+        overBudget: prepared.stats.estimatedInputTokens + assistantResponseTokens > prepared.stats.targetInputTokens,
+        finalized: true,
+      });
 
       if (turn.toolCalls.length === 0) {
         if (pendingVerification && agentProfile.verificationPolicy === "after-mutation") {

@@ -1807,6 +1807,7 @@
           "reservedOutputTokens",
           "retrievalBudgetTokens",
           "toolDefinitionTokens",
+          "assistantResponseTokens",
           "compactedToolResults",
           "truncatedMessages",
           "overBudget"
@@ -1841,6 +1842,10 @@
             "type": "integer",
             "minimum": 0
           },
+          "assistantResponseTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
           "compactedToolResults": {
             "type": "integer",
             "minimum": 0
@@ -1849,8 +1854,16 @@
             "type": "integer",
             "minimum": 0
           },
+          "compactionApplied": {
+            "type": "boolean",
+            "default": false
+          },
           "overBudget": {
             "type": "boolean"
+          },
+          "finalized": {
+            "type": "boolean",
+            "default": false
           }
         },
         "additionalProperties": false

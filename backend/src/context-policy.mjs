@@ -161,6 +161,7 @@ export function prepareModelMessages(messages, budget) {
       reservedOutputTokens: budget.reservedOutputTokens,
       retrievalBudgetTokens: budget.retrievalBudgetTokens,
       toolDefinitionTokens: budget.toolDefinitionTokens,
+      assistantResponseTokens: 0,
       compactedToolResults,
       truncatedMessages,
       compactionApplied,
