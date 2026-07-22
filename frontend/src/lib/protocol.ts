@@ -1285,6 +1285,16 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     emitDevelopmentSnapshot();
     return;
   }
+  if (
+    command.type === "saveConfiguration"
+    || command.type === "deleteConfiguration"
+    || command.type === "refreshMcpRuntime"
+    || command.type === "refreshAcpRuntime"
+    || command.type === "testHook"
+  ) {
+    emitDevelopmentEvent("notice", { message: `${command.type} is implemented by the JetBrains host; the browser development host acknowledged the action without changing local IDE state` });
+    return;
+  }
   if (command.type === "startMcpOAuth" || command.type === "clearMcpOAuth") {
     emitDevelopmentEvent("notice", {
       message: command.type === "startMcpOAuth"
@@ -1356,6 +1366,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     || command.type === "exportThread"
     || command.type === "importTasks"
     || command.type === "importThread"
+    || command.type === "insertCodeBlock"
     || command.type === "openDiff"
     || command.type === "openGitDiff"
     || command.type === "openImage"

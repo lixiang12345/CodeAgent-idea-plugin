@@ -48,10 +48,12 @@ import com.codeagent.plugin.ui.CodeAgentUiRequest
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.project.Project
@@ -881,6 +883,14 @@ class IdeBridge(
                 }
                 CopyPasteManager.getInstance().setContents(StringSelection(request.text))
                 emit("notice", mapOf("message" to "Copied to clipboard"))
+            }
+            "insertCodeBlock" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<InsertCodeBlockPayload>(it) }
+                require(request.text.isNotBlank()) { "Code block must not be blank" }
+                require(request.text.length <= MAX_CLIPBOARD_TEXT_LENGTH) {
+                    "Code block exceeds $MAX_CLIPBOARD_TEXT_LENGTH characters"
+                }
+                insertCodeIntoActiveEditor(request.text)
             }
             "exportThread" -> exportThread()
             "renameThread" -> {
@@ -2866,6 +2876,38 @@ class IdeBridge(
         }
     }
 
+    /**
+     * Mirrors the original plugin's chat code-block Insert action: writes the
+     * selected code into the active project editor at the caret, replacing any
+     * current selection. The JVM owns the editor, so this stays inside the
+     * plugin boundary and only touches editors backed by a project file.
+     */
+    private fun insertCodeIntoActiveEditor(code: String) {
+        ApplicationManager.getApplication().invokeLater {
+            if (project.isDisposed) return@invokeLater
+            val editor = FileEditorManager.getInstance(project).selectedTextEditor
+            if (editor == null) {
+                emit("error", mapOf("message" to "Open a project text editor before inserting code"))
+                return@invokeLater
+            }
+            val file = FileDocumentManager.getInstance().getFile(editor.document)
+            if (file == null || !file.isWritable) {
+                emit("error", mapOf("message" to "The active editor is not backed by a writable project file"))
+                return@invokeLater
+            }
+            WriteCommandAction.runWriteCommandAction(project, "Insert Code from CodeAgent Chat", null, {
+                val document = editor.document
+                val selection = editor.selectionModel
+                val start = if (selection.hasSelection()) selection.selectionStart else editor.caretModel.offset
+                val end = if (selection.hasSelection()) selection.selectionEnd else editor.caretModel.offset
+                document.replaceString(start.coerceIn(0, document.textLength), end.coerceIn(0, document.textLength), code)
+                editor.caretModel.moveToOffset((start + code.length).coerceIn(0, document.textLength))
+                selection.removeSelection()
+            })
+            emit("notice", mapOf("message" to "Inserted code into ${file.name}"))
+        }
+    }
+
     private fun exportThread() {
         val active = conversations.active()
         val markdown = threadMarkdown(active)
@@ -3207,6 +3249,8 @@ class IdeBridge(
 
     @Serializable
     private data class CopyTextPayload(val text: String)
+
+    private data class InsertCodeBlockPayload(val text: String)
 
     @Serializable
     private data class ModelSelectionPayload(val modelId: String? = null)

@@ -1,9 +1,14 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
-const appSource = readFileSync(new URL("../src/App.svelte", import.meta.url), "utf8");
+const componentSources = [
+  new URL("../src/App.svelte", import.meta.url),
+  ...readdirSync(new URL("../src/lib/", import.meta.url), { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".svelte"))
+    .map((entry) => new URL(`../src/lib/${entry.name}`, import.meta.url)),
+].map((url) => readFileSync(url, "utf8"));
 const protocolSource = readFileSync(new URL("../src/lib/protocol.ts", import.meta.url), "utf8");
 const commands = [...new Set(
-  [...appSource.matchAll(/sendCommand\("([^"]+)"/g)].map((match) => match[1]),
+  componentSources.flatMap((source) => [...source.matchAll(/sendCommand\("([^"]+)"/g)].map((match) => match[1])),
 )].sort();
 const handlers = new Set(
   [...protocolSource.matchAll(/command\.type\s*===\s*"([^"]+)"/g)].map((match) => match[1]),
