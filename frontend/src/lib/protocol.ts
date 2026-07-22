@@ -499,6 +499,7 @@ export interface AppSnapshot {
   customization: {
     rules: WorkspaceRule[];
     skills: WorkspaceSkill[];
+    guidelines?: string;
     maxSelectedSkills: number;
   };
 }
@@ -1223,6 +1224,14 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
         ...snapshot.customization,
         rules: snapshot.customization.rules.filter((rule) => rule.id !== ruleId),
       },
+    }));
+    return;
+  }
+  if (command.type === "saveGuidelines") {
+    const content = String((command.payload as { content?: string } | undefined)?.content ?? "").trim();
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      customization: { ...snapshot.customization, guidelines: content || undefined },
     }));
     return;
   }
@@ -1970,6 +1979,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       ],
     },
     customization: {
+      guidelines: "Prefer focused changes, explicit verification, and concise implementation notes.",
       rules: [
         {
           id: ".codeagent/rules/testing.md",

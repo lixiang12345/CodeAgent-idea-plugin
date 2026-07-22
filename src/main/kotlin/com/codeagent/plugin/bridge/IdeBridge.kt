@@ -716,6 +716,11 @@ class IdeBridge(
                 syncActiveConversation()
                 emitSnapshot()
             }
+            "saveGuidelines" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<GuidelinesPayload>(it) }
+                customizations.saveGuidelines(request.content)
+                emitSnapshot()
+            }
             "refreshCustomization" -> {
                 val customization = availableCustomization(refreshWorkspace = true)
                 val availableIds = customization.skills.mapTo(mutableSetOf()) { it.id }
@@ -1324,6 +1329,7 @@ class IdeBridge(
         return WorkspaceCustomization(
             rules = workspace.rules + pluginContributions.rules,
             skills = workspace.skills + pluginContributions.skills,
+            guidelines = workspace.guidelines,
         )
     }
 
@@ -1426,6 +1432,7 @@ class IdeBridge(
                             source = skill.source,
                         )
                     },
+                    guidelines = customization.guidelines,
                     maxSelectedSkills = ConversationStore.MAX_SELECTED_SKILLS,
                 ),
             )
@@ -2992,6 +2999,9 @@ class IdeBridge(
 
     @Serializable
     private data class RulePayload(val ruleId: String)
+
+    @Serializable
+    private data class GuidelinesPayload(val content: String)
 
     @Serializable
     private data class TaskStatePayload(val taskId: String, val state: String)

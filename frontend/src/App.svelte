@@ -114,6 +114,9 @@
   let ruleEditorBaseline = { fileName: "", content: "", trigger: "always" as WorkspaceRule["trigger"], description: "" };
   let confirmingRuleDeleteId: string | null = null;
   let confirmingSummaryClearId: string | null = null;
+  let guidelinesDraft = "";
+  let guidelinesBaseline = "";
+  let guidelinesSaving = false;
   let toolsExpanded = new Set<string>();
   let resolvingApprovalIds = new Set<string>();
   let backendUrl = "";
@@ -270,6 +273,12 @@
         reconcilePendingUserMessages(nextSnapshot.messages);
       }
       snapshot = nextSnapshot;
+      const persistedGuidelines = nextSnapshot.customization.guidelines ?? "";
+      if (guidelinesDraft === guidelinesBaseline || guidelinesSaving) {
+        guidelinesDraft = persistedGuidelines;
+        guidelinesBaseline = persistedGuidelines;
+        guidelinesSaving = false;
+      }
       if (editingMessageId && nextSnapshot.messages.every((message) => message.id !== editingMessageId)) {
         cancelMessageEdit();
       }
@@ -345,6 +354,7 @@
     }
     if (event.type === "error") {
       enhancing = false;
+      guidelinesSaving = false;
       pendingThreadDeletes = new Set();
       pendingThreadPins = {};
       if (pendingSettingsSave) {
@@ -1691,6 +1701,12 @@
     }
   }
 
+  function saveWorkspaceGuidelines() {
+    if (guidelinesDraft.length > 16_000 || guidelinesDraft === guidelinesBaseline) return;
+    guidelinesSaving = true;
+    sendCommand("saveGuidelines", { content: guidelinesDraft });
+  }
+
   function saveRule() {
     const fileName = ruleFileName.trim();
     const description = ruleDescription.trim();
@@ -2675,6 +2691,14 @@
                   {:else}
                     <p>No repository rules found.</p>
                   {/each}
+                </section>
+                <section class="settings-block guidelines-editor">
+                  <header><div><strong>Workspace Guidelines</strong><small>.codeagent/guidelines.md</small></div><span class:warning={guidelinesDraft.length > 16_000}>{guidelinesDraft.length.toLocaleString()} / 16,000</span></header>
+                  <textarea bind:value={guidelinesDraft} aria-label="Workspace guidelines" maxlength="16000" placeholder="Add Markdown guidance for Agent runs in this project..." spellcheck="true"></textarea>
+                  <footer>
+                    <button type="button" disabled={guidelinesDraft === guidelinesBaseline || guidelinesSaving} onclick={() => guidelinesDraft = guidelinesBaseline}>Reset</button>
+                    <button type="button" class="primary" disabled={guidelinesDraft === guidelinesBaseline || guidelinesDraft.length > 16_000 || guidelinesSaving} onclick={saveWorkspaceGuidelines}>{guidelinesSaving ? "Saving..." : "Save guidelines"}</button>
+                  </footer>
                 </section>
               {/if}
             {:else if settingsSection === "Skills"}

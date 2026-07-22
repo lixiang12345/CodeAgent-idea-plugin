@@ -13,9 +13,10 @@ import java.nio.file.Path
 internal data class WorkspaceCustomization(
     val rules: List<WorkspaceRule>,
     val skills: List<WorkspaceSkill>,
+    val guidelines: String? = null,
 ) {
     companion object {
-        val EMPTY = WorkspaceCustomization(emptyList(), emptyList())
+        val EMPTY = WorkspaceCustomization(emptyList(), emptyList(), null)
     }
 }
 
@@ -98,6 +99,26 @@ internal class WorkspaceCustomizationService(project: Project) {
         cached = loader.load()
     }
 
+    @Synchronized
+    fun saveGuidelines(content: String): String? {
+        require(content.length <= MAX_GUIDELINES_CHARS) { "Workspace guidelines exceed $MAX_GUIDELINES_CHARS characters" }
+        val root = projectRoot?.toRealPath() ?: error("Project root is unavailable")
+        val directory = root.resolve(".codeagent")
+        val file = directory.resolve("guidelines.md")
+        val normalized = content.trim()
+        if (normalized.isEmpty()) {
+            Files.deleteIfExists(file)
+        } else {
+            Files.createDirectories(directory)
+            Files.writeString(file, normalized + "\n")
+        }
+        LocalFileSystem.getInstance().refreshAndFindFileByNioFile(directory)?.let {
+            VfsUtil.markDirtyAndRefresh(false, false, false, it)
+        }
+        cached = loader.load()
+        return cached?.guidelines
+    }
+
     private fun loadRuleMetadata(root: Path): RuleMetadata = runCatching {
         json.decodeFromString<RuleMetadata>(Files.readString(root.resolve(RULE_METADATA_PATH)))
     }.getOrDefault(RuleMetadata())
@@ -106,6 +127,7 @@ internal class WorkspaceCustomizationService(project: Project) {
         private const val RULE_METADATA_PATH = ".codeagent/rules.json"
         private const val MAX_RULE_FILE_CHARS = 16_000
         private const val MAX_RULE_DESCRIPTION_CHARS = 240
+        private const val MAX_GUIDELINES_CHARS = 16_000
         private val RULE_FILE_NAME = Regex("[A-Za-z0-9._-]+\\.md")
         private val RULE_TRIGGERS = setOf("always", "manual", "agent")
     }
@@ -117,6 +139,7 @@ internal class WorkspaceCustomizationLoader(private val projectRoot: Path?) {
         WorkspaceCustomization(
             rules = loadRules(root),
             skills = loadSkills(root),
+            guidelines = readProjectFile(root, root.resolve(".codeagent/guidelines.md")),
         )
     }.getOrDefault(WorkspaceCustomization.EMPTY)
 
@@ -238,22 +261,18 @@ private data class RuleMetadata(
 internal class WorkspaceGuidanceLoader(private val projectRoot: Path?) {
     fun load(): String? = runCatching {
         val root = projectRoot?.toRealPath() ?: return null
-        val guidanceFile = root.resolve("AGENTS.md")
-        if (!Files.isRegularFile(guidanceFile)) return null
-        val resolvedFile = guidanceFile.toRealPath()
-        if (!resolvedFile.startsWith(root)) return null
-
-        Files.newBufferedReader(resolvedFile).use { reader ->
-            val content = StringBuilder()
-            val buffer = CharArray(4096)
-            while (content.length < MAX_GUIDANCE_CHARS) {
-                val count = reader.read(buffer, 0, minOf(buffer.size, MAX_GUIDANCE_CHARS - content.length))
-                if (count < 0) break
-                content.append(buffer, 0, count)
-            }
-            content.toString().trim().takeIf(String::isNotEmpty)
-        }
+        buildList {
+            readGuidanceFile(root, root.resolve("AGENTS.md"))?.let { add("AGENTS.md:\n$it") }
+            readGuidanceFile(root, root.resolve(".codeagent/guidelines.md"))?.let { add("Workspace guidelines:\n$it") }
+        }.joinToString("\n\n").trim().take(MAX_GUIDANCE_CHARS).takeIf(String::isNotEmpty)
     }.getOrNull()
+
+    private fun readGuidanceFile(root: Path, file: Path): String? {
+        if (!Files.isRegularFile(file)) return null
+        val resolvedFile = file.toRealPath()
+        if (!resolvedFile.startsWith(root)) return null
+        return Files.readString(resolvedFile).trim().takeIf(String::isNotEmpty)
+    }
 
     companion object {
         private const val MAX_GUIDANCE_CHARS = 16_000

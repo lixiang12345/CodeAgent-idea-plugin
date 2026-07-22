@@ -551,6 +551,7 @@ data class WorkspaceSkillDto(
 data class WorkspaceCustomizationDto(
     val rules: List<WorkspaceRuleDto> = emptyList(),
     val skills: List<WorkspaceSkillDto> = emptyList(),
+    val guidelines: String? = null,
     val maxSelectedSkills: Int = 8,
 )
 

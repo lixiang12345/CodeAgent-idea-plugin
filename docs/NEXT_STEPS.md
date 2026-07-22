@@ -124,6 +124,19 @@ list also supports refresh and two-step workspace-rule deletion; deletion is
 path constrained, removes stale trigger/description metadata, and rejects
 plugin-owned rules as read-only.
 
+### Workspace Guidelines Management
+
+**Status:** implemented on 2026-07-22.
+
+Rules & Guidelines now includes a bounded Markdown editor for
+`.codeagent/guidelines.md`, with dirty-state reset, explicit save, a live
+character count, and a 16,000-character limit. Saving blank content removes the
+file. The Agent runtime layers repository `AGENTS.md` first and CodeAgent
+workspace guidelines second in the lower-priority workspace context, so the UI
+controls real run behavior without modifying the repository instruction file.
+Loader tests cover discovery and ordering, and the Rules Playwright workflow
+verifies reset and persisted Snapshot updates.
+
 ### Conversation Memory Management
 
 **Status:** implemented on 2026-07-22.

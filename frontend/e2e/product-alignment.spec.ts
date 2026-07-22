@@ -257,6 +257,14 @@ test("Rules editor validates Markdown and protects unsaved changes", async ({ pa
   await expect(testingRule).toBeVisible();
   await testingRule.getByTitle("Confirm delete rule").click();
   await expect(testingRule).toBeHidden();
+  const guidelines = page.getByRole("textbox", { name: "Workspace guidelines" });
+  await expect(guidelines).toHaveValue(/focused changes/);
+  await guidelines.fill("# Workspace review\n\nRequire focused verification before finalizing changes.");
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await expect(guidelines).toHaveValue(/focused changes/);
+  await guidelines.fill("# Workspace review\n\nRequire focused verification before finalizing changes.");
+  await page.getByRole("button", { name: "Save guidelines", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.customization.guidelines)).toContain("Require focused verification");
   await expectViewportIntegrity(page);
 });
 
