@@ -8,9 +8,8 @@ live acceptance evidence exist.
 
 ## Priority 0: Live GitHub Acceptance
 
-**Status:** live behavior passed on 2026-07-22 against `lixiang12345/test`;
-final acceptance remains blocked on a repository-scoped fine-grained
-`GITHUB_TOKEN`.
+**Status:** completed on 2026-07-22 against `lixiang12345/test` with a
+repository-scoped fine-grained personal access token.
 
 Use a non-production GitHub repository with a protected base branch. Grant only
 the permissions exercised by the test: Metadata, Pull requests, Checks,
@@ -33,16 +32,20 @@ Acceptance evidence must cover:
    token or temporary log URL.
 
 The deployed backend intentionally reports GitHub tooling as unavailable until
-`GITHUB_TOKEN` is configured. Unit coverage alone is not a substitute for this
-acceptance gate.
+`GITHUB_TOKEN` is configured. The acceptance credential is stored separately in
+the macOS Keychain service `CodeAgent-GitHub-Acceptance`; deployments must
+inject it into the backend environment without committing it.
 
 The live run covered all read, review, Actions, and merge-blocker behaviors
 listed above, including a real line-level review, requested-changes review,
 failed Check Run, cancellation, force-cancellation, and dirty merge state. See
 `docs/GITHUB_LIVE_ACCEPTANCE.md` and
-`evaluation/github-live-acceptance.json`. The available GitHub CLI credential
-was a broad classic PAT, so this evidence is intentionally marked `partial`
-until the same suite is repeated with the required fine-grained token.
+`evaluation/github-live-acceptance.json`. A final rerun used a 30-day
+fine-grained token restricted to `lixiang12345/test` with Actions and Pull
+requests read/write plus Administration, Contents, and Metadata read-only. The
+production adapter also read Check Runs successfully; GitHub did not expose a
+separate Checks selector in the fine-grained token form. The evidence gate is
+now `pass`.
 
 ## Priority 1: Broaden Deployment Verification
 

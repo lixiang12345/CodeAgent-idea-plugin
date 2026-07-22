@@ -5,9 +5,8 @@
 CodeAgent's GitHub read, review, Actions-control, and merge-readiness behavior
 was exercised against the disposable public repository
 [`lixiang12345/test`](https://github.com/lixiang12345/test) on 2026-07-22.
-The live API behavior passed. The release gate remains **partial** because the
-available credential was a broad classic personal access token rather than the
-required repository-scoped fine-grained token.
+The live API behavior and the least-privilege credential rerun both passed, so
+the release gate is **pass**.
 
 Machine-readable evidence is committed in
 `evaluation/github-live-acceptance.json`. No token, authorization header,
@@ -44,9 +43,10 @@ All reads went through the production `github_search` adapter in
 | Bounded UTF-8 repository file read | Passed |
 
 The production `github_manage` adapter submitted a `COMMENT` review with a
-line-level comment on `acceptance.txt:4`. GitHub recorded the original commit
-as `2d15faf0c9fe8f864157a35b8e8ee9d1a7f0f2f1`. A separate discussion comment
-was also created and read back.
+line-level comment on `acceptance.txt:4`. The fine-grained rerun anchored the
+comment to the current head commit
+`ce192502d86a30f943e7df6e96f85d689ff7551e`. A separate discussion comment was
+also created and read back.
 
 The production `github_actions_manage` adapter successfully exercised all five
 supported disposable controls:
@@ -75,14 +75,25 @@ Unit coverage separately asserts that these preflight failures never call the
 GitHub merge endpoint. The live run corroborated the observable result: no
 merge occurred and the protected branch remained intact.
 
-## Credential limitation
+## Least-privilege credential
 
-The run used the GitHub CLI keyring's classic token. GitHub reported accepted
-scope `repo` and the exact OAuth scopes recorded in the machine-readable
-evidence. Those scopes are materially broader than CodeAgent needs, so this run
-does not satisfy least-privilege credential acceptance.
+The final rerun used a 30-day fine-grained personal access token limited to the
+`lixiang12345/test` repository. The token is stored outside the repository in
+the dedicated macOS Keychain service `CodeAgent-GitHub-Acceptance`; it did not
+replace the GitHub CLI credential.
 
-To close the release gate, repeat this same suite with a fine-grained token
-limited to `lixiang12345/test` and the permissions listed in
-`docs/NEXT_STEPS.md`. The current evidence must remain `partial` until that
-credential-only rerun succeeds.
+The exact repository permissions selected in GitHub were:
+
+- Actions: read and write;
+- Administration: read-only;
+- Contents: read-only;
+- Metadata: read-only;
+- Pull requests: read and write.
+
+GitHub's fine-grained token form did not expose a separate Checks permission
+for this repository. The production adapter nevertheless read the head-SHA
+Check Runs successfully with the permission set above. The rerun also verified
+workflow jobs and temporary log redirects, submitted and read back both review
+and discussion comments, exercised all five Actions controls, read branch
+protection and rulesets, and reconfirmed stale-head and live unsafe-state merge
+blocking. No credential or temporary log URL is committed in the evidence.
