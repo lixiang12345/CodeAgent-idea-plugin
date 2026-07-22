@@ -111,6 +111,16 @@ summary, attachments, queue, and run state. JVM and 360/420/640 px Playwright
 coverage verify the persistence and interaction boundaries; a canonical 420 px
 reference records advanced thread management.
 
+### Rules Editor Lifecycle Alignment
+
+**Status:** implemented on 2026-07-22.
+
+Rule creation and editing validates Markdown filenames, non-empty content, and
+description length before crossing the bridge. Back, Cancel, and Settings
+navigation preserve dirty editor state behind an explicit Keep editing /
+Discard confirmation; successful saves reset the editor baseline. The 420 px
+Playwright workflow covers invalid input and both discard branches.
+
 ### Composer and Message Lifecycle Alignment
 
 **Status:** implemented on 2026-07-22.

@@ -461,6 +461,12 @@ button { color: inherit; }
 .rule-editor footer button { height: 26px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 3px; background: #2d3035; font-size: 8px; cursor: pointer; }
 .rule-editor footer button.primary { border-color: #416aa9; color: white; background: #3665ac; }
 .rule-editor footer button:disabled { opacity: .45; cursor: default; }
+.rule-editor-error { margin: -3px 0 9px; display: flex; align-items: center; gap: 5px; color: #df9298; font-size: 9px; }
+.rule-discard-confirm { margin-top: 10px; padding: 8px; display: flex; flex-direction: column; gap: 4px; border: 1px solid #70504a; border-radius: 4px; color: #d9bdab; background: #302725; font-size: 9px; }
+.rule-discard-confirm span { color: #aaa19d; }
+.rule-discard-confirm > div { display: flex; justify-content: flex-end; gap: 5px; margin-top: 3px; }
+.rule-discard-confirm button { height: 24px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 3px; color: #c4c8ce; background: #2b2e33; font-size: 8px; cursor: pointer; }
+.rule-discard-confirm button.danger { border-color: #70464c; color: #ef9ca2; background: #3b2529; }
 .settings-form label { display: flex; flex-direction: column; gap: 5px; margin-bottom: 11px; color: #aeb3ba; font-size: 9px; }
 .settings-form input[type="text"], .settings-form input[type="password"], .settings-form label > input:not([type]), .settings-form select { width: 100%; height: 31px; padding: 0 8px; outline: 0; border: 1px solid var(--line); border-radius: 4px; color: var(--text); background-color: #181a1d; font-size: 9px; }
 .secret-input-row { display: flex; align-items: center; gap: 6px; }

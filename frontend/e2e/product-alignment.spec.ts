@@ -231,6 +231,29 @@ test("Settings exposes connected and conditional capabilities", async ({ page },
   await captureShell(page, "mcp-settings.png");
 });
 
+test("Rules editor validates Markdown and protects unsaved changes", async ({ page }, testInfo) => {
+  requireReferenceViewport(testInfo);
+  await page.getByTitle("Settings").click();
+  await page.getByRole("button", { name: "All settings" }).click();
+  await page.getByRole("button", { name: "Rules & Guidelines", exact: true }).click();
+  await page.getByRole("button", { name: "New Rule", exact: true }).click();
+  const fileName = page.getByLabel("File name");
+  const content = page.getByLabel("Rule content");
+  await fileName.fill("invalid.txt");
+  await page.getByRole("button", { name: "Save rule", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText(/Markdown filename/);
+  await fileName.fill("review.md");
+  await content.fill("# Review guidance\n\nInspect the changed path before approving.");
+  await page.getByTitle("Back to rules").click();
+  await expect(page.getByRole("alertdialog", { name: "Discard unsaved rule changes" })).toBeVisible();
+  await page.getByRole("button", { name: "Keep editing", exact: true }).click();
+  await expect(content).toHaveValue(/Review guidance/);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("button", { name: "Discard", exact: true }).click();
+  await expect(page.getByRole("button", { name: "New Rule", exact: true })).toBeVisible();
+  await expectViewportIntegrity(page);
+});
+
 test("mutating tool approval remains explicit", async ({ page }, testInfo) => {
   requireReferenceViewport(testInfo);
   await page.evaluate(() => {

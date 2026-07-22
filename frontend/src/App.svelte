@@ -109,6 +109,9 @@
   let ruleTrigger: WorkspaceRule["trigger"] = "always";
   let ruleDescription = "";
   let editingExistingRule = false;
+  let ruleLeaveConfirm = false;
+  let ruleValidationError = "";
+  let ruleEditorBaseline = { fileName: "", content: "", trigger: "always" as WorkspaceRule["trigger"], description: "" };
   let toolsExpanded = new Set<string>();
   let resolvingApprovalIds = new Set<string>();
   let backendUrl = "";
@@ -1572,6 +1575,10 @@
   }
 
   function chooseSettingsSection(section: string) {
+    if (ruleEditorOpen && ruleEditorHasChanges()) {
+      ruleLeaveConfirm = true;
+      return;
+    }
     settingsSection = section;
     ruleEditorOpen = false;
     settingsNavigationOpen = false;
@@ -1637,12 +1644,51 @@
     ruleTrigger = rule?.trigger ?? "always";
     ruleDescription = rule?.description ?? "";
     editingExistingRule = Boolean(rule);
+    ruleEditorBaseline = { fileName: ruleFileName, content: ruleContent, trigger: ruleTrigger, description: ruleDescription };
+    ruleLeaveConfirm = false;
+    ruleValidationError = "";
     ruleEditorOpen = true;
   }
 
+  function ruleEditorHasChanges() {
+    return ruleFileName !== ruleEditorBaseline.fileName
+      || ruleContent !== ruleEditorBaseline.content
+      || ruleTrigger !== ruleEditorBaseline.trigger
+      || ruleDescription !== ruleEditorBaseline.description;
+  }
+
+  function requestCloseRuleEditor() {
+    if (ruleEditorHasChanges()) {
+      ruleLeaveConfirm = true;
+      return;
+    }
+    ruleEditorOpen = false;
+  }
+
+  function discardRuleChanges() {
+    ruleLeaveConfirm = false;
+    ruleValidationError = "";
+    ruleEditorOpen = false;
+  }
+
   function saveRule() {
-    if (!ruleFileName.trim() || !ruleContent.trim()) return;
-    sendCommand("saveRule", { fileName: ruleFileName, content: ruleContent, trigger: ruleTrigger, description: ruleDescription });
+    const fileName = ruleFileName.trim();
+    const description = ruleDescription.trim();
+    if (!/^[A-Za-z0-9._-]+\.md$/.test(fileName)) {
+      ruleValidationError = "Use a Markdown filename ending in .md";
+      return;
+    }
+    if (!ruleContent.trim()) {
+      ruleValidationError = "Rule content must not be blank";
+      return;
+    }
+    if (description.length > 240) {
+      ruleValidationError = "Description must be 240 characters or fewer";
+      return;
+    }
+    ruleValidationError = "";
+    sendCommand("saveRule", { fileName, content: ruleContent, trigger: ruleTrigger, description });
+    ruleEditorBaseline = { fileName, content: ruleContent, trigger: ruleTrigger, description };
     ruleEditorOpen = false;
   }
 
@@ -2548,11 +2594,11 @@
             {:else if settingsSection === "Rules & Guidelines"}
               {#if ruleEditorOpen}
                 <div class="rule-editor-title">
-                  <button class="icon-button compact" title="Back to rules" onclick={() => ruleEditorOpen = false}><Icon name="chevron-left" size={14} /></button>
+                  <button class="icon-button compact" title="Back to rules" onclick={requestCloseRuleEditor}><Icon name="chevron-left" size={14} /></button>
                   <div><h1>Rule: {ruleFileName}</h1><p class="settings-lead">Markdown guidance stored in the current repository.</p></div>
                 </div>
-                <section class="settings-block rule-editor">
-                  <label><span>File name</span><input bind:value={ruleFileName} disabled={editingExistingRule} /></label>
+                <section class="settings-block rule-editor" oninput={() => ruleValidationError = ""}>
+                  <label><span>File name</span><input bind:value={ruleFileName} maxlength="200" disabled={editingExistingRule} /></label>
                   <label><span>Description</span><input bind:value={ruleDescription} maxlength="240" placeholder="When should the Agent use this rule?" /></label>
                   <fieldset>
                     <legend>Trigger</legend>
@@ -2563,10 +2609,18 @@
                     </div>
                   </fieldset>
                   <label><span>Rule content</span><textarea bind:value={ruleContent} spellcheck="false"></textarea></label>
+                  {#if ruleValidationError}<p class="rule-editor-error" role="alert"><Icon name="circle-alert" size={12} />{ruleValidationError}</p>{/if}
                   <footer>
-                    <button onclick={() => ruleEditorOpen = false}>Cancel</button>
+                    <button onclick={requestCloseRuleEditor}>Cancel</button>
                     <button class="primary" disabled={!ruleFileName.trim() || !ruleContent.trim()} onclick={saveRule}>Save rule</button>
                   </footer>
+                  {#if ruleLeaveConfirm}
+                    <div class="rule-discard-confirm" role="alertdialog" aria-label="Discard unsaved rule changes">
+                      <strong>Discard unsaved changes?</strong>
+                      <span>Your rule edits have not been saved.</span>
+                      <div><button type="button" onclick={() => ruleLeaveConfirm = false}>Keep editing</button><button type="button" class="danger" onclick={discardRuleChanges}>Discard</button></div>
+                    </div>
+                  {/if}
                 </section>
               {:else}
                 <div class="section-title">

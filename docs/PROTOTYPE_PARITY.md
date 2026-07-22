@@ -59,7 +59,7 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | Agent edits | Implemented | Native Diff, undo, keep/discard, Agent Edits overlay, and local checkpoints with restore |
 | Tasks | Implemented | Persistent per-thread tasks, filtering, add/delete/state, clear, Markdown import/export, run-one/run-all, and Agent task tools |
 | Git | Implemented | Real branch/index/worktree status, stage/unstage, native Diff, local message draft, confirmation, and commit |
-| Rules editor | Implemented | Repository Markdown, persisted description and trigger metadata, save, and manual per-thread selection work |
+| Rules editor | Implemented | Repository Markdown, persisted description and trigger metadata, client-side filename/content validation, unsaved-change protection, save, and manual per-thread selection work |
 | Image Canvas | Implemented | Project-contained directory selection, bounded raster gallery, settings, refresh, open, mention, and empty/error states |
 | Mermaid | Implemented | Strict rendering, diagram/code, zoom, fit, error states, and opening source in an IDEA editor tab work |
 | Settings | Implemented | Backend health, account, subscription usage, ContextEngine, Rules, Skills, persisted chat zoom/timestamps/run telemetry/native notifications, Commands, Hooks, Agent profiles, declarative plugin lifecycle, MCP lifecycle controls, feature/Beta capability reports, and a redacted live runtime audit are real |
