@@ -117,6 +117,11 @@ System prompts and provider credentials **never** leave the backend process.
 | Feature Flags / Beta | read-only live capability and maturity reports |
 | Unconfigured cloud tools | explicit **Not connected** states |
 
+Integration readiness is evaluated by the backend-side
+`scripts/evaluate-integration-readiness.mjs` gate. The Webview only receives
+the resulting tool availability and reason; credential values and readiness
+reports never cross into rendered UI state.
+
 ## 5. Final prototype
 
 Open:

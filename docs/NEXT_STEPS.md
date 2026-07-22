@@ -84,14 +84,17 @@ exist.
 
 ## Priority 3: Integration Operations Readiness
 
-**Status:** blocked until each provider supplies a test tenant and scoped
-credentials.
+**Status:** readiness gate implemented; live acceptance remains blocked until
+each provider supplies a test tenant and scoped credentials.
 
-For GitHub, Linear, Notion, Jira, Confluence, Glean, Supabase, MCP servers, and
-model providers, maintain one isolated test configuration per provider. Verify
-that missing credentials remain explicit, successful operations are correctly
-reported, failures preserve provider status without leaking secrets, and every
-remote mutation is approval-gated.
+`scripts/evaluate-integration-readiness.mjs` now runs without network access,
+reports redacted environment presence for every registered adapter, and verifies
+that unconfigured tools fail with HTTP 503. CI and release artifacts retain the
+machine-readable report. For GitHub, Linear, Notion, Jira, Confluence, Glean,
+Supabase, MCP servers, and model providers, maintain one isolated test
+configuration per provider once credentials exist. Verify that successful
+operations are correctly reported, failures preserve provider status without
+leaking secrets, and every remote mutation is approval-gated.
 
 ## Completed Gates
 
@@ -163,6 +166,16 @@ file/chunk counts, watched roots, pending changes, automatic-run count,
 retrieval mode, watcher state/error, and last-indexed time, with direct paths to
 Rules & Guidelines and Skills. Playwright verifies both index commands and a
 420 px reference covers the completed Home state.
+
+### Integration Readiness Gate
+
+**Status:** implemented on 2026-07-22.
+
+The backend registry now has a credential-safe evaluator that distinguishes
+configured and unavailable adapters without contacting providers. It checks
+the missing-credential 503 contract for all tools, never writes secret values
+to its report, and supports strict mode for a fully provisioned acceptance
+environment. Provider live runs remain a separate gate and are not simulated.
 
 ### Conversation Memory Management
 

@@ -83,6 +83,17 @@ jobs:
         run: npm test
         working-directory: backend
 
+      - name: Evaluate integration readiness
+        run: node scripts/evaluate-integration-readiness.mjs
+
+      - name: Upload integration readiness report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodeAgent-integration-readiness
+          path: build/reports/integration-readiness.json
+          if-no-files-found: error
+
       - name: Test ContextEngine
         run: npm test
         working-directory: vendor/context-engine

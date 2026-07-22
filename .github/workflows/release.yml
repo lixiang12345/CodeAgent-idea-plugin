@@ -66,6 +66,7 @@ jobs:
           npm run test:e2e --prefix frontend
           npm test --prefix sidecar
           npm test --prefix backend
+          node scripts/evaluate-integration-readiness.mjs
           npm test --prefix vendor/context-engine
           npm run build --prefix vendor/context-engine
           node scripts/evaluate-parity.mjs
@@ -97,6 +98,14 @@ jobs:
         with:
           name: CodeAgent-github-live-acceptance-${{ github.ref_name }}
           path: build/reports/github-live-evidence-validation.json
+          if-no-files-found: error
+
+      - name: Upload integration readiness report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodeAgent-integration-readiness-${{ github.ref_name }}
+          path: build/reports/integration-readiness.json
           if-no-files-found: error
 
       - name: Upload retrieval evaluation report
