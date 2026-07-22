@@ -53,6 +53,53 @@ class ConversationStoreTest {
     }
 
     @Test
+    fun `tracks and persists unread assistant messages by timeline sequence`() {
+        val store = ConversationStore()
+        val threadId = store.active().id
+        store.addMessage("user", "Inspect the conversation")
+        val firstReply = store.addMessage("assistant", "Initial result")
+
+        assertEquals(1, store.unreadCount(threadId))
+        assertTrue(store.markReadIfPresent(threadId, firstReply.timelineSequence))
+        assertEquals(0, store.unreadCount(threadId))
+        assertTrue(!store.markReadIfPresent(threadId, firstReply.timelineSequence))
+
+        store.addMessage("assistant", "Follow-up result")
+        assertEquals(1, store.unreadCount(threadId))
+
+        val restored = ConversationStore()
+        restored.loadState(store.state)
+        assertEquals(1, restored.unreadCount(threadId))
+        assertTrue(restored.state.threads.single().lastReadTimelineSequence > 0)
+    }
+
+    @Test
+    fun `preserves the local read cursor when newer cloud history is merged`() {
+        val store = ConversationStore()
+        val threadId = store.active().id
+        store.addMessage("user", "Inspect cloud recovery")
+        val firstReply = store.addMessage("assistant", "Initial result")
+        store.markReadIfPresent(threadId, firstReply.timelineSequence)
+        val local = store.active()
+        val remote = local.copy(
+            updatedAt = local.updatedAt + 1,
+            active = false,
+            messages = local.messages + ConversationMessage(
+                id = "cloud-follow-up",
+                role = "assistant",
+                content = "New result from another device",
+                createdAt = local.updatedAt + 1,
+                timelineSequence = firstReply.timelineSequence + 1,
+            ),
+        )
+
+        store.mergeCloudConversation(remote)
+
+        assertEquals(1, store.unreadCount(threadId))
+        assertEquals(firstReply.timelineSequence, store.state.threads.single().lastReadTimelineSequence)
+    }
+
+    @Test
     fun `persists bounded skill selections per thread`() {
         val store = ConversationStore()
         store.setSelectedSkills(listOf("skill-a", "skill-b", "skill-a"))
@@ -233,6 +280,7 @@ class ConversationStoreTest {
             store.active().tools.mapTo(this) { it.timelineSequence to it.id }
         }.sortedBy { it.first }.map { it.second }
         assertEquals(listOf("user", "assistant-1", "tool", "assistant-2"), timeline)
+        assertEquals(0, store.unreadCount("legacy"))
     }
 
     @Test

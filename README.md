@@ -23,7 +23,7 @@ For a hosted deployment, build `backend/Dockerfile` and configure either the uni
 3. With the local Docker backend running, no backend URL or token entry is required. For a hosted deployment, set its URL under **Settings > Services**, then sign in from **Settings > Account**. CodeAgent discovers `node` and common Node.js installation paths automatically; Advanced Settings can override the Node.js 22.5+ executable.
 4. ContextEngine initializes the project index automatically, then watches project files and incrementally synchronizes added, changed, or deleted files. The repository status chip reports initialization, automatic sync, and watcher failures; clicking it is only a refresh or error-retry action. Use **Agent** for approved code changes, **Chat** for code-aware collaboration, or **Ask** for read-only analysis.
 
-The panel's workspace menu opens the prototype-aligned **Tasks**, **Git**, and **Image Canvas** pages. Tasks persist per thread and can be imported/exported as Markdown. Git reads the real index and working tree, opens JetBrains Diff, and requires explicit confirmation before committing. Image Canvas previews bounded raster assets from a user-selected directory inside the project and can attach them to the active conversation. Threads support pin, confirmed delete, Markdown import/export, and active run/approval/failure indicators. Long conversations expose request-by-request navigation and a jump-to-latest control without pulling the reader away from history when tool or approval updates arrive. Messages entered during an active run are queued by the IDEA capability layer and dispatched in order.
+The panel's workspace menu opens the prototype-aligned **Tasks**, **Git**, and **Image Canvas** pages. Tasks persist per thread and can be imported/exported as Markdown. Git reads the real index and working tree, opens JetBrains Diff, and requires explicit confirmation before committing. Image Canvas previews bounded raster assets from a user-selected directory inside the project and can attach them to the active conversation. Threads support pin, confirmed delete, Markdown import/export, active run/approval/failure indicators, and persisted unread reply counts. Long conversations expose request-by-request navigation and a jump-to-latest control without pulling the reader away from history when tool or approval updates arrive; reaching the latest content advances the local read cursor. Messages entered during an active run are queued by the IDEA capability layer and dispatched in order.
 
 Settings reports the result of real backend health, model, and tool-discovery requests, including protocol compatibility and missing integration configuration. A configured URL is not treated as an online backend.
 
@@ -92,7 +92,8 @@ expected values.
 
 The Playwright suite runs the deterministic browser development host at 360,
 420, and 640 px widths. It compares committed screenshots for the main Agent
-workspace, Threads, Agent Edits, Tasks, MCP Settings, and mutation approval;
+workspace, Threads with unread state, long-conversation navigation, Agent
+Edits, Tasks, MCP Settings, and mutation approval;
 it also fails on global viewport overflow. HTML and failure artifacts are
 written under `build/reports/playwright` and `build/test-results/playwright`.
 

@@ -55,6 +55,26 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     }
 
     @Synchronized
+    fun unreadCount(threadId: String): Int {
+        val thread = data.threads.firstOrNull { it.id == threadId } ?: return 0
+        return thread.messages.count { message ->
+            message.role == "assistant" &&
+                message.content.isNotBlank() &&
+                message.timelineSequence > thread.lastReadTimelineSequence
+        }
+    }
+
+    @Synchronized
+    fun markReadIfPresent(threadId: String, throughTimelineSequence: Long): Boolean {
+        val thread = data.threads.firstOrNull { it.id == threadId } ?: return false
+        val latestMessageSequence = thread.messages.maxOfOrNull { it.timelineSequence } ?: 0
+        val next = throughTimelineSequence.coerceIn(0, latestMessageSequence)
+        if (next <= thread.lastReadTimelineSequence) return false
+        thread.lastReadTimelineSequence = next
+        return true
+    }
+
+    @Synchronized
     fun togglePinned(threadId: String): ConversationSnapshot {
         return requireNotNull(togglePinnedIfPresent(threadId)) { "Unknown conversation: $threadId" }
     }
@@ -437,7 +457,12 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
                 val local = data.threads[index]
                 when {
                     incoming.updatedAt > local.updatedAt -> {
-                        data.threads[index] = incoming.toState()
+                        data.threads[index] = incoming.toState().also { replacement ->
+                            replacement.lastReadTimelineSequence = minOf(
+                                local.lastReadTimelineSequence,
+                                replacement.messages.maxOfOrNull { it.timelineSequence } ?: 0,
+                            )
+                        }
                         changed = true
                     }
                     incoming.updatedAt < local.updatedAt -> uploadIds += local.id
@@ -532,6 +557,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         state.pinned = pinned
         state.summary = summary.orEmpty()
         normalizeTimelineSequences(state)
+        state.lastReadTimelineSequence = state.messages.maxOfOrNull { it.timelineSequence } ?: 0
     }
 
     private fun ConversationThreadState.isPristine(): Boolean =
@@ -571,6 +597,9 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
                 .toList()
                 .toMutableList()
             normalizeTimelineSequences(thread)
+            if (thread.lastReadTimelineSequence < 0) {
+                thread.lastReadTimelineSequence = thread.messages.maxOfOrNull { it.timelineSequence } ?: 0
+            }
         }
         trimHistory()
     }
@@ -770,6 +799,7 @@ class ConversationThreadState {
     var summary: String = ""
 
     var pinned: Boolean = false
+    var lastReadTimelineSequence: Long = -1
 }
 
 class ConversationMessageState {

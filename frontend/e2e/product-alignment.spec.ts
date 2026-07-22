@@ -212,12 +212,16 @@ test("long conversations preserve reading position and expose request navigation
       ...snapshot,
       runState: "awaiting_approval",
       agentRun: { ...snapshot.agentRun, phase: "approval" },
+      threads: snapshot.threads.map((thread) => thread.active ? { ...thread, unreadCount: 1 } : thread),
       tools: snapshot.tools.map((tool) => tool.id === "long-running-tool"
         ? { ...tool, status: "approval" as const, detail: `${tool.detail}\nApproval is now required.` }
         : tool),
     });
   });
   await expect.poll(() => conversation.evaluate((element) => element.scrollTop)).toBe(readingPosition);
+  await page.getByRole("button", { name: "Threads", exact: true }).first().click();
+  await expect(page.locator(".thread-row.active .thread-unread")).toHaveText("1 new");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   if (testInfo.project.name === "tool-window-420") await captureShell(page, "long-conversation-navigation.png");
 
   await page.getByRole("button", { name: "Next request" }).click();
@@ -226,6 +230,8 @@ test("long conversations preserve reading position and expose request navigation
   await expect.poll(() => conversation.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(48);
   await expect(page.getByText("12 / 12 requests", { exact: true })).toBeVisible();
   await expect(page.locator(".conversation > .conversation-navigation .jump-latest")).toBeHidden();
+  await page.getByRole("button", { name: "Threads", exact: true }).first().click();
+  await expect(page.locator(".thread-row.active .thread-unread")).toBeHidden();
   await expectViewportIntegrity(page);
 });
 
@@ -241,6 +247,7 @@ test("Threads exposes active approval and failure states", async ({ page }) => {
   });
   await page.getByRole("button", { name: "Threads", exact: true }).first().click();
   await expect(page.locator(".thread-row.active .thread-activity")).toHaveText("Needs approval");
+  await expect(page.locator(".thread-row").filter({ hasText: "Review repository architecture" }).locator(".thread-unread")).toHaveText("2 new");
 
   await page.evaluate(() => {
     const snapshot = window.CodeAgentDevelopment?.getSnapshot();

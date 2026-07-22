@@ -627,6 +627,11 @@ class IdeBridge(
                     emitSnapshot()
                 }
             }
+            "markThreadRead" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadReadPayload>(it) }
+                conversations.markReadIfPresent(request.threadId, request.throughTimelineSequence)
+                emitSnapshot()
+            }
             "toggleThreadPinned" -> {
                 val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPinPayload>(it) }
                 val updated = selection.pinned?.let { conversations.setPinnedIfPresent(selection.threadId, it) }
@@ -1294,7 +1299,15 @@ class IdeBridge(
                 },
                 tools = tools.values.toList(),
                 threads = conversations.threads().map { thread ->
-                    ThreadSummaryDto(thread.id, thread.title, thread.updatedAt, thread.active, thread.mode, thread.pinned)
+                    ThreadSummaryDto(
+                        thread.id,
+                        thread.title,
+                        thread.updatedAt,
+                        thread.active,
+                        thread.mode,
+                        thread.pinned,
+                        conversations.unreadCount(thread.id),
+                    )
                 },
                 tasks = active.tasks.map { task -> TaskDto(task.id, task.name, task.state) },
                 messageQueue = messageQueue.toList(),
@@ -2865,6 +2878,9 @@ class IdeBridge(
 
     @Serializable
     private data class ThreadPayload(val threadId: String)
+
+    @Serializable
+    private data class ThreadReadPayload(val threadId: String, val throughTimelineSequence: Long)
 
     @Serializable
     private data class ThreadPinPayload(val threadId: String, val pinned: Boolean? = null)

@@ -85,6 +85,7 @@ export interface ThreadSummary {
   active: boolean;
   mode: Mode;
   pinned: boolean;
+  unreadCount?: number;
 }
 
 export interface TaskItem {
@@ -1268,6 +1269,16 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     });
     return;
   }
+  if (command.type === "markThreadRead") {
+    const request = command.payload as { threadId?: string } | undefined;
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      threads: snapshot.threads.map((thread) => thread.id === request?.threadId
+        ? { ...thread, unreadCount: 0 }
+        : thread),
+    }));
+    return;
+  }
   if (command.type === "toggleThreadPinned") {
     const request = command.payload as { threadId?: string; pinned?: boolean } | undefined;
     const threadId = String(request?.threadId ?? "");
@@ -1520,7 +1531,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     ],
     threads: [
       { id: "dev", title: "Implement login flow with JWT", updatedAt: Date.now(), active: true, mode: "agent", pinned: true },
-      { id: "dev-2", title: "Review repository architecture", updatedAt: Date.now() - 3_600_000, active: false, mode: "ask", pinned: false },
+      { id: "dev-2", title: "Review repository architecture", updatedAt: Date.now() - 3_600_000, active: false, mode: "ask", pinned: false, unreadCount: 2 },
       { id: "dev-3", title: "Investigate flaky integration test", updatedAt: Date.now() - 86_400_000, active: false, mode: "chat", pinned: false },
     ],
     tasks: [

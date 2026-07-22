@@ -78,8 +78,11 @@ previous/next request navigation, a current request count, and a jump-to-latest
 control that appears only while the reader is away from the bottom. Incoming
 tool, approval, queue, and response updates auto-follow only when the reader was
 already at the latest content. The Threads drawer derives running, approval,
-and failed indicators for the active thread, while the generation menu exposes
-the current tool batch, stop, and jump-to-latest actions.
+and failed indicators for the active thread, plus unread reply counts backed by
+a persisted per-thread timeline cursor. Reaching the latest content marks only
+the observed assistant replies as read; cloud-history replacement preserves and
+clamps the local cursor. The generation menu exposes the current tool batch,
+stop, and jump-to-latest actions.
 
 The Playwright suite covers a 12-request conversation, queued work, approval
 updates while reading history, request navigation, new-content scroll
@@ -92,8 +95,8 @@ preservation, and responsive behavior at 360, 420, and 640 px. A canonical
 
 The Playwright suite runs the deterministic frontend host at 360, 420, and 640
 px. It checks viewport integrity and committed visual references for the main
-Agent workspace, Threads, Agent Edits, Tasks, MCP Settings, and explicit
-mutation approval. CI and release verification upload the HTML report, failure
+Agent workspace, Threads with unread state, long-conversation navigation, Agent
+Edits, Tasks, MCP Settings, and explicit mutation approval. CI and release verification upload the HTML report, failure
 screenshots, video, and trace. The suite is informed by the locally supplied
 Augment 0.482.3 UI source-map inventory but contains only CodeAgent-owned tests
 and fixtures. Native smoke in each additional IDE remains required above.

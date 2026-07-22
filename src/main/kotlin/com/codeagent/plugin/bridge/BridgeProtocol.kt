@@ -97,6 +97,7 @@ data class ThreadSummaryDto(
     val active: Boolean,
     val mode: String = "agent",
     val pinned: Boolean = false,
+    val unreadCount: Int = 0,
 )
 
 @Serializable

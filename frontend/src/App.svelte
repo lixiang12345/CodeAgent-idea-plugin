@@ -7,6 +7,9 @@
   import { ICON_NAMES } from "./lib/icons";
   import settingsGroupsData from "./lib/settings-sections.json";
   import { MENTION_KINDS, SLASH_COMMANDS, TOOL_CATALOG } from "./lib/tools-catalog";
+
+  // Main JCEF product surface: account and service settings, Threads, composer,
+  // approvals, tool cards, tasks, edits, and long-conversation navigation.
   import {
     PROTOCOL_VERSION,
     onHostEvent,
@@ -211,6 +214,7 @@
   let requestCount = 0;
   let generationMenuOpen = false;
   let visibleThreadId: string | undefined;
+  let pendingReadThreadId: string | undefined;
   let pendingUserMessages: ChatMessage[] = [];
   let pendingThreadDeletes = new Set<string>();
   let pendingThreadPins: Record<string, boolean> = {};
@@ -248,12 +252,17 @@
         pendingUserMessages = [];
         visibleRequestIndex = 0;
         generationMenuOpen = false;
+        pendingReadThreadId = undefined;
         hideContextCompaction();
       } else {
         reconcilePendingUserMessages(nextSnapshot.messages);
       }
       snapshot = nextSnapshot;
       pendingThreadDeletes = new Set();
+      if (pendingReadThreadId) {
+        const pendingThread = nextSnapshot.threads.find((thread) => thread.id === pendingReadThreadId);
+        if (!pendingThread || (pendingThread.unreadCount ?? 0) === 0) pendingReadThreadId = undefined;
+      }
       pendingThreadPins = Object.fromEntries(
         Object.entries(pendingThreadPins).filter(([threadId, pinned]) => {
           const thread = nextSnapshot.threads.find((item) => item.id === threadId);
@@ -392,6 +401,7 @@
     const distanceFromBottom = conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight;
     followConversation = distanceFromBottom <= 48;
     updateVisibleRequest();
+    if (followConversation) markActiveThreadRead();
   }
 
   function scrollConversationToBottom(force = false) {
@@ -401,7 +411,18 @@
       conversationElement.scrollTop = conversationElement.scrollHeight;
       followConversation = true;
       updateVisibleRequest();
+      markActiveThreadRead();
     });
+  }
+
+  function markActiveThreadRead() {
+    if (!snapshot || !followConversation) return;
+    const active = snapshot.threads.find((thread) => thread.active);
+    if (!active || (active.unreadCount ?? 0) <= 0 || pendingReadThreadId === active.id) return;
+    const throughTimelineSequence = Math.max(0, ...snapshot.messages.map((message) => message.timelineSequence ?? 0));
+    if (throughTimelineSequence <= 0) return;
+    pendingReadThreadId = active.id;
+    sendCommand("markThreadRead", { threadId: active.id, throughTimelineSequence });
   }
 
   function requestBoundaries() {
@@ -3097,11 +3118,12 @@
         <div class="thread-list">
           {#each visibleThreads(snapshot?.threads ?? [], threadSearch, pendingThreadPins) as thread (thread.id)}
             {@const activity = threadActivity(snapshot, thread)}
-            <div class="thread-row" class:active={thread.active}>
+            <div class="thread-row" class:active={thread.active} class:unread={(thread.unreadCount ?? 0) > 0}>
               <button class="thread-select" onclick={() => selectThread(thread.id)}>
                 <span><strong>{thread.title}</strong><small>{formatTime(thread.updatedAt)}</small></span>
                 <span class="thread-indicators">
                   {#if activity}<span class="thread-activity {activity.state}"><Icon name={activity.icon} size={10} />{activity.label}</span>{/if}
+                  {#if (thread.unreadCount ?? 0) > 0}<span class="thread-unread" aria-label={`${thread.unreadCount} unread messages`}>{thread.unreadCount} new</span>{/if}
                   <i class="tag {thread.mode}">{modeLabel(thread.mode)}</i>
                 </span>
               </button>

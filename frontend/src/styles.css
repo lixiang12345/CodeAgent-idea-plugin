@@ -662,6 +662,8 @@ button { color: inherit; }
 .thread-list { min-height: 0; flex: 1; overflow-y: auto; padding: 0 5px; }
 .thread-row { width: 100%; min-height: 48px; padding: 3px 4px; display: flex; align-items: center; border-radius: var(--ds-radius-2); color: #c8ccd1; }
 .thread-row:hover, .thread-row.active { background: #2d3137; }
+.thread-row.unread:not(.active) { background: rgba(54,83,124,.13); }
+.thread-row.unread strong { color: #eef2f7; font-weight: 600; }
 .thread-select { min-width: 0; min-height: 42px; flex: 1; padding: 3px; display: flex; align-items: center; gap: 6px; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .thread-select > span { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
 .thread-select > .thread-indicators { flex: 0 0 auto; align-items: flex-end; }
@@ -670,6 +672,7 @@ button { color: inherit; }
 .thread-activity.approval { color: #dabd7c; background: #403721; }
 .thread-activity.approval svg, .thread-activity.failed svg { animation: none; }
 .thread-activity.failed { color: #df8c92; background: #42282c; }
+.thread-unread { padding: 2px 5px; border-radius: 99px; color: #a9c8ee; background: #293d55; font: 8px var(--mono); white-space: nowrap; }
 .thread-list strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 500; }
 .thread-list small { color: var(--muted); font-size: 10px; }
 .thread-list i, .thread-list .tag { padding: 2px 6px; border-radius: 99px; font: normal 9px var(--mono); text-transform: capitalize; }
