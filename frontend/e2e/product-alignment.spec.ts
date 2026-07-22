@@ -137,6 +137,69 @@ test("Threads drawer supports scanning and search", async ({ page }, testInfo) =
   await captureShell(page, "threads-drawer.png");
 });
 
+test("Threads groups history and task lists continue in a fresh chat", async ({ page }, testInfo) => {
+  const fixture = await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    const now = Date.now();
+    const threads = [
+      { ...snapshot.threads[0], id: "group-pinned", title: "Pinned architecture plan", updatedAt: now - 5_000, active: true, pinned: true },
+      { ...snapshot.threads[1], id: "group-today", title: "Today authentication review", updatedAt: now - 60_000, active: false, pinned: false },
+      { ...snapshot.threads[2], id: "group-yesterday", title: "Yesterday integration check", updatedAt: now - 30 * 60 * 60 * 1000, active: false, pinned: false },
+      { id: "group-older-1", title: "Older migration plan", updatedAt: now - 10 * 24 * 60 * 60 * 1000, active: false, mode: "agent" as const, pinned: false },
+      { id: "group-older-2", title: "Older release notes", updatedAt: now - 12 * 24 * 60 * 60 * 1000, active: false, mode: "chat" as const, pinned: false },
+    ];
+    window.CodeAgentDevelopment.setSnapshot({ ...snapshot, threads });
+    return { sourceThreadId: threads[0].id, sourceTaskIds: snapshot.tasks.map((task) => task.id), sourceThreadCount: threads.length };
+  });
+
+  await page.getByRole("button", { name: "Threads", exact: true }).first().click();
+  for (const label of ["Pinned", "Today", "Yesterday", "Older"]) {
+    await expect(page.locator(".thread-group-header").filter({ hasText: label })).toBeVisible();
+  }
+
+  const todayRow = page.locator(".thread-row").filter({ hasText: "Today authentication review" });
+  await todayRow.hover();
+  await todayRow.getByRole("button", { name: "Thread actions for Today authentication review" }).click();
+  await todayRow.getByRole("button", { name: "Rename", exact: true }).click();
+  await page.getByRole("textbox", { name: "Rename thread" }).fill("Renamed authentication review");
+  await page.getByRole("button", { name: "Save thread name" }).click();
+  await expect(page.getByText("Renamed authentication review", { exact: true })).toBeVisible();
+
+  const yesterdayRow = page.locator(".thread-row").filter({ hasText: "Yesterday integration check" });
+  await yesterdayRow.hover();
+  await yesterdayRow.getByRole("button", { name: "Thread actions for Yesterday integration check" }).click();
+  await yesterdayRow.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(page.getByText("Yesterday integration check", { exact: true })).toBeVisible();
+  await yesterdayRow.getByRole("button", { name: "Confirm delete", exact: true }).click();
+  await expect(page.getByText("Yesterday integration check", { exact: true })).toBeHidden();
+
+  const olderGroup = page.locator(".thread-group-header").filter({ hasText: "Older" });
+  await olderGroup.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(page.getByText("Older migration plan", { exact: true })).toBeVisible();
+  await olderGroup.getByRole("button", { name: "Confirm clear", exact: true }).click();
+  await expect(page.getByText("Older migration plan", { exact: true })).toBeHidden();
+  if (testInfo.project.name === "tool-window-420") await captureShell(page, "threads-advanced-management.png");
+
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByTitle("More options").click();
+  await page.getByRole("button", { name: "Agent Tasklist" }).click();
+  await page.getByRole("button", { name: "Continue in New Chat", exact: true }).click();
+  const continued = await page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot());
+  expect(continued?.threads).toHaveLength(fixture.sourceThreadCount - 2);
+  expect(continued?.threads.some((thread) => thread.id === fixture.sourceThreadId && !thread.active)).toBe(true);
+  expect(continued?.messages).toEqual([]);
+  expect(continued?.tools).toEqual([]);
+  expect(continued?.tasks.map((task) => task.name)).toEqual([
+    "Inspect the existing authentication flow",
+    "Implement JWT token issuance",
+    "Add invalid-credential regression coverage",
+    "Run the complete integration suite",
+  ]);
+  expect(continued?.tasks.every((task) => !fixture.sourceTaskIds.includes(task.id))).toBe(true);
+  await expectViewportIntegrity(page);
+});
+
 test("Agent Edits and task workspace preserve review-first controls", async ({ page }, testInfo) => {
   requireReferenceViewport(testInfo);
   await page.getByTitle("More options").click();

@@ -220,6 +220,11 @@
   let pendingUserMessages: ChatMessage[] = [];
   let pendingThreadDeletes = new Set<string>();
   let pendingThreadPins: Record<string, boolean> = {};
+  let threadMenuOpenId: string | null = null;
+  let renamingThreadId: string | null = null;
+  let threadRenameDraft = "";
+  let confirmingThreadDeleteId: string | null = null;
+  let confirmingThreadGroupDelete: string | null = null;
 
   onMount(() => {
     const unsubscribe = onHostEvent(handleEvent);
@@ -504,6 +509,9 @@
     generationMenuOpen = false;
     slashOpen = false;
     atOpen = false;
+    threadMenuOpenId = null;
+    confirmingThreadDeleteId = null;
+    confirmingThreadGroupDelete = null;
   }
 
   function submit() {
@@ -1207,6 +1215,26 @@
       : { ...thread, pinned: pinOverrides[thread.id] });
   }
 
+  function visibleThreadGroups(
+    threads: AppSnapshot["threads"],
+    queryValue: string,
+    pinOverrides: Record<string, boolean>,
+  ) {
+    const visible = visibleThreads(threads, queryValue, pinOverrides);
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const yesterday = startOfToday - 86_400_000;
+    const week = startOfToday - 7 * 86_400_000;
+    const groups = new Map<string, AppSnapshot["threads"]>();
+    const add = (label: string, thread: AppSnapshot["threads"][number]) => groups.set(label, [...(groups.get(label) ?? []), thread]);
+    visible.filter((thread) => thread.pinned).forEach((thread) => add("Pinned", thread));
+    visible.filter((thread) => !thread.pinned).forEach((thread) => {
+      const timestamp = thread.updatedAt;
+      add(timestamp >= startOfToday ? "Today" : timestamp >= yesterday ? "Yesterday" : timestamp >= week ? "Last 7 days" : "Older", thread);
+    });
+    return [...groups.entries()].map(([label, group]) => ({ label, threads: group }));
+  }
+
   function toggleThreadPinned(threadId: string, pinned: boolean) {
     if (pendingThreadPins[threadId] !== undefined) return;
     pendingThreadPins = { ...pendingThreadPins, [threadId]: !pinned };
@@ -1217,6 +1245,40 @@
     if (pendingThreadDeletes.has(threadId)) return;
     pendingThreadDeletes = new Set(pendingThreadDeletes).add(threadId);
     sendCommand("deleteThread", { threadId });
+  }
+
+  function requestThreadDelete(threadId: string) {
+    if (confirmingThreadDeleteId === threadId) {
+      confirmingThreadDeleteId = null;
+      threadMenuOpenId = null;
+      deleteThread(threadId);
+      closeMenus();
+    } else {
+      confirmingThreadDeleteId = threadId;
+    }
+  }
+
+  function requestThreadGroupDelete(label: string, threadIds: string[]) {
+    if (confirmingThreadGroupDelete === label) {
+      confirmingThreadGroupDelete = null;
+      sendCommand("deleteThreads", { threadIds });
+    } else {
+      confirmingThreadGroupDelete = label;
+    }
+  }
+
+  function beginThreadRename(thread: AppSnapshot["threads"][number]) {
+    renamingThreadId = thread.id;
+    threadRenameDraft = thread.title;
+    threadMenuOpenId = null;
+    void tick().then(() => document.querySelector<HTMLInputElement>(`[data-thread-rename="${CSS.escape(thread.id)}"]`)?.focus());
+  }
+
+  function commitThreadRename(threadId: string) {
+    const title = threadRenameDraft.trim();
+    if (title) sendCommand("renameThread", { threadId, title });
+    renamingThreadId = null;
+    threadRenameDraft = "";
   }
 
   function formatTime(timestamp: number) {
@@ -1782,7 +1844,7 @@
                 <button onclick={() => { exportThread(); closeMenus(); }}><Icon name="upload" size={14} /><span>Export conversation</span></button>
                 <button onclick={() => { sendCommand("importThread"); closeMenus(); }}><Icon name="download" size={14} /><span>Import conversation</span></button>
                 <button onclick={() => { const thread = activeThread(); if (thread) toggleThreadPinned(thread.id, thread.pinned); closeMenus(); }}><Icon name="pin" size={14} /><span>Pin / Unpin</span></button>
-                <button class="danger" onclick={() => { const id = activeThread()?.id; if (id) deleteThread(id); closeMenus(); }}><Icon name="trash" size={14} /><span>Delete</span></button>
+                <button class="danger" onclick={() => { const id = activeThread()?.id; if (id) requestThreadDelete(id); }}><Icon name="trash" size={14} /><span>{confirmingThreadDeleteId === activeThread()?.id ? "Confirm delete" : "Delete"}</span></button>
                 <div class="menu-sep"></div>
                 <button onclick={() => openWorkspaceView("tasks")}><Icon name="list-checks" size={14} /><span>Agent Tasklist</span></button>
                 <button onclick={() => openWorkspaceView("jobs")}><Icon name="bot" size={14} /><span>Durable Jobs</span></button>
@@ -1833,11 +1895,10 @@
                   <button onclick={() => { copyThread(); closeMenus(); }}><Icon name="share-2" size={13} /><span>Share link to session</span></button>
                   <button onclick={() => { exportThread(); closeMenus(); }}><Icon name="upload" size={13} /><span>Export conversation</span></button>
                   <button onclick={() => { sendCommand("importThread"); closeMenus(); }}><Icon name="file-input" size={13} /><span>Import conversation</span></button>
-                  <button onclick={() => startNewThread(snapshot?.mode)}><Icon name="git-branch" size={13} /><span>Continue in New Chat</span></button>
                   <div class="menu-sep"></div>
                   <button onclick={() => openWorkspaceView("feedback")}><Icon name="flag" size={13} /><span>Report an Issue</span></button>
                   <div class="menu-sep"></div>
-                  <button class="danger" onclick={() => { const id = activeThread()?.id; if (id) deleteThread(id); closeMenus(); }}><Icon name="trash-2" size={13} /><span>Delete thread</span></button>
+                  <button class="danger" onclick={() => { const id = activeThread()?.id; if (id) requestThreadDelete(id); }}><Icon name="trash-2" size={13} /><span>{confirmingThreadDeleteId === activeThread()?.id ? "Confirm delete" : "Delete thread"}</span></button>
                 </div>
               {/if}
             </div>
@@ -2770,6 +2831,7 @@
           <div class="task-import-actions">
             <button onclick={() => sendCommand("exportTasks")} disabled={snapshot.tasks.length === 0}><Icon name="upload" size={12} />Export</button>
             <button onclick={() => sendCommand("importTasks")}><Icon name="download" size={12} />Import</button>
+            <button onclick={() => sendCommand("continueTasksInNewThread")} disabled={snapshot.tasks.length === 0 || isBusy(snapshot)}><Icon name="wand-sparkles" size={12} />Continue in New Chat</button>
             <button onclick={() => sendCommand("clearCompletedTasks")} disabled={!snapshot.tasks.some((task) => task.state === "completed" || task.state === "cancelled")}>Clear Completed</button>
             <button class="danger" onclick={() => sendCommand("clearTasks")} disabled={snapshot.tasks.length === 0}><Icon name="trash-2" size={12} />Clear All</button>
           </div>
@@ -3079,20 +3141,46 @@
         </div>
         <label class="thread-search"><Icon name="search" size={13} /><input bind:value={threadSearch} placeholder="Search threads…" /></label>
         <div class="thread-list">
-          {#each visibleThreads(snapshot?.threads ?? [], threadSearch, pendingThreadPins) as thread (thread.id)}
-            {@const activity = threadActivity(snapshot, thread)}
-            <div class="thread-row" class:active={thread.active} class:unread={(thread.unreadCount ?? 0) > 0}>
-              <button class="thread-select" onclick={() => selectThread(thread.id)}>
-                <span><strong>{thread.title}</strong><small>{formatTime(thread.updatedAt)}</small></span>
-                <span class="thread-indicators">
-                  {#if activity}<span class="thread-activity {activity.state}"><Icon name={activity.icon} size={10} />{activity.label}</span>{/if}
-                  {#if (thread.unreadCount ?? 0) > 0}<span class="thread-unread" aria-label={`${thread.unreadCount} unread messages`}>{thread.unreadCount} new</span>{/if}
-                  <i class="tag {thread.mode}">{modeLabel(thread.mode)}</i>
-                </span>
-              </button>
-              <button class="icon-button compact" class:pinned={thread.pinned} title={pendingThreadPins[thread.id] !== undefined ? "Updating pin" : thread.pinned ? "Unpin thread" : "Pin thread"} disabled={pendingThreadPins[thread.id] !== undefined} onclick={() => toggleThreadPinned(thread.id, thread.pinned)}><Icon name="pin" size={12} /></button>
-              <button class="icon-button compact delete-thread" title={pendingThreadDeletes.has(thread.id) ? "Deleting thread" : "Delete thread"} disabled={pendingThreadDeletes.has(thread.id)} onclick={() => deleteThread(thread.id)}><Icon name="trash-2" size={12} /></button>
+          {#each visibleThreadGroups(snapshot?.threads ?? [], threadSearch, pendingThreadPins) as group (group.label)}
+            <div class="thread-group-header">
+              <strong>{group.label}</strong>
+              {#if group.label !== "Pinned"}
+                <button type="button" onclick={() => requestThreadGroupDelete(group.label, group.threads.map((thread) => thread.id))}>{confirmingThreadGroupDelete === group.label ? "Confirm clear" : "Clear"}</button>
+              {/if}
             </div>
+            {#each group.threads as thread (thread.id)}
+              {@const activity = threadActivity(snapshot, thread)}
+              <div class="thread-row" class:active={thread.active} class:unread={(thread.unreadCount ?? 0) > 0}>
+                {#if renamingThreadId === thread.id}
+                  <form class="thread-row-rename" onsubmit={(event) => { event.preventDefault(); commitThreadRename(thread.id); }}>
+                    <input data-thread-rename={thread.id} bind:value={threadRenameDraft} maxlength="48" aria-label="Rename thread" />
+                    <button type="submit" title="Save thread name" aria-label="Save thread name"><Icon name="check" size={12} /></button>
+                    <button type="button" title="Cancel rename" aria-label="Cancel rename" onclick={() => renamingThreadId = null}><Icon name="x" size={12} /></button>
+                  </form>
+                {:else}
+                  <button class="thread-select" onclick={() => selectThread(thread.id)}>
+                    <span><strong>{thread.title}</strong><small>{formatTime(thread.updatedAt)}</small></span>
+                    <span class="thread-indicators">
+                      {#if activity}<span class="thread-activity {activity.state}"><Icon name={activity.icon} size={10} />{activity.label}</span>{/if}
+                      {#if (thread.unreadCount ?? 0) > 0}<span class="thread-unread" aria-label={`${thread.unreadCount} unread messages`}>{thread.unreadCount} new</span>{/if}
+                      <i class="tag {thread.mode}">{modeLabel(thread.mode)}</i>
+                    </span>
+                  </button>
+                  <div class="thread-row-menu-control">
+                    <button class="icon-button compact" title="Thread actions" aria-label={`Thread actions for ${thread.title}`} onclick={() => { threadMenuOpenId = threadMenuOpenId === thread.id ? null : thread.id; confirmingThreadDeleteId = null; }}><Icon name="ellipsis" size={13} /></button>
+                    {#if threadMenuOpenId === thread.id}
+                      <div class="thread-row-menu">
+                        <button type="button" onclick={() => beginThreadRename(thread)}><Icon name="square-pen" size={12} />Rename</button>
+                        <button type="button" onclick={() => { toggleThreadPinned(thread.id, thread.pinned); threadMenuOpenId = null; }}><Icon name="pin" size={12} />{thread.pinned ? "Unpin" : "Pin"}</button>
+                        <button type="button" class="danger" onclick={() => requestThreadDelete(thread.id)}><Icon name="trash-2" size={12} />{confirmingThreadDeleteId === thread.id ? "Confirm delete" : "Delete"}</button>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            {/each}
+          {:else}
+            <div class="thread-list-empty">No matching threads</div>
           {/each}
         </div>
         <footer>

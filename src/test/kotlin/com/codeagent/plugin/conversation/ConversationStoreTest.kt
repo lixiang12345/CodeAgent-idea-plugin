@@ -111,6 +111,31 @@ class ConversationStoreTest {
     }
 
     @Test
+    fun `continues task list in a new thread without copying conversation messages`() {
+        val source = ConversationStore()
+        source.setSelectedModel("claude-sonnet-5")
+        source.setSelectedAgentProfile("loop")
+        source.setSelectedSkills(listOf("skill-a"))
+        source.setSelectedRules(listOf("rule-a"))
+        source.addMessage("user", "Plan the migration")
+        val tasks = source.addTasks(listOf("Update schema", "Run migration tests"))
+        source.updateTask(tasks.first().id, "completed", null)
+
+        val fork = source.continueTasksInNewThread()
+
+        assertEquals(source.active().mode, fork.mode)
+        assertEquals("claude-sonnet-5", fork.selectedModelId)
+        assertEquals("loop", fork.selectedAgentProfileId)
+        assertEquals(listOf("skill-a"), fork.selectedSkillIds)
+        assertEquals(listOf("rule-a"), fork.selectedRuleIds)
+        assertTrue(fork.messages.isEmpty())
+        assertTrue(fork.tools.isEmpty())
+        assertEquals(listOf("completed", "not_started"), fork.tasks.map { it.state })
+        assertTrue(fork.tasks.zip(tasks).all { (copy, original) -> copy.id != original.id })
+        assertEquals(fork.id, source.active().id)
+    }
+
+    @Test
     fun `tracks and persists unread assistant messages by timeline sequence`() {
         val store = ConversationStore()
         val threadId = store.active().id

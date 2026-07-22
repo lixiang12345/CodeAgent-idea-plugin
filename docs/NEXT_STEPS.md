@@ -67,17 +67,17 @@ the exact product build and Plugin Verifier report path to
 `build/reports/jetbrains-verifier.json`. This automates compatibility evidence;
 the interactive smoke workflow remains a separate required acceptance step.
 
-## Priority 2: Advanced Thread Management Alignment
+## Priority 2: Advanced Settings and Rules Alignment
 
 **Status:** next implementation stage.
 
-Replace the current `Continue in New Chat` empty-thread shortcut with a real
-persisted fork at the selected request boundary. Preserve the source thread,
-copy only history that precedes the branch point, reset unread/run state, and
-retain the selected mode, model, Agent profile, Skills, and Rules. Add explicit
-per-row rename and export actions without making the drawer less scannable, and
-cover fork, rename, pin ordering, delete confirmation, import/export, unread
-state, and active-run guards at 360, 420, and 640 px.
+Audit the remaining Settings pages against the local Augment source-map
+inventory, replace generic capability summaries where the original exposes a
+real management workflow, and raise the Rules editor from a plain textarea to
+an IDE-grade Markdown editing surface with validation and unsaved-change
+protection. Keep provider-dependent controls explicitly unavailable until a
+backend contract exists, and add responsive interaction evidence for each
+newly completed workflow.
 
 ## Priority 3: Integration Operations Readiness
 
@@ -91,6 +91,25 @@ reported, failures preserve provider status without leaking secrets, and every
 remote mutation is approval-gated.
 
 ## Completed Gates
+
+### Threads and Task Continuation Alignment
+
+**Status:** implemented on 2026-07-22.
+
+The Threads drawer groups pinned, today, yesterday, recent, and older history;
+retains search, mode, activity, and unread indicators; and exposes a compact
+per-row menu for rename, pin/unpin, and confirmed delete. Non-pinned time groups
+support a separate two-step bulk clear action. Bulk deletion preserves cloud
+tombstones, cancels an active deleted run, and restores a valid active thread.
+
+The original plugin source-map evidence places `Continue in New Chat` in Task
+List actions, where it clones the task tree before creating a conversation. The
+CodeAgent implementation now follows that behavior: it creates a new thread
+with fresh task identities and the current mode, model, Agent profile, Skills,
+and Rules, while preserving the source thread and omitting its messages, tools,
+summary, attachments, queue, and run state. JVM and 360/420/640 px Playwright
+coverage verify the persistence and interaction boundaries; a canonical 420 px
+reference records advanced thread management.
 
 ### Composer and Message Lifecycle Alignment
 

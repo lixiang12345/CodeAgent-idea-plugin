@@ -644,7 +644,11 @@ class IdeBridge(
             }
             "deleteThread" -> {
                 val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPayload>(it) }
-                deleteThread(selection.threadId)
+                deleteThreads(listOf(selection.threadId))
+            }
+            "deleteThreads" -> {
+                val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadsPayload>(it) }
+                deleteThreads(selection.threadIds)
             }
             "importThread" -> importThread()
             "pickContext" -> pickContext()
@@ -732,6 +736,7 @@ class IdeBridge(
                 syncActiveConversation()
                 emitSnapshot()
             }
+            "continueTasksInNewThread" -> continueTasksInNewThread()
             "runTask" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<TaskPayload>(it) }
                 val task = requireNotNull(conversations.active().tasks.firstOrNull { it.id == request.taskId }) {
@@ -2597,14 +2602,36 @@ class IdeBridge(
         gitWorkspace.snapshot().whenComplete(::emitGitResult)
     }
 
-    private fun deleteThread(threadId: String) {
-        if (conversations.threads().none { it.id == threadId }) {
+    private fun continueTasksInNewThread() {
+        val previous = synchronized(stateLock) {
+            require(!isRunBusy()) { "Cannot continue tasks while the agent is running" }
+            require(messageQueue.isEmpty()) { "Remove queued messages before continuing tasks in a new chat" }
+            val source = conversations.active()
+            conversations.continueTasksInNewThread()
+            tools.clear()
+            messageTurns.clear()
+            agentRun = AgentRunTelemetryDto()
+            attachments.clear()
+            runState = "idle"
+            source
+        }
+        syncConversation(previous)
+        syncActiveConversation()
+        emitSnapshot()
+    }
+
+    private fun deleteThreads(threadIds: List<String>) {
+        val requestedIds = threadIds.distinct()
+        require(requestedIds.isNotEmpty()) { "Select at least one thread to delete" }
+        require(requestedIds.size <= MAX_THREADS_PER_DELETE) { "Delete at most $MAX_THREADS_PER_DELETE threads at once" }
+        val existingIds = conversations.threads().mapTo(mutableSetOf()) { it.id }
+        val deletedIds = requestedIds.filterTo(linkedSetOf()) { it in existingIds }
+        if (deletedIds.isEmpty()) {
             emitSnapshot()
             return
         }
         val wasActive = synchronized(stateLock) {
-            if (conversations.threads().none { it.id == threadId }) return@synchronized null
-            val active = conversations.active().id == threadId
+            val active = conversations.active().id in deletedIds
             if (active) {
                 runs.invalidate()
                 tools.clear()
@@ -2614,19 +2641,17 @@ class IdeBridge(
                 messageQueue.clear()
                 runState = "idle"
             }
-            conversations.deleteThreadIfPresent(threadId)
+            deletedIds.forEach(conversations::deleteThreadIfPresent)
             if (active) restoreConversationPresentation()
             active
         }
-        if (wasActive == null) {
-            emitSnapshot()
-            return
-        }
         if (wasActive) agent.cancel()
-        conversationSummaries.forget(threadId)
-        if (cloudServicesActive()) {
-            cloudSync.delete(threadId).whenComplete { _, error ->
-                if (error != null) emit("error", mapOf("message" to "Cloud thread deletion failed: ${error.rootMessage()}"))
+        deletedIds.forEach { threadId ->
+            conversationSummaries.forget(threadId)
+            if (cloudServicesActive()) {
+                cloudSync.delete(threadId).whenComplete { _, error ->
+                    if (error != null) emit("error", mapOf("message" to "Cloud thread deletion failed: ${error.rootMessage()}"))
+                }
             }
         }
         emitSnapshot()
@@ -2916,6 +2941,9 @@ class IdeBridge(
     private data class ThreadPayload(val threadId: String)
 
     @Serializable
+    private data class ThreadsPayload(val threadIds: List<String>)
+
+    @Serializable
     private data class ThreadReadPayload(val threadId: String, val throughTimelineSequence: Long)
 
     @Serializable
@@ -3075,6 +3103,7 @@ class IdeBridge(
     companion object {
         private val LOG = logger<IdeBridge>()
         private const val MAX_THREAD_IMPORT_BYTES = 2_000_000L
+        private const val MAX_THREADS_PER_DELETE = 50
         private const val MAX_QUEUED_MESSAGES = 10
         private const val MAX_CLIPBOARD_TEXT_LENGTH = 512_000
         private val BUILT_IN_AGENT_PROFILES = setOf("general", "search", "context", "prompt", "loop")

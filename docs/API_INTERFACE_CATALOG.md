@@ -87,10 +87,12 @@ Transport:
 | `editAndResendMessage` | `{ messageId: string, text: string }` | rewind + `snapshot`/streamed run events |
 | `toggleThreadPinned` | `{ threadId: string }` | `snapshot` |
 | `deleteThread` | `{ threadId: string }` | `snapshot` |
+| `deleteThreads` | `{ threadIds: string[] }` | `snapshot` |
 | `renameThread` | `{ threadId: string, title: string }` | `snapshot` |
 | `copyThread` | none | `notice` |
 | `exportThread` | none | folder chooser + `notice`/`error` |
 | `importThread` | none | file chooser + `snapshot`/`error` |
+| `continueTasksInNewThread` | none | cloned task-list `snapshot` |
 | `pickContext` | none | IDE file picker + `snapshot.attachments` |
 | `removeContext` | `{ id: string }` | `snapshot` |
 | `toggleSkill` | `{ skillId: string, selected: boolean }` | `snapshot` |

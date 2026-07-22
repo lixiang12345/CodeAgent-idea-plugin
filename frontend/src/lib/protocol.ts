@@ -1323,12 +1323,17 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     }));
     return;
   }
-  if (command.type === "deleteThread") {
-    const threadId = String((command.payload as { threadId?: string } | undefined)?.threadId ?? "");
+  if (command.type === "deleteThread" || command.type === "deleteThreads") {
+    const payload = command.payload as { threadId?: string; threadIds?: string[] } | undefined;
+    const threadIds = new Set(command.type === "deleteThread"
+      ? [String(payload?.threadId ?? "")]
+      : Array.isArray(payload?.threadIds) ? payload.threadIds.map(String) : []);
     updateDevelopmentSnapshot((snapshot) => {
-      const remaining = snapshot.threads.filter((thread) => thread.id !== threadId);
-      if (remaining.length === 0) return snapshot;
-      const hadActive = snapshot.threads.some((thread) => thread.id === threadId && thread.active);
+      let remaining = snapshot.threads.filter((thread) => !threadIds.has(thread.id));
+      const hadActive = snapshot.threads.some((thread) => threadIds.has(thread.id) && thread.active);
+      if (remaining.length === 0) {
+        remaining = [{ id: crypto.randomUUID(), title: "New thread", updatedAt: Date.now(), active: true, mode: snapshot.mode, pinned: false }];
+      }
       return { ...snapshot, threads: remaining.map((thread, index) => ({ ...thread, active: hadActive ? index === 0 : thread.active })) };
     });
     return;
@@ -1365,6 +1370,31 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
   }
   if (command.type === "clearTasks") {
     updateDevelopmentSnapshot((snapshot) => ({ ...snapshot, tasks: [] }));
+    return;
+  }
+  if (command.type === "continueTasksInNewThread") {
+    updateDevelopmentSnapshot((snapshot) => {
+      if (snapshot.runState === "starting" || snapshot.runState === "running" || snapshot.runState === "awaiting_approval" || snapshot.messageQueue.length > 0 || snapshot.tasks.length === 0) {
+        return snapshot;
+      }
+      const source = snapshot.threads.find((thread) => thread.active);
+      const threadId = crypto.randomUUID();
+      const now = Date.now();
+      return {
+        ...snapshot,
+        messages: [],
+        tools: [],
+        tasks: snapshot.tasks.map((task) => ({ ...task, id: crypto.randomUUID() })),
+        messageQueue: [],
+        attachments: [],
+        runState: "idle",
+        agentRun: { ...snapshot.agentRun, phase: "idle", activeToolNames: [], activeToolCount: 0 },
+        threads: [
+          { id: threadId, title: `${source?.title ?? "New thread"} tasks`.slice(0, 48), updatedAt: now, active: true, mode: snapshot.mode, pinned: false },
+          ...snapshot.threads.map((thread) => ({ ...thread, active: false })),
+        ],
+      };
+    });
     return;
   }
   if (command.type === "runTask") {

@@ -33,7 +33,7 @@ The deployed backend owns prompts, model credentials, the bounded agent loop, st
 | Surface | Required prototype behavior |
 | --- | --- |
 | Main panel | Native tool-window header, active-thread header, context/repository strip, dense transcript, streamed thinking/answer states, bottom composer |
-| Threads | Overlay drawer, search, Agent/Chat/Ask tags, create/select, pin/delete/export/import entry points |
+| Threads | Overlay drawer, search, time/pinned groups, Agent/Chat/Ask tags, create/select, row rename/pin/delete menus, confirmed group cleanup, and export/import entry points |
 | Composer | Agent/Chat/Ask selector, attachments, mentions, commands, Skills, model/auto controls, queue/stop/send states, adaptive input, and user-message edit/resend |
 | Tools | Prototype card anatomy, expandable details, phase/status, approvals, file paths, Diff/open/revert, terminal actions |
 | Agent edits | Changed-file summary, review, keep/discard, checkpoints, per-file Diff and undo |
@@ -53,7 +53,7 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | Surface | Status | Real behavior in the current build |
 | --- | --- | --- |
 | Main panel | Implemented | 420 px IDEA tool window, interleaved user/assistant/tool timeline, context strip, tool cards, approvals, composer, stop/send states |
-| Threads | Implemented | Create, select, search, mode tags, active run/approval/failure indicators, persisted unread reply counts, pin ordering, confirmed delete, and Markdown import/export work |
+| Threads | Implemented | Create, select, search, pinned/time groups, mode tags, row-level rename/pin/delete menus, confirmed row/group deletion, active run/approval/failure indicators, persisted unread reply counts, pin ordering, and Markdown import/export work. Task List `Continue in New Chat` clones task state and thread customization without copying transcript history |
 | Composer | Implemented | Modes, attachments, Skills, model picker, queue/stop/send, slash menu, @ mention menu, Auto, real prompt enhancement via backend `/v1/enhance`, adaptive input height, and persisted user-message edit/resend that safely rewinds later transcript/tool history before rerunning |
 | Tools | Conditional | Local tools remain IDEA-owned; dedicated detail presentations preserve file/diff, retrieval/search, Web, provider integration, task, subagent/Ask User, diagnostics, terminal/process, and Mermaid result structure. Bounded foreground commands plus managed launch/list/read/write/wait/kill process sessions use the original terminal argument contract, support project-contained working directories and interactive-input detection, backend-owned discovery/execution connects configured cloud adapters and subagents, and the local MCP gateway contributes dynamically discovered namespaced tools under the same policy |
 | Agent edits | Implemented | Native Diff, undo, keep/discard, Agent Edits overlay, and local checkpoints with restore |

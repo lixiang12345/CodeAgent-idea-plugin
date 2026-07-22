@@ -26,10 +26,12 @@ Envelope version: `1`
 | `editAndResendMessage` | `{ messageId, text }` | Rewind from a user message and rerun it with edited or original content |
 | `toggleThreadPinned` | `{ threadId }` | Pin ordering |
 | `deleteThread` | `{ threadId }` | Confirmed delete |
+| `deleteThreads` | `{ threadIds }` | Confirmed time-group delete |
 | `renameThread` | `{ threadId, title }` | Rename active/history title |
 | `copyThread` | — | Copy Markdown to clipboard |
 | `exportThread` | — | Save Markdown via folder chooser |
 | `importThread` | — | Import Markdown thread |
+| `continueTasksInNewThread` | — | Clone the active task list and thread customization into a fresh conversation |
 | `pickContext` / `removeContext` | path/id | Attachments |
 | `toggleSkill` / `toggleRule` | selection | Composer/rules selection |
 | `saveRule` / `refreshCustomization` | rule fields | Rules/Skills disk |

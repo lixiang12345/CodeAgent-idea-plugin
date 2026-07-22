@@ -48,6 +48,33 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     }
 
     @Synchronized
+    fun continueTasksInNewThread(): ConversationSnapshot {
+        val source = mutableActive()
+        require(source.tasks.isNotEmpty()) { "The current task list is empty" }
+        val thread = ConversationThreadState().apply {
+            id = UUID.randomUUID().toString()
+            title = "${source.title} tasks".take(48)
+            updatedAt = System.currentTimeMillis()
+            mode = source.mode
+            selectedAgentProfileId = source.selectedAgentProfileId
+            selectedModelId = source.selectedModelId
+            selectedSkillIds = source.selectedSkillIds.toMutableList()
+            selectedRuleIds = source.selectedRuleIds.toMutableList()
+            tasks = source.tasks.mapTo(mutableListOf()) { task ->
+                ConversationTaskState().apply {
+                    id = UUID.randomUUID().toString()
+                    name = task.name
+                    state = task.state
+                }
+            }
+        }
+        data.threads.add(thread)
+        data.activeThreadId = thread.id
+        trimHistory()
+        return thread.toSnapshot()
+    }
+
+    @Synchronized
     fun select(threadId: String): ConversationSnapshot {
         require(data.threads.any { it.id == threadId }) { "Unknown conversation: $threadId" }
         data.activeThreadId = threadId
