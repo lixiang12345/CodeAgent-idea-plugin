@@ -229,6 +229,19 @@ test("Settings exposes connected and conditional capabilities", async ({ page },
   await expect(page.getByText("Local Context MCP", { exact: true }).first()).toBeVisible();
   await expectViewportIntegrity(page);
   await captureShell(page, "mcp-settings.png");
+  await page.getByRole("button", { name: "All settings" }).click();
+  await page.getByRole("button", { name: "API Keys", exact: true }).click();
+  const anthropic = page.locator(".byok-provider-row").filter({ hasText: "Anthropic Messages" });
+  await anthropic.getByRole("button", { name: "Add key", exact: true }).click();
+  await page.getByLabel("Anthropic API key").fill("sk-ant-development-only");
+  await page.getByLabel("Anthropic API key").press("Escape");
+  await expect(page.getByLabel("Anthropic API key")).toBeHidden();
+  await anthropic.getByRole("button", { name: "Add key", exact: true }).click();
+  await page.getByLabel("Anthropic API key").fill("sk-ant-development-only");
+  await page.getByRole("button", { name: "Save securely", exact: true }).click();
+  await expect(anthropic.getByText("Configured and active", { exact: true })).toBeVisible();
+  await expectViewportIntegrity(page);
+  await captureShell(page, "api-keys-settings.png");
 });
 
 test("Rules editor validates Markdown and protects unsaved changes", async ({ page }, testInfo) => {

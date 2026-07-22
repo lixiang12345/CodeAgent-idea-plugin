@@ -91,6 +91,8 @@ Transport:
 | `renameThread` | `{ threadId: string, title: string }` | `snapshot` |
 | `deleteRule` | `{ ruleId: string }` | refreshed customization `snapshot` |
 | `saveGuidelines` | `{ content: string }` | refreshed customization `snapshot` |
+| `configureByok` | `{ provider, apiKey?, baseUrl?, accessKeyId?, secretAccessKey?, sessionToken?, region?, model? }` | secure Password Safe write + refreshed `snapshot` |
+| `clearByok` | `{ provider }` | secure credential removal + refreshed `snapshot` |
 | `copyThread` | none | `notice` |
 | `exportThread` | none | folder chooser + `notice`/`error` |
 | `importThread` | none | file chooser + `snapshot`/`error` |

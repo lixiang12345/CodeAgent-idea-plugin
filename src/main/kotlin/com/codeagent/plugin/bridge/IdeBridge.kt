@@ -16,9 +16,6 @@ import com.codeagent.plugin.agent.McpRuntimeSnapshot
 import com.codeagent.plugin.agent.AcpRuntimeService
 import com.codeagent.plugin.agent.AcpRuntimeSnapshot
 import com.codeagent.plugin.agent.ByokService
-import com.codeagent.plugin.actions.configureAnthropicByok
-import com.codeagent.plugin.actions.configureBedrockByok
-import com.codeagent.plugin.actions.configureOpenAiByok
 import com.codeagent.plugin.agent.PluginRuntimeService
 import com.codeagent.plugin.agent.PluginRuntimeSnapshot
 import com.codeagent.plugin.agent.RemoteContextUpdated
@@ -368,8 +365,8 @@ class IdeBridge(
             "signIn" -> signIn()
             "signOut" -> signOut()
             "configureByok" -> {
-                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<ByokProviderPayload>(it) }
-                configureByok(request.provider)
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<ConfigureByokPayload>(it) }
+                configureByok(request)
             }
             "clearByok" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<ByokProviderPayload>(it) }
@@ -1991,18 +1988,28 @@ class IdeBridge(
         }
     }
 
-    private fun configureByok(provider: String) {
-        val configured = when (provider) {
-            "openai" -> configureOpenAiByok(project)
-            "anthropic" -> configureAnthropicByok(project)
-            "aws-bedrock" -> configureBedrockByok(project)
-            else -> error("Unsupported BYOK provider: $provider")
+    private fun configureByok(request: ConfigureByokPayload) {
+        when (request.provider) {
+            "openai" -> byokService.setOpenAi(
+                apiKey = requireNotNull(request.apiKey) { "OpenAI API key is required" },
+                baseUrl = request.baseUrl ?: ByokService.DEFAULT_OPENAI_BASE_URL,
+            )
+            "anthropic" -> byokService.setAnthropic(
+                apiKey = requireNotNull(request.apiKey) { "Anthropic API key is required" },
+                baseUrl = request.baseUrl ?: ByokService.DEFAULT_ANTHROPIC_BASE_URL,
+            )
+            "aws-bedrock" -> byokService.setBedrock(
+                accessKeyId = requireNotNull(request.accessKeyId) { "AWS access key ID is required" },
+                secretAccessKey = requireNotNull(request.secretAccessKey) { "AWS secret access key is required" },
+                sessionToken = request.sessionToken,
+                region = requireNotNull(request.region) { "AWS region is required" },
+                model = requireNotNull(request.model) { "AWS Bedrock model ID is required" },
+            )
+            else -> error("Unsupported BYOK provider: ${request.provider}")
         }
-        if (configured) {
-            emit("notice", mapOf("message" to "BYOK provider configured securely"))
-            checkBackendHealth()
-            emitSnapshot()
-        }
+        emit("notice", mapOf("message" to "BYOK provider configured securely"))
+        checkBackendHealth()
+        emitSnapshot()
     }
 
     private fun clearByok(provider: String) {
@@ -3111,6 +3118,18 @@ class IdeBridge(
 
     @Serializable
     private data class ByokProviderPayload(val provider: String)
+
+    @Serializable
+    private data class ConfigureByokPayload(
+        val provider: String,
+        val apiKey: String? = null,
+        val baseUrl: String? = null,
+        val accessKeyId: String? = null,
+        val secretAccessKey: String? = null,
+        val sessionToken: String? = null,
+        val region: String? = null,
+        val model: String? = null,
+    )
 
     @Serializable
     private data class AcpAgentPayload(val agentId: String)

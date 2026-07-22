@@ -435,6 +435,15 @@ button { color: inherit; }
 .list-block small { color: var(--muted); font-size: 8px; }
 .byok-provider-list > div > button { height: 23px; padding: 0 7px; border: 1px solid var(--line-strong); border-radius: 3px; color: #c9ced5; background: #2c2f34; font-size: 8px; cursor: pointer; }
 .byok-provider-list > div > button.danger { color: #d79a9a; }
+.byok-provider-row { position: relative; flex-wrap: wrap; }
+.byok-inline-form { width: 100%; margin: 4px 0 4px 21px; display: grid; grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr); gap: 6px; }
+.byok-inline-form label { min-width: 0; display: flex; flex-direction: column; gap: 3px; color: var(--muted); font-size: 8px; }
+.byok-inline-form input { min-width: 0; height: 25px; padding: 0 7px; border: 1px solid var(--line-strong); border-radius: 3px; color: #e2e5e9; background: #17191c; font: 9px var(--mono); }
+.byok-inline-form footer { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 5px; }
+.byok-inline-form footer button { height: 23px; padding: 0 7px; border: 1px solid var(--line-strong); border-radius: 3px; color: #c9ced5; background: #2c2f34; font-size: 8px; cursor: pointer; }
+.byok-inline-form footer button.primary { border-color: #456b50; color: #b9dec2; background: #253b2b; }
+.byok-inline-form p { grid-column: 1 / -1; margin: 0; color: #e39a9a; font-size: 8px; }
+.byok-bedrock-form { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
 .byok-provider-list > p { margin: 8px 0 0; line-height: 1.45; }
 .section-title, .rule-editor-title { display: flex; align-items: flex-start; gap: 7px; }
 .section-title > div, .rule-editor-title > div { min-width: 0; flex: 1; }

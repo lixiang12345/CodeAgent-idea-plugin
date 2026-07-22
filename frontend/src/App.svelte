@@ -117,6 +117,16 @@
   let guidelinesDraft = "";
   let guidelinesBaseline = "";
   let guidelinesSaving = false;
+  type ByokProvider = "openai" | "anthropic" | "aws-bedrock";
+  let byokEditorProvider: ByokProvider | null = null;
+  let byokSecret = "";
+  let byokEndpoint = "";
+  let byokAccessKeyId = "";
+  let byokRegion = "us-east-1";
+  let byokModel = "";
+  let byokSessionToken = "";
+  let byokSaving = false;
+  let byokValidationError = "";
   let toolsExpanded = new Set<string>();
   let resolvingApprovalIds = new Set<string>();
   let backendUrl = "";
@@ -279,6 +289,14 @@
         guidelinesBaseline = persistedGuidelines;
         guidelinesSaving = false;
       }
+      if (byokSaving && byokEditorProvider && (
+        (byokEditorProvider === "openai" && nextSnapshot.byok.openAiConfigured)
+        || (byokEditorProvider === "anthropic" && nextSnapshot.byok.anthropicConfigured)
+        || (byokEditorProvider === "aws-bedrock" && nextSnapshot.byok.bedrockConfigured)
+      )) {
+        byokSaving = false;
+        cancelByokEdit();
+      }
       if (editingMessageId && nextSnapshot.messages.every((message) => message.id !== editingMessageId)) {
         cancelMessageEdit();
       }
@@ -353,8 +371,11 @@
       return;
     }
     if (event.type === "error") {
+      const message = String((event.payload as { message?: string })?.message ?? "Unexpected error");
       enhancing = false;
       guidelinesSaving = false;
+      if (byokSaving) byokValidationError = message;
+      byokSaving = false;
       pendingThreadDeletes = new Set();
       pendingThreadPins = {};
       if (pendingSettingsSave) {
@@ -362,7 +383,7 @@
         settingsSaveState = "idle";
         settingsDirtyWhileSaving = false;
       }
-      error = String((event.payload as { message?: string })?.message ?? "Unexpected error");
+      error = message;
       return;
     }
     if (event.type === "notice") {
@@ -1707,6 +1728,73 @@
     sendCommand("saveGuidelines", { content: guidelinesDraft });
   }
 
+  function beginByokEdit(provider: ByokProvider) {
+    byokEditorProvider = provider;
+    byokSecret = "";
+    byokEndpoint = provider === "openai" ? "https://api.openai.com" : "https://api.anthropic.com";
+    byokAccessKeyId = "";
+    byokRegion = "us-east-1";
+    byokModel = "";
+    byokSessionToken = "";
+    byokValidationError = "";
+  }
+
+  function cancelByokEdit() {
+    byokEditorProvider = null;
+    byokSecret = "";
+    byokEndpoint = "";
+    byokAccessKeyId = "";
+    byokRegion = "us-east-1";
+    byokModel = "";
+    byokSessionToken = "";
+    byokValidationError = "";
+  }
+
+  function saveByok() {
+    const provider = byokEditorProvider;
+    if (!provider || byokSaving) return;
+    byokValidationError = "";
+    if (provider === "aws-bedrock") {
+      if (!byokAccessKeyId.trim() || !byokSecret.trim() || !byokModel.trim()) {
+        byokValidationError = "AWS access key, secret key, and model ID are required.";
+        return;
+      }
+      if (!/^[a-z]{2}(?:-gov)?-[a-z]+-\\d$/.test(byokRegion.trim())) {
+        byokValidationError = "Invalid AWS region format (for example, us-east-1).";
+        return;
+      }
+    } else if (!byokSecret.trim() || !byokEndpoint.trim()) {
+      byokValidationError = "API key and base URL are required.";
+      return;
+    }
+    byokSaving = true;
+    sendCommand("configureByok", {
+      provider,
+      apiKey: provider === "aws-bedrock" ? undefined : byokSecret,
+      baseUrl: provider === "aws-bedrock" ? undefined : byokEndpoint,
+      accessKeyId: provider === "aws-bedrock" ? byokAccessKeyId : undefined,
+      secretAccessKey: provider === "aws-bedrock" ? byokSecret : undefined,
+      sessionToken: provider === "aws-bedrock" ? byokSessionToken : undefined,
+      region: provider === "aws-bedrock" ? byokRegion : undefined,
+      model: provider === "aws-bedrock" ? byokModel : undefined,
+    });
+  }
+
+  function clearByok(provider: ByokProvider) {
+    if (byokEditorProvider === provider) cancelByokEdit();
+    sendCommand("clearByok", { provider });
+  }
+
+  function handleByokKeydown(event: KeyboardEvent) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancelByokEdit();
+    } else if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      saveByok();
+    }
+  }
+
   function saveRule() {
     const fileName = ruleFileName.trim();
     const description = ruleDescription.trim();
@@ -2506,23 +2594,56 @@
               {#if settingsSection === "API Keys"}
                 <section class="settings-block list-block byok-provider-list">
                   <header><strong>Bring your own model provider</strong><span>{snapshot.byok.activeProvider ?? "Backend default"}</span></header>
-                  <div>
+                  <div class="byok-provider-row">
                     <Icon name="sparkles" size={14} />
                     <span><strong>OpenAI Responses</strong><small>{snapshot.byok.openAiConfigured ? (snapshot.byok.activeProvider === "openai" ? "Configured and active" : "Configured") : "Not configured"}</small></span>
-                    <button onclick={() => sendCommand("configureByok", { provider: "openai" })}>{snapshot.byok.openAiConfigured ? "Replace" : "Set key"}</button>
-                    {#if snapshot.byok.openAiConfigured}<button class="danger" title="Remove OpenAI key" onclick={() => sendCommand("clearByok", { provider: "openai" })}>Clear</button>{/if}
+                    {#if byokEditorProvider !== "openai"}
+                      <button onclick={() => beginByokEdit("openai")}>{snapshot.byok.openAiConfigured ? "Update" : "Add key"}</button>
+                      {#if snapshot.byok.openAiConfigured}<button class="danger" title="Remove OpenAI key" onclick={() => clearByok("openai")}>Remove</button>{/if}
+                    {/if}
+                    {#if byokEditorProvider === "openai"}
+                      <form class="byok-inline-form" onsubmit={(event) => { event.preventDefault(); saveByok(); }}>
+                        <label><span>API key</span><input type="password" bind:value={byokSecret} aria-label="OpenAI API key" placeholder="sk-..." autocomplete="off" onkeydown={handleByokKeydown} /></label>
+                        <label><span>Base URL</span><input bind:value={byokEndpoint} aria-label="OpenAI Base URL" onkeydown={handleByokKeydown} /></label>
+                        {#if byokValidationError}<p role="alert">{byokValidationError}</p>{/if}
+                        <footer><button type="button" disabled={byokSaving} onclick={cancelByokEdit}>Cancel</button><button type="submit" class="primary" disabled={byokSaving || !byokSecret.trim() || !byokEndpoint.trim()}>{byokSaving ? "Saving..." : "Save securely"}</button></footer>
+                      </form>
+                    {/if}
                   </div>
-                  <div>
+                  <div class="byok-provider-row">
                     <Icon name="bot" size={14} />
                     <span><strong>Anthropic Messages</strong><small>{snapshot.byok.anthropicConfigured ? (snapshot.byok.activeProvider === "anthropic" ? "Configured and active" : "Configured") : "Not configured"}</small></span>
-                    <button onclick={() => sendCommand("configureByok", { provider: "anthropic" })}>{snapshot.byok.anthropicConfigured ? "Replace" : "Set key"}</button>
-                    {#if snapshot.byok.anthropicConfigured}<button class="danger" title="Remove Anthropic key" onclick={() => sendCommand("clearByok", { provider: "anthropic" })}>Clear</button>{/if}
+                    {#if byokEditorProvider !== "anthropic"}
+                      <button onclick={() => beginByokEdit("anthropic")}>{snapshot.byok.anthropicConfigured ? "Update" : "Add key"}</button>
+                      {#if snapshot.byok.anthropicConfigured}<button class="danger" title="Remove Anthropic key" onclick={() => clearByok("anthropic")}>Remove</button>{/if}
+                    {/if}
+                    {#if byokEditorProvider === "anthropic"}
+                      <form class="byok-inline-form" onsubmit={(event) => { event.preventDefault(); saveByok(); }}>
+                        <label><span>API key</span><input type="password" bind:value={byokSecret} aria-label="Anthropic API key" placeholder="sk-ant-..." autocomplete="off" onkeydown={handleByokKeydown} /></label>
+                        <label><span>Base URL</span><input bind:value={byokEndpoint} aria-label="Anthropic Base URL" onkeydown={handleByokKeydown} /></label>
+                        {#if byokValidationError}<p role="alert">{byokValidationError}</p>{/if}
+                        <footer><button type="button" disabled={byokSaving} onclick={cancelByokEdit}>Cancel</button><button type="submit" class="primary" disabled={byokSaving || !byokSecret.trim() || !byokEndpoint.trim()}>{byokSaving ? "Saving..." : "Save securely"}</button></footer>
+                      </form>
+                    {/if}
                   </div>
-                  <div>
+                  <div class="byok-provider-row">
                     <Icon name="cloud" size={14} />
                     <span><strong>AWS Bedrock Converse</strong><small>{snapshot.byok.bedrockConfigured ? (snapshot.byok.activeProvider === "aws-bedrock" ? "Configured and active · SigV4" : "Configured · SigV4") : "Access key, secret, region, and model required"}</small></span>
-                    <button onclick={() => sendCommand("configureByok", { provider: "aws-bedrock" })}>{snapshot.byok.bedrockConfigured ? "Replace" : "Set credentials"}</button>
-                    {#if snapshot.byok.bedrockConfigured}<button class="danger" title="Remove AWS credentials" onclick={() => sendCommand("clearByok", { provider: "aws-bedrock" })}>Clear</button>{/if}
+                    {#if byokEditorProvider !== "aws-bedrock"}
+                      <button onclick={() => beginByokEdit("aws-bedrock")}>{snapshot.byok.bedrockConfigured ? "Update" : "Add credentials"}</button>
+                      {#if snapshot.byok.bedrockConfigured}<button class="danger" title="Remove AWS credentials" onclick={() => clearByok("aws-bedrock")}>Remove</button>{/if}
+                    {/if}
+                    {#if byokEditorProvider === "aws-bedrock"}
+                      <form class="byok-inline-form byok-bedrock-form" onsubmit={(event) => { event.preventDefault(); saveByok(); }}>
+                        <label><span>Access key ID</span><input bind:value={byokAccessKeyId} aria-label="AWS access key ID" autocomplete="off" onkeydown={handleByokKeydown} /></label>
+                        <label><span>Secret access key</span><input type="password" bind:value={byokSecret} aria-label="AWS secret access key" autocomplete="off" onkeydown={handleByokKeydown} /></label>
+                        <label><span>Session token <small>Optional</small></span><input type="password" bind:value={byokSessionToken} aria-label="AWS session token" autocomplete="off" onkeydown={handleByokKeydown} /></label>
+                        <label><span>Region</span><input bind:value={byokRegion} aria-label="AWS region" onkeydown={handleByokKeydown} /></label>
+                        <label><span>Model ID</span><input bind:value={byokModel} aria-label="AWS Bedrock model ID" onkeydown={handleByokKeydown} /></label>
+                        {#if byokValidationError}<p role="alert">{byokValidationError}</p>{/if}
+                        <footer><button type="button" disabled={byokSaving} onclick={cancelByokEdit}>Cancel</button><button type="submit" class="primary" disabled={byokSaving || !byokAccessKeyId.trim() || !byokSecret.trim() || !byokRegion.trim() || !byokModel.trim()}>{byokSaving ? "Saving..." : "Save securely"}</button></footer>
+                      </form>
+                    {/if}
                   </div>
                   <p>Provider secrets are never written to project files, product configuration, backend storage, or logs. Durable background jobs continue to use the deployed backend credential because BYOK secrets are intentionally not persisted server-side.</p>
                 </section>

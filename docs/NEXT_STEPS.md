@@ -137,6 +137,18 @@ controls real run behavior without modifying the repository instruction file.
 Loader tests cover discovery and ordering, and the Rules Playwright workflow
 verifies reset and persisted Snapshot updates.
 
+### API Keys Interaction Management
+
+**Status:** implemented on 2026-07-22.
+
+API Keys now follows the original provider workflow with inline Add/Update
+forms, per-provider Remove actions, Enter-to-save and Escape-to-cancel behavior,
+AWS region/model validation, and explicit secure-save feedback. OpenAI and
+Anthropic endpoint fields plus complete AWS Bedrock SigV4 credentials are sent
+only across the Webview-to-JVM bridge; the JVM writes them to JetBrains
+Password Safe and snapshots never contain secret values. A responsive Playwright
+reference covers the Anthropic edit, cancel, save, and redacted configured state.
+
 ### Conversation Memory Management
 
 **Status:** implemented on 2026-07-22.
