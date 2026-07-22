@@ -69,15 +69,18 @@ the interactive smoke workflow remains a separate required acceptance step.
 
 ## Priority 2: Advanced Settings and Rules Alignment
 
-**Status:** next implementation stage.
+**Status:** completed for locally available and contracted capabilities on
+2026-07-22.
 
-Audit the remaining Settings pages against the local Augment source-map
-inventory, replace generic capability summaries where the original exposes a
-real management workflow, and raise the Rules editor from a plain textarea to
-an IDE-grade Markdown editing surface with validation and unsaved-change
-protection. Keep provider-dependent controls explicitly unavailable until a
-backend contract exists, and add responsive interaction evidence for each
-newly completed workflow.
+The local Augment source-map audit is complete. Rules lifecycle, workspace
+guidelines, memories, inline BYOK management, Settings Home index operations,
+MCP lifecycle, Commands, Hooks, Agents, Plugins, User Experience, Account, and
+Subscription now use real local or backend contracts. Feature Flags and Beta
+remain read-only capability reports because CodeAgent has no authenticated flag
+override contract; Secrets Manager, Context, and Terminal are intentionally
+hidden by the original plugin on IntelliJ hosts. Provider-dependent controls
+remain explicitly unavailable until a backend contract and acceptance tenant
+exist.
 
 ## Priority 3: Integration Operations Readiness
 
