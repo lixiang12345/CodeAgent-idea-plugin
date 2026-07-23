@@ -247,9 +247,8 @@ button { color: inherit; }
 .approval button:disabled { opacity: .55; cursor: default; }
 @keyframes approval-pulse { 100% { box-shadow: 0 0 0 6px transparent; } }
 .assistant-turn { margin: 8px 0 10px; }
-.assistant-turn.augment-message { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: start; }
-.assistant-avatar { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 6px; color: var(--bright); background: #23262c; }
-.assistant-body { min-width: 0; }
+.assistant-turn.augment-message { display: flex; flex-direction: column; align-items: start; gap: 8px; }
+.assistant-body { min-width: 0; width: 100%; }
 .chat-view .assistant-message { min-width: 0; color: #d4d7dc; font-size: calc(12px * var(--chat-zoom)); line-height: 1.55; overflow-wrap: anywhere; }
 .chat-view .assistant-meta { min-height: 16px; display: flex; align-items: center; gap: 6px; color: #737b85; font: calc(9.5px * var(--chat-zoom)) var(--mono); }
 .assistant-actions { min-height: 22px; display: flex; justify-content: flex-start; gap: 1px; opacity: 0; transition: opacity .15s ease; }
