@@ -41,6 +41,10 @@ export interface ToolRun {
   createdAt?: number;
   updatedAt?: number;
   timelineSequence?: number;
+  askQuestion?: string;
+  askOptions?: string[];
+  askAllowText?: boolean;
+  askDefault?: string;
 }
 
 export interface AgentRunTelemetry {
@@ -1243,6 +1247,27 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       runState: "idle",
       tools: snapshot.tools.map((tool) => tool.id === request?.toolId
         ? { ...tool, status: request.approved ? "completed" : "rejected", detail: `${tool.detail ?? ""}\n\n${request.approved ? "Approved" : "Rejected"} in the development host.`.trim() }
+        : tool),
+    }));
+    return;
+  }
+  if (command.type === "resolveAskUser") {
+    const request = command.payload as { toolId?: string; answer?: string; skipped?: boolean } | undefined;
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      runState: "running",
+      tools: snapshot.tools.map((tool) => tool.id === request?.toolId
+        ? {
+            ...tool,
+            status: request?.skipped ? "rejected" : "completed",
+            askQuestion: undefined,
+            askOptions: undefined,
+            askAllowText: undefined,
+            askDefault: undefined,
+            detail: request?.skipped
+              ? "User skipped the question in the development host."
+              : `User answered: ${request?.answer ?? ""}`.trim(),
+          }
         : tool),
     }));
     return;

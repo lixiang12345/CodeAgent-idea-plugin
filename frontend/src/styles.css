@@ -254,6 +254,21 @@ button { color: inherit; }
 .approval button.approve { display: inline-flex; align-items: center; gap: 4px; border-color: #4e755a; color: #bce1c5; background: #2a4733; animation: approval-pulse 1s infinite; }
 .approval button:disabled { opacity: .55; cursor: default; }
 @keyframes approval-pulse { 100% { box-shadow: 0 0 0 6px transparent; } }
+.ask-card { width: 100%; box-sizing: border-box; padding: 7px 8px; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); background: #202227; }
+.ask-card-question { display: flex; align-items: flex-start; gap: 6px; color: #d4d7dc; font-size: calc(11px * var(--chat-zoom)); font-weight: 500; line-height: 1.4; }
+.ask-card-question :global(svg) { flex: 0 0 auto; margin-top: 1px; color: #8ab4f8; }
+.ask-opts { display: flex; flex-direction: column; gap: 1px; }
+.ask-opt { width: 100%; display: flex; align-items: center; gap: 7px; padding: 5px 6px; border: 0; border-radius: 5px; color: #d4d7dc; background: transparent; font-size: calc(11px * var(--chat-zoom)); text-align: left; cursor: pointer; }
+.ask-opt:hover { background: rgba(255,255,255,.05); }
+.ask-opt.on { background: rgba(59,130,246,.12); }
+.ask-opt-badge { flex: 0 0 auto; width: 19px; height: 19px; display: grid; place-items: center; border-radius: 4px; color: #9aa0aa; background: rgba(255,255,255,.06); font-size: calc(10px * var(--chat-zoom)); font-weight: 500; }
+.ask-opt.on .ask-opt-badge { color: #fff; background: var(--accent, #3b82f6); }
+.ask-opt-label { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.ask-card textarea { width: 100%; box-sizing: border-box; min-height: 46px; padding: 5px 7px; resize: vertical; border: 1px solid var(--line); border-radius: 4px; color: var(--text); background: #191b1e; font-family: inherit; font-size: calc(11px * var(--chat-zoom)); }
+.ask-card-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.ask-card-actions button { height: 24px; padding: 0 10px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid #5b5e64; border-radius: 3px; color: var(--text); background: #292b30; font-size: 9px; cursor: pointer; }
+.ask-card-actions button.primary { border-color: #3f5b86; color: #cfe0fb; background: #2a3a55; }
+.ask-card-actions button:disabled { opacity: .55; cursor: default; }
 .assistant-turn { margin: 8px 0 10px; }
 .assistant-turn.augment-message { display: flex; flex-direction: column; align-items: start; gap: 8px; }
 .assistant-body { min-width: 0; width: 100%; }

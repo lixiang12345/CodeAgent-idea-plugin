@@ -136,6 +136,8 @@
   let byokValidationError = "";
   let toolsExpanded = new Set<string>();
   let resolvingApprovalIds = new Set<string>();
+  let askUserSelection: Record<string, string> = {};
+  let askUserText: Record<string, string> = {};
   let backendUrl = "";
   let nodePath = "";
   let inlineCompletionsEnabled = true;
@@ -722,6 +724,26 @@
     if (resolvingApprovalIds.has(toolId)) return;
     resolvingApprovalIds = new Set(resolvingApprovalIds).add(toolId);
     sendCommand("resolveApproval", { toolId, approved });
+  }
+
+  function selectAskOption(toolId: string, option: string) {
+    askUserSelection = { ...askUserSelection, [toolId]: option };
+  }
+
+  function submitAskUser(tool: ToolRun) {
+    if (resolvingApprovalIds.has(tool.id)) return;
+    const selected = askUserSelection[tool.id];
+    const extra = (askUserText[tool.id] ?? "").trim();
+    const answer = [selected, extra].filter((part) => part && part.length > 0).join(" ").trim();
+    if (!answer) return;
+    resolvingApprovalIds = new Set(resolvingApprovalIds).add(tool.id);
+    sendCommand("resolveAskUser", { toolId: tool.id, answer, skipped: false });
+  }
+
+  function skipAskUser(tool: ToolRun) {
+    if (resolvingApprovalIds.has(tool.id)) return;
+    resolvingApprovalIds = new Set(resolvingApprovalIds).add(tool.id);
+    sendCommand("resolveAskUser", { toolId: tool.id, answer: "", skipped: true });
   }
 
   function enhancePrompt() {
@@ -2519,7 +2541,42 @@
                               />
                             </div>
                           {/if}
-                          {#if tool.status === "approval"}
+                          {#if tool.status === "approval" && tool.name === "ask_user"}
+                            <div class="ask-card" role="group" aria-label="Question from Agent">
+                              <h4><Icon name="message-circle" size={14} /><span>{tool.askQuestion ?? tool.summary}</span></h4>
+                              {#if (tool.askOptions ?? []).length > 0}
+                                <div class="ask-opts">
+                                  {#each tool.askOptions ?? [] as option, index (option)}
+                                    <button
+                                      type="button"
+                                      class="ask-opt"
+                                      class:on={askUserSelection[tool.id] === option}
+                                      onclick={() => selectAskOption(tool.id, option)}
+                                    >
+                                      <span class="ask-opt-badge">{String.fromCharCode(65 + index)}</span>
+                                      <span>{option}</span>
+                                    </button>
+                                  {/each}
+                                </div>
+                              {/if}
+                              {#if (tool.askAllowText ?? true)}
+                                <textarea
+                                  class="ask-extra"
+                                  bind:value={askUserText[tool.id]}
+                                  placeholder={(tool.askOptions ?? []).length > 0 ? "Optional details…" : "Type your answer…"}
+                                  aria-label="Answer details"
+                                ></textarea>
+                              {/if}
+                              <div class="ask-actions">
+                                <button disabled={resolvingApprovalIds.has(tool.id)} onclick={() => skipAskUser(tool)}>Skip</button>
+                                <button
+                                  class="approve"
+                                  disabled={resolvingApprovalIds.has(tool.id) || (!askUserSelection[tool.id] && !(askUserText[tool.id] ?? "").trim())}
+                                  onclick={() => submitAskUser(tool)}
+                                ><Icon name="circle-play" size={12} />{resolvingApprovalIds.has(tool.id) ? "Submitting…" : "Submit answer"}</button>
+                              </div>
+                            </div>
+                          {:else if tool.status === "approval"}
                             <div class="approval" role="status" aria-live="polite">
                               <div class="approval-note"><Icon name="circle-alert" size={14} /><span>Waiting for user input</span></div>
                               <div class="approval-actions">
