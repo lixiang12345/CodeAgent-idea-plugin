@@ -1574,6 +1574,21 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     updateDevelopmentSnapshot((snapshot) => ({ ...snapshot, tasks: [] }));
     return;
   }
+  if (command.type === "continueThreadInCloud") {
+    emitDevelopmentEvent("notice", { message: "Cloud continuation is handled by the JetBrains host; the browser development host acknowledged the action" });
+    return;
+  }
+  if (command.type === "exportRemoteAgentsHistory") {
+    emitDevelopmentEvent("notice", { message: "Remote agents history export is handled by the JetBrains host; the browser development host acknowledged the action" });
+    return;
+  }
+  if (command.type === "recoverConversationFromBackend") {
+    emitDevelopmentEvent("recoveryStatus", { text: "Recovering conversation history from the cloud…", done: false });
+    setTimeout(() => {
+      emitDevelopmentEvent("recoveryStatus", { text: "Chat recovered from cloud", done: true });
+    }, 900);
+    return;
+  }
   if (command.type === "continueTasksInNewThread") {
     updateDevelopmentSnapshot((snapshot) => {
       if (snapshot.runState === "starting" || snapshot.runState === "running" || snapshot.runState === "awaiting_approval" || snapshot.messageQueue.length > 0 || snapshot.tasks.length === 0) {

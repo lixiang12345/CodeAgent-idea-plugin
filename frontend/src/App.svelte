@@ -251,6 +251,10 @@
   let threadRenameDraft = "";
   let confirmingThreadDeleteId: string | null = null;
   let confirmingThreadGroupDelete: string | null = null;
+  let confirmingDeleteOldThreads = false;
+  let recoveryBanner: { visible: boolean; text: string; done: boolean } = { visible: false, text: "", done: false };
+  let recoveryBannerTimer: number | undefined;
+  let announceBannerDismissed = false;
 
   onMount(() => {
     const unsubscribe = onHostEvent(handleEvent);
@@ -407,6 +411,16 @@
     }
     if (event.type === "notice") {
       notice = String((event.payload as { message?: string })?.message ?? "Done");
+      return;
+    }
+    if (event.type === "recoveryStatus") {
+      const payload = event.payload as { text?: string; done?: boolean };
+      const done = payload?.done ?? false;
+      recoveryBanner = { visible: true, text: String(payload?.text ?? "Recovering conversation history from the cloud…"), done };
+      if (recoveryBannerTimer) window.clearTimeout(recoveryBannerTimer);
+      if (done) {
+        recoveryBannerTimer = window.setTimeout(() => { recoveryBanner = { visible: false, text: "", done: false }; }, 4000);
+      }
       return;
     }
     if (event.type === "gitSnapshot") {
@@ -1207,6 +1221,57 @@
 
   function exportThread() {
     sendCommand("exportThread");
+  }
+
+  function continueInNewChat(cosmos = false) {
+    sendCommand(cosmos ? "continueThreadInCloud" : "continueTasksInNewThread");
+    closeMenus();
+  }
+
+  function copySessionId() {
+    const id = activeThread()?.id;
+    if (!id) {
+      error = "No active thread to copy a session ID from";
+      closeMenus();
+      return;
+    }
+    copyText(id, "Session ID copied");
+    closeMenus();
+  }
+
+  function exportLogs() {
+    copyAuditReport(false);
+    closeMenus();
+  }
+
+  function exportRemoteAgentsHistory() {
+    sendCommand("exportRemoteAgentsHistory");
+    closeMenus();
+  }
+
+  function recoverFromBackend() {
+    sendCommand("recoverConversationFromBackend");
+    closeMenus();
+  }
+
+  function requestDeleteOldThreads() {
+    if (!confirmingDeleteOldThreads) {
+      confirmingDeleteOldThreads = true;
+      return;
+    }
+    confirmingDeleteOldThreads = false;
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const stale = (snapshot?.threads ?? [])
+      .filter((thread) => !thread.pinned && !thread.active && thread.updatedAt < cutoff)
+      .map((thread) => thread.id);
+    if (stale.length === 0) {
+      notice = "No threads older than 30 days to delete";
+      closeMenus();
+      return;
+    }
+    sendCommand("deleteThreads", { threadIds: stale });
+    notice = `Deleting ${stale.length} thread${stale.length === 1 ? "" : "s"} older than 30 days`;
+    closeMenus();
   }
 
   function toggleAutoRun() {
@@ -2252,8 +2317,16 @@
                   <button onclick={() => { copyThread(); closeMenus(); }}><Icon name="share-2" size={13} /><span>Share link to session</span></button>
                   <button onclick={() => { exportThread(); closeMenus(); }}><Icon name="upload" size={13} /><span>Export conversation</span></button>
                   <button onclick={() => { sendCommand("importThread"); closeMenus(); }}><Icon name="file-input" size={13} /><span>Import conversation</span></button>
+                  <button onclick={() => continueInNewChat(false)}><Icon name="git-branch" size={13} /><span>Continue in New Chat</span></button>
+                  <button onclick={() => continueInNewChat(true)}><Icon name="orbit" size={13} /><span>Continue in New Chat</span></button>
                   <div class="menu-sep"></div>
-                  <button onclick={() => openWorkspaceView("feedback")}><Icon name="flag" size={13} /><span>Report an Issue</span></button>
+                  <button onclick={() => requestDeleteOldThreads()}><Icon name="trash-2" size={13} /><span>{confirmingDeleteOldThreads ? "Confirm delete old threads" : "Delete Old Threads…"}</span></button>
+                  <button onclick={() => exportRemoteAgentsHistory()}><Icon name="cloud-download" size={13} /><span>Export Remote Agents History</span></button>
+                  <div class="menu-sep"></div>
+                  <button onclick={() => recoverFromBackend()}><Icon name="cloud" size={13} /><span>Recover from Backend</span></button>
+                  <button onclick={() => copySessionId()}><Icon name="copy" size={13} /><span>Copy Session ID</span></button>
+                  <button onclick={() => { openWorkspaceView("feedback"); closeMenus(); }}><Icon name="flag" size={13} /><span>Report an Issue</span></button>
+                  <button onclick={() => exportLogs()}><Icon name="file-text" size={13} /><span>Export Logs</span></button>
                   <div class="menu-sep"></div>
                   <button class="danger" onclick={() => { const id = activeThread()?.id; if (id) requestThreadDelete(id); }}><Icon name="trash-2" size={13} /><span>{confirmingThreadDeleteId === activeThread()?.id ? "Confirm delete" : "Delete thread"}</span></button>
                 </div>
@@ -2271,6 +2344,24 @@
             <Icon name={snapshot.context.watching ? "refresh-cw" : "database"} size={12} /><span>{contextIndexLabel(snapshot)}</span>
           </button>
         </div>
+
+        {#if !announceBannerDismissed && snapshot.messageQueue.length === 0}
+          <div class="announce-banner" role="status">
+            <Icon name="megaphone" size={13} />
+            <span>Message Queue is available as a Public Beta — enable it in Settings → Beta.</span>
+            <button class="announce-open" onclick={() => openSettings("Beta")}>Open Beta</button>
+            <button class="announce-dismiss" title="Dismiss" aria-label="Dismiss announcement" onclick={() => announceBannerDismissed = true}><Icon name="x" size={12} /></button>
+          </div>
+        {/if}
+
+        {#if recoveryBanner.visible}
+          <div class="recovery-banner" role="status" aria-live="polite">
+            <Icon name={recoveryBanner.done ? "circle-check" : "cloud"} size={13} />
+            <span>{recoveryBanner.text}</span>
+            {#if !recoveryBanner.done}<button class="recovery-resend" onclick={() => sendCommand("recoverConversationFromBackend")}>Resend to continue</button>{/if}
+            <button class="recovery-dismiss" title="Dismiss" aria-label="Dismiss recovery banner" onclick={() => recoveryBanner = { visible: false, text: "", done: false }}><Icon name="x" size={12} /></button>
+          </div>
+        {/if}
 
         {#if showRunTelemetry && hasRunTelemetry(snapshot)}
           <div class="run-telemetry" title={snapshot.agentRun.retryMessage ?? snapshot.agentRun.verificationMessage ?? snapshot.agentRun.activeToolNames.join(", ")}>

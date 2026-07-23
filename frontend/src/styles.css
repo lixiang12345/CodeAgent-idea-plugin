@@ -285,6 +285,14 @@ button { color: inherit; }
 .notice-banner span { flex: 1; }
 .notice-banner button { border: 0; color: inherit; background: transparent; cursor: pointer; }
 .global-banner { position: absolute; z-index: 50; left: 8px; right: 8px; bottom: 8px; border: 1px solid currentColor; border-radius: 4px; box-shadow: 0 7px 20px rgba(0,0,0,.35); }
+.announce-banner, .recovery-banner { min-height: 29px; padding: 6px 10px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); font-size: calc(11px * var(--chat-zoom)); }
+.announce-banner { background: #1a2a40; color: #9ecbff; }
+.recovery-banner { background: #3d2e00; color: #ffd666; }
+.announce-banner span, .recovery-banner span { flex: 1; min-width: 0; }
+.announce-banner .announce-open, .recovery-banner .recovery-resend { height: 21px; padding: 0 8px; border: 1px solid currentColor; border-radius: var(--ds-radius-1); background: transparent; color: inherit; font-size: calc(10px * var(--chat-zoom)); cursor: pointer; white-space: nowrap; }
+.announce-banner .announce-open:hover, .recovery-banner .recovery-resend:hover { background: rgba(255,255,255,.12); }
+.announce-banner .announce-dismiss, .recovery-banner .recovery-dismiss { display: flex; align-items: center; border: 0; background: transparent; color: inherit; cursor: pointer; opacity: .8; }
+.announce-banner .announce-dismiss:hover, .recovery-banner .recovery-dismiss:hover { opacity: 1; }
 .composer-wrap, .cw { flex: 0 0 auto; padding: 7px 9px 9px; border-top: 0; background: #252526; }
 .change-summary, .edits-bar { min-height: 31px; margin: 0 -8px 6px; padding: 4px 8px; display: flex; align-items: center; gap: 5px; border-block: 1px solid #385043; background: #222a25; }
 .change-summary span { min-width: 0; flex: 1; display: flex; align-items: center; gap: 5px; color: #bdd4c2; font-size: 10px; }
