@@ -24,6 +24,7 @@ import com.codeagent.plugin.agent.RemoteConfiguration
 import com.codeagent.plugin.agent.RemoteBackendHealth
 import com.codeagent.plugin.agent.RemoteJob
 import com.codeagent.plugin.agent.RemoteJobInput
+import com.codeagent.plugin.agent.RemoteJobList
 import com.codeagent.plugin.agent.RemoteJobRequest
 import com.codeagent.plugin.agent.RemoteModelRetrying
 import com.codeagent.plugin.agent.RemoteToolBatchStarted
@@ -901,6 +902,9 @@ class IdeBridge(
             "openTerminal" -> ApplicationManager.getApplication().invokeLater {
                 ToolWindowManager.getInstance(project).getToolWindow("Terminal")?.activate(null)
             }
+            "continueThreadInCloud" -> continueThreadInCloud()
+            "exportRemoteAgentsHistory" -> exportRemoteAgentsHistory()
+            "recoverConversationFromBackend" -> recoverConversationFromBackend()
             else -> error("Unknown bridge command: ${command.type}")
         }
     }
@@ -2817,6 +2821,75 @@ class IdeBridge(
         syncConversation(previous)
         syncActiveConversation()
         emitSnapshot()
+    }
+
+    private fun continueThreadInCloud() {
+        if (!cloudServicesActive()) {
+            emit("error", mapOf("message" to "Sign in to continue this thread with durable cloud state"))
+            openSettingsSection("Account")
+            return
+        }
+        continueTasksInNewThread()
+        val active = conversations.active()
+        if (cloudServicesActive()) {
+            cloudSync.schedule(active)
+        }
+        emit("notice", mapOf("message" to "Continued in a new cloud-backed chat"))
+    }
+
+    private fun exportRemoteAgentsHistory() {
+        if (account.state != "signed_in") {
+            emit("error", mapOf("message" to "Sign in before exporting remote agents history"))
+            openSettingsSection("Account")
+            return
+        }
+        emit("notice", mapOf("message" to "Collecting remote agents history…"))
+        agent.jobs().whenComplete { response, error ->
+            if (error != null) {
+                emit("error", mapOf("message" to "Remote agents history export failed: ${error.rootMessage()}"))
+                return@whenComplete
+            }
+            val payload = json.encodeToString(RemoteJobList.serializer(), response)
+            ApplicationManager.getApplication().invokeLater {
+                val descriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor()
+                    .withTitle("Export Remote Agents History")
+                    .withDescription("Choose a folder for the JSON export")
+                FileChooser.chooseFile(descriptor, project, null) { folder ->
+                    runCatching {
+                        val stamp = java.time.LocalDate.now().toString()
+                        val target = Path.of(folder.path, "codeagent-remote-agents-$stamp.json")
+                        Files.writeString(target, payload, StandardCharsets.UTF_8)
+                        emit("notice", mapOf("message" to "Exported ${response.data.size} remote agent jobs to ${target.fileName}"))
+                    }.onFailure { failure ->
+                        emit("error", mapOf("message" to (failure.message ?: "Remote agents history export failed")))
+                    }
+                }
+            }
+        }
+    }
+
+    private fun recoverConversationFromBackend() {
+        if (account.state != "signed_in" || account.userId.isNullOrBlank()) {
+            emit("error", mapOf("message" to "Sign in before recovering from the backend"))
+            openSettingsSection("Account")
+            return
+        }
+        emit("recoveryStatus", mapOf("text" to "Recovering conversation history from the cloud…", "done" to false))
+        val userId = account.userId!!
+        synchronized(stateLock) { syncedAccountUserId = null }
+        cloudSync.reset()
+        conversationSummaries.reset()
+        cloudSync.restore().whenComplete { _, error ->
+            if (error != null) {
+                emit("error", mapOf("message" to "Backend recovery failed: ${error.rootMessage()}"))
+                emit("recoveryStatus", mapOf("text" to "Backend recovery failed", "done" to true))
+                return@whenComplete
+            }
+            synchronized(stateLock) { syncedAccountUserId = userId }
+            summarizeConversation(conversations.active())
+            emit("recoveryStatus", mapOf("text" to "Chat recovered from cloud", "done" to true))
+            emitSnapshot()
+        }
     }
 
     private fun deleteThreads(threadIds: List<String>) {
