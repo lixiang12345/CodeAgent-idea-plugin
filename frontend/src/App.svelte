@@ -2404,10 +2404,11 @@
                           {/if}
                           {#if tool.status === "approval"}
                             <div class="approval" role="status" aria-live="polite">
-                              <Icon name="circle-alert" size={14} />
-                              <span>Waiting for user input</span>
-                              <button disabled={resolvingApprovalIds.has(tool.id)} onclick={() => resolveApproval(tool.id, false)}>Skip</button>
-                              <button class="approve" disabled={resolvingApprovalIds.has(tool.id)} onclick={() => resolveApproval(tool.id, true)}><Icon name="circle-play" size={12} />{resolvingApprovalIds.has(tool.id) ? "Approving..." : "Approve"}</button>
+                              <div class="approval-note"><Icon name="circle-alert" size={14} /><span>Waiting for user input</span></div>
+                              <div class="approval-actions">
+                                <button disabled={resolvingApprovalIds.has(tool.id)} onclick={() => resolveApproval(tool.id, false)}>Skip</button>
+                                <button class="approve" disabled={resolvingApprovalIds.has(tool.id)} onclick={() => resolveApproval(tool.id, true)}><Icon name="circle-play" size={12} />{resolvingApprovalIds.has(tool.id) ? "Approving..." : "Approve"}</button>
+                              </div>
                             </div>
                           {/if}
                         </section>
