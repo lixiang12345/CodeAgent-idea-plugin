@@ -219,7 +219,7 @@
   let renaming = false;
   let renameTitle = "";
   let enhancing = false;
-  let checkpoints: Array<{ id: string; label: string; createdAt: number; changeCount: number; paths: string[] }> = [];
+  let checkpoints: Array<{ id: string; label: string; createdAt: number; changeCount: number; paths: string[]; files?: Array<{ path: string; added: number; removed: number }> }> = [];
   let expandedCheckpoints = new Set<string>();
   let noticeTimer: number | undefined;
   let errorTimer: number | undefined;
