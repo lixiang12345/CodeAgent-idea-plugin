@@ -91,6 +91,7 @@
   let composerTextarea: HTMLTextAreaElement | null = null;
   let editingMessageId: string | null = null;
   let editingMessageText = "";
+  let messageFeedback: Record<string, "up" | "down"> = {};
   let editingQueuedMessageId: string | null = null;
   let resumeQueueAfterQueuedEdit = false;
   type WorkspaceView = "chat" | "settings" | "mermaid" | "git" | "tasks" | "jobs" | "images" | "tools" | "icons" | "edits" | "feedback";
@@ -674,6 +675,16 @@
   function cancelMessageEdit() {
     editingMessageId = null;
     editingMessageText = "";
+  }
+
+  function rateMessage(messageId: string, rating: "up" | "down") {
+    const next = { ...messageFeedback };
+    if (next[messageId] === rating) {
+      delete next[messageId];
+    } else {
+      next[messageId] = rating;
+    }
+    messageFeedback = next;
   }
 
   function editAndResendMessage(message: ChatMessage, text = editingMessageText) {
@@ -2335,21 +2346,26 @@
                   </article>
                 {:else if item.kind === "assistant"}
                   {#if item.message.content}
-                    <section class="assistant-turn" data-request-index={item.requestIndex} data-run-id={item.message.runId}>
-                      <div class="assistant-message">
-                        <MarkdownMessage
-                          content={item.message.content}
-                          onOpenMermaid={(source) => openMermaidSource(source)}
-                        />
-                      </div>
-                      {#if showTimestamps || (showRunTelemetry && item.message.turnIndex !== undefined)}
-                        <div class="assistant-meta">
-                          {#if showTimestamps}<time>{formatTime(item.message.createdAt)}</time>{/if}
-                          {#if showRunTelemetry && item.message.turnIndex !== undefined}<span>Turn {item.message.turnIndex + 1}</span>{/if}
+                    <section class="assistant-turn augment-message" data-request-index={item.requestIndex} data-run-id={item.message.runId}>
+                      <div class="assistant-avatar" aria-hidden="true"><Icon name="augment-logo" size={15} /></div>
+                      <div class="assistant-body">
+                        <div class="assistant-message">
+                          <MarkdownMessage
+                            content={item.message.content}
+                            onOpenMermaid={(source) => openMermaidSource(source)}
+                          />
                         </div>
-                      {/if}
-                      <div class="assistant-actions">
-                        <button title="Copy response" aria-label="Copy response" onclick={() => copyText(item.message.content, "Response copied")}><Icon name="copy" size={13} /></button>
+                        {#if showTimestamps || (showRunTelemetry && item.message.turnIndex !== undefined)}
+                          <div class="assistant-meta">
+                            {#if showTimestamps}<time>{formatTime(item.message.createdAt)}</time>{/if}
+                            {#if showRunTelemetry && item.message.turnIndex !== undefined}<span>Turn {item.message.turnIndex + 1}</span>{/if}
+                          </div>
+                        {/if}
+                        <div class="assistant-actions">
+                          <button title="Copy response" aria-label="Copy response" onclick={() => copyText(item.message.content, "Response copied")}><Icon name="copy" size={13} /></button>
+                          <button title="Good response" aria-label="Good response" class:active={messageFeedback[item.message.id] === "up"} onclick={() => rateMessage(item.message.id, "up")}><Icon name="thumbs-up" size={13} /></button>
+                          <button title="Bad response" aria-label="Bad response" class:active={messageFeedback[item.message.id] === "down"} onclick={() => rateMessage(item.message.id, "down")}><Icon name="thumbs-down" size={13} /></button>
+                        </div>
                       </div>
                     </section>
                   {/if}
