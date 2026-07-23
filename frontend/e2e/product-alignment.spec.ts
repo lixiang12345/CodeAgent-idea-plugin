@@ -253,6 +253,83 @@ test("messages can be edited, rewound, and resent while the composer adapts", as
   await expectViewportIntegrity(page);
 });
 
+test("Message Queue supports pause, edit, priority send, stop, and resume", async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      runState: "running",
+      agentRun: { ...snapshot.agentRun, phase: "tools", activeToolNames: ["read_file"], activeToolCount: 1 },
+      messageQueue: [
+        { id: "queue-first", text: "Run the focused queue tests.", mode: "agent" },
+        { id: "queue-second", text: "Review the queued test output.", mode: "ask" },
+      ],
+      messageQueuePaused: false,
+    });
+  });
+
+  const panel = page.locator(".message-queue-panel");
+  const composer = page.getByPlaceholder("Type a message or command...");
+  await expect(panel).toBeVisible();
+  await expect(panel.getByText("2 Queued", { exact: true })).toBeVisible();
+  await expect(page.locator(".conversation").getByText("Run the focused queue tests.", { exact: true })).toHaveCount(0);
+
+  await panel.getByRole("button", { name: "Collapse message queue" }).click();
+  await expect(panel.getByText("Run the focused queue tests.", { exact: true })).toBeVisible();
+  await expect(panel.getByText("Review the queued test output.", { exact: true })).toBeHidden();
+  await panel.getByRole("button", { name: "Expand message queue" }).click();
+
+  await panel.getByRole("button", { name: "Pause queue" }).click();
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messageQueuePaused)).toBe(true);
+  await expect(panel.getByText("2 Queued (Paused)", { exact: true })).toBeVisible();
+  await panel.getByRole("button", { name: "Resume queue" }).click();
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messageQueuePaused)).toBe(false);
+
+  const firstItem = panel.locator(".message-queue-item").filter({ hasText: "Run the focused queue tests." });
+  await firstItem.getByRole("button", { name: "Edit queued message" }).click();
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messageQueuePaused)).toBe(true);
+  const queueEditor = page.getByPlaceholder("Edit queued message...");
+  await expect(queueEditor).toHaveValue("Run the focused queue tests.");
+  await queueEditor.press("Escape");
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messageQueuePaused)).toBe(false);
+  await expect(composer).toBeVisible();
+
+  await firstItem.getByRole("button", { name: "Edit queued message" }).click();
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messageQueuePaused)).toBe(true);
+  await queueEditor.fill("Run the focused queue tests and record evidence.");
+  await queueEditor.press("Enter");
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messageQueue[0]?.text)).toBe("Run the focused queue tests and record evidence.");
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messageQueuePaused)).toBe(false);
+  await panel.locator(".message-queue-item").filter({ hasText: "Review the queued test output." }).getByRole("button", { name: "Delete queued message" }).click();
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messageQueue.length)).toBe(1);
+
+  await panel.getByRole("button", { name: "Send queued message now" }).click();
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messages.at(-1)?.content)).toBe("Run the focused queue tests and record evidence.");
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.runState)).toBe("running");
+
+  await composer.fill("Run the first deferred check.");
+  await composer.press("Enter");
+  await composer.fill("Run the second deferred check.");
+  await composer.press("Enter");
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messageQueue.length)).toBe(2);
+  await page.getByTitle("Stop", { exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.runState)).toBe("idle");
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messageQueuePaused)).toBe(true);
+  await expect(panel.getByText("2 Queued (Paused)", { exact: true })).toBeVisible();
+  if (testInfo.project.name === "tool-window-420") await captureShell(page, "message-queue-lifecycle.png");
+
+  await panel.getByRole("button", { name: "Resume queue" }).click();
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messages.at(-1)?.content)).toBe("Run the first deferred check.");
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messageQueue.map((message) => message.text))).toEqual(["Run the second deferred check."]);
+
+  await composer.fill("Run this priority check now.");
+  await composer.press("Meta+Enter");
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messages.at(-1)?.content)).toBe("Run this priority check now.");
+  await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messageQueue.map((message) => message.text))).toEqual(["Run the second deferred check."]);
+  await expectViewportIntegrity(page);
+});
+
 test("Threads drawer supports scanning and search", async ({ page }, testInfo) => {
   requireReferenceViewport(testInfo);
   await page.getByRole("button", { name: "Threads", exact: true }).first().click();
@@ -336,6 +413,18 @@ test("Agent Edits and task workspace preserve review-first controls", async ({ p
   await expect(page.getByText("Agent Edits", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Keep all" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Discard all" })).toBeVisible();
+
+  // Checkpoints expose a per-checkpoint file breakdown, mirroring the original
+  // c-checkpoint-collapsible anatomy. The Agent Edits view lists checkpoints on
+  // open; expanding one reveals the files captured in that checkpoint.
+  const checkpointRow = page.locator(".checkpoint-row").first();
+  if (await checkpointRow.count()) {
+    const toggle = checkpointRow.locator(".checkpoint-toggle");
+    if (await toggle.isEnabled()) {
+      await toggle.click();
+      await expect(page.locator(".checkpoint-files li").first()).toBeVisible();
+    }
+  }
   await expectViewportIntegrity(page);
   await captureShell(page, "agent-edits.png");
 
@@ -614,6 +703,15 @@ test("specialized tool cards preserve provider-specific result structure", async
   await expect(diagnosticsCard.locator(".diagnostic-result")).not.toHaveClass(/failed/);
   const processCard = page.locator(".tool-card").filter({ hasText: "Read 34 chars from frontend watcher" });
   await expect(processCard.getByText("VITE ready on http://localhost:5173", { exact: true })).toBeVisible();
+
+  // The completed tool pass appends the original plugin's per-turn summary strip
+  // (c-turn-summary): distinct changed/examined files plus total tools used.
+  const turnSummary = page.locator(".turn-summary");
+  await expect(turnSummary).toHaveCount(1);
+  await expect(turnSummary.locator(".turn-summary-item").filter({ hasText: "File Changed" })).toBeVisible();
+  await expect(turnSummary.locator(".turn-summary-item").filter({ hasText: "File Examined" })).toBeVisible();
+  await expect(turnSummary.locator(".turn-summary-item").filter({ hasText: "Tools Used" })).toContainText("9");
+
   await expectViewportIntegrity(page);
   if (testInfo.project.name === "tool-window-420") {
     await integrationCard.scrollIntoViewIfNeeded();
@@ -675,6 +773,7 @@ test("long conversations preserve reading position and expose request navigation
         timelineSequence: 35,
       }],
       messageQueue: [{ id: "long-queued", text: "Run the final responsive regression checks.", mode: "agent" }],
+      messageQueuePaused: false,
       tasks: [],
     });
   });

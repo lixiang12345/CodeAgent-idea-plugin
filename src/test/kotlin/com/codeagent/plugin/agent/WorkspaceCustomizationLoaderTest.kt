@@ -49,4 +49,27 @@ class WorkspaceCustomizationLoaderTest {
             project.toFile().deleteRecursively()
         }
     }
+
+    @Test
+    fun `layers rule files authored for other AI tools as lower-priority guidance`() {
+        val project = Files.createTempDirectory("codeagent-foreign")
+        try {
+            project.resolve(".github").createDirectories()
+            project.resolve("AGENTS.md").writeText("# Repo\n\nPrimary.")
+            project.resolve("CLAUDE.md").writeText("Honor Claude rules.")
+            project.resolve(".cursorrules").writeText("Use tabs.")
+            project.resolve(".github/copilot-instructions.md").writeText("Follow style guide.")
+            project.resolve(".windsurfrules").writeText("")
+
+            val guidance = requireNotNull(WorkspaceGuidanceLoader(project).load())
+
+            assertTrue(guidance.contains("CLAUDE.md:\nHonor Claude rules."))
+            assertTrue(guidance.contains("Cursor rules:\nUse tabs."))
+            assertTrue(guidance.contains("Copilot instructions:\nFollow style guide."))
+            assertTrue(guidance.indexOf("AGENTS.md:") < guidance.indexOf("CLAUDE.md:"))
+            assertTrue(!guidance.contains("Windsurf rules:"))
+        } finally {
+            project.toFile().deleteRecursively()
+        }
+    }
 }

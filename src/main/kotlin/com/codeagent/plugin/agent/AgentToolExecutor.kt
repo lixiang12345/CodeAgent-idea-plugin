@@ -186,10 +186,11 @@ internal class AgentToolExecutor(
                 ),
                 required = listOf("patch"),
             )))
-            add(tool("ask_user", "Pause for one blocking clarification that cannot be resolved from available context. Ask a specific question and include a safe default only when appropriate", schema(
+            add(tool("ask_user", "Pause for one blocking clarification that cannot be resolved from available context. Ask a specific question and include a safe default only when appropriate. Provide options when the answer is a choice among known alternatives; the user can still type a custom answer", schema(
                 properties = mapOf(
                     "question" to stringProperty("Question shown to the user"),
                     "default" to stringProperty("Optional default answer"),
+                    "options" to stringArrayProperty("Optional list of suggested answers the user can pick from", minItems = 0, maxItems = 12, minItemLength = 1),
                 ),
                 required = listOf("question"),
             )))
@@ -759,9 +760,25 @@ internal class AgentToolExecutor(
     private fun askUser(args: JsonObject): ToolExecutionResult {
         val question = args.requiredString("question")
         val default = args.string("default").orEmpty()
+        val options = args.optionalStringListArgument("options").filter { it.isNotBlank() }.distinct()
         val future = CompletableFuture<String>()
         ApplicationManager.getApplication().invokeLater {
-            val answer = Messages.showInputDialog(project, question, "CodeAgent Ask User", Messages.getQuestionIcon(), default, null)
+            val answer = if (options.isNotEmpty()) {
+                // Mirrors the original ask_user options list: offer the suggested
+                // answers but keep a free-text row so the user is never forced into
+                // a preset choice.
+                val initialIndex = options.indexOf(default).takeIf { it >= 0 } ?: 0
+                Messages.showEditableChooseDialog(
+                    question,
+                    "CodeAgent Ask User",
+                    Messages.getQuestionIcon(),
+                    options.toTypedArray(),
+                    options.getOrElse(initialIndex) { default },
+                    null,
+                )
+            } else {
+                Messages.showInputDialog(project, question, "CodeAgent Ask User", Messages.getQuestionIcon(), default, null)
+            }
             if (answer == null) future.completeExceptionally(IllegalStateException("User cancelled ask_user"))
             else future.complete(answer)
         }

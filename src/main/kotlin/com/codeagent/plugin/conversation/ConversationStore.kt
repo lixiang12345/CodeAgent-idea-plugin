@@ -35,6 +35,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
 
     @Synchronized
     fun newThread(mode: String = "agent"): ConversationSnapshot {
+        pauseActiveMessageQueue()
         val thread = ConversationThreadState().apply {
             id = UUID.randomUUID().toString()
             title = "New task"
@@ -51,6 +52,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     fun continueTasksInNewThread(): ConversationSnapshot {
         val source = mutableActive()
         require(source.tasks.isNotEmpty()) { "The current task list is empty" }
+        pauseMessageQueue(source)
         val thread = ConversationThreadState().apply {
             id = UUID.randomUUID().toString()
             title = "${source.title} tasks".take(48)
@@ -77,6 +79,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     @Synchronized
     fun select(threadId: String): ConversationSnapshot {
         require(data.threads.any { it.id == threadId }) { "Unknown conversation: $threadId" }
+        if (data.activeThreadId != threadId) pauseActiveMessageQueue()
         data.activeThreadId = threadId
         return active()
     }
@@ -89,6 +92,77 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     @Synchronized
     fun setContextUsage(usage: ConversationContextUsage) {
         mutableActive().contextUsage = usage.normalized().toState()
+    }
+
+    @Synchronized
+    fun messageQueue(): ConversationMessageQueue = mutableActive().toMessageQueue()
+
+    @Synchronized
+    fun messageQueue(threadId: String): ConversationMessageQueue {
+        val thread = data.threads.firstOrNull { it.id == threadId }
+            ?: return ConversationMessageQueue()
+        return thread.toMessageQueue()
+    }
+
+    @Synchronized
+    fun enqueueMessage(message: ConversationQueuedMessage): ConversationQueuedMessage {
+        val thread = mutableActive()
+        val normalized = message.normalized()
+        require(thread.messageQueue.size < MAX_QUEUED_MESSAGES) {
+            "Queue can contain at most $MAX_QUEUED_MESSAGES messages"
+        }
+        require(thread.messageQueue.none { it.id == normalized.id } && thread.messages.none { it.id == normalized.id }) {
+            "Queued message ID already exists"
+        }
+        thread.messageQueue += normalized.toState()
+        return normalized
+    }
+
+    @Synchronized
+    fun updateQueuedMessage(messageId: String, text: String): ConversationQueuedMessage {
+        val thread = mutableActive()
+        val state = thread.messageQueue.firstOrNull { it.id == messageId }
+            ?: error("Queued message no longer exists")
+        val updated = ConversationQueuedMessage(state.id, text, state.mode).normalized()
+        state.text = updated.text
+        return updated
+    }
+
+    @Synchronized
+    fun removeQueuedMessage(messageId: String): ConversationQueuedMessage {
+        val thread = mutableActive()
+        val index = thread.messageQueue.indexOfFirst { it.id == messageId }
+        require(index >= 0) { "Queued message no longer exists" }
+        return thread.messageQueue.removeAt(index).toDomain().also {
+            if (thread.messageQueue.isEmpty()) thread.messageQueuePaused = false
+        }
+    }
+
+    @Synchronized
+    fun takeNextQueuedMessage(): ConversationQueuedMessage? {
+        val thread = mutableActive()
+        if (thread.messageQueuePaused || thread.messageQueue.isEmpty()) return null
+        return thread.messageQueue.removeAt(0).toDomain().also {
+            if (thread.messageQueue.isEmpty()) thread.messageQueuePaused = false
+        }
+    }
+
+    @Synchronized
+    fun requeueMessageFirst(message: ConversationQueuedMessage) {
+        val thread = mutableActive()
+        val normalized = message.normalized()
+        require(thread.messageQueue.size < MAX_QUEUED_MESSAGES) {
+            "Queue can contain at most $MAX_QUEUED_MESSAGES messages"
+        }
+        require(thread.messageQueue.none { it.id == normalized.id }) { "Queued message ID already exists" }
+        thread.messageQueue.add(0, normalized.toState())
+    }
+
+    @Synchronized
+    fun setMessageQueuePaused(paused: Boolean): ConversationMessageQueue {
+        val thread = mutableActive()
+        thread.messageQueuePaused = paused && thread.messageQueue.isNotEmpty()
+        return thread.toMessageQueue()
     }
 
     @Synchronized
@@ -212,6 +286,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
                 }
             }
         }
+        pauseActiveMessageQueue()
         data.threads.add(thread)
         data.activeThreadId = thread.id
         trimHistory()
@@ -533,12 +608,13 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
                                 local.lastReadTimelineSequence,
                                 replacement.messages.maxOfOrNull { it.timelineSequence } ?: 0,
                             )
+                            replacement.restoreLocalRuntimeState(local)
                         }
                         changed = true
                     }
                     incoming.updatedAt < local.updatedAt -> uploadIds += local.id
                     local.toSnapshot().copy(active = incoming.active) != incoming -> {
-                        data.threads[index] = incoming.toState()
+                        data.threads[index] = incoming.toState().also { it.restoreLocalRuntimeState(local) }
                         changed = true
                     }
                 }
@@ -632,11 +708,25 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     }
 
     private fun ConversationThreadState.isPristine(): Boolean =
-        title == "New task" && messages.isEmpty() && tasks.isEmpty() && tools.isEmpty() && !pinned && summary.isBlank()
+        title == "New task" && messages.isEmpty() && tasks.isEmpty() && tools.isEmpty() && messageQueue.isEmpty() && !pinned && summary.isBlank()
+
+    private fun ConversationThreadState.restoreLocalRuntimeState(local: ConversationThreadState) {
+        contextUsage = local.contextUsage.toDomain()?.toState() ?: ConversationContextUsageState()
+        messageQueue = local.messageQueue.mapTo(mutableListOf()) { it.toDomain().toState() }
+        messageQueuePaused = local.messageQueuePaused && messageQueue.isNotEmpty()
+    }
 
     private fun mutableActive(): ConversationThreadState {
         ensureActive()
         return requireNotNull(data.threads.firstOrNull { it.id == data.activeThreadId })
+    }
+
+    private fun pauseActiveMessageQueue() {
+        data.threads.firstOrNull { it.id == data.activeThreadId }?.let(::pauseMessageQueue)
+    }
+
+    private fun pauseMessageQueue(thread: ConversationThreadState) {
+        if (thread.messageQueue.isNotEmpty()) thread.messageQueuePaused = true
     }
 
     private fun updatePinned(thread: ConversationThreadState, pinned: Boolean) {
@@ -669,6 +759,12 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
                 .toMutableList()
             thread.contextUsage = thread.contextUsage.toDomain()?.normalized()?.toState()
                 ?: ConversationContextUsageState()
+            thread.messageQueue = thread.messageQueue.asSequence()
+                .mapNotNull { it.toDomainOrNull() }
+                .distinctBy { it.id }
+                .take(MAX_QUEUED_MESSAGES)
+                .mapTo(mutableListOf()) { it.toState() }
+            thread.messageQueuePaused = thread.messageQueue.isNotEmpty()
             normalizeTimelineSequences(thread)
             if (thread.lastReadTimelineSequence < 0) {
                 thread.lastReadTimelineSequence = thread.messages.maxOfOrNull { it.timelineSequence } ?: 0
@@ -761,6 +857,34 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
 
     private fun ConversationTaskState.toDomain() = ConversationTask(id, name, state)
 
+    private fun ConversationThreadState.toMessageQueue() = ConversationMessageQueue(
+        messages = messageQueue.map { it.toDomain() },
+        paused = messageQueuePaused && messageQueue.isNotEmpty(),
+    )
+
+    private fun ConversationQueuedMessageState.toDomain() = ConversationQueuedMessage(id, text, mode)
+
+    private fun ConversationQueuedMessageState.toDomainOrNull(): ConversationQueuedMessage? = runCatching {
+        ConversationQueuedMessage(id, text, mode).normalized()
+    }.getOrNull()
+
+    private fun ConversationQueuedMessage.toState() = ConversationQueuedMessageState().also { state ->
+        state.id = id
+        state.text = text
+        state.mode = mode
+    }
+
+    private fun ConversationQueuedMessage.normalized(): ConversationQueuedMessage {
+        val normalizedText = text.trim()
+        require(id.isNotBlank() && id.length <= 200) { "Queued message ID is invalid" }
+        require(normalizedText.isNotBlank()) { "Queued message must not be blank" }
+        require(normalizedText.length <= MAX_QUEUE_MESSAGE_CHARS) {
+            "Queued message exceeds $MAX_QUEUE_MESSAGE_CHARS characters"
+        }
+        require(mode in CONVERSATION_MODES) { "Queued message mode is invalid" }
+        return copy(text = normalizedText)
+    }
+
     private fun ConversationToolState.toDomain() = ConversationTool(
         id = id,
         name = name,
@@ -847,6 +971,9 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         private const val MAX_CLOUD_TOMBSTONES = 200
         private const val MAX_CONTEXT_USAGE_TOKENS = 4_000_000
         private const val MAX_CONTEXT_USAGE_ITEMS = 100_000
+        private const val MAX_QUEUED_MESSAGES = 10
+        private const val MAX_QUEUE_MESSAGE_CHARS = 40_000
+        private val CONVERSATION_MODES = setOf("agent", "chat", "ask")
         private val TASK_STATES = setOf("not_started", "in_progress", "completed", "cancelled")
         private val TOOL_STATES = setOf("approval", "running", "completed", "failed", "rejected")
         const val MAX_SELECTED_SKILLS = 8
@@ -926,6 +1053,17 @@ data class ConversationContextUsage(
     val discoverableToolCount: Int = 0,
 )
 
+data class ConversationQueuedMessage(
+    val id: String,
+    val text: String,
+    val mode: String,
+)
+
+data class ConversationMessageQueue(
+    val messages: List<ConversationQueuedMessage> = emptyList(),
+    val paused: Boolean = false,
+)
+
 class ConversationStoreState {
     var activeThreadId: String = ""
     var threads: MutableList<ConversationThreadState> = mutableListOf()
@@ -945,6 +1083,8 @@ class ConversationThreadState {
     var tasks: MutableList<ConversationTaskState> = mutableListOf()
     var tools: MutableList<ConversationToolState> = mutableListOf()
     var contextUsage: ConversationContextUsageState = ConversationContextUsageState()
+    var messageQueue: MutableList<ConversationQueuedMessageState> = mutableListOf()
+    var messageQueuePaused: Boolean = false
     var summary: String = ""
 
     var pinned: Boolean = false
@@ -967,6 +1107,12 @@ class ConversationContextUsageState {
     var activeToolCount: Int = 0
     var catalogToolCount: Int = 0
     var discoverableToolCount: Int = 0
+}
+
+class ConversationQueuedMessageState {
+    var id: String = ""
+    var text: String = ""
+    var mode: String = "agent"
 }
 
 class ConversationMessageState {

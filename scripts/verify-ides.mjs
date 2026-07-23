@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
-const supportedProducts = ["PyCharm", "WebStorm", "CLion", "GoLand", "PhpStorm", "Rider"];
+const supportedProducts = ["IntelliJ IDEA", "PyCharm", "WebStorm", "CLion", "GoLand", "PhpStorm", "Rider"];
 const verifierProductNames = {
   IC: "IntelliJ IDEA Community",
   IU: "IntelliJ IDEA Ultimate",

@@ -24,6 +24,7 @@ class CodeAgentConfigurable : Configurable {
     private val autoApproveReadOnly = JBCheckBox("Auto-approve read-only tools")
     private val desktopNotifications = JBCheckBox("Show desktop notifications")
     private val inlineCompletions = JBCheckBox("Enable inline completions")
+    private val disabledCompletionLanguages = JBTextField()
     private val showTimestamps = JBCheckBox("Show message timestamps")
     private val showRunTelemetry = JBCheckBox("Show run telemetry")
     private val detectNodeButton = JButton("Auto-detect")
@@ -45,9 +46,13 @@ class CodeAgentConfigurable : Configurable {
         addRow(root, 3, "ContextEngine URL", contextHttpUrl)
         addFullRow(root, 4, autoApproveReadOnly)
         addFullRow(root, 5, inlineCompletions)
-        addFullRow(root, 6, desktopNotifications)
-        addFullRow(root, 7, showTimestamps)
-        addFullRow(root, 8, showRunTelemetry)
+        addRow(root, 6, "Disable completion by language", disabledCompletionLanguages)
+        addFullRow(root, 7, JBLabel("Comma separated file extensions, for example *.js, *.ts").apply {
+            foreground = com.intellij.util.ui.UIUtil.getContextHelpForeground()
+        })
+        addFullRow(root, 8, desktopNotifications)
+        addFullRow(root, 9, showTimestamps)
+        addFullRow(root, 10, showRunTelemetry)
         panel = root
         reset()
         return root
@@ -55,9 +60,11 @@ class CodeAgentConfigurable : Configurable {
 
     override fun isModified(): Boolean {
         val current = ApplicationManager.getApplication().getService(CodeAgentSettingsService::class.java).snapshot()
-        val completionEnabled = ApplicationManager.getApplication()
+        val completionService = ApplicationManager.getApplication()
             .getService(InlineCompletionSettingsService::class.java)
-            .isEnabled()
+        val completionEnabled = completionService.isEnabled()
+        val disabledLanguagesChanged = InlineCompletionSettingsService
+            .normalizeDisabledLanguages(disabledCompletionLanguages.text) != completionService.disabledLanguages()
         return backendUrl.text.trim() != current.backendUrl
             || nodePath.text.trim() != current.nodePath
             || contextMode.selectedItem != current.contextMode
@@ -67,6 +74,7 @@ class CodeAgentConfigurable : Configurable {
             || showTimestamps.isSelected != current.showTimestamps
             || showRunTelemetry.isSelected != current.showRunTelemetry
             || inlineCompletions.isSelected != completionEnabled
+            || disabledLanguagesChanged
     }
 
     override fun apply() {
@@ -94,8 +102,11 @@ class CodeAgentConfigurable : Configurable {
                 contextRerankModel = current.contextRerankModel,
             ),
         )
-        ApplicationManager.getApplication().getService(InlineCompletionSettingsService::class.java)
-            .setEnabled(inlineCompletions.isSelected)
+        val completionService = ApplicationManager.getApplication()
+            .getService(InlineCompletionSettingsService::class.java)
+        completionService.setEnabled(inlineCompletions.isSelected)
+        completionService.setDisabledLanguages(disabledCompletionLanguages.text)
+        disabledCompletionLanguages.text = completionService.disabledLanguages()
     }
 
     override fun reset() {
@@ -108,9 +119,10 @@ class CodeAgentConfigurable : Configurable {
         desktopNotifications.isSelected = current.desktopNotifications
         showTimestamps.isSelected = current.showTimestamps
         showRunTelemetry.isSelected = current.showRunTelemetry
-        inlineCompletions.isSelected = ApplicationManager.getApplication()
+        val completionService = ApplicationManager.getApplication()
             .getService(InlineCompletionSettingsService::class.java)
-            .isEnabled()
+        inlineCompletions.isSelected = completionService.isEnabled()
+        disabledCompletionLanguages.text = completionService.disabledLanguages()
         detectNodeButton.text = "Auto-detect"
         detectNodeButton.isEnabled = true
     }

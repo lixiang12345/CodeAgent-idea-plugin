@@ -22,8 +22,13 @@ class CodeAgentInlineCompletionProvider : InlineCompletionProvider {
     override val id: InlineCompletionProviderID = InlineCompletionProviderID("codeagent.inline-completion")
 
     override fun isEnabled(event: InlineCompletionEvent): Boolean {
-        if (!settings().isEnabled()) return false
-        return runCatching { event.toRequest()?.editor?.isDisposed == false }.getOrDefault(false)
+        val settings = settings()
+        if (!settings.isEnabled()) return false
+        val request = runCatching { event.toRequest() }.getOrNull() ?: return false
+        if (request.editor.isDisposed) return false
+        val fileName = request.file.virtualFile?.name ?: request.file.name
+        if (settings.isCompletionDisabledForFile(fileName)) return false
+        return true
     }
 
     override suspend fun getSuggestion(request: InlineCompletionRequest): InlineCompletionSuggestion {

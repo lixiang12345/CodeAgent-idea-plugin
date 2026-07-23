@@ -32,6 +32,7 @@ import com.codeagent.plugin.agent.RemoteVerificationUpdated
 import com.codeagent.plugin.agent.WorkspaceCustomization
 import com.codeagent.plugin.agent.WorkspaceCustomizationService
 import com.codeagent.plugin.conversation.ConversationContextUsage
+import com.codeagent.plugin.conversation.ConversationQueuedMessage
 import com.codeagent.plugin.conversation.ConversationStore
 import com.codeagent.plugin.conversation.ConversationSnapshot
 import com.codeagent.plugin.conversation.ConversationTool
@@ -47,10 +48,12 @@ import com.codeagent.plugin.ui.CodeAgentUiRequest
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.project.Project
@@ -115,7 +118,6 @@ class IdeBridge(
     private val messageTurns = mutableMapOf<String, Int>()
     private val attachments = linkedMapOf<String, ContextItemDto>()
     private val attachmentResolver = AttachmentContextResolver(project)
-    private val messageQueue = mutableListOf<QueuedMessageDto>()
     private val conversations = project.service<ConversationStore>()
     private val cloudSync = project.service<CloudConversationSyncService>()
     private val conversationSummaries = project.service<ConversationSummaryService>()
@@ -347,15 +349,44 @@ class IdeBridge(
             }
             "newThread" -> newThread(command.payload)
             "sendMessage", "queueMessage" -> submitMessage(requireNotNull(command.payload) { "${command.type} requires payload" })
+            "sendMessageNow" -> sendMessageNow(requireNotNull(command.payload) { "sendMessageNow requires payload" })
             "editAndResendMessage" -> editAndResendMessage(
                 requireNotNull(command.payload) { "editAndResendMessage requires payload" },
             )
             "removeQueuedMessage" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<QueuedMessagePayload>(it) }
-                synchronized(stateLock) {
-                    require(messageQueue.removeIf { it.id == request.messageId }) { "Queued message no longer exists" }
+                val shouldStart = synchronized(stateLock) {
+                    conversations.removeQueuedMessage(request.messageId)
+                    if (request.resumeQueue) conversations.setMessageQueuePaused(false)
+                    val queue = conversations.messageQueue()
+                    request.resumeQueue && queue.messages.isNotEmpty() && !queue.paused && (runState == "idle" || runState == "failed")
                 }
                 emitSnapshot()
+                if (shouldStart) startNextQueuedMessage()
+            }
+            "updateQueuedMessage" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<UpdateQueuedMessagePayload>(it) }
+                val shouldStart = synchronized(stateLock) {
+                    conversations.updateQueuedMessage(request.messageId, request.text)
+                    if (request.resumeQueue) conversations.setMessageQueuePaused(false)
+                    val queue = conversations.messageQueue()
+                    request.resumeQueue && queue.messages.isNotEmpty() && !queue.paused && (runState == "idle" || runState == "failed")
+                }
+                emitSnapshot()
+                if (shouldStart) startNextQueuedMessage()
+            }
+            "setMessageQueuePaused" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<MessageQueuePausedPayload>(it) }
+                val shouldStart = synchronized(stateLock) {
+                    val queue = conversations.setMessageQueuePaused(request.paused)
+                    !queue.paused && queue.messages.isNotEmpty() && (runState == "idle" || runState == "failed")
+                }
+                emitSnapshot()
+                if (shouldStart) startNextQueuedMessage()
+            }
+            "sendQueuedMessageNow" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<QueuedMessagePayload>(it) }
+                sendQueuedMessageNow(request.messageId)
             }
             "getContextStatus" -> refreshContextStatus()
             "refreshContextIndex" -> refreshContextStatus(manual = true)
@@ -461,8 +492,8 @@ class IdeBridge(
                 val cancellation = synchronized(stateLock) {
                     runs.invalidate()
                     interruptActiveToolsLocked("cancelled by user")
-                    val queuedCount = messageQueue.size
-                    messageQueue.clear()
+                    val queuedCount = conversations.messageQueue().messages.size
+                    if (queuedCount > 0) conversations.setMessageQueuePaused(true)
                     runState = "idle"
                     conversations.active() to queuedCount
                 }
@@ -471,7 +502,7 @@ class IdeBridge(
                 summarizeConversation(cancellation.first)
                 emitSnapshot()
                 if (cancellation.second > 0) {
-                    emit("notice", mapOf("message" to "Cancelled run and cleared ${cancellation.second} queued message(s)"))
+                    emit("notice", mapOf("message" to "Cancelled run; paused ${cancellation.second} queued message(s)"))
                 }
             }
             "resolveApproval" -> {
@@ -616,7 +647,6 @@ class IdeBridge(
                         conversations.select(selection.threadId)
                         restoreConversationPresentation()
                         attachments.clear()
-                        messageQueue.clear()
                         runState = "idle"
                         previous
                     }
@@ -854,6 +884,14 @@ class IdeBridge(
                 CopyPasteManager.getInstance().setContents(StringSelection(request.text))
                 emit("notice", mapOf("message" to "Copied to clipboard"))
             }
+            "insertCodeBlock" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<InsertCodeBlockPayload>(it) }
+                require(request.text.isNotBlank()) { "Code block must not be blank" }
+                require(request.text.length <= MAX_CLIPBOARD_TEXT_LENGTH) {
+                    "Code block exceeds $MAX_CLIPBOARD_TEXT_LENGTH characters"
+                }
+                insertCodeIntoActiveEditor(request.text)
+            }
             "exportThread" -> exportThread()
             "renameThread" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<RenameThreadPayload>(it) }
@@ -876,7 +914,6 @@ class IdeBridge(
             messageTurns.clear()
             agentRun = AgentRunTelemetryDto()
             attachments.clear()
-            messageQueue.clear()
             runState = "idle"
             val mode = payload?.let { json.decodeFromJsonElement<NewThreadPayload>(it).mode }
                 ?: conversations.active().mode
@@ -899,15 +936,19 @@ class IdeBridge(
         var startImmediately = false
         var drainQueue = false
         synchronized(stateLock) {
+            val queue = conversations.messageQueue()
+            val queued = ConversationQueuedMessage(
+                request.clientMessageId ?: UUID.randomUUID().toString(),
+                request.text,
+                request.mode,
+            )
             if (isRunBusy()) {
-                require(messageQueue.size < MAX_QUEUED_MESSAGES) { "Queue can contain at most $MAX_QUEUED_MESSAGES messages" }
-                messageQueue += QueuedMessageDto(request.clientMessageId ?: UUID.randomUUID().toString(), request.text.trim(), request.mode)
-            } else if (messageQueue.isEmpty()) {
+                conversations.enqueueMessage(queued)
+            } else if (queue.messages.isEmpty()) {
                 startImmediately = true
             } else {
-                require(messageQueue.size < MAX_QUEUED_MESSAGES) { "Queue can contain at most $MAX_QUEUED_MESSAGES messages" }
-                messageQueue += QueuedMessageDto(request.clientMessageId ?: UUID.randomUUID().toString(), request.text.trim(), request.mode)
-                drainQueue = true
+                conversations.enqueueMessage(queued)
+                drainQueue = !queue.paused
             }
         }
         if (startImmediately) {
@@ -935,7 +976,7 @@ class IdeBridge(
         attachmentResolver.resolve(synchronized(stateLock) { attachments.values.toList() })
         synchronized(stateLock) {
             require(!isRunBusy()) { "Cannot edit or resend a message while the agent is running" }
-            require(messageQueue.isEmpty()) { "Remove queued messages before editing or resending history" }
+            require(conversations.messageQueue().messages.isEmpty()) { "Remove queued messages before editing or resending history" }
             conversations.rewindFromUserMessage(edit.messageId)
             val persisted = conversations.active()
             tools.keys.retainAll(persisted.tools.mapTo(mutableSetOf()) { it.id })
@@ -1200,7 +1241,8 @@ class IdeBridge(
                     }
                     runState = state
                     agentRun = agentRun.copy(phase = if (state == "failed") "failed" else if (state == "idle") "idle" else agentRun.phase)
-                    startQueued = (state == "idle" || state == "failed") && messageQueue.isNotEmpty()
+                    val queue = conversations.messageQueue()
+                    startQueued = (state == "idle" || state == "failed") && queue.messages.isNotEmpty() && !queue.paused
                     if (startQueued) runState = "idle"
                 }) {
                     if (state == "idle" || state == "failed") {
@@ -1337,6 +1379,7 @@ class IdeBridge(
         val settings = settingsService.snapshot()
         val snapshot = synchronized(stateLock) {
             val active = conversations.active()
+            val activeQueue = conversations.messageQueue()
             val customization = availableCustomization()
             val selectedSkillIds = active.selectedSkillIds.toSet()
             val selectedRuleIds = active.selectedRuleIds.toSet()
@@ -1372,7 +1415,8 @@ class IdeBridge(
                     )
                 },
                 tasks = active.tasks.map { task -> TaskDto(task.id, task.name, task.state) },
-                messageQueue = messageQueue.toList(),
+                messageQueue = activeQueue.messages.map { it.toDto() },
+                messageQueuePaused = activeQueue.paused,
                 attachments = attachments.values.toList(),
                 settings = SettingsSnapshotDto(
                     backendUrl = settings.backendUrl,
@@ -1881,6 +1925,8 @@ class IdeBridge(
         catalogToolCount = catalogToolCount,
         discoverableToolCount = discoverableToolCount,
     )
+
+    private fun ConversationQueuedMessage.toDto() = QueuedMessageDto(id, text, mode)
 
     private fun AgentRunTelemetryDto.toConversationContextUsage() = ConversationContextUsage(
         turnIndex = turnIndex,
@@ -2608,10 +2654,66 @@ class IdeBridge(
         }
     }
 
+    private fun sendMessageNow(payload: JsonElement) {
+        val request = prepareMessage(json.decodeFromJsonElement<SendMessagePayload>(payload))
+        require(request.text.isNotBlank()) { "Message must not be blank" }
+        require(request.mode == "agent" || request.mode == "chat" || request.mode == "ask") {
+            "Unsupported message mode: ${request.mode}"
+        }
+        request.agentProfileId?.let { agentProfileId ->
+            require(isKnownAgentProfile(agentProfileId)) { "Unknown Agent profile: $agentProfileId" }
+        }
+        startPriorityMessage(request)
+    }
+
+    private fun sendQueuedMessageNow(messageId: String) {
+        lateinit var queued: ConversationQueuedMessage
+        val interrupted = synchronized(stateLock) {
+            queued = conversations.removeQueuedMessage(messageId)
+            beginPriorityMessageLocked()
+        }
+        launchPriorityMessage(
+            request = SendMessagePayload(queued.text, queued.mode, clientMessageId = queued.id),
+            interrupted = interrupted,
+            requeueOnFailure = queued,
+        )
+    }
+
+    private fun startPriorityMessage(
+        request: SendMessagePayload,
+        requeueOnFailure: ConversationQueuedMessage? = null,
+    ) {
+        val interrupted = synchronized(stateLock) { beginPriorityMessageLocked() }
+        launchPriorityMessage(request, interrupted, requeueOnFailure)
+    }
+
+    private fun beginPriorityMessageLocked(): ConversationSnapshot {
+        runs.invalidate()
+        interruptActiveToolsLocked("interrupted by priority message")
+        runState = "starting"
+        return conversations.active()
+    }
+
+    private fun launchPriorityMessage(
+        request: SendMessagePayload,
+        interrupted: ConversationSnapshot,
+        requeueOnFailure: ConversationQueuedMessage?,
+    ) {
+        agent.cancel()
+        syncConversation(interrupted)
+        emitSnapshot()
+        runCatching {
+            startMessage(json.encodeToJsonElement(request), fromQueue = true)
+        }.onFailure { error ->
+            recoverFailedQueueStart(error, requeueOnFailure)
+        }
+    }
+
     private fun startNextQueuedMessage() {
         val next = synchronized(stateLock) {
+            if (runState == "failed") runState = "idle"
             if (runState != "idle") return
-            messageQueue.removeFirstOrNull()?.also { runState = "starting" }
+            conversations.takeNextQueuedMessage()?.also { runState = "starting" }
         } ?: return
         emitSnapshot()
         runCatching {
@@ -2620,14 +2722,28 @@ class IdeBridge(
                 fromQueue = true,
             )
         }.onFailure { error ->
-            val continueQueue = synchronized(stateLock) {
-                if (runState == "starting") runState = "idle"
-                messageQueue.isNotEmpty()
-            }
-            emit("error", mapOf("message" to error.rootMessage()))
-            emitSnapshot()
-            if (continueQueue) startNextQueuedMessage()
+            recoverFailedQueueStart(error, next)
         }
+    }
+
+    private fun recoverFailedQueueStart(error: Throwable, requeue: ConversationQueuedMessage?) {
+        val failed = synchronized(stateLock) {
+            runs.invalidate()
+            interruptActiveToolsLocked("queued message failed to start")
+            runState = "idle"
+            val active = conversations.active()
+            if (requeue != null && active.messages.none { it.id == requeue.id }) {
+                conversations.requeueMessageFirst(requeue)
+            }
+            if (conversations.messageQueue().messages.isNotEmpty()) {
+                conversations.setMessageQueuePaused(true)
+            }
+            conversations.active()
+        }
+        agent.cancel()
+        syncConversation(failed)
+        emit("error", mapOf("message" to error.rootMessage()))
+        emitSnapshot()
     }
 
     private fun indexWorkspace() = startContextIndex(automatic = false)
@@ -2688,7 +2804,7 @@ class IdeBridge(
     private fun continueTasksInNewThread() {
         val previous = synchronized(stateLock) {
             require(!isRunBusy()) { "Cannot continue tasks while the agent is running" }
-            require(messageQueue.isEmpty()) { "Remove queued messages before continuing tasks in a new chat" }
+            require(conversations.messageQueue().messages.isEmpty()) { "Remove queued messages before continuing tasks in a new chat" }
             val source = conversations.active()
             conversations.continueTasksInNewThread()
             tools.clear()
@@ -2721,7 +2837,6 @@ class IdeBridge(
                 messageTurns.clear()
                 agentRun = AgentRunTelemetryDto()
                 attachments.clear()
-                messageQueue.clear()
                 runState = "idle"
             }
             deletedIds.forEach(conversations::deleteThreadIfPresent)
@@ -2758,6 +2873,38 @@ class IdeBridge(
             "The model connection closed before the response completed. CodeAgent retried automatically, but the upstream service is still unavailable. Please retry this message."
         } else {
             message
+        }
+    }
+
+    /**
+     * Mirrors the original plugin's chat code-block Insert action: writes the
+     * selected code into the active project editor at the caret, replacing any
+     * current selection. The JVM owns the editor, so this stays inside the
+     * plugin boundary and only touches editors backed by a project file.
+     */
+    private fun insertCodeIntoActiveEditor(code: String) {
+        ApplicationManager.getApplication().invokeLater {
+            if (project.isDisposed) return@invokeLater
+            val editor = FileEditorManager.getInstance(project).selectedTextEditor
+            if (editor == null) {
+                emit("error", mapOf("message" to "Open a project text editor before inserting code"))
+                return@invokeLater
+            }
+            val file = FileDocumentManager.getInstance().getFile(editor.document)
+            if (file == null || !file.isWritable) {
+                emit("error", mapOf("message" to "The active editor is not backed by a writable project file"))
+                return@invokeLater
+            }
+            WriteCommandAction.runWriteCommandAction(project, "Insert Code from CodeAgent Chat", null, {
+                val document = editor.document
+                val selection = editor.selectionModel
+                val start = if (selection.hasSelection()) selection.selectionStart else editor.caretModel.offset
+                val end = if (selection.hasSelection()) selection.selectionEnd else editor.caretModel.offset
+                document.replaceString(start.coerceIn(0, document.textLength), end.coerceIn(0, document.textLength), code)
+                editor.caretModel.moveToOffset((start + code.length).coerceIn(0, document.textLength))
+                selection.removeSelection()
+            })
+            emit("notice", mapOf("message" to "Inserted code into ${file.name}"))
         }
     }
 
@@ -2799,7 +2946,6 @@ class IdeBridge(
                     messageTurns.clear()
                     agentRun = AgentRunTelemetryDto()
                     attachments.clear()
-                    messageQueue.clear()
                     runState = "idle"
                 }
                 agent.cancel()
@@ -2981,6 +3127,7 @@ class IdeBridge(
         createdAt = createdAt,
         changeCount = changeCount,
         paths = paths,
+        files = files.map { CheckpointFileSummaryDto(path = it.path, added = it.added, removed = it.removed) },
     )
 
     @Serializable
@@ -3010,6 +3157,16 @@ class IdeBridge(
         val messageId: String,
         val text: String,
     )
+
+    @Serializable
+    private data class UpdateQueuedMessagePayload(
+        val messageId: String,
+        val text: String,
+        val resumeQueue: Boolean = false,
+    )
+
+    @Serializable
+    private data class MessageQueuePausedPayload(val paused: Boolean)
 
     @Serializable
     private data class ApprovalPayload(val toolId: String, val approved: Boolean)
@@ -3068,7 +3225,10 @@ class IdeBridge(
     private data class TaskNamePayload(val name: String)
 
     @Serializable
-    private data class QueuedMessagePayload(val messageId: String)
+    private data class QueuedMessagePayload(
+        val messageId: String,
+        val resumeQueue: Boolean = false,
+    )
 
     @Serializable
     private data class GitPathsPayload(val paths: List<String>)
@@ -3090,6 +3250,9 @@ class IdeBridge(
 
     @Serializable
     private data class CopyTextPayload(val text: String)
+
+    @Serializable
+    private data class InsertCodeBlockPayload(val text: String)
 
     @Serializable
     private data class ModelSelectionPayload(val modelId: String? = null)
@@ -3205,7 +3368,6 @@ class IdeBridge(
         private val LOG = logger<IdeBridge>()
         private const val MAX_THREAD_IMPORT_BYTES = 2_000_000L
         private const val MAX_THREADS_PER_DELETE = 50
-        private const val MAX_QUEUED_MESSAGES = 10
         private const val MAX_CLIPBOARD_TEXT_LENGTH = 512_000
         private val BUILT_IN_AGENT_PROFILES = setOf("general", "search", "context", "prompt", "loop")
         private val CONFIGURATION_KINDS = listOf("mcp", "acp", "hooks", "commands", "agents", "plugins", "tool-permissions")

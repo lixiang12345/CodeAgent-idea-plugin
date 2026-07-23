@@ -165,6 +165,14 @@ data class CheckpointSummaryDto(
     val createdAt: Long,
     val changeCount: Int,
     val paths: List<String> = emptyList(),
+    val files: List<CheckpointFileSummaryDto> = emptyList(),
+)
+
+@Serializable
+data class CheckpointFileSummaryDto(
+    val path: String,
+    val added: Int,
+    val removed: Int,
 )
 
 @Serializable
@@ -568,6 +576,7 @@ data class AppSnapshotDto(
     val threads: List<ThreadSummaryDto>,
     val tasks: List<TaskDto> = emptyList(),
     val messageQueue: List<QueuedMessageDto> = emptyList(),
+    val messageQueuePaused: Boolean = false,
     val attachments: List<ContextItemDto> = emptyList(),
     val settings: SettingsSnapshotDto = SettingsSnapshotDto(),
     val account: AccountSnapshotDto = AccountSnapshotDto(),

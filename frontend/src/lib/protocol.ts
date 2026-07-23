@@ -458,6 +458,7 @@ export interface AppSnapshot {
   threads: ThreadSummary[];
   tasks: TaskItem[];
   messageQueue: QueuedMessage[];
+  messageQueuePaused: boolean;
   attachments: ContextItem[];
   settings: SettingsSnapshot;
   account: AccountSnapshot;
@@ -617,6 +618,32 @@ function nextDevelopmentTimelineSequence(snapshot: AppSnapshot): number {
   ) + 1;
 }
 
+function startNextDevelopmentQueuedMessage(): void {
+  let queuedMessage: QueuedMessage | undefined;
+  updateDevelopmentSnapshot((snapshot) => {
+    if (
+      snapshot.runState === "starting"
+      || snapshot.runState === "running"
+      || snapshot.runState === "awaiting_approval"
+      || snapshot.messageQueuePaused
+      || snapshot.messageQueue.length === 0
+    ) return snapshot;
+    queuedMessage = snapshot.messageQueue[0];
+    return {
+      ...snapshot,
+      messageQueue: snapshot.messageQueue.slice(1),
+      messageQueuePaused: false,
+    };
+  });
+  if (queuedMessage) {
+    startDevelopmentMessage({
+      text: queuedMessage.text,
+      mode: queuedMessage.mode,
+      clientMessageId: queuedMessage.id,
+    });
+  }
+}
+
 type DevelopmentMessageRequest = {
   text?: string;
   mode?: Mode;
@@ -712,9 +739,7 @@ function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
   }, 850);
   window.setTimeout(() => {
     if (generation !== developmentRunGeneration) return;
-    let queuedMessage: QueuedMessage | undefined;
     updateDevelopmentSnapshot((snapshot) => {
-      queuedMessage = snapshot.messageQueue[0];
       return {
         ...snapshot,
         runState: "idle",
@@ -725,7 +750,6 @@ function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
           activeToolCount: 0,
           assistantResponseTokens: Math.ceil((`Development host completed the interaction for: ${text}`.length + 32) / 4),
         },
-        messageQueue: queuedMessage ? snapshot.messageQueue.slice(1) : snapshot.messageQueue,
         tools: snapshot.tools,
         messages: [...snapshot.messages, {
           id: assistantMessageId,
@@ -738,9 +762,7 @@ function startDevelopmentMessage(request: DevelopmentMessageRequest): void {
         }],
       };
     });
-    if (queuedMessage) {
-      startDevelopmentMessage({ text: queuedMessage.text, mode: queuedMessage.mode, clientMessageId: queuedMessage.id });
-    }
+    startNextDevelopmentQueuedMessage();
   }, 5_000);
 }
 
@@ -1112,33 +1134,85 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
   if (command.type === "queueMessage") {
     const request = command.payload as { text?: string; mode?: Mode; clientMessageId?: string } | undefined;
     const text = String(request?.text ?? "").trim();
-    if (text) updateDevelopmentSnapshot((snapshot) => ({
+    if (!text) return;
+    if ((developmentSnapshot?.messageQueue.length ?? 0) >= 10) {
+      emitDevelopmentEvent("error", { message: "Queue can contain at most 10 messages" });
+      return;
+    }
+    updateDevelopmentSnapshot((snapshot) => ({
       ...snapshot,
       messageQueue: [...snapshot.messageQueue, { id: request?.clientMessageId || crypto.randomUUID(), text, mode: request?.mode ?? snapshot.mode }],
     }));
+    startNextDevelopmentQueuedMessage();
     return;
   }
   if (command.type === "removeQueuedMessage") {
+    const request = command.payload as { messageId?: string; resumeQueue?: boolean } | undefined;
+    const messageId = String(request?.messageId ?? "");
+    updateDevelopmentSnapshot((snapshot) => {
+      const messageQueue = snapshot.messageQueue.filter((message) => message.id !== messageId);
+      return {
+        ...snapshot,
+        messageQueue,
+        messageQueuePaused: messageQueue.length > 0 && (request?.resumeQueue ? false : snapshot.messageQueuePaused),
+      };
+    });
+    if (request?.resumeQueue) startNextDevelopmentQueuedMessage();
+    return;
+  }
+  if (command.type === "updateQueuedMessage") {
+    const request = command.payload as { messageId?: string; text?: string; resumeQueue?: boolean } | undefined;
+    const text = String(request?.text ?? "").trim();
+    if (!text) {
+      emitDevelopmentEvent("error", { message: "Queued message must not be blank" });
+      return;
+    }
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      messageQueue: snapshot.messageQueue.map((message) => message.id === request?.messageId ? { ...message, text } : message),
+      messageQueuePaused: request?.resumeQueue ? false : snapshot.messageQueuePaused,
+    }));
+    if (request?.resumeQueue) startNextDevelopmentQueuedMessage();
+    return;
+  }
+  if (command.type === "setMessageQueuePaused") {
+    const paused = Boolean((command.payload as { paused?: boolean } | undefined)?.paused);
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      messageQueuePaused: paused && snapshot.messageQueue.length > 0,
+    }));
+    if (!paused) startNextDevelopmentQueuedMessage();
+    return;
+  }
+  if (command.type === "sendQueuedMessageNow") {
     const messageId = String((command.payload as { messageId?: string } | undefined)?.messageId ?? "");
-    updateDevelopmentSnapshot((snapshot) => ({ ...snapshot, messageQueue: snapshot.messageQueue.filter((message) => message.id !== messageId) }));
+    const queuedMessage = developmentSnapshot?.messageQueue.find((message) => message.id === messageId);
+    if (!queuedMessage) return;
+    developmentRunGeneration += 1;
+    updateDevelopmentSnapshot((snapshot) => {
+      const messageQueue = snapshot.messageQueue.filter((message) => message.id !== messageId);
+      return {
+        ...snapshot,
+        runState: "idle",
+        messageQueue,
+        messageQueuePaused: messageQueue.length > 0 && snapshot.messageQueuePaused,
+        tools: snapshot.tools.map((tool) => tool.status === "running" || tool.status === "approval"
+          ? { ...tool, status: "rejected" }
+          : tool),
+      };
+    });
+    startDevelopmentMessage({ text: queuedMessage.text, mode: queuedMessage.mode, clientMessageId: queuedMessage.id });
     return;
   }
   if (command.type === "cancelRun") {
     developmentRunGeneration += 1;
-    let queuedMessage: QueuedMessage | undefined;
-    updateDevelopmentSnapshot((snapshot) => {
-      queuedMessage = snapshot.messageQueue[0];
-      return {
-        ...snapshot,
-        runState: "idle",
-        messageQueue: queuedMessage ? snapshot.messageQueue.slice(1) : snapshot.messageQueue,
-        tools: snapshot.tools.map((tool) => tool.status === "running" || tool.status === "approval" ? { ...tool, status: "rejected" } : tool),
-        tasks: snapshot.tasks.map((task) => task.state === "in_progress" ? { ...task, state: "cancelled" } : task),
-      };
-    });
-    if (queuedMessage) {
-      startDevelopmentMessage({ text: queuedMessage.text, mode: queuedMessage.mode, clientMessageId: queuedMessage.id });
-    }
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      runState: "idle",
+      messageQueuePaused: snapshot.messageQueue.length > 0,
+      tools: snapshot.tools.map((tool) => tool.status === "running" || tool.status === "approval" ? { ...tool, status: "rejected" } : tool),
+      tasks: snapshot.tasks.map((task) => task.state === "in_progress" ? { ...task, state: "cancelled" } : task),
+    }));
     return;
   }
   if (command.type === "attachActiveEditor") {
@@ -1211,6 +1285,16 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     emitDevelopmentSnapshot();
     return;
   }
+  if (
+    command.type === "saveConfiguration"
+    || command.type === "deleteConfiguration"
+    || command.type === "refreshMcpRuntime"
+    || command.type === "refreshAcpRuntime"
+    || command.type === "testHook"
+  ) {
+    emitDevelopmentEvent("notice", { message: `${command.type} is implemented by the JetBrains host; the browser development host acknowledged the action without changing local IDE state` });
+    return;
+  }
   if (command.type === "startMcpOAuth" || command.type === "clearMcpOAuth") {
     emitDevelopmentEvent("notice", {
       message: command.type === "startMcpOAuth"
@@ -1235,7 +1319,17 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     return;
   }
   if (command.type === "listCheckpoints") {
-    emitDevelopmentEvent("checkpoints", [{ id: "dev-checkpoint", label: "Development snapshot", createdAt: new Date().toISOString() }]);
+    emitDevelopmentEvent("checkpoints", [{
+      id: "dev-checkpoint",
+      label: "Development snapshot",
+      createdAt: Date.now(),
+      changeCount: 2,
+      paths: ["src/main/java/com/example/auth/AuthController.java", "src/main/java/com/example/auth/TokenService.java"],
+      files: [
+        { path: "src/main/java/com/example/auth/AuthController.java", added: 12, removed: 3 },
+        { path: "src/main/java/com/example/auth/TokenService.java", added: 5, removed: 0 },
+      ],
+    }]);
     return;
   }
   if (command.type === "createCheckpoint" || command.type === "restoreCheckpoint") {
@@ -1276,6 +1370,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     || command.type === "exportThread"
     || command.type === "importTasks"
     || command.type === "importThread"
+    || command.type === "insertCodeBlock"
     || command.type === "openDiff"
     || command.type === "openGitDiff"
     || command.type === "openImage"
@@ -1289,7 +1384,39 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     return;
   }
   if (command.type === "sendMessage") {
-    startDevelopmentMessage((command.payload ?? {}) as DevelopmentMessageRequest);
+    const request = (command.payload ?? {}) as DevelopmentMessageRequest;
+    const text = String(request.text ?? "").trim();
+    if (!text || !developmentSnapshot) return;
+    if (developmentSnapshot.messageQueue.length === 0) {
+      startDevelopmentMessage({ ...request, text });
+    } else if (developmentSnapshot.messageQueue.length < 10) {
+      updateDevelopmentSnapshot((snapshot) => ({
+        ...snapshot,
+        messageQueue: [...snapshot.messageQueue, {
+          id: request.clientMessageId || crypto.randomUUID(),
+          text,
+          mode: request.mode ?? snapshot.mode,
+        }],
+      }));
+      startNextDevelopmentQueuedMessage();
+    } else {
+      emitDevelopmentEvent("error", { message: "Queue can contain at most 10 messages" });
+    }
+    return;
+  }
+  if (command.type === "sendMessageNow") {
+    const request = (command.payload ?? {}) as DevelopmentMessageRequest;
+    const text = String(request.text ?? "").trim();
+    if (!text) return;
+    developmentRunGeneration += 1;
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      runState: "idle",
+      tools: snapshot.tools.map((tool) => tool.status === "running" || tool.status === "approval"
+        ? { ...tool, status: "rejected" }
+        : tool),
+    }));
+    startDevelopmentMessage({ ...request, text });
     return;
   }
   if (command.type === "editAndResendMessage") {
@@ -1329,6 +1456,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       tools: [],
       tasks: [],
       messageQueue: [],
+      messageQueuePaused: false,
       attachments: [],
       threads: [
         { id: threadId, title: "New thread", updatedAt: Date.now(), active: true, mode, pinned: false },
@@ -1352,6 +1480,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
         tools: [],
         tasks: [],
         messageQueue: [],
+        messageQueuePaused: false,
         attachments: [],
         threads: snapshot.threads.map((thread) => ({ ...thread, active: thread.id === threadId })),
       };
@@ -1459,6 +1588,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
         tools: [],
         tasks: snapshot.tasks.map((task) => ({ ...task, id: crypto.randomUUID() })),
         messageQueue: [],
+        messageQueuePaused: false,
         attachments: [],
         runState: "idle",
         agentRun: emptyAgentRunTelemetry(),
@@ -1645,6 +1775,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       { id: "task-4", name: "Run the complete integration suite", state: "not_started" },
     ],
     messageQueue: [],
+    messageQueuePaused: false,
     attachments: [{ id: "attachment-1", label: "UserRepository.java", path: "src/main/java/com/example/UserRepository.java", kind: "file" }],
     settings: {
       backendUrl: "http://127.0.0.1:8788",

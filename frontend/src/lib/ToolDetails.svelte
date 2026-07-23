@@ -116,7 +116,7 @@
   }
 
   function resultLines(detail: string): string[] {
-    return detail.split("\n").map((line) => line.trimEnd()).filter((line) => line.trim()).slice(0, 100);
+    return detail.split("\n").map((line) => line.trimEnd()).filter((line) => line.trim());
   }
 
   function isLocation(line: string): boolean {
@@ -139,9 +139,13 @@
     return /\b(?:errors?|problems?|failed|failure)\b/i.test(value);
   }
 
+  const RESULT_LINE_LIMIT = 100;
+  let showAllLines = $state(false);
   let kind = $derived(detailKind(tool.name));
   let detail = $derived((tool.detail ?? "").trim());
-  let lines = $derived(resultLines(detail));
+  let allResultLines = $derived(resultLines(detail));
+  let lines = $derived(showAllLines ? allResultLines : allResultLines.slice(0, RESULT_LINE_LIMIT));
+  let hiddenLineCount = $derived(Math.max(0, allResultLines.length - RESULT_LINE_LIMIT));
   let terminal = $derived(terminalState(detail));
 </script>
 
@@ -199,6 +203,12 @@
           </div>
         {/each}
       </div>
+      {#if hiddenLineCount > 0 || showAllLines}
+        <button class="show-more-toggle" onclick={() => showAllLines = !showAllLines}>
+          <Icon name={showAllLines ? "chevron-up" : "chevron-down"} size={12} />
+          {showAllLines ? "Show less" : `Show ${hiddenLineCount} more`}
+        </button>
+      {/if}
     {:else if kind === "diagnostics"}
       <div class="diagnostic-result" class:failed={diagnosticsFailed(detail)}><Icon name={diagnosticsFailed(detail) ? "circle-alert" : "circle-check"} size={14} /><span>{detail}</span></div>
     {:else}
@@ -249,6 +259,8 @@
   .file-actions > span { min-width: 0; flex: 1; display: inline-flex; align-items: center; gap: 5px; overflow: hidden; color: #aeb4bd; font: 8px "JetBrains Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }
   .file-actions button, .secondary-action { min-height: 23px; padding: 0 7px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid #484c53; border-radius: 3px; color: #c2c6cd; background: #2c2f34; font-size: 8px; cursor: pointer; }
   .secondary-action { align-self: flex-start; }
+  .show-more-toggle { min-height: 22px; margin-top: 2px; padding: 0 6px; display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; border: 0; border-radius: 3px; color: #8f97a2; background: transparent; font-size: 8.5px; cursor: pointer; }
+  .show-more-toggle:hover { color: #dfe3e9; background: rgba(255,255,255,.05); }
   @media (max-width: 379px) {
     .result-list { max-height: 240px; }
     .file-actions { align-items: stretch; flex-wrap: wrap; }
