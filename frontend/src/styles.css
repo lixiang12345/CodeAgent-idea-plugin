@@ -240,9 +240,11 @@ button { color: inherit; }
 .file-actions { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .file-actions > span { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #8f9db1; font: 9.5px var(--mono); }
 .file-actions button, .secondary-action { height: 24px; padding: 0 7px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line-strong); border-radius: 3px; background: #292c31; font-size: 9px; cursor: pointer; }
-.approval { min-height: 35px; padding: 5px 7px; display: flex; align-items: center; gap: 6px; border-top: 1px solid #5c4b32; color: #d3b779; background: #342d21; font-size: calc(10px * var(--chat-zoom)); }
-.approval span { flex: 1; }
-.approval button { height: 23px; padding: 0 8px; border: 1px solid #5b5e64; border-radius: 3px; background: #292b30; font-size: 9px; cursor: pointer; }
+.approval { width: 100%; box-sizing: border-box; min-height: 35px; padding: 5px 7px; display: flex; flex-direction: column; align-items: stretch; gap: 6px; border-top: 1px solid #5c4b32; color: #d3b779; background: #342d21; font-size: calc(10px * var(--chat-zoom)); }
+.approval-note { display: flex; align-items: center; gap: 6px; }
+.approval-note span { flex: 1; }
+.approval-actions { width: 100%; display: flex; gap: 6px; }
+.approval button { flex: 1; height: 23px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border: 1px solid #5b5e64; border-radius: 3px; background: #292b30; font-size: 9px; cursor: pointer; }
 .approval button.approve { display: inline-flex; align-items: center; gap: 4px; border-color: #4e755a; color: #bce1c5; background: #2a4733; animation: approval-pulse 1s infinite; }
 .approval button:disabled { opacity: .55; cursor: default; }
 @keyframes approval-pulse { 100% { box-shadow: 0 0 0 6px transparent; } }
@@ -731,7 +733,7 @@ button { color: inherit; }
 .thread-search { height: 29px; margin: 8px 9px 7px; padding: 0 7px; display: flex; align-items: center; gap: 5px; border: 1px solid var(--line); border-radius: var(--ds-radius-2); color: var(--muted); background: #191b1e; }
 .thread-search input { min-width: 0; flex: 1; outline: 0; border: 0; color: var(--text); background: transparent; font-size: 11px; }
 .thread-list { min-height: 0; flex: 1; overflow-y: auto; padding: 0 5px; }
-.thread-group-header { min-height: 25px; padding: 5px 5px 2px 7px; display: flex; align-items: center; color: #848b94; }
+.thread-group-header { position: sticky; top: 0; z-index: 1; min-height: 25px; padding: 5px 5px 2px 7px; display: flex; align-items: center; color: #848b94; background: var(--panel); }
 .thread-group-header strong { flex: 1; font-size: 9px; font-weight: 600; text-transform: uppercase; }
 .thread-group-header button { padding: 2px 4px; border: 0; border-radius: 3px; color: #777f88; background: transparent; font-size: 9px; cursor: pointer; }
 .thread-group-header button:hover { color: #d58a90; background: #33272a; }
@@ -991,7 +993,7 @@ button { color: inherit; }
   font-size: calc(10.5px * var(--chat-zoom));
 }
 
-.approval button {
+.approval .approval-actions button {
   height: 25px;
   font-size: calc(10px * var(--chat-zoom));
 }
