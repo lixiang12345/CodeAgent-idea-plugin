@@ -3251,6 +3251,7 @@ class IdeBridge(
     @Serializable
     private data class CopyTextPayload(val text: String)
 
+    @Serializable
     private data class InsertCodeBlockPayload(val text: String)
 
     @Serializable
