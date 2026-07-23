@@ -4,6 +4,7 @@ import com.codeagent.plugin.agent.AgentMessage
 import com.codeagent.plugin.agent.AgentOrchestrator
 import com.codeagent.plugin.agent.AgentRunListener
 import com.codeagent.plugin.agent.AgentToolCall
+import com.codeagent.plugin.agent.AskUserRequest
 import com.codeagent.plugin.agent.ChangeReviewService
 import com.codeagent.plugin.agent.FileChange
 import com.codeagent.plugin.agent.GitWorkspaceService
@@ -531,6 +532,47 @@ class IdeBridge(
                     }
                     emitSnapshot()
                     emit("notice", mapOf("message" to "This approval expired because the run already ended"))
+                }
+            }
+            "resolveAskUser" -> {
+                val response = requireNotNull(command.payload).let { json.decodeFromJsonElement<AskUserPayload>(it) }
+                if (agent.resolveAskUser(response.toolId, response.answer, response.skipped)) {
+                    updateTool(response.toolId) { tool ->
+                        if (tool.status != "approval") {
+                            tool
+                        } else {
+                            tool.copy(
+                                status = if (response.skipped) "rejected" else "running",
+                                summary = if (response.skipped) "Skipped by user" else "Answer submitted; continuing",
+                                canRevert = false,
+                                askQuestion = null,
+                                askOptions = null,
+                                askAllowText = null,
+                                askDefault = null,
+                            )
+                        }
+                    }
+                    synchronized(stateLock) { runState = "running" }
+                    emitSnapshot()
+                } else {
+                    updateTool(response.toolId) { tool ->
+                        if (tool.status == "approval") {
+                            tool.copy(
+                                status = "rejected",
+                                summary = "Question expired after the run ended",
+                                canRevert = false,
+                                askQuestion = null,
+                                askOptions = null,
+                                askAllowText = null,
+                                askDefault = null,
+                            )
+                        } else tool
+                    }
+                    synchronized(stateLock) {
+                        if (runState == "awaiting_approval") runState = "idle"
+                    }
+                    emitSnapshot()
+                    emit("notice", mapOf("message" to "This question expired because the run already ended"))
                 }
             }
             "openDiff" -> {
@@ -1176,6 +1218,7 @@ class IdeBridge(
                 status: String,
                 detail: String?,
                 turnIndex: Int,
+                askRequest: AskUserRequest?,
             ) {
                 var approvalRequired = false
                 if (withCurrentRun(runId) {
@@ -1195,6 +1238,10 @@ class IdeBridge(
                         createdAt = previous?.createdAt?.takeIf { it > 0 } ?: now,
                         updatedAt = now,
                         timelineSequence = previous?.timelineSequence,
+                        askQuestion = askRequest?.question,
+                        askOptions = askRequest?.options?.distinct(),
+                        askAllowText = askRequest?.let { true },
+                        askDefault = askRequest?.default,
                     )
                     val persisted = conversations.upsertTool(tool.toConversationTool())
                     tools[call.id] = tool.copy(timelineSequence = persisted.timelineSequence.takeIf { it > 0 })
@@ -3243,6 +3290,9 @@ class IdeBridge(
 
     @Serializable
     private data class ApprovalPayload(val toolId: String, val approved: Boolean)
+
+    @Serializable
+    private data class AskUserPayload(val toolId: String, val answer: String, val skipped: Boolean)
 
     @Serializable
     private data class ChangePayload(val toolId: String)

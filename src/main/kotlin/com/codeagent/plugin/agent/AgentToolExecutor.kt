@@ -10,7 +10,6 @@ import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
@@ -320,7 +319,6 @@ internal class AgentToolExecutor(
             "write_process" -> writeProcess(args)
             "wait_process" -> waitProcess(args)
             "kill_process" -> killProcess(args)
-            "ask_user" -> askUser(args)
             "open_file" -> openFile(args)
             else -> activePluginTools[call.name]?.let { alias ->
                 val merged = JsonObject(alias.defaults + args)
@@ -755,35 +753,6 @@ internal class AgentToolExecutor(
             fileChange = changes.firstOrNull(),
             fileChanges = changes,
         )
-    }
-
-    private fun askUser(args: JsonObject): ToolExecutionResult {
-        val question = args.requiredString("question")
-        val default = args.string("default").orEmpty()
-        val options = args.optionalStringListArgument("options").filter { it.isNotBlank() }.distinct()
-        val future = CompletableFuture<String>()
-        ApplicationManager.getApplication().invokeLater {
-            val answer = if (options.isNotEmpty()) {
-                // Mirrors the original ask_user options list: offer the suggested
-                // answers but keep a free-text row so the user is never forced into
-                // a preset choice.
-                val initialIndex = options.indexOf(default).takeIf { it >= 0 } ?: 0
-                Messages.showEditableChooseDialog(
-                    question,
-                    "CodeAgent Ask User",
-                    Messages.getQuestionIcon(),
-                    options.toTypedArray(),
-                    options.getOrElse(initialIndex) { default },
-                    null,
-                )
-            } else {
-                Messages.showInputDialog(project, question, "CodeAgent Ask User", Messages.getQuestionIcon(), default, null)
-            }
-            if (answer == null) future.completeExceptionally(IllegalStateException("User cancelled ask_user"))
-            else future.complete(answer)
-        }
-        val answer = future.join()
-        return ToolExecutionResult(answer, "User answered", answer.take(MAX_DETAIL_CHARS))
     }
 
     private fun requireHttpUrl(raw: String): URI {

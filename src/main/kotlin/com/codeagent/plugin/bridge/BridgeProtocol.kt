@@ -3,6 +3,8 @@ package com.codeagent.plugin.bridge
 import com.codeagent.plugin.settings.DEFAULT_BACKEND_URL
 import com.codeagent.plugin.settings.DEFAULT_CONTEXT_HTTP_URL
 import com.codeagent.plugin.settings.DEFAULT_CONTEXT_MODE
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -75,6 +77,7 @@ data class AgentRunTelemetryDto(
 )
 
 @Serializable
+@OptIn(ExperimentalSerializationApi::class)
 data class ToolRunDto(
     val id: String,
     val name: String,
@@ -88,6 +91,10 @@ data class ToolRunDto(
     val createdAt: Long = 0,
     val updatedAt: Long = createdAt,
     val timelineSequence: Long? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val askQuestion: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val askOptions: List<String>? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val askAllowText: Boolean? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val askDefault: String? = null,
 )
 
 @Serializable

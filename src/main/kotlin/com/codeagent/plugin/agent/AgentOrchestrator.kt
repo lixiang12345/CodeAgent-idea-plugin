@@ -10,7 +10,10 @@ import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.AppExecutorUtil
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.Closeable
 import java.nio.file.Path
 import java.util.UUID
@@ -275,6 +278,12 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         return approval.complete(approved)
     }
 
+    fun resolveAskUser(toolId: String, answer: String, skipped: Boolean): Boolean {
+        val context = activeRun.get() ?: return false
+        val pendingAnswer = context.askAnswers.remove(toolId) ?: return false
+        return pendingAnswer.complete(AskUserResponse(if (skipped) "" else answer, skipped))
+    }
+
     fun cancel() {
         activeRun.getAndSet(null)?.let { context ->
             context.cancelled.set(true)
@@ -282,6 +291,8 @@ class AgentOrchestrator(private val project: Project) : Disposable {
             context.activeFuture.getAndSet(null)?.cancel(true)
             context.approvals.values.forEach { it.complete(false) }
             context.approvals.clear()
+            context.askAnswers.values.forEach { it.complete(AskUserResponse("", skipped = true)) }
+            context.askAnswers.clear()
             context.remoteRunId.get()?.let { runId -> context.client.get()?.cancel(runId) }
         }
     }
@@ -297,6 +308,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         val activeStream: AtomicReference<Closeable?> = AtomicReference(null),
         val activeFuture: AtomicReference<CompletableFuture<*>?> = AtomicReference(null),
         val approvals: ConcurrentHashMap<String, CompletableFuture<Boolean>> = ConcurrentHashMap(),
+        val askAnswers: ConcurrentHashMap<String, CompletableFuture<AskUserResponse>> = ConcurrentHashMap(),
     )
 
     private fun handleEvent(
@@ -387,8 +399,12 @@ class AgentOrchestrator(private val project: Project) : Disposable {
             throw error
         }
 
-        listener.onToolChanged(call, "Running", "running", call.arguments, request.turnIndex)
-        val future = toolRunner.execute(call)
+        val future = if (call.name == "ask_user") {
+            requestAskUser(context, call, request.turnIndex, listener)
+        } else {
+            listener.onToolChanged(call, "Running", "running", call.arguments, request.turnIndex)
+            toolRunner.execute(call)
+        }
         context.activeFuture.set(future)
         try {
             val result = future.join()
@@ -453,6 +469,41 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         }
     }
 
+    private fun requestAskUser(
+        context: RunContext,
+        call: AgentToolCall,
+        turnIndex: Int,
+        listener: AgentRunListener,
+    ): CompletableFuture<ToolExecutionResult> {
+        val request = parseAskUserRequest(call.arguments)
+
+        val pendingAnswer = CompletableFuture<AskUserResponse>()
+        context.askAnswers[call.id] = pendingAnswer
+        listener.onToolChanged(call, request.question, "approval", call.arguments, turnIndex, request)
+        return pendingAnswer.thenApply { response ->
+            if (response.skipped) {
+                return@thenApply ToolExecutionResult(
+                    "User skipped this question.",
+                    "User skipped",
+                    "User skipped this question.",
+                )
+            }
+            ToolExecutionResult(response.answer, "User answered", response.answer.take(8_000))
+        }.whenComplete { _, _ -> context.askAnswers.remove(call.id, pendingAnswer) }
+    }
+
+    private fun parseAskUserRequest(argumentsJson: String): AskUserRequest {
+        val arguments = runCatching { json.parseToJsonElement(argumentsJson).jsonObject }
+            .getOrElse { error("Invalid arguments for ask_user: ${it.message}") }
+        val question = arguments["question"]?.jsonPrimitive?.contentOrNull ?: error("question is required")
+        require(question.isNotBlank()) { "question must not be blank" }
+        return AskUserRequest(
+            question = question,
+            default = arguments["default"]?.jsonPrimitive?.contentOrNull,
+            options = arguments.optionalStringListArgument("options").distinct(),
+        )
+    }
+
     private fun requestApproval(
         context: RunContext,
         call: AgentToolCall,
@@ -483,6 +534,10 @@ class AgentOrchestrator(private val project: Project) : Disposable {
 
 private class RemoteRunCancelledException : RuntimeException("Agent run cancelled")
 
+private data class AskUserResponse(val answer: String, val skipped: Boolean)
+
+data class AskUserRequest(val question: String, val default: String?, val options: List<String>)
+
 interface AgentRunListener {
     fun onAssistantDelta(delta: String, turnIndex: Int) = Unit
     fun onContextUpdated(update: RemoteContextUpdated) = Unit
@@ -492,7 +547,14 @@ interface AgentRunListener {
     fun onToolBatchStarted(update: RemoteToolBatchStarted) = Unit
     fun onAssistantMessage(content: String?, turnIndex: Int)
     fun onFileChanged(call: AgentToolCall, change: FileChange) = Unit
-    fun onToolChanged(call: AgentToolCall, summary: String, status: String, detail: String?, turnIndex: Int)
+    fun onToolChanged(
+        call: AgentToolCall,
+        summary: String,
+        status: String,
+        detail: String?,
+        turnIndex: Int,
+        askRequest: AskUserRequest? = null,
+    )
     fun onRunStateChanged(state: String)
     fun onError(message: String)
 }
