@@ -100,6 +100,12 @@ button { color: inherit; }
 .chip.green { color: var(--ds-color-green-11); border-color: rgba(48,164,108,.35); background: #499c5418; }
 @keyframes status-spin { to { transform: rotate(360deg); } }
 .chip.accent { color: var(--ds-color-accent-11); border-color: rgba(59,130,246,.35); background: rgba(59,130,246,.12); }
+.chip.amber { color: #d5bb7d; border-color: #5f5338; background: rgba(213,187,125,.1); }
+.subagents-strip { padding: 6px 8px; border-bottom: 1px solid var(--border); background: #1f2430; }
+.subagents-strip-title { margin-bottom: 4px; font-size: 11px; color: var(--dim); }
+.subagent-row { display: flex; align-items: center; gap: 6px; font-size: 11px; padding: 4px 0; color: #9ab; }
+.subagent-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-elapsed { color: var(--dim); }
 .repository-strip, .multi-repo { height: 32px; flex: 0 0 32px; padding: 0 8px; display: flex; align-items: center; gap: 5px; overflow: hidden; border-bottom: 1px solid var(--border); background: #222222; }
 .repository-strip button, .repository-strip .chip, .multi-repo .chip { min-width: 0; height: 22px; padding: 0 7px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 99px; color: #aab0b8; background: #292c31; font-size: 10px; cursor: pointer; }
 .repository-strip button span, .multi-repo .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

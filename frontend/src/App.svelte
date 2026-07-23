@@ -261,7 +261,7 @@
     sendCommand("bootstrap");
     const jobPoller = window.setInterval(() => {
       const hasActiveJobs = snapshot?.jobs.items.some((job) => job.status === "queued" || job.status === "running");
-      if (currentView === "jobs" && hasActiveJobs) sendCommand("refreshJobs");
+      if ((currentView === "jobs" || currentView === "chat") && hasActiveJobs) sendCommand("refreshJobs");
     }, 2000);
     const contextPoller = window.setInterval(() => {
       if (currentView === "chat" && snapshot?.context.state === "ready") sendCommand("getContextStatus");
@@ -2214,6 +2214,19 @@
   function conversationRequestCount(currentSnapshot: AppSnapshot, optimisticMessages: ChatMessage[]) {
     return conversationTimeline(currentSnapshot, optimisticMessages).filter((item) => item.kind === "user").length;
   }
+
+  function activeSubagents(currentSnapshot: AppSnapshot): ProductJob[] {
+    return currentSnapshot.jobs.items.filter(
+      (job) => job.type === "subagent" && (job.status === "running" || job.status === "queued"),
+    );
+  }
+
+  function subagentElapsed(job: ProductJob): string {
+    if (job.status !== "running") return "—";
+    const started = job.createdAt ? Date.parse(job.createdAt) : NaN;
+    if (!Number.isFinite(started)) return "";
+    return formatDuration(Date.now() - started);
+  }
 </script>
 
 <svelte:window onkeydown={(event) => {
@@ -2388,6 +2401,19 @@
         {/if}
 
         <div class="conversation" bind:this={conversationElement} onscroll={updateConversationFollow}>
+          {#if activeSubagents(snapshot).length > 0}
+            <div class="subagents-strip">
+              <div class="subagents-strip-title">Running subagents</div>
+              {#each activeSubagents(snapshot) as job (job.id)}
+                <div class="subagent-row">
+                  <Icon name="bot" size={13} />
+                  <span class="subagent-name">{job.role ?? "research"} subagent</span>
+                  <span class="chip {job.status === "running" ? "accent" : "amber"}">{job.status}</span>
+                  <span class="subagent-elapsed">{subagentElapsed(job)}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
           {#if snapshot.messages.length === 0 && pendingUserMessages.length === 0}
             <div class="empty-state">
               <span class="empty-logo"><Icon name="plugin-icon" size={18} /></span>
