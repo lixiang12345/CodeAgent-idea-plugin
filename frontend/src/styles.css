@@ -303,6 +303,8 @@ button { color: inherit; }
 .task-items label b { color: #d1a65d; font: 8px var(--mono); }
 .task-items label.completed > span { color: #747a82; text-decoration: line-through; }
 .task-items label.active > span { color: #e0d4b9; }
+.task-items label.subtask { padding-left: 14px; }
+.task-items label.subtask i { width: 22px; }
 .task-panel footer { height: 29px; padding: 3px 7px; display: flex; justify-content: flex-end; border-top: 1px solid var(--line); }
 .task-panel footer button { height: 22px; padding: 0 7px; border: 0; border-radius: 3px; color: #8e949c; background: transparent; font-size: 9px; cursor: pointer; }
 .task-panel footer button:hover { color: var(--text); background: #2d3035; }
@@ -750,6 +752,11 @@ button { color: inherit; }
 .task-workspace-row small { color: var(--muted); font-size: 7.5px; text-transform: capitalize; }
 .task-workspace-row.completed strong { color: #737981; text-decoration: line-through; }
 .task-workspace-row.running { background: #29271f; }
+.task-workspace-row.subtask { padding-left: 20px; }
+.task-workspace-row.subtask > i { width: 22px; }
+.task-workspace-row.subtask::before { content: ""; position: absolute; left: 10px; width: 1px; height: 100%; background: var(--line); }
+.task-workspace-row.subtask { position: relative; }
+.subtask-add { margin: 0 0 7px 20px; }
 .task-state { width: 21px; height: 21px; padding: 0; display: grid; place-items: center; border: 0; color: #6eb47f; background: transparent; cursor: pointer; }
 .task-state > span { width: 13px; height: 13px; border: 1px solid #61666e; border-radius: 50%; }
 .jobs-workspace { display: flex; flex-direction: column; }

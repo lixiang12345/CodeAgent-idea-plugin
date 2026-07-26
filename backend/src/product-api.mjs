@@ -78,7 +78,13 @@ function sharedConversationView(conversation) {
       content: message.content,
       createdAt: message.createdAt,
     })),
-    tasks: (conversation.tasks || []).map((task) => ({ id: task.id, name: task.name, state: task.state })),
+    tasks: (conversation.tasks || []).map((task) => ({
+      id: task.id,
+      name: task.name,
+      state: task.state,
+      description: task.description ?? null,
+      parentId: task.parentId ?? null,
+    })),
     tools: (conversation.tools || []).map((tool) => ({
       id: tool.id,
       name: tool.name,
@@ -392,7 +398,21 @@ function normalizeTasks(value) {
     if (seen.has(id)) throw badRequest("Task IDs must be unique");
     seen.add(id);
     if (!["not_started", "in_progress", "completed", "cancelled"].includes(task.state)) throw badRequest("Task state is invalid");
-    return { id, name: boundedText(task.name, "task.name", 240), state: task.state };
+    const description = optionalText(task.description, "task.description", 2_000);
+    const parentId = optionalText(task.parentId, "task.parentId", 200);
+    return {
+      id,
+      name: boundedText(task.name, "task.name", 240),
+      state: task.state,
+      ...(description ? { description } : {}),
+      ...(parentId ? { parentId } : {}),
+    };
+  }).map((task, _index, tasks) => {
+    if (!task.parentId) return task;
+    const parent = tasks.find((candidate) => candidate.id === task.parentId);
+    if (!parent) throw badRequest("task.parentId must reference another task in the same conversation");
+    if (parent.parentId) throw badRequest("Subtasks cannot nest under another subtask");
+    return task;
   });
 }
 

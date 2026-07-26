@@ -160,9 +160,10 @@ export class PostgresProductStore {
            WHERE message.user_id = $1 AND message.conversation_id = codeagent_conversations.id
          ), '[]'::jsonb) AS messages,
          COALESCE((
-           SELECT jsonb_agg(jsonb_build_object(
-             'id', task.id, 'name', task.name, 'state', task.state
-           ) ORDER BY task.position, task.id)
+           SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+             'id', task.id, 'name', task.name, 'state', task.state,
+             'description', task.description, 'parentId', task.parent_id
+           )) ORDER BY task.position, task.id)
            FROM codeagent_tasks task
            WHERE task.user_id = $1 AND task.conversation_id = codeagent_conversations.id
          ), '[]'::jsonb) AS tasks,
@@ -241,8 +242,9 @@ export class PostgresProductStore {
       );
       await client.query(`DELETE FROM codeagent_tasks WHERE user_id = $1 AND conversation_id = $2`, [userId, conversation.id]);
       await client.query(
-        `INSERT INTO codeagent_tasks (user_id, conversation_id, id, name, state, position)
-         SELECT $1, $2, task.value->>'id', task.value->>'name', task.value->>'state', task.position::int - 1
+        `INSERT INTO codeagent_tasks (user_id, conversation_id, id, name, state, position, description, parent_id)
+         SELECT $1, $2, task.value->>'id', task.value->>'name', task.value->>'state', task.position::int - 1,
+           task.value->>'description', task.value->>'parentId'
          FROM jsonb_array_elements($3::jsonb) WITH ORDINALITY AS task(value, position)`,
         [userId, conversation.id, JSON.stringify(conversation.tasks)],
       );
@@ -810,9 +812,13 @@ CREATE TABLE IF NOT EXISTS codeagent_tasks (
   name text NOT NULL,
   state text NOT NULL CHECK (state IN ('not_started', 'in_progress', 'completed', 'cancelled')),
   position integer NOT NULL,
+  description text,
+  parent_id text,
   PRIMARY KEY (user_id, conversation_id, id),
   FOREIGN KEY (user_id, conversation_id) REFERENCES codeagent_conversations(user_id, id) ON DELETE CASCADE
 );
+ALTER TABLE codeagent_tasks ADD COLUMN IF NOT EXISTS description text;
+ALTER TABLE codeagent_tasks ADD COLUMN IF NOT EXISTS parent_id text;
 CREATE INDEX IF NOT EXISTS codeagent_tasks_order_idx ON codeagent_tasks(user_id, conversation_id, position, id);
 CREATE TABLE IF NOT EXISTS codeagent_tools (
   user_id text NOT NULL,

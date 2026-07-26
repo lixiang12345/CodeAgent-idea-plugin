@@ -102,6 +102,9 @@ export interface TaskItem {
   id: string;
   name: string;
   state: "not_started" | "in_progress" | "completed" | "cancelled";
+  description?: string | null;
+  /** Set on a subtask; the host allows one level of nesting. */
+  parentId?: string | null;
 }
 
 export interface QueuedMessage {
@@ -1715,16 +1718,30 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     return;
   }
   if (command.type === "addTask") {
-    const name = String((command.payload as { name?: string } | undefined)?.name ?? "").trim();
-    if (name) updateDevelopmentSnapshot((snapshot) => ({
-      ...snapshot,
-      tasks: [...snapshot.tasks, { id: crypto.randomUUID(), name, state: "not_started" }],
-    }));
+    const request = command.payload as { name?: string; parentId?: string } | undefined;
+    const name = String(request?.name ?? "").trim();
+    const parentId = request?.parentId;
+    if (name) updateDevelopmentSnapshot((snapshot) => {
+      const task: TaskItem = { id: crypto.randomUUID(), name, state: "not_started", parentId: parentId ?? null };
+      if (!parentId) return { ...snapshot, tasks: [...snapshot.tasks, task] };
+      // A subtask lands directly after its parent's existing children, as the host files it.
+      const tasks = [...snapshot.tasks];
+      let at = -1;
+      tasks.forEach((entry, index) => {
+        if (entry.id === parentId || entry.parentId === parentId) at = index;
+      });
+      tasks.splice(at + 1, 0, task);
+      return { ...snapshot, tasks };
+    });
     return;
   }
   if (command.type === "deleteTask") {
     const taskId = String((command.payload as { taskId?: string } | undefined)?.taskId ?? "");
-    updateDevelopmentSnapshot((snapshot) => ({ ...snapshot, tasks: snapshot.tasks.filter((task) => task.id !== taskId) }));
+    // Matches the host: a subtask cannot outlive its parent.
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      tasks: snapshot.tasks.filter((task) => task.id !== taskId && task.parentId !== taskId),
+    }));
     return;
   }
   if (command.type === "clearCompletedTasks") {

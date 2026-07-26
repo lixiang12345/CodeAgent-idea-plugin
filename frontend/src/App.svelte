@@ -30,6 +30,7 @@
     type Mode,
     type ProductJob,
     type SettingsSaved,
+    type TaskItem,
     type ToolRun,
     type WorkspaceRule,
     type WorkspaceSkill,
@@ -194,6 +195,8 @@
   let threadOptOpen = false;
   let taskFilter: "all" | "pending" | "running" | "done" = "all";
   let newTaskName = "";
+  let newSubtaskName: Record<string, string> = {};
+  let addingSubtaskFor: string | null = null;
   let jobFilter: "all" | "active" | "completed" | "failed" = "all";
   let jobPrompt = "";
   let jobRole: NonNullable<ProductJob["role"]> = "research";
@@ -2223,11 +2226,25 @@
     notice = "Job result added to the composer";
   }
 
-  function addTask() {
-    const name = newTaskName.trim();
+  function addTask(parentId?: string) {
+    const name = parentId ? (newSubtaskName[parentId] ?? "").trim() : newTaskName.trim();
     if (!name) return;
-    sendCommand("addTask", { name });
-    newTaskName = "";
+    sendCommand("addTask", parentId ? { name, parentId } : { name });
+    if (parentId) {
+      newSubtaskName = { ...newSubtaskName, [parentId]: "" };
+      addingSubtaskFor = null;
+    } else {
+      newTaskName = "";
+    }
+  }
+
+  /** Numbering counts top-level tasks only; subtasks are shown against their parent. */
+  function taskPosition(tasks: TaskItem[], task: TaskItem): string {
+    if (task.parentId) {
+      const siblings = tasks.filter((candidate) => candidate.parentId === task.parentId);
+      return `${taskPosition(tasks, tasks.find((candidate) => candidate.id === task.parentId)!)}.${siblings.indexOf(task) + 1}`;
+    }
+    return String(tasks.filter((candidate) => !candidate.parentId).indexOf(task) + 1);
   }
 
   function gitPaths(files: GitFile[]) {
@@ -3209,10 +3226,10 @@
                     </button>
                     {#if tasksOpen}
                       <div class="task-items">
-                        {#each snapshot.tasks as task, index}
-                          <label class:completed={task.state === "completed"} class:active={task.state === "in_progress"}>
+                        {#each snapshot.tasks as task}
+                          <label class:completed={task.state === "completed"} class:active={task.state === "in_progress"} class:subtask={!!task.parentId}>
                             <input type="checkbox" checked={task.state === "completed"} onchange={() => sendCommand("setTaskState", { taskId: task.id, state: task.state === "completed" ? "not_started" : "completed" })} />
-                            <span><i>{index + 1}</i>{task.name}</span>
+                            <span><i>{taskPosition(snapshot.tasks, task)}</i>{task.name}</span>
                             {#if task.state === "in_progress"}<b>running</b>{/if}
                           </label>
                         {/each}
@@ -4247,16 +4264,31 @@
             <button class="primary" disabled={!newTaskName.trim()}><Icon name="plus" size={13} />Add New</button>
           </form>
           <div class="task-workspace-list">
-            {#each filteredTasks(snapshot, taskFilter) as task, index}
-              <div class="task-workspace-row" class:completed={task.state === "completed"} class:running={task.state === "in_progress"}>
+            {#each filteredTasks(snapshot, taskFilter) as task}
+              <div class="task-workspace-row" class:completed={task.state === "completed"} class:running={task.state === "in_progress"} class:subtask={!!task.parentId}>
                 <button class="task-state" title="Toggle complete" onclick={() => sendCommand("setTaskState", { taskId: task.id, state: task.state === "completed" ? "not_started" : "completed" })}>
                   {#if task.state === "completed"}<Icon name="circle-check" size={15} />{:else}<span></span>{/if}
                 </button>
-                <i>{index + 1}</i>
-                <span><strong>{task.name}</strong><small>{task.state.replaceAll("_", " ")}</small></span>
+                <i>{taskPosition(snapshot.tasks, task)}</i>
+                <span><strong>{task.name}</strong><small>{task.description ?? task.state.replaceAll("_", " ")}</small></span>
+                {#if !task.parentId}
+                  <button class="icon-button compact" title="Add subtask" aria-label={`Add a subtask under ${task.name}`} onclick={() => { addingSubtaskFor = addingSubtaskFor === task.id ? null : task.id; }}><Icon name="plus" size={13} /></button>
+                {/if}
                 <button class="icon-button compact" title="Run task" disabled={isBusy(snapshot) || task.state === "completed"} onclick={() => sendCommand("runTask", { taskId: task.id })}><Icon name="play" size={13} /></button>
-                <button class="icon-button compact danger" title="Delete task" onclick={() => sendCommand("deleteTask", { taskId: task.id })}><Icon name="trash-2" size={13} /></button>
+                <button class="icon-button compact danger" title={task.parentId ? "Delete subtask" : "Delete task and its subtasks"} onclick={() => sendCommand("deleteTask", { taskId: task.id })}><Icon name="trash-2" size={13} /></button>
               </div>
+              {#if addingSubtaskFor === task.id}
+                <form class="task-add subtask-add" onsubmit={(event) => { event.preventDefault(); addTask(task.id); }}>
+                  <input
+                    bind:value={newSubtaskName[task.id]}
+                    maxlength="240"
+                    placeholder={`Subtask of ${task.name}`}
+                    aria-label={`New subtask of ${task.name}`}
+                    onkeydown={(event) => { if (event.key === "Escape") addingSubtaskFor = null; }}
+                  />
+                  <button class="primary" disabled={!(newSubtaskName[task.id] ?? "").trim()}><Icon name="plus" size={13} />Add</button>
+                </form>
+              {/if}
             {:else}
               <div class="workspace-empty"><Icon name="list-checks" size={20} /><strong>Get Started with Tasks</strong><p>Break Agent work into runnable steps.</p></div>
             {/each}

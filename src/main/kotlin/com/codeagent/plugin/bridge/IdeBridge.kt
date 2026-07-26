@@ -40,6 +40,7 @@ import com.codeagent.plugin.conversation.ConversationStore
 import com.codeagent.plugin.conversation.ConversationSnapshot
 import com.codeagent.plugin.conversation.ConversationTool
 import com.codeagent.plugin.conversation.ConversationSummaryService
+import com.codeagent.plugin.conversation.ConversationTaskRequest
 import com.codeagent.plugin.conversation.CloudConversationSyncService
 import com.codeagent.plugin.context.ContextEngineService
 import com.codeagent.plugin.context.resolvedContextHttpApiKey
@@ -913,7 +914,7 @@ class IdeBridge(
             }
             "addTask" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<TaskNamePayload>(it) }
-                conversations.addTasks(listOf(request.name))
+                conversations.addTasks(listOf(ConversationTaskRequest(request.name, parentId = request.parentId)))
                 syncActiveConversation()
                 emitSnapshot()
             }
@@ -1569,7 +1570,7 @@ class IdeBridge(
                         thread.messages.size,
                     )
                 },
-                tasks = active.tasks.map { task -> TaskDto(task.id, task.name, task.state) },
+                tasks = active.tasks.map { task -> TaskDto(task.id, task.name, task.state, task.description, task.parentId) },
                 messageQueue = activeQueue.messages.map { it.toDto() },
                 messageQueuePaused = activeQueue.paused,
                 attachments = attachments.values.toList(),
@@ -3604,7 +3605,7 @@ class IdeBridge(
     private data class TaskPayload(val taskId: String)
 
     @Serializable
-    private data class TaskNamePayload(val name: String)
+    private data class TaskNamePayload(val name: String, val parentId: String? = null)
 
     @Serializable
     private data class QueuedMessagePayload(

@@ -3,6 +3,7 @@ package com.codeagent.plugin.agent
 import com.codeagent.plugin.context.ContextEngineService
 import com.codeagent.plugin.conversation.ConversationStore
 import com.codeagent.plugin.conversation.ConversationTask
+import com.codeagent.plugin.conversation.ConversationTaskRequest
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.process.CapturingProcessHandler
@@ -163,8 +164,8 @@ internal class AgentToolExecutor(
             required = listOf("url"),
         )))
         if (mode == "agent") {
-            add(tool("add_tasks", "Create an ordered task list for substantive multi-step work. Use concise outcome-oriented task names and avoid duplicating existing tasks", schema(
-                properties = mapOf("tasks" to stringArrayProperty("Task names in the order they should run", 1, 20)),
+            add(tool("add_tasks", "Create an ordered task list for substantive multi-step work. Use concise outcome-oriented task names and avoid duplicating existing tasks. Pass parent_task_id to file a task as a subtask, and after_task_id to insert it at a specific position", schema(
+                properties = mapOf("tasks" to taskCreateArrayProperty()),
                 required = listOf("tasks"),
             )))
             add(tool("update_tasks", "Update existing tasks by ID as work starts, completes, changes, or is cancelled. Pass task_id for one task, or tasks[] to update several in one call. Read tasks first when IDs are unknown", schema(
@@ -172,6 +173,7 @@ internal class AgentToolExecutor(
                     "task_id" to stringProperty("Task ID returned by view_tasks"),
                     "state" to enumStringProperty("New task state", listOf("not_started", "in_progress", "completed", "cancelled")),
                     "name" to stringProperty("Optional replacement task name"),
+                    "description" to stringProperty("Optional replacement task description"),
                     "tasks" to taskUpdateArrayProperty(),
                 ),
             )))
@@ -568,14 +570,20 @@ internal class AgentToolExecutor(
     }
 
     private fun addTasks(args: JsonObject): ToolExecutionResult {
-        // Accepts plain names or the original plugin's `{name, description}` objects.
-        val names = args["tasks"]?.jsonArray?.map { element ->
+        // Accepts plain names as well as the original plugin's task objects.
+        val requests = args["tasks"]?.jsonArray?.map { element ->
             when (element) {
-                is JsonObject -> element.requiredString("name")
-                else -> element.jsonPrimitive.content
+                is JsonObject -> ConversationTaskRequest(
+                    name = element.requiredString("name"),
+                    description = element.string("description"),
+                    parentId = element.string("parent_task_id"),
+                    afterId = element.string("after_task_id"),
+                    state = element.string("state")?.let(::normalizeTaskState),
+                )
+                else -> ConversationTaskRequest(name = element.jsonPrimitive.content)
             }
         } ?: error("tasks is required")
-        conversations.addTasks(names)
+        conversations.addTasks(requests)
         return viewTasks()
     }
 
@@ -588,6 +596,7 @@ internal class AgentToolExecutor(
                 taskId = update.requiredString("task_id"),
                 state = update.string("state")?.let(::normalizeTaskState),
                 name = update.string("name"),
+                description = update.string("description"),
             )
         }
         val output = formatTasks(conversations.active().tasks)
@@ -612,9 +621,15 @@ internal class AgentToolExecutor(
     private fun formatTasks(tasks: List<ConversationTask>): String = if (tasks.isEmpty()) {
         "No tasks"
     } else {
-        tasks.mapIndexed { index, task ->
-            "${index + 1}. [${task.state}] ${task.name}\n   id=${task.id}"
-        }.joinToString("\n")
+        var position = 0
+        tasks.joinToString("\n") { task ->
+            val label = if (task.parentId == null) "${++position}." else "   -"
+            val indent = if (task.parentId == null) "   " else "     "
+            buildString {
+                append("$label [${task.state}] ${task.name}\n$indent" + "id=${task.id}")
+                task.description?.let { append("\n$indent$it") }
+            }
+        }
     }
 
     private fun taskSummary(tasks: List<ConversationTask>): String {
@@ -1122,8 +1137,28 @@ internal class AgentToolExecutor(
                 put("task_id", stringProperty("Task ID returned by view_tasks"))
                 put("state", enumStringProperty("New task state", listOf("not_started", "in_progress", "completed", "cancelled")))
                 put("name", stringProperty("Optional replacement task name"))
+                put("description", stringProperty("Optional replacement task description"))
             })
             put("required", buildJsonArray { add(JsonPrimitive("task_id")) })
+            put("additionalProperties", false)
+        })
+        put("minItems", 1)
+        put("maxItems", 20)
+    }
+
+    private fun taskCreateArrayProperty() = buildJsonObject {
+        put("type", "array")
+        put("description", "Tasks to create, in the order they should run")
+        put("items", buildJsonObject {
+            put("type", "object")
+            put("properties", buildJsonObject {
+                put("name", stringProperty("The name of the new task"))
+                put("description", stringProperty("What the task covers"))
+                put("parent_task_id", stringProperty("ID of the parent task if this should be a subtask"))
+                put("after_task_id", stringProperty("ID of the task after which this task should be inserted"))
+                put("state", enumStringProperty("Initial state; defaults to not_started", listOf("not_started", "in_progress", "completed", "cancelled")))
+            })
+            put("required", buildJsonArray { add(JsonPrimitive("name")) })
             put("additionalProperties", false)
         })
         put("minItems", 1)

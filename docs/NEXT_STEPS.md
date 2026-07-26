@@ -149,19 +149,16 @@ Remaining, ranked:
    There is no open-folder state because an IDEA tool window only exists inside
    an open project. Coach-marks still need a product decision on which features
    they introduce and when they first appear.
-3. **Task-tool hierarchy.** `parent_task_id` / `after_task_id` and subtask
-   rendering; this needs the conversation task model, persistence, and the
-   panel to change together.
-4. **Rules editor richness.** The rules editor is still a plain textarea.
+3. **Rules editor richness.** The rules editor is still a plain textarea.
    Embedding Monaco in JCEF costs bundle size and needs an offline-safe build,
    so weigh it against reusing the IDEA editor: opening
    `.codeagent/guidelines.md` in a real editor tab already works and inherits
    the IDE's own Markdown support, theme, and keymap. Decide before scheduling.
-5. **Process hosting.** Running agent-launched commands through an IDE Run
+4. **Process hosting.** Running agent-launched commands through an IDE Run
    configuration so they appear in the Run/Terminal tool window; this adds
    plugin dependencies and needs a deliberate compatibility decision.
-6. **`keep_stdin_open` and `read-terminal`**, plus multi-question `ask_user`.
-7. **Needs a backend contract:** async sub-agent lifecycle
+5. **`keep_stdin_open` and `read-terminal`**, plus multi-question `ask_user`.
+6. **Needs a backend contract:** async sub-agent lifecycle
    (spawn/check/message/await with parent reporting), semantic commit-history
    retrieval, and completion recency payloads.
 

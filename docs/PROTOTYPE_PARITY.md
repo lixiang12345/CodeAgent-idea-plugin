@@ -57,7 +57,7 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | Composer | Implemented | Modes, attachments, Skills, model picker, slash menu, @ mention menu, Auto, real prompt enhancement via backend `/v1/enhance`, adaptive input height, and persisted user-message edit/resend work. The conversation-scoped queue has a composer-adjacent collapsible panel, pause/resume, edit, delete, priority send, Stop-without-loss, restart-safe paused recovery, and FIFO execution |
 | Tools | Conditional | Local tools remain IDEA-owned; dedicated detail presentations preserve file/diff, retrieval/search, Web, provider integration, task, subagent/Ask User, diagnostics, terminal/process, and Mermaid result structure. Bounded foreground commands plus managed launch/list/read/write/wait/kill process sessions use the original terminal *argument* contract (execution is hosted by a plugin-managed process, not an IDE Run configuration), support project-contained working directories and interactive-input detection, backend-owned discovery/execution connects configured cloud adapters and subagents, and the local MCP gateway contributes dynamically discovered namespaced tools under the same policy. Each completed tool pass appends a compact per-turn summary strip counting changed/examined/indexed files, tools used, and elapsed seconds, derived from CodeAgent's own tool records. Long tool result output is bounded to 100 lines with an explicit Show more/Show less toggle instead of silently dropping the remainder. The Ask User tool accepts an optional list of suggested answers rendered as a chooser while still permitting a custom typed answer |
 | Agent edits | Implemented | Native Diff, undo, keep/discard, Agent Edits overlay, and local checkpoints with restore and an expandable per-checkpoint changed-file breakdown with per-file added/removed line counts |
-| Tasks | Implemented | Persistent per-thread tasks, filtering, add/delete/state, clear, Markdown import/export, run-one/run-all, and Agent task tools |
+| Tasks | Implemented | Persistent per-thread tasks, one level of subtasks with parent-relative numbering and descriptions, filtering, add/delete/state, clear, Markdown import/export, run-one/run-all, and Agent task tools accepting `parent_task_id` and `after_task_id` |
 | Git | Implemented | Real branch/index/worktree status, stage/unstage, native Diff, local message draft, confirmation, and commit |
 | Rules editor | Implemented | Repository Markdown, editable `.codeagent/guidelines.md` included in Agent context after `AGENTS.md`, refresh, confirmed workspace-rule deletion with metadata cleanup, persisted description and trigger metadata, client-side filename/content validation, unsaved-change protection, save, and manual per-thread selection work |
 | Image Canvas | Implemented | Project-contained directory selection, bounded raster gallery, settings, refresh, open, mention, and empty/error states |
@@ -168,13 +168,20 @@ carry no path. A pre-chat gate replaces the empty-thread card while the account
 is signed out or errored, or while the project is indexing or unindexed, and
 offers the corresponding action.
 
+Also resolved in slice 3, task hierarchy: `add_tasks` accepts the original
+plugin's task objects with `parent_task_id`, `after_task_id`, `description`, and
+an initial `state`, and `update_tasks` accepts `description`. Nesting is bounded
+to one level so the tree stays readable at 420 px, subtasks are numbered against
+their parent, reordering may reposition a parent but never reparents a subtask,
+and deleting a parent deletes its children. The hierarchy round-trips through
+the conversation store, the cloud sync contract, and the public shared view.
+
 Still open, local and feasible: mention chips and inline input completion, both
 of which need the composer to become a rich-text surface and `sendMessage` to
 carry structured mentions rather than a plain string; onboarding coach-marks,
-which need a product decision on trigger points; Monaco-based rules editing;
-task-tool hierarchy; and IDE Run-tool-window hosting for agent-launched
-commands. There is no no-folder gate because an IDEA tool window only exists
-inside an open project.
+which need a product decision on trigger points; Monaco-based rules editing; and
+IDE Run-tool-window hosting for agent-launched commands. There is no no-folder
+gate because an IDEA tool window only exists inside an open project.
 Cloud-dependent surfaces (shareable session links, subscription banners,
 server-driven notifications, marketplace management) are no longer withheld as a
 whole: all four are implemented end to end, and each is unavailable only where a

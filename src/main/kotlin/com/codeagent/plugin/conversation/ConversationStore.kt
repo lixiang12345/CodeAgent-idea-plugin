@@ -511,26 +511,37 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     }
 
     @Synchronized
-    fun addTasks(names: List<String>): List<ConversationTask> {
-        require(names.isNotEmpty()) { "At least one task is required" }
-        require(names.size <= MAX_TASKS_PER_OPERATION) { "Add at most $MAX_TASKS_PER_OPERATION tasks at once" }
+    fun addTasks(requests: List<ConversationTaskRequest>): List<ConversationTask> {
+        require(requests.isNotEmpty()) { "At least one task is required" }
+        require(requests.size <= MAX_TASKS_PER_OPERATION) { "Add at most $MAX_TASKS_PER_OPERATION tasks at once" }
         val thread = mutableActive()
         val available = MAX_TASKS_PER_THREAD - thread.tasks.size
-        require(available >= names.size) { "A thread can contain at most $MAX_TASKS_PER_THREAD tasks" }
-        val added = names.map { name ->
-            require(name.isNotBlank()) { "Task names must not be blank" }
-            ConversationTaskState().apply {
+        require(available >= requests.size) { "A thread can contain at most $MAX_TASKS_PER_THREAD tasks" }
+        val added = requests.map { request ->
+            require(request.name.isNotBlank()) { "Task names must not be blank" }
+            request.parentId?.let { parent ->
+                val existing = requireNotNull(thread.tasks.firstOrNull { it.id == parent }) { "Unknown parent task: $parent" }
+                // One level of nesting keeps the tree readable in a 420 px panel.
+                require(existing.parentId == null) { "Subtasks cannot nest under another subtask: $parent" }
+            }
+            val task = ConversationTaskState().apply {
                 id = UUID.randomUUID().toString()
-                this.name = name.trim().take(MAX_TASK_NAME_CHARS)
-                state = "not_started"
-            }.also(thread.tasks::add)
+                name = request.name.trim().take(MAX_TASK_NAME_CHARS)
+                state = request.state?.also { require(it in TASK_STATES) { "Unsupported task state: $it" } } ?: "not_started"
+                description = request.description?.trim()?.takeIf { it.isNotEmpty() }?.take(MAX_TASK_DESCRIPTION_CHARS)
+                parentId = request.parentId
+            }
+            val anchor = request.afterId ?: request.parentId
+            val at = anchor?.let { id -> thread.tasks.indexOfLast { it.id == id || it.parentId == id } }
+            if (at != null && at >= 0) thread.tasks.add(at + 1, task) else thread.tasks.add(task)
+            task
         }
         thread.updatedAt = System.currentTimeMillis()
         return added.map { it.toDomain() }
     }
 
     @Synchronized
-    fun updateTask(taskId: String, state: String?, name: String?): ConversationTask {
+    fun updateTask(taskId: String, state: String?, name: String?, description: String? = null): ConversationTask {
         val task = requireNotNull(mutableActive().tasks.firstOrNull { it.id == taskId }) { "Unknown task: $taskId" }
         state?.let {
             require(it in TASK_STATES) { "Unsupported task state: $it" }
@@ -540,6 +551,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
             require(it.isNotBlank()) { "Task name must not be blank" }
             task.name = it.trim().take(MAX_TASK_NAME_CHARS)
         }
+        description?.let { task.description = it.trim().takeIf(String::isNotEmpty)?.take(MAX_TASK_DESCRIPTION_CHARS) }
         mutableActive().updatedAt = System.currentTimeMillis()
         return task.toDomain()
     }
@@ -552,7 +564,10 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
             "Reordering requires every current task ID exactly once"
         }
         val byId = thread.tasks.associateBy { it.id }
-        thread.tasks = taskIds.mapTo(mutableListOf()) { requireNotNull(byId[it]) }
+        val requested = taskIds.map { requireNotNull(byId[it]) }
+        // Reordering may not reparent, so each subtask stays directly under its parent.
+        thread.tasks = requested.filter { it.parentId == null }
+            .flatMapTo(mutableListOf()) { parent -> listOf(parent) + requested.filter { it.parentId == parent.id } }
         thread.updatedAt = System.currentTimeMillis()
         return thread.tasks.map { it.toDomain() }
     }
@@ -568,6 +583,8 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     fun deleteTask(taskId: String) {
         val thread = mutableActive()
         require(thread.tasks.removeIf { it.id == taskId }) { "Unknown task: $taskId" }
+        // A subtask cannot outlive its parent, so removing a parent removes its children.
+        thread.tasks.removeIf { it.parentId == taskId }
         thread.updatedAt = System.currentTimeMillis()
     }
 
@@ -883,7 +900,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         turnIndex = turnIndex.takeIf { it >= 0 },
     )
 
-    private fun ConversationTaskState.toDomain() = ConversationTask(id, name, state)
+    private fun ConversationTaskState.toDomain() = ConversationTask(id, name, state, description, parentId)
 
     private fun ConversationThreadState.toMessageQueue() = ConversationMessageQueue(
         messages = messageQueue.map { it.toDomain() },
@@ -990,6 +1007,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         private const val MAX_TOOLS_PER_THREAD = 1_000
         private const val MAX_TASKS_PER_OPERATION = 20
         private const val MAX_TASK_NAME_CHARS = 240
+        private const val MAX_TASK_DESCRIPTION_CHARS = 2_000
         private const val MAX_TOOL_SUMMARY_CHARS = 8_000
         private const val MAX_TOOL_DETAIL_CHARS = 100_000
         private const val MAX_IMPORTED_MESSAGE_CHARS = 40_000
@@ -1046,6 +1064,17 @@ data class ConversationTask(
     val id: String,
     val name: String,
     val state: String,
+    val description: String? = null,
+    val parentId: String? = null,
+)
+
+/** One requested task; `afterId` and `parentId` mirror the original plugin's insertion anchors. */
+data class ConversationTaskRequest(
+    val name: String,
+    val description: String? = null,
+    val parentId: String? = null,
+    val afterId: String? = null,
+    val state: String? = null,
 )
 
 data class ConversationTool(
@@ -1179,4 +1208,6 @@ class ConversationTaskState {
     var id: String = ""
     var name: String = ""
     var state: String = "not_started"
+    var description: String? = null
+    var parentId: String? = null
 }

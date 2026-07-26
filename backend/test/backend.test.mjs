@@ -3087,3 +3087,69 @@ test("the OpenAPI contract documents the cloud surfaces", async () => {
     await once(server, "close");
   }
 });
+
+test("conversation tasks carry a bounded one-level hierarchy", async () => {
+  await withCloudServer({
+    authenticator: new MultiUserAuthenticator({ "token-a": { id: "user-a", claims: {} } }),
+    cloudSurfaces: cloudSurfaces(),
+  }, async ({ baseUrl }) => {
+    const write = (tasks) => fetch(`${baseUrl}/v1/conversations`, {
+      method: "POST",
+      headers: bearer("token-a"),
+      body: JSON.stringify({ id: `conv-${tasks.map((task) => task.id).join("-")}`, title: "Tasks", mode: "agent", updatedAt: Date.now(), messages: [], tools: [], tasks }),
+    });
+
+    const stored = await (await write([
+      { id: "parent", name: "Set up", state: "not_started", description: "Prepare the migration" },
+      { id: "child", name: "Write the migration", state: "in_progress", parentId: "parent" },
+    ])).json();
+    assert.equal(stored.tasks[0].description, "Prepare the migration");
+    assert.equal(stored.tasks[1].parentId, "parent");
+    // Absent optional fields stay absent, matching how messages and tools are stored.
+    assert.equal("parentId" in stored.tasks[0], false);
+    assert.equal("description" in stored.tasks[1], false);
+
+    const unknownParent = await write([{ id: "orphan", name: "Orphan", state: "not_started", parentId: "missing" }]);
+    assert.equal(unknownParent.status, 400);
+    assert.match((await unknownParent.json()).error, /must reference another task/);
+
+    const nested = await write([
+      { id: "a", name: "A", state: "not_started" },
+      { id: "b", name: "B", state: "not_started", parentId: "a" },
+      { id: "c", name: "C", state: "not_started", parentId: "b" },
+    ]);
+    assert.equal(nested.status, 400);
+    assert.match((await nested.json()).error, /cannot nest under another subtask/);
+  });
+});
+
+test("a shared conversation exposes task hierarchy without account data", async () => {
+  await withCloudServer({
+    authenticator: new MultiUserAuthenticator({ "token-a": { id: "user-a", claims: {} } }),
+    cloudSurfaces: cloudSurfaces(),
+  }, async ({ baseUrl }) => {
+    await fetch(`${baseUrl}/v1/conversations`, {
+      method: "POST",
+      headers: bearer("token-a"),
+      body: JSON.stringify({
+        id: "conv-shared-tasks",
+        title: "Tasks",
+        mode: "agent",
+        updatedAt: Date.now(),
+        messages: [],
+        tools: [],
+        tasks: [
+          { id: "parent", name: "Set up", state: "completed" },
+          { id: "child", name: "Write the migration", state: "not_started", parentId: "parent", description: "Adds the shares table" },
+        ],
+      }),
+    });
+    const created = await (await fetch(`${baseUrl}/v1/conversations/conv-shared-tasks/share`, { method: "POST", headers: bearer("token-a") })).json();
+
+    const shared = await (await fetch(created.url.replace("https://share.example.com", baseUrl))).json();
+    assert.deepEqual(shared.conversation.tasks, [
+      { id: "parent", name: "Set up", state: "completed", description: null, parentId: null },
+      { id: "child", name: "Write the migration", state: "not_started", description: "Adds the shares table", parentId: "parent" },
+    ]);
+  });
+});

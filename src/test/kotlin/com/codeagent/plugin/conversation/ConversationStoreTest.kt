@@ -269,7 +269,7 @@ class ConversationStoreTest {
         source.setSelectedSkills(listOf("skill-a"))
         source.setSelectedRules(listOf("rule-a"))
         source.addMessage("user", "Plan the migration")
-        val tasks = source.addTasks(listOf("Update schema", "Run migration tests"))
+        val tasks = source.addTasks(listOf("Update schema", "Run migration tests").map { ConversationTaskRequest(it) })
         source.updateTask(tasks.first().id, "completed", null)
 
         val fork = source.continueTasksInNewThread()
@@ -385,9 +385,52 @@ class ConversationStoreTest {
     }
 
     @Test
+    fun `files subtasks under their parent and keeps them there`() {
+        val store = ConversationStore()
+        val (setup, ship) = store.addTasks(listOf(ConversationTaskRequest("Set up"), ConversationTaskRequest("Ship")))
+        val migrate = store.addTasks(listOf(
+            ConversationTaskRequest("Write the migration", description = "Add the shares table", parentId = setup.id),
+        )).single()
+        val verify = store.addTasks(listOf(
+            ConversationTaskRequest("Verify the migration", parentId = setup.id, state = "in_progress"),
+        )).single()
+
+        assertEquals(listOf("Set up", "Write the migration", "Verify the migration", "Ship"), store.active().tasks.map { it.name })
+        assertEquals(setup.id, migrate.parentId)
+        assertEquals("Add the shares table", migrate.description)
+        assertEquals("in_progress", verify.state)
+
+        // Reordering may reposition parents but must not detach or reparent a subtask.
+        store.reorderTasks(listOf(ship.id, verify.id, setup.id, migrate.id))
+        assertEquals(listOf("Ship", "Set up", "Verify the migration", "Write the migration"), store.active().tasks.map { it.name })
+        assertEquals(listOf(null, null, setup.id, setup.id), store.active().tasks.map { it.parentId })
+    }
+
+    @Test
+    fun `rejects unreachable parents and removes subtasks with their parent`() {
+        val store = ConversationStore()
+        val parent = store.addTasks(listOf(ConversationTaskRequest("Set up"))).single()
+        val child = store.addTasks(listOf(ConversationTaskRequest("Write the migration", parentId = parent.id))).single()
+
+        assertFailsWith<IllegalArgumentException> {
+            store.addTasks(listOf(ConversationTaskRequest("Orphan", parentId = "missing-task")))
+        }
+        // One level only, so a subtask cannot itself become a parent.
+        assertFailsWith<IllegalArgumentException> {
+            store.addTasks(listOf(ConversationTaskRequest("Too deep", parentId = child.id)))
+        }
+
+        store.updateTask(child.id, null, null, description = "Adds the shares table")
+        assertEquals("Adds the shares table", store.active().tasks.single { it.id == child.id }.description)
+
+        store.deleteTask(parent.id)
+        assertTrue(store.active().tasks.isEmpty())
+    }
+
+    @Test
     fun `persists and reorders tasks per thread`() {
         val store = ConversationStore()
-        val tasks = store.addTasks(listOf("Inspect auth flow", "Add regression tests"))
+        val tasks = store.addTasks(listOf("Inspect auth flow", "Add regression tests").map { ConversationTaskRequest(it) })
 
         store.updateTask(tasks.first().id, "completed", null)
         store.reorderTasks(tasks.reversed().map { it.id })

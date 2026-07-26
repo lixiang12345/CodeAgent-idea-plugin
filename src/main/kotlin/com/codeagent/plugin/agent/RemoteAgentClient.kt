@@ -918,6 +918,8 @@ internal data class RemoteConversationTask(
     val id: String,
     val name: String,
     val state: String,
+    val description: String? = null,
+    val parentId: String? = null,
 )
 
 @Serializable

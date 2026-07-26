@@ -1356,7 +1356,13 @@
         "properties": {
           "id": { "type": "string", "minLength": 1, "maxLength": 200 },
           "name": { "type": "string", "minLength": 1, "maxLength": 240 },
-          "state": { "type": "string", "enum": ["not_started", "in_progress", "completed", "cancelled"] }
+          "state": { "type": "string", "enum": ["not_started", "in_progress", "completed", "cancelled"] },
+          "description": { "type": ["string", "null"], "maxLength": 2000 },
+          "parentId": {
+            "type": ["string", "null"],
+            "maxLength": 200,
+            "description": "ID of another top-level task in the same conversation. Nesting is one level deep."
+          }
         },
         "additionalProperties": false
       },
@@ -2634,11 +2640,13 @@
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["id", "name", "state"],
+              "required": ["id", "name", "state", "description", "parentId"],
               "properties": {
                 "id": { "type": "string" },
                 "name": { "type": "string" },
-                "state": { "type": "string" }
+                "state": { "type": "string" },
+                "description": { "type": ["string", "null"] },
+                "parentId": { "type": ["string", "null"] }
               }
             }
           },

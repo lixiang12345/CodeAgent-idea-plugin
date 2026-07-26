@@ -1266,3 +1266,49 @@ test("dropping project files attaches them and a pathless drop says why it canno
   await expect(page.locator(".composer-notice.error")).toContainText("carry no file path");
   await expectViewportIntegrity(page);
 });
+
+test("subtasks render under their parent and delete with it", async ({ page }) => {
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      tasks: [
+        { id: "parent", name: "Set up the migration", state: "in_progress" },
+        { id: "child-a", name: "Write the migration", state: "completed", parentId: "parent", description: "Adds the shares table" },
+        { id: "child-b", name: "Verify the migration", state: "not_started", parentId: "parent" },
+        { id: "ship", name: "Ship the change", state: "not_started" },
+      ],
+    });
+  });
+
+  await page.getByTitle("More options").click();
+  await page.getByRole("button", { name: "Agent Tasklist" }).click();
+
+  const rows = page.locator(".task-workspace-row");
+  await expect(rows).toHaveCount(4);
+  await expect(rows.nth(1)).toHaveClass(/subtask/);
+  await expect(rows.nth(2)).toHaveClass(/subtask/);
+  await expect(rows.nth(3)).not.toHaveClass(/subtask/);
+  // Numbering counts top-level tasks only, so subtasks read as 1.1 and 1.2 and the next task is 2.
+  await expect(rows.nth(0).locator("i")).toHaveText("1");
+  await expect(rows.nth(1).locator("i")).toHaveText("1.1");
+  await expect(rows.nth(2).locator("i")).toHaveText("1.2");
+  await expect(rows.nth(3).locator("i")).toHaveText("2");
+  await expect(rows.nth(1).locator("small")).toHaveText("Adds the shares table");
+  await expectViewportIntegrity(page);
+
+  // A subtask offers no nesting affordance of its own.
+  await expect(rows.nth(0).getByRole("button", { name: "Add a subtask under Set up the migration" })).toBeVisible();
+  await expect(rows.nth(1).getByRole("button", { name: /Add a subtask/ })).toHaveCount(0);
+
+  await rows.nth(0).getByRole("button", { name: "Add a subtask under Set up the migration" }).click();
+  await page.getByRole("textbox", { name: "New subtask of Set up the migration" }).fill("Back out the migration");
+  await page.locator(".subtask-add button").click();
+  await expect(page.locator(".task-workspace-row")).toHaveCount(5);
+  await expect(page.locator(".task-workspace-row").nth(3)).toHaveClass(/subtask/);
+
+  await rows.nth(0).getByTitle("Delete task and its subtasks").click();
+  await expect(page.locator(".task-workspace-row")).toHaveCount(1);
+  await expect(page.locator(".task-workspace-row").first().locator("strong")).toHaveText("Ship the change");
+});
