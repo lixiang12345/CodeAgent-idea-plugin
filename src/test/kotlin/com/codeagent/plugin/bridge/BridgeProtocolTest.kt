@@ -16,6 +16,12 @@ import kotlin.test.assertTrue
 class BridgeProtocolTest {
     private val json = Json { ignoreUnknownKeys = true }
 
+    /** Mirrors IdeBridge's encoder so these assertions describe what the webview actually receives. */
+    private val bridgeJson = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
+
     @Test
     fun `decodes a versioned command and ignores future fields`() {
         val command = json.decodeFromString<CommandEnvelope>(
@@ -185,6 +191,56 @@ class BridgeProtocolTest {
 
         assertTrue(encoded.contains("\"messageQueue\":[{\"id\":\"queue-1\""))
         assertTrue(encoded.contains("\"messageQueuePaused\":true"))
+    }
+
+    @Test
+    fun `encodes the cloud surfaces the webview reads by name`() {
+        val encoded = bridgeJson.encodeToString(
+            AppSnapshotDto(
+                projectName = "sample-project",
+                threads = emptyList(),
+                account = AccountSnapshotDto(
+                    state = "signed_in",
+                    subscription = SubscriptionSnapshotDto(
+                        state = "approaching",
+                        plan = "team",
+                        label = "Team",
+                        manageUrl = "https://billing.example.com/codeagent",
+                        quotas = listOf(SubscriptionQuotaDto("agent_run", 4200, 5000, 800, 0.84, "approaching")),
+                        warning = SubscriptionWarningDto("warning", "agent_run", "You have used 4200 of 5000 agent_run units."),
+                    ),
+                ),
+                notifications = listOf(
+                    NotificationDto(
+                        id = "maintenance-window",
+                        level = "warning",
+                        message = "Scheduled backend maintenance tonight.",
+                        actionItems = listOf(NotificationActionItemDto("Maintenance notice", "https://status.example.com/codeagent")),
+                    ),
+                ),
+                sharing = SharingSnapshotDto(state = "shared", tokenPrefix = "abcd1234", expiresAt = 1_800_000_000_000, viewCount = 3),
+            ),
+        )
+
+        assertTrue(encoded.contains(""""state":"approaching""""))
+        assertTrue(encoded.contains(""""manageUrl":"https://billing.example.com/codeagent""""))
+        assertTrue(encoded.contains(""""remaining":800"""))
+        assertTrue(encoded.contains(""""notifications":[{"id":"maintenance-window""""))
+        assertTrue(encoded.contains(""""actionItems":[{"title":"Maintenance notice""""))
+        assertTrue(encoded.contains(""""sharing":{"state":"shared""""))
+        assertTrue(encoded.contains(""""tokenPrefix":"abcd1234""""))
+        // A share URL is a bearer secret; the sharing block carries none unless the host just created one.
+        assertTrue(encoded.contains(""""sharing":{"state":"shared","reason":null,"url":null"""))
+    }
+
+    @Test
+    fun `reports an absent subscription as null rather than inventing a plan`() {
+        val encoded = bridgeJson.encodeToString(AppSnapshotDto(projectName = "sample-project", threads = emptyList()))
+
+        assertTrue(encoded.contains(""""subscription":null"""))
+        // The webview types both fields as required, so the host always sends them.
+        assertTrue(encoded.contains(""""notifications":[]"""))
+        assertTrue(encoded.contains(""""sharing":{"state":"unavailable","reason":null"""))
     }
 
     @Test

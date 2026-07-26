@@ -22,6 +22,7 @@ import com.codeagent.plugin.agent.PluginRuntimeSnapshot
 import com.codeagent.plugin.agent.RemoteContextUpdated
 import com.codeagent.plugin.agent.RemoteAgentClient
 import com.codeagent.plugin.agent.RemoteConfiguration
+import com.codeagent.plugin.agent.RemoteHttpException
 import com.codeagent.plugin.agent.RemoteBackendHealth
 import com.codeagent.plugin.agent.RemoteJob
 import com.codeagent.plugin.agent.RemoteJobInput
@@ -50,6 +51,7 @@ import com.codeagent.plugin.ui.CodeAgentThemeTokens
 import com.codeagent.plugin.ui.CodeAgentUiRequest
 import com.codeagent.plugin.ui.EditorSelectionSnapshot
 import com.codeagent.plugin.ui.EditorSelectionTrackingService
+import com.intellij.ide.BrowserUtil
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
@@ -82,6 +84,7 @@ import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import java.net.URI
 import java.nio.file.Path
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -192,6 +195,13 @@ class IdeBridge(
 
     @Volatile
     private var account = AccountSnapshotDto()
+
+    @Volatile
+    private var notifications: List<NotificationDto> = emptyList()
+
+    /** `url` lives here for the session only; a share link is a bearer secret and is never persisted. */
+    @Volatile
+    private var sharing = SharingSnapshotDto()
 
     @Volatile
     private var syncedAccountUserId: String? = null
@@ -468,6 +478,31 @@ class IdeBridge(
             "clearByok" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<ByokProviderPayload>(it) }
                 clearByok(request.provider)
+            }
+            "dismissNotification" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<DismissNotificationPayload>(it) }
+                dismissNotification(request.notificationId, request.actionItemTitle)
+            }
+            "openNotificationLink" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<NotificationLinkPayload>(it) }
+                openExternalLink(request.url)
+                dismissNotification(request.notificationId, request.actionItemTitle)
+            }
+            "openSubscriptionManagement" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<ExternalLinkPayload>(it) }
+                openExternalLink(request.url)
+            }
+            "shareConversation" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPayload>(it) }
+                shareConversation(request.threadId)
+            }
+            "unshareConversation" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPayload>(it) }
+                unshareConversation(request.threadId)
+            }
+            "refreshSharing" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<ThreadPayload>(it) }
+                refreshSharing(request.threadId)
             }
             "refreshJobs" -> refreshJobs()
             "createJob" -> {
@@ -1554,6 +1589,8 @@ class IdeBridge(
                     contextRerankModel = settings.contextRerankModel,
                 ),
                 account = account,
+                notifications = notifications,
+                sharing = sharing,
                 byok = byokService.snapshot().let {
                     ByokSnapshotDto(
                         activeProvider = null,
@@ -1889,8 +1926,26 @@ class IdeBridge(
                     email = response.user.email,
                     usage = response.usage.map { AccountUsageDto(it.kind, it.units) },
                     label = "Signed in as ${response.user.displayName}",
+                    // Absent on an older backend; a missing block stays null rather than becoming a fabricated plan.
+                    subscription = response.subscription?.let { subscription ->
+                        SubscriptionSnapshotDto(
+                            state = subscription.state,
+                            plan = subscription.plan,
+                            label = subscription.label,
+                            manageUrl = subscription.manageUrl,
+                            reason = subscription.reason,
+                            quotas = subscription.quotas.map {
+                                SubscriptionQuotaDto(it.kind, it.used, it.limit, it.remaining, it.ratio, it.state)
+                            },
+                            warning = subscription.warning?.let {
+                                SubscriptionWarningDto(it.level, it.kind, it.message)
+                            },
+                        )
+                    },
                 )
                 emitSnapshot()
+                refreshNotifications()
+                refreshSharing()
                 refreshBackendTools()
                 refreshConfigurations()
                 refreshJobs()
@@ -2116,6 +2171,110 @@ class IdeBridge(
         mcpRuntimeService.reconcile(emptyList()).exceptionally { null }
         hookRuntimeService.reconcile(emptyList())
         productJobs = ProductJobSnapshotDto(state = "unavailable", label = label)
+        notifications = emptyList()
+        sharing = SharingSnapshotDto(reason = label)
+    }
+
+    private fun refreshNotifications() {
+        agent.notifications().whenComplete { response, error ->
+            // An unconfigured deployment answers with an empty list, so only a transport failure clears the banner.
+            notifications = if (error != null || response == null) emptyList() else response.data.map {
+                NotificationDto(
+                    id = it.id,
+                    level = it.level,
+                    message = it.message,
+                    actionItems = it.actionItems.map { item -> NotificationActionItemDto(item.title, item.url) },
+                )
+            }
+            emitSnapshot()
+        }
+    }
+
+    private fun dismissNotification(notificationId: String, actionItemTitle: String?) {
+        notifications = notifications.filterNot { it.id == notificationId }
+        emitSnapshot()
+        agent.dismissNotification(notificationId, actionItemTitle).whenComplete { _, error ->
+            if (error != null) {
+                emit("error", mapOf("message" to "Could not dismiss the notification: ${error.rootMessage()}"))
+                refreshNotifications()
+            }
+        }
+    }
+
+    private fun refreshSharing(conversationId: String? = null) {
+        val id = conversationId ?: synchronized(stateLock) { conversations.active().id }
+        agent.conversationShare(id).whenComplete { share, error ->
+            sharing = when {
+                error != null -> unavailableSharing(error)
+                share == null -> SharingSnapshotDto(state = "unshared")
+                // The plaintext token is unrecoverable by design, so a refreshed share carries no url.
+                else -> SharingSnapshotDto(
+                    state = "shared",
+                    tokenPrefix = share.tokenPrefix,
+                    expiresAt = share.expiresAt,
+                    viewCount = share.viewCount,
+                )
+            }
+            emitSnapshot()
+        }
+    }
+
+    private fun shareConversation(conversationId: String) {
+        sharing = sharing.copy(state = "working", reason = null)
+        emitSnapshot()
+        agent.createConversationShare(conversationId).whenComplete { share, error ->
+            if (error != null || share == null) {
+                sharing = unavailableSharing(error)
+                emitSnapshot()
+                return@whenComplete
+            }
+            sharing = SharingSnapshotDto(
+                state = "shared",
+                url = share.url,
+                tokenPrefix = share.tokenPrefix,
+                expiresAt = share.expiresAt,
+                viewCount = share.viewCount,
+                rotated = share.rotated,
+            )
+            emitSnapshot()
+            share.url?.let { CopyPasteManager.getInstance().setContents(StringSelection(it)) }
+            emit("notice", mapOf("message" to if (share.rotated) {
+                "Copied a new share link; the previous link no longer works"
+            } else {
+                "Copied the share link"
+            }))
+        }
+    }
+
+    private fun unshareConversation(conversationId: String) {
+        sharing = sharing.copy(state = "working", reason = null)
+        emitSnapshot()
+        agent.deleteConversationShare(conversationId).whenComplete { _, error ->
+            // A 404 means it is already unshared, which the client reports as false rather than an error.
+            sharing = if (error != null) unavailableSharing(error) else SharingSnapshotDto(state = "unshared")
+            emitSnapshot()
+            if (error == null) emit("notice", mapOf("message" to "Stopped sharing this conversation"))
+        }
+    }
+
+    /** Carries the backend's own reason for a 503 so the panel never invents one. */
+    private fun unavailableSharing(error: Throwable?): SharingSnapshotDto {
+        val cause = generateSequence(error) { it.cause }.filterIsInstance<RemoteHttpException>().firstOrNull()
+        return if (cause?.statusCode == 503) {
+            SharingSnapshotDto(state = "unavailable", reason = cause.serverMessage ?: cause.message)
+        } else {
+            SharingSnapshotDto(state = "unavailable", reason = error?.rootMessage() ?: "Sharing is unavailable")
+        }
+    }
+
+    private fun openExternalLink(url: String) {
+        val target = runCatching { URI(url) }.getOrNull()
+        val loopback = target?.host in listOf("localhost", "127.0.0.1", "::1")
+        if (target == null || !(target.scheme == "https" || (target.scheme == "http" && loopback))) {
+            emit("error", mapOf("message" to "Refused to open a link that does not use https"))
+            return
+        }
+        ApplicationManager.getApplication().invokeLater { BrowserUtil.browse(target) }
     }
 
     private fun refreshModels() {
@@ -3580,6 +3739,19 @@ class IdeBridge(
 
     @Serializable
     private data class JobPayload(val jobId: String)
+
+    @Serializable
+    private data class DismissNotificationPayload(val notificationId: String, val actionItemTitle: String? = null)
+
+    @Serializable
+    private data class NotificationLinkPayload(
+        val url: String,
+        val notificationId: String,
+        val actionItemTitle: String? = null,
+    )
+
+    @Serializable
+    private data class ExternalLinkPayload(val url: String)
 
     companion object {
         private val LOG = logger<IdeBridge>()

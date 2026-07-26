@@ -1085,3 +1085,93 @@ test("Threads exposes active approval and failure states", async ({ page }) => {
   await expect(page.locator(".thread-row.active .thread-activity")).toHaveText("Failed");
   await expectViewportIntegrity(page);
 });
+
+test("server notifications render, act, and dismiss without claiming an unavailable surface works", async ({ page }) => {
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      notifications: [
+        {
+          id: "maintenance-window",
+          level: "warning",
+          message: "Scheduled backend maintenance tonight. Agent runs may be interrupted.",
+          actionItems: [{ title: "Maintenance notice", url: "https://status.example.com/codeagent" }],
+        },
+        { id: "catalog-refresh", level: "info", message: "Two new models are available in the model picker.", actionItems: [] },
+      ],
+    });
+  });
+
+  const banners = page.locator(".panel-banner");
+  await expect(banners).toHaveCount(2);
+  await expect(banners.first()).toHaveClass(/warning/);
+  await expect(banners.first().getByRole("button", { name: "Maintenance notice" })).toBeVisible();
+  await expectViewportIntegrity(page);
+
+  await banners.nth(1).getByRole("button", { name: "Dismiss notification: Two new models are available in the model picker." }).click();
+  await expect(banners).toHaveCount(1);
+  await expect(page.getByText("Two new models are available in the model picker.")).toHaveCount(0);
+
+  // An unconfigured deployment must disable the affordance and show the backend's reason, not fake a success.
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      sharing: { state: "unavailable", reason: "Shareable links are not configured on this deployment" },
+    });
+  });
+  const shareButton = page.getByRole("button", { name: "Share this conversation" });
+  await expect(shareButton).toBeDisabled();
+  await expect(shareButton).toHaveAttribute("title", "Shareable links are not configured on this deployment");
+});
+
+test("subscription reports quotas it counted and stays explicit when unconfigured", async ({ page }) => {
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      account: {
+        ...snapshot.account,
+        state: "signed_in",
+        subscription: { state: "unknown", quotas: [], reason: "Subscription plans are not configured on this deployment" },
+      },
+    });
+  });
+  await page.getByTitle("Settings").click();
+  const allSettings = page.getByRole("button", { name: "All settings" });
+  if (await allSettings.isVisible()) await allSettings.click();
+  await page.getByRole("button", { name: "Subscription", exact: true }).click();
+  await expect(page.getByText("Plan and quotas unavailable")).toBeVisible();
+  await expect(page.getByText("Subscription plans are not configured on this deployment")).toBeVisible();
+  await expect(page.locator(".quota-row")).toHaveCount(0);
+
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      account: {
+        ...snapshot.account,
+        subscription: {
+          state: "approaching",
+          plan: "team",
+          label: "Team",
+          manageUrl: "https://billing.example.com/codeagent",
+          quotas: [
+            { kind: "agent_run", used: 4200, limit: 5000, remaining: 800, ratio: 0.84, state: "approaching" },
+            { kind: "completion", used: 10, limit: 1000, remaining: 990, ratio: 0.01, state: "ok" },
+          ],
+          warning: { level: "warning", kind: "agent_run", message: "You have used 4200 of 5000 agent_run units included in the Team plan." },
+        },
+      },
+    });
+  });
+  await expect(page.locator(".quota-row")).toHaveCount(2);
+  await expect(page.locator(".quota-row").first()).toHaveClass(/approaching/);
+  await expect(page.getByRole("button", { name: "Manage", exact: true })).toBeVisible();
+  await expectViewportIntegrity(page);
+});

@@ -25,6 +25,14 @@ import {
 } from "../src/context-policy.mjs";
 import { createToolCatalog, DISCOVER_TOOLS_NAME } from "../src/tool-catalog.mjs";
 import { MemoryProductStore } from "../src/product-store.mjs";
+import {
+  createCloudSurfacesFromEnv,
+  parseNotificationCatalog,
+  parseSharePolicy,
+  parseSubscriptionPolicy,
+  resolveNotifications,
+  resolveSubscription,
+} from "../src/cloud-surfaces.mjs";
 
 test("composes server-owned policy before repository customization", () => {
   const prompt = composeSystemPrompt({
@@ -2617,3 +2625,465 @@ async function* parseEvents(body) {
     }
   }
 }
+
+/** Maps one bearer token per user so share and notification isolation can be exercised. */
+class MultiUserAuthenticator {
+  constructor(users) {
+    this.users = users;
+    this.mode = "shared-token";
+  }
+
+  async authenticate(request) {
+    const token = (request.headers.authorization || "").replace(/^Bearer\s+/i, "");
+    const user = this.users[token];
+    if (!user) {
+      const error = new Error("Unauthorized");
+      error.statusCode = 401;
+      throw error;
+    }
+    return user;
+  }
+
+  publicConfig() { return { mode: this.mode }; }
+  async logout() {}
+  async sessionInfo() { return { mode: this.mode }; }
+}
+
+async function withCloudServer(options, run) {
+  const store = options.store || new MemoryProductStore();
+  const server = createCodeAgentServer({
+    productStore: store,
+    modelGateway: {},
+    authenticator: options.authenticator,
+    cloudSurfaces: options.cloudSurfaces,
+    logger: { error() {} },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    await run({ store, baseUrl: `http://127.0.0.1:${server.address().port}` });
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+}
+
+function cloudSurfaces(env = {}) {
+  return createCloudSurfacesFromEnv({ SHARE_BASE_URL: "https://share.example.com", ...env });
+}
+
+function bearer(token) {
+  return { authorization: `Bearer ${token}`, "content-type": "application/json" };
+}
+
+async function seedConversation(baseUrl, token, id) {
+  const response = await fetch(`${baseUrl}/v1/conversations`, {
+    method: "POST",
+    headers: bearer(token),
+    body: JSON.stringify({
+      id,
+      title: "Shared thread",
+      mode: "agent",
+      updatedAt: Date.now(),
+      selectedAgentProfileId: "search",
+      selectedModelId: "model-x",
+      selectedSkillIds: ["skill-a"],
+      selectedRuleIds: ["rule-a"],
+      messages: [{ id: "m1", role: "user", content: "hello", createdAt: Date.now(), runId: "run-1", turnIndex: 3, timelineSequence: 7 }],
+      tasks: [{ id: "t1", name: "Review", state: "completed" }],
+      tools: [{ id: "tool-1", name: "read_file", summary: "src/app.ts", status: "completed", createdAt: Date.now(), canRevert: true, runId: "run-1", turnIndex: 3 }],
+    }),
+  });
+  assert.equal(response.status, 201);
+}
+
+test("share policy rejects unusable link bases and lifetimes", () => {
+  assert.equal(parseSharePolicy({}).baseUrl, null);
+  assert.equal(parseSharePolicy({}).defaultTtlSeconds, 604_800);
+  assert.equal(parseSharePolicy({ SHARE_BASE_URL: "https://share.example.com/" }).baseUrl, "https://share.example.com");
+  assert.equal(parseSharePolicy({ SHARE_BASE_URL: "http://127.0.0.1:8787" }).baseUrl, "http://127.0.0.1:8787");
+  assert.throws(() => parseSharePolicy({ SHARE_BASE_URL: "http://share.example.com" }), /must use https/);
+  assert.throws(() => parseSharePolicy({ SHARE_BASE_URL: "https://user:pw@share.example.com" }), /credentials/);
+  assert.throws(() => parseSharePolicy({ SHARE_BASE_URL: "https://share.example.com/?a=1" }), /query/);
+  assert.throws(() => parseSharePolicy({ SHARE_BASE_URL: "not-a-url" }), /valid absolute URL/);
+  assert.throws(() => parseSharePolicy({ SHARE_LINK_TTL_SECONDS: "30" }), /between 60 and 31536000/);
+  assert.throws(() => parseSharePolicy({ SHARE_LINK_TTL_SECONDS: "31536001" }), /between 60 and 31536000/);
+});
+
+test("notification catalog rejects malformed operator input", () => {
+  assert.deepEqual(parseNotificationCatalog(""), []);
+  assert.deepEqual(parseNotificationCatalog(undefined), []);
+  assert.throws(() => parseNotificationCatalog("{"), /valid JSON/);
+  assert.throws(() => parseNotificationCatalog('{"id":"a"}'), /array of notifications/);
+  assert.throws(
+    () => parseNotificationCatalog(JSON.stringify(Array.from({ length: 21 }, (_, i) => ({ id: `n${i}`, message: "m" })))),
+    /at most 20 notifications/,
+  );
+  assert.throws(() => parseNotificationCatalog('[{"id":"a","message":"m"},{"id":"a","message":"m"}]'), /Duplicate notification id/);
+  assert.throws(() => parseNotificationCatalog('[{"id":"bad id","message":"m"}]'), /Notification id must use/);
+  assert.throws(() => parseNotificationCatalog('[{"id":"a"}]'), /requires a message/);
+  assert.throws(() => parseNotificationCatalog(JSON.stringify([{ id: "a", message: "x".repeat(2001) }])), /message is too long/);
+  assert.throws(() => parseNotificationCatalog('[{"id":"a","message":"m","level":"critical"}]'), /level must be one of/);
+  assert.throws(
+    () => parseNotificationCatalog(JSON.stringify([{ id: "a", message: "m", actionItems: Array.from({ length: 5 }, () => ({ title: "t", url: "https://e.example.com" })) }])),
+    /at most 4 action items/,
+  );
+  assert.throws(
+    () => parseNotificationCatalog('[{"id":"a","message":"m","actionItems":[{"title":"t","url":"http://evil.example.com"}]}]'),
+    /must use https/,
+  );
+  assert.throws(
+    () => parseNotificationCatalog('[{"id":"a","message":"m","actionItems":[{"title":"t","url":"https://u:p@e.example.com"}]}]'),
+    /must not contain credentials/,
+  );
+  assert.throws(
+    () => parseNotificationCatalog(JSON.stringify([{ id: "a", message: "m", userIds: Array.from({ length: 201 }, (_, i) => `u${i}`) }])),
+    /at most 200 users/,
+  );
+
+  const [iso, epoch] = parseNotificationCatalog(JSON.stringify([
+    { id: "iso", message: "m", expiresAt: "2030-01-01T00:00:00Z" },
+    { id: "epoch", message: "m", expiresAt: 1_900_000_000_000 },
+  ]));
+  assert.equal(iso.expiresAt, Date.parse("2030-01-01T00:00:00Z"));
+  assert.equal(epoch.expiresAt, 1_900_000_000_000);
+});
+
+test("notification resolution filters dismissals, expiry, and audience", () => {
+  const catalog = parseNotificationCatalog(JSON.stringify([
+    { id: "keep", message: "keep" },
+    { id: "dismissed", message: "dismissed" },
+    { id: "expired", message: "expired", expiresAt: 1_000 },
+    { id: "others", message: "others", userIds: ["someone-else"] },
+    { id: "targeted", message: "targeted", userIds: ["user-a"] },
+  ]));
+  const resolved = resolveNotifications({
+    catalog,
+    principal: { id: "user-a" },
+    dismissals: [{ notificationId: "dismissed" }],
+    now: 5_000,
+  });
+
+  assert.deepEqual(resolved.map((entry) => entry.id), ["keep", "targeted"]);
+  // The audience is deployment policy and must not leak to a client.
+  assert.ok(resolved.every((entry) => entry.userIds === undefined));
+
+  resolved[0].actionItems.push({ title: "injected", url: "https://x.example.com" });
+  assert.equal(catalog[0].actionItems.length, 0);
+});
+
+test("subscription resolution reports unknown states with a reason", () => {
+  const noPlans = resolveSubscription({ policy: parseSubscriptionPolicy({}), principal: { claims: {} } });
+  assert.equal(noPlans.state, "unknown");
+  assert.match(noPlans.reason, /not configured/);
+  assert.equal(noPlans.warning, null);
+
+  const policy = parseSubscriptionPolicy({
+    SUBSCRIPTION_PLANS_JSON: JSON.stringify({
+      team: { label: "Team", manageUrl: "https://billing.example.com", quotas: { agent_run: 100 } },
+      bare: { label: "Bare" },
+    }),
+  });
+
+  assert.match(resolveSubscription({ policy, principal: { claims: {} } }).reason, /No subscription plan is assigned/);
+  assert.match(resolveSubscription({ policy, principal: { claims: { codeagent_plan: "ghost" } } }).reason, /is not configured/);
+  assert.match(resolveSubscription({ policy, principal: { claims: { codeagent_plan: "bare" } } }).reason, /does not declare usage quotas/);
+});
+
+test("subscription quota states follow the counted usage and the warn ratio", () => {
+  const policy = parseSubscriptionPolicy({
+    SUBSCRIPTION_PLANS_JSON: JSON.stringify({ team: { label: "Team", quotas: { agent_run: 100, completion: 10 } } }),
+    SUBSCRIPTION_DEFAULT_PLAN: "team",
+  });
+  const at = (usage) => resolveSubscription({ policy, principal: { claims: {} }, usage });
+
+  assert.equal(at([{ kind: "agent_run", units: 79 }]).state, "ok");
+  // 0.8 is the default warn ratio and is inclusive.
+  assert.equal(at([{ kind: "agent_run", units: 80 }]).state, "approaching");
+  assert.equal(at([{ kind: "agent_run", units: 100 }]).state, "exhausted");
+  assert.equal(at([{ kind: "agent_run", units: 250 }]).quotas[0].remaining, 0);
+
+  // The worst quota decides the top-level state even when another is healthy.
+  const mixed = at([{ kind: "agent_run", units: 1 }, { kind: "completion", units: 10 }]);
+  assert.equal(mixed.state, "exhausted");
+  assert.equal(mixed.warning.kind, "completion");
+  assert.match(mixed.warning.message, /Team plan/);
+
+  const zeroLimit = resolveSubscription({
+    policy: parseSubscriptionPolicy({ SUBSCRIPTION_PLANS_JSON: JSON.stringify({ free: { quotas: { agent_run: 0 } } }), SUBSCRIPTION_DEFAULT_PLAN: "free" }),
+    principal: { claims: {} },
+  });
+  assert.equal(zeroLimit.state, "exhausted");
+});
+
+test("share creation rotates the token and invalidates the previous link", async () => {
+  await withCloudServer({
+    authenticator: new MultiUserAuthenticator({ "token-a": { id: "user-a", claims: {} } }),
+    cloudSurfaces: cloudSurfaces(),
+  }, async ({ baseUrl }) => {
+    await seedConversation(baseUrl, "token-a", "conv-1");
+
+    const first = await (await fetch(`${baseUrl}/v1/conversations/conv-1/share`, { method: "POST", headers: bearer("token-a") })).json();
+    assert.equal(first.rotated, false);
+    assert.match(first.url, /^https:\/\/share\.example\.com\/v1\/share\/[A-Za-z0-9_-]{43}$/);
+
+    const second = await (await fetch(`${baseUrl}/v1/conversations/conv-1/share`, { method: "POST", headers: bearer("token-a") })).json();
+    assert.equal(second.rotated, true);
+    assert.notEqual(second.url, first.url);
+    assert.equal(second.viewCount, 0);
+
+    assert.equal((await fetch(first.url.replace("https://share.example.com", baseUrl))).status, 404);
+    assert.equal((await fetch(second.url.replace("https://share.example.com", baseUrl))).status, 200);
+  });
+});
+
+test("share reads never expose the token or its hash", async () => {
+  await withCloudServer({
+    authenticator: new MultiUserAuthenticator({ "token-a": { id: "user-a", claims: {} } }),
+    cloudSurfaces: cloudSurfaces(),
+  }, async ({ baseUrl }) => {
+    await seedConversation(baseUrl, "token-a", "conv-1");
+    const created = await (await fetch(`${baseUrl}/v1/conversations/conv-1/share`, { method: "POST", headers: bearer("token-a") })).json();
+    const token = created.url.split("/").pop();
+
+    const response = await fetch(`${baseUrl}/v1/conversations/conv-1/share`, { headers: bearer("token-a") });
+    const body = await response.text();
+    assert.equal(response.status, 200);
+    assert.ok(!body.includes(token));
+    assert.ok(!/[a-f0-9]{64}/.test(body));
+    assert.equal(JSON.parse(body).tokenPrefix, token.slice(0, 8));
+  });
+});
+
+test("the public share view drops identity, revert, run correlation, and thread customization", async () => {
+  await withCloudServer({
+    authenticator: new MultiUserAuthenticator({ "token-a": { id: "user-a", claims: {} } }),
+    cloudSurfaces: cloudSurfaces(),
+  }, async ({ baseUrl }) => {
+    await seedConversation(baseUrl, "token-a", "conv-1");
+    const created = await (await fetch(`${baseUrl}/v1/conversations/conv-1/share`, { method: "POST", headers: bearer("token-a") })).json();
+    const publicUrl = created.url.replace("https://share.example.com", baseUrl);
+
+    const response = await fetch(publicUrl);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    const body = await response.text();
+    for (const leaked of ["userId", "canRevert", "runId", "turnIndex", "timelineSequence", "selectedAgentProfileId", "selectedModelId", "selectedSkillIds", "selectedRuleIds"]) {
+      assert.ok(!body.includes(leaked), `${leaked} must not appear in a shared conversation`);
+    }
+    const payload = JSON.parse(body);
+    assert.equal(payload.conversation.messages[0].content, "hello");
+    assert.equal(payload.share.viewCount, 1);
+
+    assert.equal((await (await fetch(publicUrl)).json()).share.viewCount, 2);
+  });
+});
+
+test("every share lookup failure is indistinguishable", async () => {
+  await withCloudServer({
+    authenticator: new MultiUserAuthenticator({ "token-a": { id: "user-a", claims: {} } }),
+    cloudSurfaces: cloudSurfaces(),
+  }, async ({ store, baseUrl }) => {
+    await seedConversation(baseUrl, "token-a", "conv-1");
+    const created = await (await fetch(`${baseUrl}/v1/conversations/conv-1/share`, { method: "POST", headers: bearer("token-a") })).json();
+    const publicUrl = created.url.replace("https://share.example.com", baseUrl);
+
+    const cases = [
+      `${baseUrl}/v1/share/${"a".repeat(43)}`,
+      `${baseUrl}/v1/share/short`,
+      `${baseUrl}/v1/share/${"a".repeat(44)}`,
+      `${baseUrl}/v1/share/..%2Fv1%2Fme`,
+    ];
+    for (const url of cases) {
+      const response = await fetch(url);
+      assert.equal(response.status, 404);
+      assert.deepEqual(await response.json(), { error: "Shared session not found" });
+    }
+
+    await fetch(`${baseUrl}/v1/conversations/conv-1/share`, { method: "DELETE", headers: bearer("token-a") });
+    assert.deepEqual(await (await fetch(publicUrl)).json(), { error: "Shared session not found" });
+
+    const expired = await (await fetch(`${baseUrl}/v1/conversations/conv-1/share`, {
+      method: "POST",
+      headers: bearer("token-a"),
+      body: JSON.stringify({ ttlSeconds: 60 }),
+    })).json();
+    await store.putConversationShare("user-a", "conv-1", {
+      tokenHash: createHash("sha256").update(expired.url.split("/").pop()).digest("hex"),
+      tokenPrefix: expired.tokenPrefix,
+      expiresAt: Date.now() - 1_000,
+    });
+    assert.equal((await fetch(expired.url.replace("https://share.example.com", baseUrl))).status, 404);
+  });
+});
+
+test("deleting a conversation revokes its public link", async () => {
+  await withCloudServer({
+    authenticator: new MultiUserAuthenticator({ "token-a": { id: "user-a", claims: {} } }),
+    cloudSurfaces: cloudSurfaces(),
+  }, async ({ baseUrl }) => {
+    await seedConversation(baseUrl, "token-a", "conv-1");
+    const created = await (await fetch(`${baseUrl}/v1/conversations/conv-1/share`, { method: "POST", headers: bearer("token-a") })).json();
+    const publicUrl = created.url.replace("https://share.example.com", baseUrl);
+    assert.equal((await fetch(publicUrl)).status, 200);
+
+    assert.equal((await fetch(`${baseUrl}/v1/conversations/conv-1`, { method: "DELETE", headers: bearer("token-a") })).status, 204);
+    assert.equal((await fetch(publicUrl)).status, 404);
+  });
+});
+
+test("sharing reports an explicit reason while the deployment has no link base", async () => {
+  await withCloudServer({
+    authenticator: new MultiUserAuthenticator({ "token-a": { id: "user-a", claims: {} } }),
+    cloudSurfaces: createCloudSurfacesFromEnv({}),
+  }, async ({ store, baseUrl }) => {
+    await seedConversation(baseUrl, "token-a", "conv-1");
+    for (const method of ["GET", "POST", "DELETE"]) {
+      const response = await fetch(`${baseUrl}/v1/conversations/conv-1/share`, { method, headers: bearer("token-a") });
+      assert.equal(response.status, 503);
+      assert.deepEqual(await response.json(), { error: "Shareable links are not configured on this deployment" });
+    }
+    assert.equal(await store.getConversationShare("user-a", "conv-1"), null);
+  });
+});
+
+test("share routes are scoped to the owning account", async () => {
+  await withCloudServer({
+    authenticator: new MultiUserAuthenticator({
+      "token-a": { id: "user-a", claims: {} },
+      "token-b": { id: "user-b", claims: {} },
+    }),
+    cloudSurfaces: cloudSurfaces(),
+  }, async ({ store, baseUrl }) => {
+    await seedConversation(baseUrl, "token-a", "conv-1");
+    await fetch(`${baseUrl}/v1/conversations/conv-1/share`, { method: "POST", headers: bearer("token-a") });
+
+    assert.equal((await fetch(`${baseUrl}/v1/conversations/conv-1/share`, { headers: bearer("token-b") })).status, 404);
+    assert.equal((await fetch(`${baseUrl}/v1/conversations/conv-1/share`, { method: "DELETE", headers: bearer("token-b") })).status, 404);
+    assert.equal((await fetch(`${baseUrl}/v1/conversations/conv-1/share`, { method: "POST", headers: bearer("token-b") })).status, 404);
+    // User A's link must survive every attempt made by user B.
+    assert.ok(await store.getConversationShare("user-a", "conv-1"));
+  });
+});
+
+test("notifications are filtered per account and dismissal is idempotent", async () => {
+  await withCloudServer({
+    authenticator: new MultiUserAuthenticator({
+      "token-a": { id: "user-a", claims: {} },
+      "token-b": { id: "user-b", claims: {} },
+    }),
+    cloudSurfaces: cloudSurfaces({
+      NOTIFICATIONS_JSON: JSON.stringify([
+        { id: "everyone", message: "Everyone sees this" },
+        { id: "only-b", message: "Only B sees this", userIds: ["user-b"] },
+      ]),
+    }),
+  }, async ({ baseUrl }) => {
+    const listFor = async (token) => (await (await fetch(`${baseUrl}/v1/notifications`, { headers: bearer(token) })).json()).data.map((n) => n.id);
+
+    assert.deepEqual(await listFor("token-a"), ["everyone"]);
+    assert.deepEqual(await listFor("token-b"), ["everyone", "only-b"]);
+
+    const dismiss = (token, id, body) => fetch(`${baseUrl}/v1/notifications/${id}/dismiss`, { method: "POST", headers: bearer(token), body });
+    assert.equal((await dismiss("token-a", "everyone", JSON.stringify({ actionItemTitle: "Read more" }))).status, 204);
+    assert.equal((await dismiss("token-a", "everyone")).status, 204);
+    assert.deepEqual(await listFor("token-a"), []);
+    // One account's dismissal must not affect another's.
+    assert.deepEqual(await listFor("token-b"), ["everyone", "only-b"]);
+
+    assert.equal((await dismiss("token-a", "not-in-catalog")).status, 404);
+    assert.equal((await dismiss("token-a", "everyone", JSON.stringify({ actionItemTitle: "x".repeat(81) }))).status, 400);
+  });
+});
+
+test("an unconfigured notification catalog is a healthy empty list", async () => {
+  await withCloudServer({
+    authenticator: new MultiUserAuthenticator({ "token-a": { id: "user-a", claims: {} } }),
+    cloudSurfaces: createCloudSurfacesFromEnv({}),
+  }, async ({ baseUrl }) => {
+    const response = await fetch(`${baseUrl}/v1/notifications`, { headers: bearer("token-a") });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { data: [] });
+  });
+});
+
+test("the account response carries subscription state from counted usage", async () => {
+  await withCloudServer({
+    authenticator: new MultiUserAuthenticator({ "token-a": { id: "user-a", claims: { codeagent_plan: "team" } } }),
+    cloudSurfaces: cloudSurfaces({
+      SUBSCRIPTION_PLANS_JSON: JSON.stringify({ team: { label: "Team", quotas: { completion: 2 } } }),
+    }),
+  }, async ({ baseUrl }) => {
+    const before = await (await fetch(`${baseUrl}/v1/me`, { headers: bearer("token-a") })).json();
+    assert.equal(before.subscription.state, "ok");
+    assert.equal(before.subscription.label, "Team");
+    assert.equal(before.subscription.quotas[0].used, 0);
+
+    const unconfigured = createCodeAgentServer({
+      productStore: new MemoryProductStore(),
+      modelGateway: {},
+      authenticator: new MultiUserAuthenticator({ "token-a": { id: "user-a", claims: {} } }),
+      cloudSurfaces: createCloudSurfacesFromEnv({}),
+      logger: { error() {} },
+    });
+    unconfigured.listen(0, "127.0.0.1");
+    await once(unconfigured, "listening");
+    try {
+      const body = await (await fetch(`http://127.0.0.1:${unconfigured.address().port}/v1/me`, { headers: bearer("token-a") })).json();
+      assert.equal(body.subscription.state, "unknown");
+      assert.match(body.subscription.reason, /not configured/);
+    } finally {
+      unconfigured.close();
+      await once(unconfigured, "close");
+    }
+  });
+});
+
+test("marketplace configurations round-trip and reject unsafe sources", async () => {
+  await withCloudServer({
+    authenticator: new MultiUserAuthenticator({ "token-a": { id: "user-a", claims: {} } }),
+    cloudSurfaces: cloudSurfaces(),
+  }, async ({ baseUrl }) => {
+    const put = (body) => fetch(`${baseUrl}/v1/configurations/marketplaces/team-registry`, {
+      method: "PUT",
+      headers: bearer("token-a"),
+      body: JSON.stringify(body),
+    });
+
+    const stored = await (await put({ name: "Team registry", source: "https://registry.example.com/index.json", trusted: true })).json();
+    assert.equal(stored.value.source, "https://registry.example.com/index.json");
+    assert.equal(stored.value.trusted, true);
+    assert.equal(stored.value.enabled, true);
+
+    const listed = await (await fetch(`${baseUrl}/v1/configurations/marketplaces`, { headers: bearer("token-a") })).json();
+    assert.equal(listed.data.length, 1);
+
+    assert.equal((await put({ name: "Insecure", source: "http://registry.example.com/index.json" })).status, 400);
+    assert.equal((await put({ name: "Credentialed", source: "https://user:pw@registry.example.com/index.json" })).status, 400);
+    assert.equal((await put({ name: "Fragment", source: "https://registry.example.com/index.json#frag" })).status, 400);
+  });
+});
+
+test("the OpenAPI contract documents the cloud surfaces", async () => {
+  const server = createCodeAgentServer({ modelGateway: {}, authToken: "secret", logger: { error() {} } });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const contract = await (await fetch(`http://127.0.0.1:${server.address().port}/openapi.json`)).json();
+    assert.ok(contract.paths["/v1/conversations/{id}/share"].get);
+    assert.ok(contract.paths["/v1/conversations/{id}/share"].post);
+    assert.ok(contract.paths["/v1/conversations/{id}/share"].delete);
+    assert.ok(contract.paths["/v1/notifications"].get);
+    assert.ok(contract.paths["/v1/notifications/{id}/dismiss"].post);
+    // The public route must be documented as unauthenticated.
+    assert.deepEqual(contract.paths["/v1/share/{token}"].get.security, []);
+    assert.equal(
+      contract.components.schemas.AccountResponse.properties.subscription.$ref,
+      "#/components/schemas/Subscription",
+    );
+    assert.ok(contract.components.parameters.ConfigurationKind.schema.enum.includes("marketplaces"));
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});

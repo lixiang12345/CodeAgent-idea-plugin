@@ -287,6 +287,136 @@
       }
     },
 
+    "/v1/conversations/{id}/share": {
+      "get": {
+        "summary": "Read the active share link state for one conversation",
+        "description": "Never returns the token or its hash. Only sha256(token) is stored, so an issued link can never be read back.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "responses": {
+          "200": {
+            "description": "Active share",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConversationShare" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "503": { "$ref": "#/components/responses/SharingUnavailable" }
+        }
+      },
+      "post": {
+        "summary": "Create or rotate the share link for one conversation",
+        "description": "Issues a 256-bit token and returns the only response that ever carries it in plaintext. When an active link already existed it is replaced, rotated is true, the previous link stops working, and viewCount resets.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ConversationShareRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Share created or rotated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConversationShareCreated" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "503": { "$ref": "#/components/responses/SharingUnavailable" }
+        }
+      },
+      "delete": {
+        "summary": "Revoke the active share link",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "responses": {
+          "204": { "description": "Share revoked" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "503": { "$ref": "#/components/responses/SharingUnavailable" }
+        }
+      }
+    },
+
+    "/v1/share/{token}": {
+      "get": {
+        "summary": "Read a shared conversation without authentication",
+        "description": "Public read-only projection. Increments the share view count and responds with cache-control: no-store. Every failure -- malformed, unknown, revoked, expired, or deleted conversation -- returns the same 404 so tokens cannot be enumerated.",
+        "security": [],
+        "parameters": [{ "$ref": "#/components/parameters/ShareToken" }],
+        "responses": {
+          "200": {
+            "description": "Shared conversation",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SharedConversationResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Shared session not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/v1/notifications": {
+      "get": {
+        "summary": "List operator notifications for the current account",
+        "description": "Already filtered for this principal by dismissal, expiry, and audience. A deployment without NOTIFICATIONS_JSON returns an empty list, which is a healthy response rather than an error.",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Notifications this account has not dismissed",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/NotificationList" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+
+    "/v1/notifications/{id}/dismiss": {
+      "post": {
+        "summary": "Dismiss one notification for the current account",
+        "description": "Idempotent. An id outside the deployment catalog returns 404.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/NotificationId" }],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/NotificationDismissal" }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "Notification dismissed" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+
     "/v1/jobs": {
       "get": {
         "summary": "List durable product jobs",
@@ -879,10 +1009,12 @@
           "type": "string",
           "enum": [
             "mcp",
+            "acp",
             "hooks",
             "commands",
             "agents",
             "plugins",
+            "marketplaces",
             "tool-permissions"
           ]
         }
@@ -904,6 +1036,25 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 200
+        }
+      },
+      "ShareToken": {
+        "name": "token",
+        "in": "path",
+        "required": true,
+        "description": "Opaque 43-character base64url token. Only its SHA-256 hash is stored.",
+        "schema": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      },
+      "NotificationId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,120}$"
         }
       }
     },
@@ -940,6 +1091,16 @@
       },
       "NotFound": {
         "description": "Requested resource not found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "SharingUnavailable": {
+        "description": "Shareable links are not configured on this deployment",
         "content": {
           "application/json": {
             "schema": {
@@ -1439,7 +1600,14 @@
             "default": 8192
           },
           "source": {
-            "type": "string"
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2000,
+            "description": "plugins and marketplaces: absolute https URL, loopback http allowed, no credentials or fragment"
+          },
+          "trusted": {
+            "type": "boolean",
+            "description": "marketplaces: the operator marked this source as trusted"
           },
           "version": {
             "type": [
@@ -2292,6 +2460,202 @@
               "refreshExpiresAt": { "type": "string", "format": "date-time" },
               "createdAt": { "type": "string", "format": "date-time" },
               "updatedAt": { "type": "string", "format": "date-time" }
+            }
+          },
+          "subscription": { "$ref": "#/components/schemas/Subscription" }
+        }
+      },
+      "Subscription": {
+        "type": "object",
+        "description": "Plan and quota position computed from usage the backend counted. The unknown state always carries a reason and must be presented as unavailable, never as a healthy plan.",
+        "required": ["state", "quotas"],
+        "properties": {
+          "state": { "type": "string", "enum": ["ok", "approaching", "exhausted", "unknown"] },
+          "plan": { "type": ["string", "null"] },
+          "label": { "type": ["string", "null"], "maxLength": 80 },
+          "manageUrl": { "type": ["string", "null"], "format": "uri" },
+          "reason": { "type": "string", "description": "Present only when state is unknown" },
+          "quotas": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/SubscriptionQuota" }
+          },
+          "warning": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/SubscriptionWarning" },
+              { "type": "null" }
+            ]
+          }
+        }
+      },
+      "SubscriptionQuota": {
+        "type": "object",
+        "required": ["kind", "used", "limit", "remaining", "ratio", "state"],
+        "properties": {
+          "kind": { "type": "string" },
+          "used": { "type": "integer", "minimum": 0 },
+          "limit": { "type": "integer", "minimum": 0 },
+          "remaining": { "type": "integer", "minimum": 0 },
+          "ratio": { "type": "number", "minimum": 0 },
+          "state": { "type": "string", "enum": ["ok", "approaching", "exhausted"] }
+        }
+      },
+      "SubscriptionWarning": {
+        "type": "object",
+        "required": ["level", "kind", "message"],
+        "properties": {
+          "level": { "type": "string", "enum": ["warning", "error"] },
+          "kind": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      },
+      "NotificationList": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Notification" }
+          }
+        }
+      },
+      "Notification": {
+        "type": "object",
+        "required": ["id", "level", "message", "actionItems"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,120}$" },
+          "level": { "type": "string", "enum": ["info", "warning", "error"] },
+          "message": { "type": "string", "maxLength": 2000 },
+          "actionItems": {
+            "type": "array",
+            "maxItems": 4,
+            "items": { "$ref": "#/components/schemas/NotificationActionItem" }
+          },
+          "expiresAt": { "type": ["integer", "null"], "format": "int64", "description": "Epoch milliseconds" }
+        }
+      },
+      "NotificationActionItem": {
+        "type": "object",
+        "required": ["title", "url"],
+        "properties": {
+          "title": { "type": "string", "maxLength": 80 },
+          "url": { "type": "string", "format": "uri", "description": "https, or http on a loopback host" }
+        }
+      },
+      "NotificationDismissal": {
+        "type": "object",
+        "properties": {
+          "actionItemTitle": { "type": ["string", "null"], "maxLength": 80 }
+        }
+      },
+      "ConversationShareRequest": {
+        "type": "object",
+        "properties": {
+          "ttlSeconds": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 31536000,
+            "description": "Link lifetime; defaults to SHARE_LINK_TTL_SECONDS"
+          }
+        }
+      },
+      "ConversationShare": {
+        "type": "object",
+        "required": ["conversationId", "tokenPrefix", "expiresAt", "viewCount", "createdAt", "updatedAt", "baseUrl"],
+        "properties": {
+          "conversationId": { "type": "string" },
+          "tokenPrefix": { "type": "string", "maxLength": 8, "description": "Display prefix only; never the token" },
+          "expiresAt": { "type": "integer", "format": "int64", "description": "Epoch milliseconds" },
+          "viewCount": { "type": "integer", "minimum": 0 },
+          "lastViewedAt": { "type": ["integer", "null"], "format": "int64", "description": "Epoch milliseconds" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "baseUrl": { "type": "string", "format": "uri" }
+        }
+      },
+      "ConversationShareCreated": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ConversationShare" },
+          {
+            "type": "object",
+            "required": ["url", "rotated"],
+            "properties": {
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "description": "The only response that ever carries the plaintext token. The backend stores only its SHA-256 hash, so this link can never be read back."
+              },
+              "rotated": {
+                "type": "boolean",
+                "description": "True when an active link already existed and was replaced; the previous link stops working and viewCount resets."
+              }
+            }
+          }
+        ]
+      },
+      "SharedConversationResponse": {
+        "type": "object",
+        "required": ["share", "conversation"],
+        "properties": {
+          "share": {
+            "type": "object",
+            "required": ["expiresAt", "viewCount", "createdAt"],
+            "properties": {
+              "expiresAt": { "type": "integer", "format": "int64" },
+              "viewCount": { "type": "integer", "minimum": 0 },
+              "createdAt": { "type": "string", "format": "date-time" }
+            }
+          },
+          "conversation": { "$ref": "#/components/schemas/SharedConversation" }
+        }
+      },
+      "SharedConversation": {
+        "type": "object",
+        "description": "Read-only projection. Deliberately omits userId, canRevert, runId, turnIndex, timelineSequence, and the selected agent profile, model, skill, and rule IDs.",
+        "required": ["id", "title", "mode", "updatedAt", "messages", "tasks", "tools"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "mode": { "type": "string", "enum": ["agent", "chat", "ask"] },
+          "updatedAt": { "type": "integer", "format": "int64" },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "role", "content", "createdAt"],
+              "properties": {
+                "id": { "type": "string" },
+                "role": { "type": "string" },
+                "content": { "type": "string" },
+                "createdAt": { "type": "integer", "format": "int64" }
+              }
+            }
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "name", "state"],
+              "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "state": { "type": "string" }
+              }
+            }
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "name", "summary", "status", "createdAt"],
+              "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "summary": { "type": "string" },
+                "status": { "type": "string" },
+                "detail": { "type": ["string", "null"] },
+                "changePath": { "type": ["string", "null"] },
+                "createdAt": { "type": "integer", "format": "int64" }
+              }
             }
           }
         }

@@ -169,24 +169,29 @@ plan and quota state on `GET /v1/me`, and a `marketplaces` configuration kind.
 Each is deployment-configured through `SHARE_BASE_URL`, `NOTIFICATIONS_JSON`,
 and `SUBSCRIPTION_PLANS_JSON` (`backend/.env.example`) and reports an explicit
 reason while unconfigured: `503` for sharing, an empty list for notifications,
-and subscription `state: "unknown"`. Remaining for these surfaces:
+and subscription `state: "unknown"`.
 
-- **JVM and webview surfacing.** The typed layers landed and compile:
-  `RemoteAgentClient` speaks all six routes and carries the backend reason on
-  `RemoteHttpException.serverMessage`, `BridgeProtocol` declares the
-  subscription, notification, and sharing DTOs, `protocol.ts` mirrors them with
-  development-host handlers, and Settings gained a `marketplaces` section.
-  What does not exist yet is the part a user can reach: `IdeBridge` dispatches
-  none of the new commands, and the panel renders no notification banner, no
-  subscription warning, and no share action. Until those land the new client
-  methods are unreachable and untested. That is the next slice.
-- **Contract publication.** `backend/openapi.json` and the
-  `backendOpenApiPaths` list in `evaluation/parity-codeagent.json` do not yet
-  describe the new routes, and the OpenAPI `ConfigurationKind` enum omits
-  `marketplaces` and `acp`.
+All four are now reachable from the panel. `IdeBridge` dispatches
+`dismissNotification`, `openNotificationLink`, `openSubscriptionManagement`,
+`shareConversation`, `unshareConversation`, and `refreshSharing`; the panel
+renders dismissible notification banners, a persistent subscription warning, a
+per-quota meter block in Settings, and thread share actions whose unavailable
+state shows the backend's own reason. A share link is copied to the system
+clipboard on creation and kept in memory only, never in settings, on disk, or in
+a log. `backend/openapi.json` and the `backendOpenApiPaths` list in
+`evaluation/parity-codeagent.json` describe every new route, and the OpenAPI
+`ConfigurationKind` enum now includes `marketplaces` and `acp`.
+
+Remaining for these surfaces:
+
 - **Deployment exercise.** No deployment in this repository configures the three
-  variable groups, so the configured (non-503, non-empty, non-unknown) paths
-  have no acceptance evidence.
+  variable groups, so only the unconfigured branches — `503`, an empty list, and
+  `state: "unknown"` — have acceptance evidence. The configured paths are
+  covered by tests against an injected policy, not by a running deployment.
+- **IDE runtime evidence.** The share clipboard write, the external-link guard,
+  and the banner rendering have not been exercised inside a running IDE.
+- **`authRequired` MCP state.** The JVM emits it; no panel affordance offers the
+  authorization step yet.
 
 Augment cloud auth, credit/billing integration, and product telemetry stay out
 of scope per Explicit Non-Goals.

@@ -261,6 +261,8 @@
   let confirmingThreadDeleteId: string | null = null;
   let confirmingThreadGroupDelete: string | null = null;
   let confirmingDeleteOldThreads = false;
+  let confirmingUnshare = false;
+  let dismissedNotificationIds = new Set<string>();
   let recoveryBanner: { visible: boolean; text: string; done: boolean } = { visible: false, text: "", done: false };
   let recoveryBannerTimer: number | undefined;
   let announceBannerDismissed = false;
@@ -1287,6 +1289,54 @@
 
   function copyThread() {
     sendCommand("copyThread");
+  }
+
+  // Both arguments are passed in so the template tracks them as dependencies.
+  function visibleNotifications(current: AppSnapshot, dismissed: Set<string>) {
+    return (current.notifications ?? []).filter((notification) => !dismissed.has(notification.id));
+  }
+
+  function openSubscriptionManagement() {
+    const url = snapshot?.account.subscription?.manageUrl;
+    if (url) sendCommand("openSubscriptionManagement", { url });
+  }
+
+  // Hide locally first so the banner disappears on click; the host confirms and re-pushes the list.
+  function dismissNotification(notificationId: string, actionItemTitle?: string) {
+    dismissedNotificationIds = new Set(dismissedNotificationIds).add(notificationId);
+    sendCommand("dismissNotification", actionItemTitle ? { notificationId, actionItemTitle } : { notificationId });
+  }
+
+  function openNotificationAction(notificationId: string, item: { title: string; url: string }) {
+    dismissedNotificationIds = new Set(dismissedNotificationIds).add(notificationId);
+    sendCommand("openNotificationLink", { url: item.url, notificationId, actionItemTitle: item.title });
+  }
+
+  function shareActiveThread() {
+    const thread = activeThread();
+    if (thread) sendCommand("shareConversation", { threadId: thread.id });
+  }
+
+  function unshareActiveThread() {
+    if (!confirmingUnshare) {
+      confirmingUnshare = true;
+      return;
+    }
+    confirmingUnshare = false;
+    const thread = activeThread();
+    if (thread) sendCommand("unshareConversation", { threadId: thread.id });
+  }
+
+  function shareExpiryLabel(expiresAt?: number | null): string {
+    if (!expiresAt) return "";
+    const days = Math.round((expiresAt - Date.now()) / 86_400_000);
+    if (days > 1) return `expires in ${days} days`;
+    const hours = Math.max(0, Math.round((expiresAt - Date.now()) / 3_600_000));
+    return hours > 1 ? `expires in ${hours} hours` : "expires within the hour";
+  }
+
+  function quotaLabel(quota: { kind: string; used: number; limit: number }): string {
+    return `${usageLabel(quota.kind)} ${quota.used.toLocaleString()} / ${quota.limit.toLocaleString()}`;
   }
 
   function copyText(text: string, successMessage: string) {
@@ -2669,14 +2719,45 @@
               <button class="chat-zoom-value" title="Reset chat zoom (Cmd/Ctrl 0)" aria-label={`Reset chat zoom, currently ${chatZoom}%`} onclick={resetChatZoom}>{chatZoom}%</button>
               <button class="icon-button compact" title="Increase chat zoom (Cmd/Ctrl +)" aria-label="Increase chat zoom" disabled={chatZoom >= CHAT_ZOOM_MAX} onclick={() => adjustChatZoom(CHAT_ZOOM_STEP)}><Icon name="plus" size={13} /></button>
             </div>
-            <button class="icon-button compact" title="Share link to session" onclick={copyThread}><Icon name="share-2" size={13} /></button>
+            <button
+              class="icon-button compact"
+              class:active={snapshot.sharing.state === "shared"}
+              disabled={snapshot.sharing.state !== "unshared" && snapshot.sharing.state !== "shared"}
+              title={snapshot.sharing.state === "unavailable"
+                ? (snapshot.sharing.reason ?? "Shareable links are not configured on this deployment")
+                : snapshot.sharing.state === "working"
+                  ? "Working"
+                  : snapshot.sharing.state === "shared"
+                    ? "Copy a new share link (replaces the current one)"
+                    : "Create and copy a share link"}
+              aria-label="Share this conversation"
+              onclick={shareActiveThread}
+            ><Icon name="share-2" size={13} /></button>
             <div class="more-control">
               <button class="icon-button compact" class:active={threadOptOpen} title="Thread options" onclick={() => { threadOptOpen = !threadOptOpen; moreMenuOpen = false; }}><Icon name="ellipsis" size={14} /></button>
               {#if threadOptOpen}
                 <div class="workspace-menu menu thread-opt-menu">
                   <button onclick={() => beginRename()}><Icon name="square-pen" size={13} /><span>Rename thread</span></button>
                   <button onclick={() => { const thread = activeThread(); if (thread) toggleThreadPinned(thread.id, thread.pinned); closeMenus(); }}><Icon name="pin" size={13} /><span>Pin / Unpin</span></button>
-                  <button onclick={() => { copyThread(); closeMenus(); }}><Icon name="share-2" size={13} /><span>Share link to session</span></button>
+                  <button onclick={() => { copyThread(); closeMenus(); }}><Icon name="clipboard" size={13} /><span>Copy conversation as Markdown</span></button>
+                  {#if snapshot.sharing.state === "unavailable"}
+                    <button disabled title={snapshot.sharing.reason ?? "Shareable links are not configured on this deployment"}><Icon name="share-2" size={13} /><span>Share link unavailable</span></button>
+                  {:else if snapshot.sharing.state === "shared"}
+                    <div class="thread-share-state">
+                      <span><Icon name="share-2" size={13} /><strong>Shared</strong></span>
+                      <small>{snapshot.sharing.viewCount ?? 0} views · {shareExpiryLabel(snapshot.sharing.expiresAt)}</small>
+                      {#if snapshot.sharing.url}
+                        <code title={snapshot.sharing.url}>{snapshot.sharing.url}</code>
+                      {:else}
+                        <!-- Only sha256(token) is stored, so an existing link can never be read back. -->
+                        <small>Link <code>{snapshot.sharing.tokenPrefix}…</code> cannot be shown again; copying issues a new one.</small>
+                      {/if}
+                    </div>
+                    <button onclick={() => { shareActiveThread(); closeMenus(); }}><Icon name="share-2" size={13} /><span>Copy new link (replaces current)</span></button>
+                    <button class="danger" onclick={unshareActiveThread}><Icon name="trash-2" size={13} /><span>{confirmingUnshare ? "Confirm stop sharing" : "Stop sharing"}</span></button>
+                  {:else}
+                    <button disabled={snapshot.sharing.state === "working"} onclick={() => { shareActiveThread(); closeMenus(); }}><Icon name="share-2" size={13} /><span>{snapshot.sharing.state === "working" ? "Working…" : "Share link to session"}</span></button>
+                  {/if}
                   <button onclick={() => { exportThread(); closeMenus(); }}><Icon name="upload" size={13} /><span>Export conversation</span></button>
                   <button onclick={() => { sendCommand("importThread"); closeMenus(); }}><Icon name="file-input" size={13} /><span>Import conversation</span></button>
                   <button aria-label="Continue in new local chat" onclick={() => continueInNewChat(false)}><Icon name="git-branch" size={13} /><span>Continue in New Chat</span></button>
@@ -2746,6 +2827,37 @@
             </span>
             <b>{contextCompactionProgress}%</b>
             <i class="context-compaction-track" aria-hidden="true"><i style={`width: ${contextCompactionProgress}%`}></i></i>
+          </div>
+        {/if}
+
+        {#each visibleNotifications(snapshot, dismissedNotificationIds) as notification (notification.id)}
+          <div class="panel-banner {notification.level}" role={notification.level === "error" ? "alert" : "status"}>
+            <Icon name={notification.level === "error" ? "triangle-alert" : notification.level === "warning" ? "triangle-alert" : "info"} size={14} />
+            <div class="panel-banner-body">
+              <p>{notification.message}</p>
+              {#if notification.actionItems.length > 0}
+                <div class="panel-banner-actions" class:stacked={notification.actionItems.length > 1}>
+                  {#each notification.actionItems as item}
+                    <button class="btn sm" onclick={() => openNotificationAction(notification.id, item)}>{item.title}</button>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+            <button class="icon-button compact" title="Dismiss" aria-label={`Dismiss notification: ${notification.message}`} onclick={() => dismissNotification(notification.id)}><Icon name="x" size={12} /></button>
+          </div>
+        {/each}
+        {#if snapshot.account.subscription?.warning}
+          <!-- Live quota state, not an announcement, so it stays until the quota changes. -->
+          <div class="panel-banner {snapshot.account.subscription.warning.level}" role="status">
+            <Icon name="credit-card" size={14} />
+            <div class="panel-banner-body">
+              <p>{snapshot.account.subscription.warning.message}</p>
+              {#if snapshot.account.subscription.manageUrl}
+                <div class="panel-banner-actions">
+                  <button class="btn sm" onclick={openSubscriptionManagement}>Manage plan</button>
+                </div>
+              {/if}
+            </div>
           </div>
         {/if}
 
@@ -3853,8 +3965,30 @@
                       <p>No metered usage has been reported.</p>
                     {/each}
                   </div>
-                  <p>Plan names, quotas, invoices, and payment management are shown only when the backend exposes a billing contract.</p>
                 </section>
+                {#if !snapshot.account.subscription || snapshot.account.subscription.state === "unknown"}
+                  <section class="settings-block unavailable">
+                    <Icon name="credit-card" size={20} />
+                    <strong>Plan and quotas unavailable</strong>
+                    <p>{snapshot.account.subscription?.reason ?? "This backend does not report a subscription contract."}</p>
+                  </section>
+                {:else}
+                  <section class="settings-block subscription-plan">
+                    <header>
+                      <span><strong>{snapshot.account.subscription.label ?? snapshot.account.subscription.plan}</strong><small>Quotas are counted by the backend, not estimated here.</small></span>
+                      {#if snapshot.account.subscription.manageUrl}
+                        <button class="btn sm" onclick={openSubscriptionManagement}>Manage</button>
+                      {/if}
+                    </header>
+                    {#each snapshot.account.subscription.quotas as quota}
+                      <div class="quota-row {quota.state}">
+                        <span>{quotaLabel(quota)}</span>
+                        <i class="quota-track" aria-hidden="true"><i style={`width: ${Math.min(100, Math.round(quota.ratio * 100))}%`}></i></i>
+                        <b>{quota.remaining.toLocaleString()} left</b>
+                      </div>
+                    {/each}
+                  </section>
+                {/if}
               {:else}
                 <section class="settings-block unavailable">
                   <Icon name="credit-card" size={20} />

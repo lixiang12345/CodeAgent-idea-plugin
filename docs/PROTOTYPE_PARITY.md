@@ -64,7 +64,7 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | Mermaid | Implemented | Strict rendering, diagram/code, zoom, fit, error states, and opening source in an IDEA editor tab work |
 | Settings | Implemented | Project Home exposes real index metrics plus distinct status-refresh/rebuild operations; Services groups backend capabilities by provider with explicit loading/ready/error/unavailable discovery, Ready/Partial/Unavailable summaries, per-capability risk/reason detail, and retry; backend health, account, subscription usage, ContextEngine, Rules, Skills, inline Password Safe-backed API key management for OpenAI/Anthropic/Bedrock, persisted chat zoom/timestamps/run telemetry/native notifications, Commands, Hooks, Agent profiles, declarative plugin lifecycle, MCP lifecycle controls, per-thread memory summary inspection/clearing, feature/Beta capability reports, and a redacted live runtime audit are real |
 | Tools catalog / Icon gallery / Feedback | Implemented | UI overlays provide insert-tool seeding, icon name copy, local feedback notes, and a bounded support bundle containing a redacted runtime audit plus explicitly requested conversation context |
-| Cloud integrations | Conditional | Search/read adapters are advertised only when their backend environment is configured; Notion supports bounded search/read plus approval-gated create/update/append operations; provider errors, discovery failures, and missing credentials remain explicit and secret-safe failures. GitHub has live acceptance evidence; Notion live dogfood still requires a scoped backend credential. The deployment-owned cloud surfaces — shareable session links, operator notifications, subscription plan/quota state, and `marketplaces` configuration records — exist in the backend HTTP contract and report an explicit unavailable state with a reason until the deployment configures them; JVM and webview surfacing of those contracts is not verified by this row and is tracked in `docs/NEXT_STEPS.md` |
+| Cloud integrations | Conditional | Search/read adapters are advertised only when their backend environment is configured; Notion supports bounded search/read plus approval-gated create/update/append operations; provider errors, discovery failures, and missing credentials remain explicit and secret-safe failures. GitHub has live acceptance evidence; Notion live dogfood still requires a scoped backend credential. The deployment-owned cloud surfaces — shareable session links, operator notifications, subscription plan/quota state, and `marketplaces` configuration records — are implemented from the backend HTTP contract through the JVM bridge to the panel, and report an explicit unavailable state with the backend's reason until the deployment configures them. Only the unconfigured branches have acceptance evidence; no deployment here exercises a configured path |
 | Subagents | Implemented | Synchronous `subagent` plus durable asynchronous jobs support persisted partial output, polling progress, cancellation, retry, composer handoff, and read-only IDE result navigation |
 | MCP | Implemented | Enabled stdio, Streamable HTTP, and legacy SSE definitions are reconciled by a local managed gateway with health checks, bounded reconnects, explicit start/stop/restart/test controls, tool-list refresh notifications, environment allowlisting, bearer-token injection, namespaced Agent tools, approval-aware risk defaults, PKCE OAuth authorization-code flow, Password Safe token storage, refresh, and callback state validation |
 | Plugins | Implemented | Account-synchronized plugin definitions drive explicit per-device install, validate, update, and uninstall actions for bounded declarative manifests. All eight declared capability types are typed and validated: commands/prompts feed slash workflows, rules/skills feed bounded workspace context, Agent profiles are request-scoped, Hooks/MCP reuse supervised runtimes, and Tools are approval-preserving aliases over existing handlers |
@@ -138,9 +138,18 @@ Resolved in slice 3, backend contract only:
   `backend/.env.example`); when a group is unset the backend reports an explicit
   reason — `503` for sharing, an empty list for notifications, and subscription
   `state: "unknown"` with a `reason` — instead of a silent no-op or a fabricated
-  success. This entry covers the HTTP contract only: JVM and webview surfacing
-  is tracked separately in `docs/NEXT_STEPS.md` and was not verified here, and
-  `backend/openapi.json` does not describe these routes yet.
+  success. `backend/openapi.json` documents every route, including the public
+  one as unauthenticated.
+- **Panel surfacing of those contracts.** `IdeBridge` dispatches the six new
+  webview commands and the panel renders dismissible notification banners, a
+  persistent subscription warning, a per-quota meter block in Settings, and
+  thread share actions. An unconfigured deployment produces a disabled control
+  carrying the backend's own reason string, never a silent no-op. Because only
+  `sha256(token)` is stored, an issued link cannot be read back: the menu says so
+  explicitly and labels the copy action as replacing the current link. The link
+  is written to the system clipboard and held in memory for the session only.
+  Not verified: any deployment-configured path, and any behavior inside a
+  running IDE.
 
 Also resolved in slice 3, JVM and webview: a copyable Extension Status
 `DialogWrapper` whose report is also written into the log-export bundle;
@@ -157,11 +166,11 @@ task-tool hierarchy, and IDE Run-tool-window hosting for agent-launched
 commands.
 Cloud-dependent surfaces (shareable session links, subscription banners,
 server-driven notifications, marketplace management) are no longer withheld as a
-whole: the backend implements all four, and each is unavailable only where a
-deployment has not configured it, in which case it returns an explicit reason
-rather than a fabricated result, as the no-fake rule requires. What remains open
-is the JVM and webview presentation of those contracts, which this audit did not
-verify and which is tracked in `docs/NEXT_STEPS.md`.
+whole: all four are implemented end to end, and each is unavailable only where a
+deployment has not configured it, in which case the panel shows the backend's
+own reason rather than a fabricated result, as the no-fake rule requires. What
+remains open is acceptance evidence for the configured paths, which no
+deployment in this repository exercises; see `docs/NEXT_STEPS.md`.
 
 ACP is implemented through the official `@agentclientprotocol/sdk` v1 runtime in the sidecar, with agent discovery, capability negotiation, `session/new`, `session/load`, prompt/update/cancel handling, persisted session state, and explicit permission denial as the default safety boundary.
 
