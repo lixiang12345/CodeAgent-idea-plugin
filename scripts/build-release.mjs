@@ -77,6 +77,18 @@ function requireCleanWorktree(allowDirty) {
   console.warn("\nWarning: building a release from a dirty worktree because --allow-dirty was supplied.");
 }
 
+function requireJava21() {
+  const gradleVersion = run("./gradlew", ["--version"], { capture: true });
+  const javaRuntime = gradleVersion.match(/^Launcher JVM:\s+(.+)$/m)?.[1].trim();
+  const javaMajor = Number(javaRuntime?.match(/^(\d+)/)?.[1]);
+  if (javaMajor !== 21) {
+    throw new Error(
+      `Release builds require JDK 21; Gradle is using ${javaRuntime ?? "an unknown JVM"}`,
+    );
+  }
+  return javaRuntime;
+}
+
 function readVersion() {
   const properties = readFileSync(path.join(repositoryRoot, "gradle.properties"), "utf8");
   const version = properties.match(/^version=(\d+\.\d+\.\d+)$/m)?.[1];
@@ -129,6 +141,7 @@ function findAvailablePort() {
 async function main() {
   const { increment, current, allowDirty } = parseArguments(process.argv.slice(2));
   requireCleanWorktree(allowDirty);
+  const javaRuntime = requireJava21();
 
   const sourceRevision = run("git", ["rev-parse", "HEAD"], { capture: true }).trim();
   const contextEngineRevision = run(
@@ -177,6 +190,10 @@ async function main() {
     mode: current ? "current" : increment.slice(2),
     sourceRevision,
     contextEngineRevision,
+    buildEnvironment: {
+      java: javaRuntime,
+      os: `${process.platform}-${process.arch}`,
+    },
     artifact: {
       path: path.relative(repositoryRoot, artifactPath),
       sha256: artifactDigest,
