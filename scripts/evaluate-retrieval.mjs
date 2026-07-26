@@ -321,17 +321,25 @@ function comparableMetrics(retrieval, indexing) {
 async function evaluate(options, suite) {
   const engineEntry = path.join(options.root, "vendor/context-engine/dist/engine.js");
   const configEntry = path.join(options.root, "vendor/context-engine/dist/config.js");
-  if (!existsSync(engineEntry) || !existsSync(configEntry)) {
+  const commitsEntry = path.join(options.root, "vendor/context-engine/dist/lineage/commits.js");
+  if (!existsSync(engineEntry) || !existsSync(configEntry) || !existsSync(commitsEntry)) {
     throw new Error(
       "ContextEngine is not built. Run: npm run build --prefix vendor/context-engine",
     );
   }
 
   process.env.CONTEXTENGINE_COMMIT_LIMIT = String(suite.engine.commitLimit);
-  const [{ ContextEngine }, { resolveEngineConfig }] = await Promise.all([
+  const [{ ContextEngine }, { resolveEngineConfig }, { harvestCommits }] = await Promise.all([
     import(pathToFileURL(engineEntry).href),
     import(pathToFileURL(configEntry).href),
+    import(pathToFileURL(commitsEntry).href),
   ]);
+  const gitHistory = {
+    commitLimit: suite.engine.commitLimit,
+    reachableCommitCount: Number(git(options.root, ["rev-list", "--count", "HEAD"])),
+    harvestedCommitCount: harvestCommits(options.root, suite.engine.commitLimit).length,
+    shallow: git(options.root, ["rev-parse", "--is-shallow-repository"]) === "true",
+  };
 
   const dataDir = path.join(options.root, `build/tmp/context-retrieval-index-${process.pid}`);
   const probePath = path.join(options.root, `context-retrieval-probe-${process.pid}.kt`);
@@ -401,6 +409,7 @@ async function evaluate(options, suite) {
     const probeRemoved = await engine.index();
 
     return {
+      gitHistory,
       stats,
       cases,
       full: { ...full, durationMs: fullDurationMs },
@@ -429,6 +438,11 @@ async function main() {
   console.log(`Retrieval suite: ${suite.suite} (${suite.cases.length} cases)`);
   console.log("Retrieval mode: local lexical, symbol, path, graph, and Git lineage only");
   const result = await evaluate(options, suite);
+  console.log(
+    `Git history: reachable=${result.gitHistory.reachableCommitCount} `
+      + `harvested=${result.gitHistory.harvestedCommitCount} `
+      + `limit=${result.gitHistory.commitLimit} shallow=${result.gitHistory.shallow}`,
+  );
   const retrieval = summarizeCases(result.cases);
   const categories = categorySummaries(result.cases);
   const indexing = {
@@ -478,6 +492,7 @@ async function main() {
     engineRevision,
     workspaceDirty,
     semanticRetrievalEnabled: false,
+    gitHistory: result.gitHistory,
     corpus: result.stats,
     retrieval,
     categories,

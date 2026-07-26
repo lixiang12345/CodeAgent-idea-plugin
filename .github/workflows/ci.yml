@@ -125,6 +125,14 @@ jobs:
           path: build/reports/github-live-evidence-validation.json
           if-no-files-found: error
 
+      - name: Fetch pull request base history for retrieval
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=500 origin \
+            "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+
       - name: Evaluate repository retrieval
         run: node scripts/evaluate-retrieval.mjs
 
