@@ -1362,3 +1362,43 @@ test("a multi-question ask_user requires every answer before submitting", async 
   const resolved = answered?.tools.find((tool) => tool.id === "e2e-ask-many");
   expect(resolved?.status).not.toBe("approval");
 });
+
+test("@ mentions search project files, become removable chips, and ride along with the message", async ({ page }) => {
+  const composer = page.locator(".composer textarea");
+  await composer.click();
+  await composer.fill("Review @Auth");
+
+  const menu = page.locator(".at-menu");
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole("option")).toHaveCount(2);
+  await expect(menu.getByRole("option").first()).toContainText("AuthService.java");
+
+  await menu.getByRole("option").first().click();
+  await expect(composer).toHaveValue("Review @src/main/java/com/example/AuthService.java ");
+  await expect(menu).toHaveCount(0);
+
+  const chip = page.locator(".mention-chip");
+  await expect(chip).toHaveCount(1);
+  await expect(chip).toContainText("AuthService.java");
+  await expectViewportIntegrity(page);
+
+  // Removing the chip must remove the token it stands for, not just the chip.
+  await chip.getByRole("button", { name: "Remove mention src/main/java/com/example/AuthService.java" }).click();
+  await expect(page.locator(".mention-chip")).toHaveCount(0);
+  await expect(composer).toHaveValue("Review ");
+
+  // Deleting the token by hand must retire the chip too.
+  await composer.fill("Review @docs/ARCHITECTURE.md and ship");
+  await composer.fill("Review @docs");
+  await menu.getByRole("option").first().click();
+  await expect(page.locator(".mention-chip")).toHaveCount(1);
+  await composer.fill("Review nothing");
+  await expect(page.locator(".mention-chip")).toHaveCount(0);
+
+  await composer.fill("Review @README");
+  await menu.getByRole("option").first().click();
+  await expect(page.locator(".mention-chip")).toHaveCount(1);
+  await page.locator("button.send-button").click();
+  await expect(page.locator(".mention-chip")).toHaveCount(0);
+  await expect(composer).toHaveValue("");
+});

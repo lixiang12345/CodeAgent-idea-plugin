@@ -101,6 +101,18 @@ export interface ThreadSummary {
   messageCount?: number;
 }
 
+export interface ProjectFile {
+  path: string;
+  name: string;
+}
+
+/** A composer `@` reference: the literal token in the text, plus the file it names. */
+export interface Mention {
+  token: string;
+  path: string;
+  name: string;
+}
+
 export interface TaskItem {
   id: string;
   name: string;
@@ -603,6 +615,14 @@ declare global {
     };
   }
 }
+
+const DEVELOPMENT_PROJECT_FILES: ProjectFile[] = [
+  { path: "src/main/java/com/example/AuthService.java", name: "AuthService.java" },
+  { path: "src/main/java/com/example/SelectedContext.java", name: "SelectedContext.java" },
+  { path: "src/test/java/com/example/AuthServiceTest.java", name: "AuthServiceTest.java" },
+  { path: "docs/ARCHITECTURE.md", name: "ARCHITECTURE.md" },
+  { path: "README.md", name: "README.md" },
+];
 
 const listeners = new Set<(event: EventEnvelope) => void>();
 let lastHostEventSequence = 0;
@@ -1307,6 +1327,15 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       ...snapshot,
       attachments: [...snapshot.attachments, { id: crypto.randomUUID(), label: "ActiveEditor.java", path: "src/main/java/com/example/ActiveEditor.java", kind: "ide_state" }],
     }));
+    return;
+  }
+  if (command.type === "searchProjectFiles") {
+    // The JetBrains host ranks the real FileBasedIndex; this stands in for it.
+    const query = String((command.payload as { query?: string } | undefined)?.query ?? "").toLowerCase();
+    const data = DEVELOPMENT_PROJECT_FILES
+      .filter((file) => !query || file.name.toLowerCase().includes(query) || file.path.toLowerCase().includes(query))
+      .slice(0, 40);
+    emitDevelopmentEvent("projectFiles", { query: String((command.payload as { query?: string } | undefined)?.query ?? ""), data });
     return;
   }
   if (command.type === "pickContext") {

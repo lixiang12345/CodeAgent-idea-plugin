@@ -54,7 +54,7 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | --- | --- | --- |
 | Main panel | Implemented | 420 px IDEA tool window, interleaved user/assistant/tool timeline, context strip, tool cards, approvals, composer, stop/send states, a clickable Context Window Usage ring with a bounded telemetry modal, and assistant code blocks with Copy plus Insert-into-active-editor actions |
 | Threads | Implemented | Create, select, search, pinned/time groups, mode tags, row-level rename/pin/delete menus, confirmed row/group deletion, active run/approval/failure indicators, persisted unread reply counts, pin ordering, and Markdown import/export work. Task List `Continue in New Chat` clones task state and thread customization without copying transcript history |
-| Composer | Implemented | Modes, attachments, Skills, model picker, slash menu, @ mention menu, Auto, real prompt enhancement via backend `/v1/enhance`, adaptive input height, and persisted user-message edit/resend work. The conversation-scoped queue has a composer-adjacent collapsible panel, pause/resume, edit, delete, priority send, Stop-without-loss, restart-safe paused recovery, and FIFO execution |
+| Composer | Implemented | Modes, attachments, Skills, model picker, slash menu, Auto, real prompt enhancement via backend `/v1/enhance`, adaptive input height, and persisted user-message edit/resend work. `@` searches indexed project files and produces removable mention chips whose tokens stay in sync with the text; files can be dropped onto the composer, and oversized pastes are refused with their size. The conversation-scoped queue has a composer-adjacent collapsible panel, pause/resume, edit, delete, priority send, Stop-without-loss, restart-safe paused recovery, and FIFO execution |
 | Tools | Conditional | Local tools remain IDEA-owned; dedicated detail presentations preserve file/diff, retrieval/search, Web, provider integration, task, subagent/Ask User, diagnostics, terminal/process, and Mermaid result structure. Bounded foreground commands plus managed launch/list/read/write/wait/kill process sessions use the original terminal *argument* contract (execution is hosted by a plugin-managed process, not an IDE Run configuration), support project-contained working directories and interactive-input detection, backend-owned discovery/execution connects configured cloud adapters and subagents, and the local MCP gateway contributes dynamically discovered namespaced tools under the same policy. Each completed tool pass appends a compact per-turn summary strip counting changed/examined/indexed files, tools used, and elapsed seconds, derived from CodeAgent's own tool records. Long tool result output is bounded to 100 lines with an explicit Show more/Show less toggle instead of silently dropping the remainder. The Ask User tool accepts an optional list of suggested answers rendered as a chooser while still permitting a custom typed answer |
 | Agent edits | Implemented | Native Diff, undo, keep/discard, Agent Edits overlay, and local checkpoints with restore and an expandable per-checkpoint changed-file breakdown with per-file added/removed line counts |
 | Tasks | Implemented | Persistent per-thread tasks, one level of subtasks with parent-relative numbering and descriptions, filtering, add/delete/state, clear, Markdown import/export, run-one/run-all, and Agent task tools accepting `parent_task_id` and `after_task_id` |
@@ -168,6 +168,19 @@ carry no path. A pre-chat gate replaces the empty-thread card while the account
 is signed out or errored, or while the project is indexing or unindexed, and
 offers the corresponding action.
 
+Also resolved in slice 3, composer mentions: typing `@` searches indexed project
+files through `FileBasedIndex`, ranked by file name before path so a short query
+is not swamped by deep directory matches. Picking a file inserts an `@path`
+token, shows a removable chip, and rides along with that one message as a
+resolved attachment through the same project-containment checks the file picker
+uses. Removing the chip removes its token from the text, and deleting the token
+by hand retires the chip, because the active set is re-derived from the text on
+every edit. **Mechanism differs from the original:** 0.482.3 composes in a
+rich-text editor and sends `rich_text_json_repr` plus `mentioned_items`;
+CodeAgent keeps a plain textarea and sends the text plus a `mentions` path list.
+The user-visible behavior matches; the wire shape does not, and inline input
+completion still needs the rich-text surface CodeAgent does not have.
+
 Also resolved in slice 3, process and question contracts: `launch_process`
 accepts `keep_stdin_open`, and stdin now closes by default so readers such as
 `ripgrep` see EOF instead of blocking on a terminal that will never receive
@@ -186,12 +199,13 @@ their parent, reordering may reposition a parent but never reparents a subtask,
 and deleting a parent deletes its children. The hierarchy round-trips through
 the conversation store, the cloud sync contract, and the public shared view.
 
-Still open, local and feasible: mention chips and inline input completion, both
-of which need the composer to become a rich-text surface and `sendMessage` to
-carry structured mentions rather than a plain string; onboarding coach-marks,
-which need a product decision on trigger points; Monaco-based rules editing; and
-IDE Run-tool-window hosting for agent-launched commands. There is no no-folder
-gate because an IDEA tool window only exists inside an open project.
+Still open, local and feasible: inline input completion, which needs the
+rich-text composer surface described above; onboarding coach-marks, which need a
+product decision on trigger points; Monaco-based rules editing; and IDE
+Run-tool-window hosting for agent-launched commands. There is no no-folder gate
+because an IDEA tool window only exists inside an open project, and
+`read-terminal` is not implemented because the extracted artifacts carry its
+name without a schema.
 Cloud-dependent surfaces (shareable session links, subscription banners,
 server-driven notifications, marketplace management) are no longer withheld as a
 whole: all four are implemented end to end, and each is unavailable only where a

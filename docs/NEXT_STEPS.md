@@ -137,13 +137,15 @@ completion-shortcut link and sign-in-state-aware account buttons.
 
 Remaining, ranked:
 
-1. **Composer fidelity — mention chips and inline input completion.** Drag-drop
-   attachment, the paste size guard, and the clipboard-file explanation landed;
-   what remains needs the composer to stop being a plain textarea. Rendering an
-   `@file` mention as a removable chip means a rich-text surface, and removing
-   the chip has to remove the corresponding text, so `sendMessage` must carry a
-   structured mention list instead of a plain string. That is a joint JVM and
-   webview protocol change, not a webview-only one.
+1. **Composer fidelity — inline input completion.** Drag-drop attachment, the
+   paste size guard, the clipboard-file explanation, and `@` mentions all
+   landed. Mentions work through `@path` tokens in the plain textarea plus a
+   `mentions` list on `sendMessage`, which produces the same user-visible
+   behavior as the original's chips without adopting its rich-text editor. What
+   still needs that editor is inline input completion, which has to render a
+   ghost suggestion inside the input. Adopting a rich-text surface would also
+   let the wire shape match the original's `rich_text_json_repr` plus
+   `mentioned_items`; weigh that against the dependency before scheduling.
 2. **Onboarding coach-marks.** The pre-chat gate views landed for the states
    that apply here — signed out, account error, indexing, and not indexed.
    There is no open-folder state because an IDEA tool window only exists inside

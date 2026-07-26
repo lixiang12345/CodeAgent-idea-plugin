@@ -26,8 +26,10 @@
     type GitFile,
     type GitSnapshot,
     type ImageCanvasSnapshot,
+    type Mention,
     type MessageDelta,
     type Mode,
+    type ProjectFile,
     type ProductJob,
     type SettingsSaved,
     type TaskItem,
@@ -267,6 +269,9 @@
   let confirmingUnshare = false;
   let dismissedNotificationIds = new Set<string>();
   let dropActive = false;
+  let mentionQuery = "";
+  let mentionResults: ProjectFile[] = [];
+  let mentions: Mention[] = [];
   let composerNotice: { level: "info" | "error"; text: string } | null = null;
   let composerNoticeTimer: number | undefined;
   let recoveryBanner: { visible: boolean; text: string; done: boolean } = { visible: false, text: "", done: false };
@@ -444,6 +449,12 @@
     }
     if (event.type === "selectionContext") {
       applySelectionContext(event.payload);
+      return;
+    }
+    if (event.type === "projectFiles") {
+      const payload = event.payload as { query?: string; data?: ProjectFile[] };
+      // A slower earlier search must not overwrite results for what is typed now.
+      if ((payload.query ?? "") === mentionQuery) mentionResults = payload.data ?? [];
       return;
     }
     if (event.type === "error") {
@@ -724,10 +735,13 @@
     closeMenus();
     forceConversationFollow = true;
     scrollConversationToBottom(true);
+    const referenced = activeMentions(text, mentions).map((mention) => mention.path);
+    mentions = [];
     sendCommand(immediate ? "sendMessageNow" : willQueue ? "queueMessage" : "sendMessage", {
       text,
       mode: snapshot.mode,
       clientMessageId,
+      mentions: referenced,
     });
   }
 
@@ -2098,6 +2112,62 @@
     sendCommand("attachDroppedFiles", { uris });
   }
 
+  /**
+   * Mentions live as `@path` tokens inside the plain textarea rather than as
+   * rich-text nodes. The active set is re-derived from the text on every edit,
+   * so deleting the token by hand and removing the chip stay consistent.
+   */
+  function activeMentions(text: string, current: Mention[]) {
+    return current.filter((mention) => text.includes(mention.token));
+  }
+
+  function mentionTokenAtCaret(): { query: string; start: number } | null {
+    const caret = composerTextarea?.selectionStart ?? prompt.length;
+    const before = prompt.slice(0, caret);
+    const at = before.lastIndexOf("@");
+    if (at < 0) return null;
+    if (at > 0 && !/\s/.test(before[at - 1])) return null;
+    const query = before.slice(at + 1);
+    return /\s/.test(query) ? null : { query, start: at };
+  }
+
+  function refreshMentionSearch() {
+    const token = mentionTokenAtCaret();
+    if (!token) {
+      atOpen = false;
+      return;
+    }
+    atOpen = true;
+    mentionQuery = token.query;
+    sendCommand("searchProjectFiles", { query: token.query });
+  }
+
+  function applyMentionFile(file: ProjectFile) {
+    const token = mentionTokenAtCaret();
+    const at = token?.start ?? prompt.length;
+    const caret = composerTextarea?.selectionStart ?? prompt.length;
+    const mentionToken = `@${file.path}`;
+    prompt = `${prompt.slice(0, at)}${mentionToken} ${prompt.slice(caret)}`;
+    mentions = [
+      ...activeMentions(prompt, mentions).filter((entry) => entry.path !== file.path),
+      { token: mentionToken, path: file.path, name: file.name },
+    ];
+    atOpen = false;
+    mentionResults = [];
+    void tick().then(() => {
+      resizeComposer();
+      composerTextarea?.focus();
+      const position = at + mentionToken.length + 1;
+      composerTextarea?.setSelectionRange(position, position);
+    });
+  }
+
+  function removeMention(mention: Mention) {
+    prompt = prompt.replace(`${mention.token} `, "").replace(mention.token, "");
+    mentions = activeMentions(prompt, mentions);
+    void tick().then(resizeComposer);
+  }
+
   function insertMention(kind: string) {
     atOpen = false;
     if (kind === "file") {
@@ -3349,6 +3419,9 @@
             </div>
           {/if}
           <div class="context-chips chips">
+            {#each mentions as mention (mention.path)}
+              <span class="chip mention-chip"><Icon name="at-sign" size={12} /><b title={mention.path}>{mention.name}</b><button title="Remove mention" aria-label={`Remove mention ${mention.path}`} onclick={() => removeMention(mention)}><Icon name="x" size={11} /></button></span>
+            {/each}
             {#each snapshot.attachments as item}
               <span class="chip accent"><Icon name={attachmentIcon(item)} size={12} /><b title={item.path}>{item.label}</b><button title="Remove" onclick={() => sendCommand("removeContext", { id: item.id })}><Icon name="x" size={11} /></button></span>
             {/each}
@@ -3403,8 +3476,18 @@
               </div>
             {/if}
             {#if atOpen}
-              <div class="composer-popup at-menu">
-                <header><strong>@ mentions</strong><button class="icon-button compact" title="Close" onclick={() => atOpen = false}><Icon name="x" size={12} /></button></header>
+              <div class="composer-popup at-menu" role="listbox" aria-label="Mention a project file">
+                <header><strong>{mentionQuery ? `Files matching “${mentionQuery}”` : "@ mentions"}</strong><button class="icon-button compact" title="Close" onclick={() => atOpen = false}><Icon name="x" size={12} /></button></header>
+                {#each mentionResults as file (file.path)}
+                  <button role="option" aria-selected="false" onclick={() => applyMentionFile(file)}>
+                    <Icon name="file" size={13} />
+                    <span><strong>{file.name}</strong><small>{file.path}</small></span>
+                  </button>
+                {/each}
+                {#if mentionResults.length === 0}
+                  <p class="at-menu-empty">{mentionQuery ? "No indexed project file matches." : "Type to search indexed project files."}</p>
+                {/if}
+                <div class="menu-sep"></div>
                 {#each MENTION_KINDS as item}
                   <button onclick={() => insertMention(item.id)}><Icon name={item.icon} size={13} /><span><strong>{item.label}</strong></span></button>
                 {/each}
@@ -3438,12 +3521,14 @@
               placeholder={editingQueuedMessageId ? "Edit queued message..." : "Type a message or command..."}
               oninput={() => {
                 resizeComposer();
+                mentions = activeMentions(prompt, mentions);
                 if (prompt.startsWith("/")) {
                   slashOpen = true;
                   atOpen = false;
-                } else if (slashOpen && !prompt.startsWith("/")) {
-                  slashOpen = false;
+                  return;
                 }
+                if (slashOpen) slashOpen = false;
+                refreshMentionSearch();
               }}
               onpaste={handleComposerPaste}
               onkeydown={(event) => {

@@ -63,6 +63,16 @@ internal class AttachmentContextResolver(private val project: Project) {
         }
     }
 
+    /** Composer `@` mentions arrive as project-relative paths already offered by projectFiles. */
+    fun mentionItems(paths: List<String>): List<ContextItemDto> {
+        if (paths.isEmpty()) return emptyList()
+        require(paths.size <= MAX_ATTACHMENTS) { "Mention at most $MAX_ATTACHMENTS files in one message" }
+        return paths.distinct().map { path ->
+            projectFile(path)
+            ContextItemDto(id = path, label = Path.of(path).fileName.toString(), path = path, kind = kindFor(path))
+        }
+    }
+
     fun resolve(items: List<ContextItemDto>): List<AgentAttachment> {
         require(items.size <= MAX_ATTACHMENTS) { "Attach at most $MAX_ATTACHMENTS context items" }
         var totalBytes = 0L

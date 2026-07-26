@@ -102,6 +102,18 @@ data class ToolRunDto(
 )
 
 @Serializable
+data class ProjectFileDto(
+    val path: String,
+    val name: String,
+)
+
+@Serializable
+data class ProjectFileResultsDto(
+    val query: String,
+    val data: List<ProjectFileDto> = emptyList(),
+)
+
+@Serializable
 data class AskQuestionDto(
     val question: String,
     val options: List<String> = emptyList(),

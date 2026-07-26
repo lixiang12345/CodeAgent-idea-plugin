@@ -100,6 +100,10 @@ button { color: inherit; }
 .chip.green { color: var(--ds-color-green-11); border-color: rgba(48,164,108,.35); background: #499c5418; }
 @keyframes status-spin { to { transform: rotate(360deg); } }
 .chip.accent { color: var(--ds-color-accent-11); border-color: rgba(59,130,246,.35); background: rgba(59,130,246,.12); }
+.chip.mention-chip { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 35%, transparent); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.at-menu button > span { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; text-align: left; }
+.at-menu button small { overflow: hidden; color: var(--muted); font: 8px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.at-menu-empty { margin: 0; padding: 8px 9px; color: var(--muted); font-size: 9px; }
 .chip.amber { color: #d5bb7d; border-color: #5f5338; background: rgba(213,187,125,.1); }
 .subagents-strip { padding: 6px 8px; border-bottom: 1px solid var(--border); background: #1f2430; }
 .subagents-strip-title { margin-bottom: 4px; font-size: 11px; color: var(--dim); }

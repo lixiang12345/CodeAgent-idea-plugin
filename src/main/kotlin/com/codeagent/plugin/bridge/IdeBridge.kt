@@ -42,6 +42,7 @@ import com.codeagent.plugin.conversation.ConversationTool
 import com.codeagent.plugin.conversation.ConversationSummaryService
 import com.codeagent.plugin.conversation.ConversationTaskRequest
 import com.codeagent.plugin.conversation.CloudConversationSyncService
+import com.codeagent.plugin.context.CodeAgentWorkspaceIndex
 import com.codeagent.plugin.context.ContextEngineService
 import com.codeagent.plugin.context.resolvedContextHttpApiKey
 import com.codeagent.plugin.settings.CodeAgentSettingsService
@@ -68,6 +69,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.util.indexing.FileBasedIndex
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.testFramework.LightVirtualFile
 import com.intellij.ui.jcef.JBCefBrowser
@@ -828,6 +830,10 @@ class IdeBridge(
             }
             "importThread" -> importThread()
             "pickContext" -> pickContext()
+            "searchProjectFiles" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<ProjectFileQueryPayload>(it) }
+                emit("projectFiles", json.encodeToJsonElement(ProjectFileResultsDto(request.query, searchProjectFiles(request.query))))
+            }
             "removeContext" -> {
                 val selection = requireNotNull(command.payload).let { json.decodeFromJsonElement<ContextPayload>(it) }
                 synchronized(stateLock) { attachments.remove(selection.id) }
@@ -1146,7 +1152,12 @@ class IdeBridge(
         request.agentProfileId?.let { agentProfileId ->
             require(isKnownAgentProfile(agentProfileId)) { "Unknown Agent profile: $agentProfileId" }
         }
-        val resolvedAttachments = attachmentResolver.resolve(synchronized(stateLock) { attachments.values.toList() })
+        // Mentions are scoped to the message that referenced them; standing attachments persist.
+        val mentioned = attachmentResolver.mentionItems(request.mentions)
+        val resolvedAttachments = attachmentResolver.resolve(
+            synchronized(stateLock) { attachments.values.toList() }
+                .let { standing -> standing + mentioned.filterNot { item -> standing.any { it.id == item.id } } },
+        )
         val presentationRunId = UUID.randomUUID().toString()
         val runId = synchronized(stateLock) {
             require(if (fromQueue) runState == "starting" else !isRunBusy()) { "Agent is already running" }
@@ -3088,6 +3099,40 @@ class IdeBridge(
         }
     }
 
+    /**
+     * Ranks indexed project files for the composer's `@` menu. Matching on the file
+     * name first keeps a short query from being swamped by deep directory matches.
+     */
+    private fun searchProjectFiles(query: String): List<ProjectFileDto> {
+        val root = Path.of(requireNotNull(project.basePath)).toAbsolutePath().normalize()
+        val needle = query.trim().lowercase().take(MAX_FILE_QUERY_CHARS)
+        val paths = ApplicationManager.getApplication().runReadAction<List<String>> {
+            runCatching {
+                FileBasedIndex.getInstance().getAllKeys(CodeAgentWorkspaceIndex.NAME, project).toList()
+            }.getOrDefault(emptyList())
+        }
+        return paths.asSequence()
+            .mapNotNull { absolute ->
+                val path = runCatching { root.relativize(Path.of(absolute)) }.getOrNull() ?: return@mapNotNull null
+                path.toString().replace('\\', '/').takeUnless { it.startsWith("..") }
+            }
+            .mapNotNull { relative ->
+                val name = relative.substringAfterLast('/')
+                val rank = when {
+                    needle.isEmpty() -> 2
+                    name.lowercase().startsWith(needle) -> 0
+                    name.lowercase().contains(needle) -> 1
+                    relative.lowercase().contains(needle) -> 2
+                    else -> return@mapNotNull null
+                }
+                Triple(rank, relative.length, ProjectFileDto(relative, name))
+            }
+            .sortedWith(compareBy({ it.first }, { it.second }, { it.third.path }))
+            .map { it.third }
+            .take(MAX_FILE_RESULTS)
+            .toList()
+    }
+
     private fun pickContext() {
         val descriptor = FileChooserDescriptorFactory.singleFile()
             .withTitle("Attach Project File")
@@ -3534,6 +3579,8 @@ class IdeBridge(
         val mode: String,
         val agentProfileId: String? = null,
         val clientMessageId: String? = null,
+        /** Project-relative paths the composer referenced with `@`; resolved as attachments for this message. */
+        val mentions: List<String> = emptyList(),
     )
 
     @Serializable
@@ -3767,9 +3814,14 @@ class IdeBridge(
     @Serializable
     private data class DroppedFilesPayload(val uris: List<String>)
 
+    @Serializable
+    private data class ProjectFileQueryPayload(val query: String = "")
+
     companion object {
         private val LOG = logger<IdeBridge>()
         private const val MAX_THREAD_IMPORT_BYTES = 2_000_000L
+        private const val MAX_FILE_QUERY_CHARS = 200
+        private const val MAX_FILE_RESULTS = 40
         private const val MAX_THREADS_PER_DELETE = 50
         private const val MAX_CLIPBOARD_TEXT_LENGTH = 512_000
         private val BUILT_IN_AGENT_PROFILES = setOf("general", "search", "context", "prompt", "loop")
