@@ -236,6 +236,7 @@ Backend tools are discovered through authenticated `GET /v1/tools`. The JVM pres
 - Use prototype design tokens: compact 10/12/14 px type, JetBrains Mono for tool data, neutral IntelliJ surfaces (`--bg/#1e1e1e`, `--panel/#252526`, `--chrome/#3c3f41`, accent `#3574f0`), and 4-8 px radii.
 - Validate at a 420 px tool-window viewport first (`--tw: 420px`), then 360 px and wider docked widths.
 - Page chrome mirrors v9: tool-window header, chat header with zoom, repository chip strip, composer action bar (mode/model/context usage/canvas/@/slash/attach/enhance/auto/send), threads drawer, and overlay pages for Tasks / Git Changes / Context Canvas / Settings. Context Window Usage uses finalized, conversation-scoped `agentRun` telemetry for its three truthful token categories and keeps CodeAgent-specific compaction, output, retrieval, and tool statistics in a separate runtime-budget section.
+- The panel itself never scrolls sideways. Only code blocks, markdown tables, and the chip strip own a horizontal scroller; every other box either wraps or truncates with an ellipsis. A dense-transcript regression test at 360/420/640 px asserts this against unbroken 280-character tokens spread across a message, a fenced code block, a markdown table, eight attachments, a 40-line tool output, and four stacked approvals.
 
 ## No-fake rule
 

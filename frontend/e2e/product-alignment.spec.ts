@@ -1472,3 +1472,73 @@ test("disabled controls say why they are unavailable", async ({ page }) => {
     .map((button) => button.className));
   expect(unexplained).toEqual([]);
 });
+
+test("dense transcripts, long tokens, and stacked approvals never break the viewport", async ({ page }) => {
+  const UNBROKEN = "Augment".repeat(40);
+  await page.evaluate((unbroken) => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    const now = Date.now();
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      runState: "awaiting_approval",
+      agentRun: { ...snapshot.agentRun, phase: "approval" },
+      messages: [
+        { id: "m-long", role: "user", content: `Explain ${unbroken} and /a/very/deep/${unbroken}/path.ts`, createdAt: now, timelineSequence: 1 },
+        {
+          id: "m-code",
+          role: "assistant",
+          content: `Here is the change:\n\n\`\`\`ts\nconst ${unbroken} = "${unbroken}";\nexport function ${unbroken}() { return ${unbroken}; }\n\`\`\`\n\nAnd a table:\n\n| ${unbroken} | b |\n| --- | --- |\n| 1 | 2 |`,
+          createdAt: now + 1,
+          timelineSequence: 2,
+        },
+      ],
+      attachments: Array.from({ length: 8 }, (_, index) => ({
+        id: `attach-${index}`,
+        label: `${unbroken}-${index}.ts`,
+        path: `src/${unbroken}/${index}.ts`,
+        kind: "file" as const,
+      })),
+      tools: [
+        {
+          id: "t-output",
+          name: "shell",
+          summary: unbroken,
+          status: "completed" as const,
+          detail: Array.from({ length: 40 }, (_, line) => `${line}: ${unbroken}`).join("\n"),
+          canRevert: false,
+          createdAt: now + 2,
+        },
+        ...Array.from({ length: 4 }, (_, index) => ({
+          id: `t-approval-${index}`,
+          name: "save_file",
+          summary: `src/${unbroken}/${index}.ts`,
+          status: "approval" as const,
+          detail: `Writes ${unbroken}`,
+          changePath: `src/${unbroken}/${index}.ts`,
+          canRevert: false,
+          createdAt: now + 3 + index,
+        })),
+      ],
+    });
+  }, UNBROKEN);
+
+  await expect(page.locator(".approval").first()).toBeVisible();
+  await expectViewportIntegrity(page);
+
+  // An unbroken token must never make the panel scroll sideways. Code blocks, markdown
+  // tables and the chip strip opt into their own horizontal scroller; nothing else may.
+  // Boxes that clip with `overflow: hidden` are truncating on purpose, not scrolling.
+  const sideways = await page.evaluate(() => {
+    const allowed = ".code-scroll, .markdown-body pre, .markdown-body table, .context-chips, .chips";
+    return [...document.querySelectorAll<HTMLElement>("body *")]
+      .filter((node) => node.scrollWidth > node.clientWidth + 1 && node.clientWidth > 0)
+      .filter((node) => ["auto", "scroll"].includes(getComputedStyle(node).overflowX))
+      .filter((node) => !node.matches(allowed))
+      .map((node) => `${node.tagName.toLowerCase()}.${node.classList.value} ${node.scrollWidth}>${node.clientWidth}`);
+  });
+  expect(sideways).toEqual([]);
+
+  await page.locator(".conversation").evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expectViewportIntegrity(page);
+});

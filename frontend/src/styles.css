@@ -291,6 +291,9 @@ button { color: inherit; }
 .assistant-turn { margin: 8px 0 10px; }
 .assistant-turn.augment-message { display: flex; flex-direction: column; align-items: start; gap: 8px; }
 .assistant-body { min-width: 0; width: 100%; }
+/* align-items:start would size this to its content, so a code block's max-width:100% would
+   resolve against a box already as wide as the widest unbroken line and never clamp. */
+.assistant-turn.augment-message > .assistant-message { width: 100%; }
 .chat-view .assistant-message { min-width: 0; color: #d4d7dc; font-size: calc(12px * var(--chat-zoom)); line-height: 1.55; overflow-wrap: anywhere; }
 .chat-view .assistant-meta { min-height: 16px; display: flex; align-items: center; gap: 6px; color: #737b85; font: calc(9.5px * var(--chat-zoom)) var(--mono); }
 .assistant-actions { min-height: 22px; display: flex; justify-content: flex-start; gap: 1px; opacity: 0; transition: opacity .15s ease; }
