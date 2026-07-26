@@ -142,6 +142,7 @@ class IdeBridge(
     private val contextIndexRuns = RunGeneration()
     private val browserEvents = BrowserEventQueue()
     private val browserEventSequence = AtomicLong()
+    private val backendToolsGeneration = AtomicLong()
     private val browserDispatchScheduled = AtomicBoolean()
     private val contextIndexing = AtomicBoolean()
     private val disposed = AtomicBoolean()
@@ -159,6 +160,9 @@ class IdeBridge(
 
     @Volatile
     private var backendTools = emptyList<BackendToolDto>()
+
+    @Volatile
+    private var backendToolDiscovery = BackendToolDiscoveryDto()
 
     @Volatile
     private var configurations = ConfigurationSnapshotDto()
@@ -393,6 +397,7 @@ class IdeBridge(
             "getContextStatus" -> refreshContextStatus()
             "refreshContextIndex" -> refreshContextStatus(manual = true)
             "checkBackend" -> checkBackendHealth(command.payload)
+            "refreshBackendTools" -> refreshBackendTools()
             "checkContextEngine" -> checkContextEngine(command.payload)
             "indexWorkspace" -> indexWorkspace()
             "saveSettings" -> saveSettings(requireNotNull(command.payload) { "saveSettings requires payload" })
@@ -1497,6 +1502,7 @@ class IdeBridge(
                 context = context,
                 backendHealth = backendHealth,
                 models = modelRegistry.copy(selectedModel = active.selectedModelId),
+                backendToolDiscovery = backendToolDiscovery,
                 backendTools = backendTools,
                 configurations = configurations,
                 mcpRuntime = mcpRuntime,
@@ -1673,7 +1679,9 @@ class IdeBridge(
         agent.health().whenComplete { health, error ->
             backendHealth = backendHealthResult(health, error)
             if (backendHealth.state != "online") {
+                backendToolsGeneration.incrementAndGet()
                 backendTools = emptyList()
+                backendToolDiscovery = BackendToolDiscoveryDto(state = "unavailable", label = backendHealth.label)
                 modelRegistry = ModelRegistryDto(state = "error", label = backendHealth.label)
                 configurations = ConfigurationSnapshotDto(state = "error", label = backendHealth.label)
             }
@@ -2035,7 +2043,9 @@ class IdeBridge(
 
     private fun clearAuthenticatedCapabilities(label: String) {
         synchronized(stateLock) { productJobsGeneration += 1 }
+        backendToolsGeneration.incrementAndGet()
         backendTools = emptyList()
+        backendToolDiscovery = BackendToolDiscoveryDto(state = "unavailable", label = label)
         configurations = ConfigurationSnapshotDto(state = "unavailable", label = label)
         pluginRuntimeService.reconcile(emptyList())
         mcpRuntimeService.reconcile(emptyList()).exceptionally { null }
@@ -2069,19 +2079,40 @@ class IdeBridge(
     }
 
     private fun refreshBackendTools() {
+        val generation = backendToolsGeneration.incrementAndGet()
+        backendToolDiscovery = BackendToolDiscoveryDto(
+            state = "loading",
+            label = if (backendTools.isEmpty()) "Discovering backend tools" else "Refreshing backend tools",
+        )
+        emitSnapshot()
         agent.tools().whenComplete { response, error ->
-            backendTools = if (error != null) {
-                emptyList()
+            if (backendToolsGeneration.get() != generation) return@whenComplete
+            if (error != null || response == null) {
+                backendToolDiscovery = BackendToolDiscoveryDto(
+                    state = "error",
+                    label = error?.rootMessage() ?: "Backend tool discovery returned no response",
+                )
             } else {
-                response.data.map { tool ->
+                backendTools = response.data.map { tool ->
                     BackendToolDto(
                         name = tool.name,
                         catalogId = tool.catalogId,
+                        description = tool.description,
+                        risk = tool.risk,
                         available = tool.available,
                         unavailableReason = tool.unavailableReason,
                         requiredEnvironment = tool.requiredEnvironment,
                     )
                 }
+                val available = backendTools.count { it.available }
+                backendToolDiscovery = BackendToolDiscoveryDto(
+                    state = "ready",
+                    label = if (backendTools.isEmpty()) {
+                        "Backend reported no tool capabilities"
+                    } else {
+                        "$available of ${backendTools.size} capabilities available"
+                    },
+                )
             }
             emitSnapshot()
         }

@@ -47,6 +47,7 @@ export function createIntegrationToolRegistryFromEnv(
     createGitHubMergeTool(env, fetchImpl),
     createLinearTool(env, fetchImpl),
     createNotionTool(env, fetchImpl),
+    createNotionManageTool(env, fetchImpl),
     createJiraTool(env, fetchImpl),
     createConfluenceTool(env, fetchImpl),
     createGleanTool(env, fetchImpl),
@@ -1380,27 +1381,29 @@ function createNotionTool(env, fetchImpl) {
   return tool({
     name: "notion_search",
     catalogId: "notion",
-    description: "Search pages and data sources shared with the configured Notion integration",
+    description: "Search or read pages shared with the configured Notion integration",
     parameters: objectSchema({
+      operation: enumSchema("Notion operation; defaults to search", ["search", "get_page"]),
       query: stringSchema("Text to match in Notion page or data-source titles"),
+      page_id: stringSchema("Notion page ID; required for get_page"),
       limit: integerSchema("Maximum results", 1, 20),
-    }, ["query"]),
+    }),
     available: Boolean(token),
     unavailableReason: "Set NOTION_TOKEN on the backend",
     requiredEnvironment: ["NOTION_TOKEN"],
     execute: async (args, { signal }) => {
+      const operation = optionalEnum(args.operation, "search", ["search", "get_page"]);
+      if (operation === "get_page") {
+        return notionPage(endpoint, token, notionVersion, fetchImpl, args, signal);
+      }
       const query = requiredString(args, "query", 1_000);
       const limit = boundedInteger(args.limit, 10, 1, 20);
-      const body = await requestJson(fetchImpl, `${endpoint.replace(/\/$/, "")}/search`, {
+      const body = await notionRequestJson(fetchImpl, `${endpoint.replace(/\/$/, "")}/search`, {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${token}`,
-          "notion-version": notionVersion,
-        },
+        headers: notionHeaders(token, notionVersion),
         body: JSON.stringify({ query, page_size: limit }),
         signal,
-      }, "Notion search");
+      }, "Notion search", token);
       const results = requiredArray(body?.results, "Notion search").map((item) => ({
         title: notionTitle(item) || item.object || item.id,
         url: item.url,
@@ -1409,6 +1412,170 @@ function createNotionTool(env, fetchImpl) {
       return searchResult("Notion", results);
     },
   });
+}
+
+function createNotionManageTool(env, fetchImpl) {
+  const token = setting(env, "NOTION_TOKEN");
+  const endpoint = setting(env, "NOTION_API_URL") || "https://api.notion.com/v1";
+  const notionVersion = setting(env, "NOTION_VERSION") || "2025-09-03";
+  return tool({
+    name: "notion_manage",
+    catalogId: "notion",
+    description: "Create a child page or update a page title and append content in Notion",
+    risk: "mutating",
+    parameters: objectSchema({
+      operation: enumSchema("Approved Notion write operation", ["create_page", "update_page", "append_content"]),
+      parent_page_id: stringSchema("Parent page ID; required for create_page"),
+      page_id: stringSchema("Page ID; required for update_page"),
+      title: stringSchema("Page title; required for create_page and optional for update_page"),
+      title_property: stringSchema("Title property name for update_page; defaults to title"),
+      content: stringSchema("Plain-text content for create_page or append_content"),
+    }, ["operation"]),
+    available: Boolean(token),
+    unavailableReason: "Set NOTION_TOKEN on the backend with permission to insert and update content",
+    requiredEnvironment: ["NOTION_TOKEN"],
+    execute: async (args, { signal }) => {
+      const operation = optionalEnum(args.operation, "", ["create_page", "update_page", "append_content"]);
+      if (operation === "create_page") {
+        return notionCreatePage(endpoint, token, notionVersion, fetchImpl, args, signal);
+      }
+      if (operation === "update_page") {
+        return notionUpdatePage(endpoint, token, notionVersion, fetchImpl, args, signal);
+      }
+      return notionAppendContent(endpoint, token, notionVersion, fetchImpl, args, signal);
+    },
+  });
+}
+
+async function notionPage(endpoint, token, notionVersion, fetchImpl, args, signal) {
+  const pageId = notionPageId(args.page_id, "page_id");
+  const base = endpoint.replace(/\/$/, "");
+  const headers = notionHeaders(token, notionVersion);
+  const [page, children] = await Promise.all([
+    notionRequestJson(fetchImpl, `${base}/pages/${pageId}`, { headers, signal }, "Notion page read", token),
+    notionRequestJson(fetchImpl, `${base}/blocks/${pageId}/children?page_size=100`, { headers, signal }, "Notion page content read", token),
+  ]);
+  if (page?.object !== "page" || typeof page.id !== "string") {
+    throw httpError(502, "Notion page read returned an unexpected response shape");
+  }
+  const blocks = requiredArray(children?.results, "Notion page content read");
+  const content = blocks.map(notionBlockText).filter(Boolean).join("\n\n");
+  const output = buildString([
+    notionTitle(page) || "Untitled page",
+    page.url || "",
+    `id=${page.id}`,
+    page.last_edited_time ? `last_edited=${page.last_edited_time}` : "",
+    content,
+    children.has_more === true ? "[More content is available; this read returned the first 100 blocks.]" : "",
+  ]);
+  return {
+    output: truncate(output),
+    summary: `Read Notion page ${notionTitle(page) || page.id}`,
+    detail: truncate(output),
+  };
+}
+
+async function notionCreatePage(endpoint, token, notionVersion, fetchImpl, args, signal) {
+  const parentPageId = notionPageId(args.parent_page_id, "parent_page_id");
+  const title = requiredString(args, "title", 200);
+  const content = optionalString(args.content, "", 10_000);
+  const body = await notionRequestJson(fetchImpl, `${endpoint.replace(/\/$/, "")}/pages`, {
+    method: "POST",
+    headers: notionHeaders(token, notionVersion),
+    body: JSON.stringify({
+      parent: { type: "page_id", page_id: parentPageId },
+      properties: { title: notionTitleProperty(title) },
+      ...(content ? { children: notionParagraphs(content) } : {}),
+    }),
+    signal,
+  }, "Notion page creation", token);
+  return notionMutationResult(body, "Created");
+}
+
+async function notionUpdatePage(endpoint, token, notionVersion, fetchImpl, args, signal) {
+  const pageId = notionPageId(args.page_id, "page_id");
+  const title = requiredString(args, "title", 200);
+  const titleProperty = optionalString(args.title_property, "title", 200);
+  if (!/^[^\u0000-\u001f]{1,200}$/.test(titleProperty)) {
+    throw httpError(400, "title_property contains unsupported characters");
+  }
+  const base = endpoint.replace(/\/$/, "");
+  const page = await notionRequestJson(fetchImpl, `${base}/pages/${pageId}`, {
+    method: "PATCH",
+    headers: notionHeaders(token, notionVersion),
+    body: JSON.stringify({ properties: { [titleProperty]: notionTitleProperty(title) } }),
+    signal,
+  }, "Notion page title update", token);
+  return notionMutationResult(page, "Updated");
+}
+
+async function notionAppendContent(endpoint, token, notionVersion, fetchImpl, args, signal) {
+  const pageId = notionPageId(args.page_id, "page_id");
+  const content = requiredString(args, "content", 10_000);
+  const updated = await notionRequestJson(fetchImpl, `${endpoint.replace(/\/$/, "")}/blocks/${pageId}/children`, {
+    method: "PATCH",
+    headers: notionHeaders(token, notionVersion),
+    body: JSON.stringify({ children: notionParagraphs(content) }),
+    signal,
+  }, "Notion page content append", token);
+  if (!Array.isArray(updated?.results)) {
+    throw httpError(502, "Notion page content append returned an unexpected response shape");
+  }
+  const output = buildString(["Appended content to Notion page", `id=${pageId}`]);
+  return { output, summary: `Appended content to Notion page ${pageId}`, detail: output };
+}
+
+function notionMutationResult(page, verb) {
+  if (page?.object !== "page" || typeof page.id !== "string") {
+    throw httpError(502, `Notion page ${verb.toLowerCase()} returned an unexpected response shape`);
+  }
+  const output = buildString([`${verb} Notion page`, page.url || "", `id=${page.id}`]);
+  return { output, summary: `${verb} Notion page ${page.id}`, detail: output };
+}
+
+function notionHeaders(token, notionVersion) {
+  return {
+    accept: "application/json",
+    "content-type": "application/json",
+    authorization: `Bearer ${token}`,
+    "notion-version": notionVersion,
+  };
+}
+
+function notionPageId(value, name) {
+  if (typeof value !== "string") throw httpError(400, `${name} is required`);
+  const compact = value.trim().replaceAll("-", "").toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(compact)) throw httpError(400, `${name} must be a Notion UUID`);
+  return `${compact.slice(0, 8)}-${compact.slice(8, 12)}-${compact.slice(12, 16)}-${compact.slice(16, 20)}-${compact.slice(20)}`;
+}
+
+function notionTitleProperty(title) {
+  return { title: [{ type: "text", text: { content: title } }] };
+}
+
+function notionParagraphs(content) {
+  return content.match(/[\s\S]{1,2000}/g).map((part) => ({
+    object: "block",
+    type: "paragraph",
+    paragraph: { rich_text: [{ type: "text", text: { content: part } }] },
+  }));
+}
+
+function notionBlockText(block) {
+  if (!block || typeof block !== "object" || typeof block.type !== "string") return "";
+  if (block.type === "child_page") return `[Child page] ${block.child_page?.title || "Untitled"}`;
+  if (block.type === "child_database") return `[Child database] ${block.child_database?.title || "Untitled"}`;
+  const value = block[block.type];
+  return Array.isArray(value?.rich_text) ? richText(value.rich_text) : "";
+}
+
+async function notionRequestJson(fetchImpl, url, options, operation, token) {
+  try {
+    return await requestJson(fetchImpl, url, options, operation);
+  } catch (error) {
+    if (error instanceof Error && token) error.message = error.message.split(token).join("[REDACTED]");
+    throw error;
+  }
 }
 
 function createJiraTool(env, fetchImpl) {

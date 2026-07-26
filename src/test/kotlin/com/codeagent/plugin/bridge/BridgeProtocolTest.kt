@@ -188,6 +188,31 @@ class BridgeProtocolTest {
     }
 
     @Test
+    fun `encodes backend tool discovery separately from reported capabilities`() {
+        val encoded = json.encodeToString(
+            AppSnapshotDto(
+                projectName = "sample-project",
+                threads = emptyList(),
+                backendToolDiscovery = BackendToolDiscoveryDto(
+                    state = "error",
+                    label = "HTTP 503 from tool discovery",
+                ),
+                backendTools = listOf(
+                    BackendToolDto(
+                        name = "notion_search",
+                        catalogId = "notion",
+                        available = true,
+                    ),
+                ),
+            ),
+        )
+
+        assertTrue(encoded.contains("\"backendToolDiscovery\":{\"state\":\"error\""))
+        assertTrue(encoded.contains("HTTP 503 from tool discovery"))
+        assertTrue(encoded.contains("\"name\":\"notion_search\""))
+    }
+
+    @Test
     fun `fresh install targets the local Docker backend`() {
         assertEquals("http://127.0.0.1:8788", DEFAULT_BACKEND_URL)
         assertEquals(DEFAULT_BACKEND_URL, CodeAgentSettingsState().backendUrl)

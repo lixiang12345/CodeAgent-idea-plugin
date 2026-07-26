@@ -298,9 +298,17 @@ data class ModelRegistryDto(
 data class BackendToolDto(
     val name: String,
     val catalogId: String,
+    val description: String = "",
+    val risk: String = "read_only",
     val available: Boolean,
     val unavailableReason: String? = null,
     val requiredEnvironment: List<String> = emptyList(),
+)
+
+@Serializable
+data class BackendToolDiscoveryDto(
+    val state: String = "idle",
+    val label: String = "Backend tools not loaded",
 )
 
 @Serializable
@@ -592,6 +600,7 @@ data class AppSnapshotDto(
     val context: ContextSnapshotDto = ContextSnapshotDto(),
     val backendHealth: BackendHealthDto = BackendHealthDto(),
     val models: ModelRegistryDto = ModelRegistryDto(),
+    val backendToolDiscovery: BackendToolDiscoveryDto = BackendToolDiscoveryDto(),
     val backendTools: List<BackendToolDto> = emptyList(),
     val configurations: ConfigurationSnapshotDto = ConfigurationSnapshotDto(),
     val mcpRuntime: McpRuntimeSnapshotDto = McpRuntimeSnapshotDto(),

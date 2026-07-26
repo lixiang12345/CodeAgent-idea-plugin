@@ -41,6 +41,14 @@ async function captureShell(page: Page, name: string, maxDiffPixelRatio?: number
   );
 }
 
+async function openServices(page: Page): Promise<void> {
+  await page.getByTitle("Settings", { exact: true }).click();
+  const navigationToggle = page.getByRole("button", { name: "All settings", exact: true });
+  if (await navigationToggle.isVisible()) await navigationToggle.click();
+  await page.getByRole("button", { name: "Services", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Services", exact: true })).toBeVisible();
+}
+
 function requireReferenceViewport(testInfo: TestInfo): void {
   test.skip(testInfo.project.name !== "tool-window-420", "Detailed workflow references use the canonical 420 px tool window");
 }
@@ -56,6 +64,91 @@ test("main Agent workspace stays dense and bounded", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
   await expectViewportIntegrity(page);
   await captureShell(page, "main-agent-workspace.png");
+});
+
+test("Services groups cloud capabilities and distinguishes discovery states", async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      backendToolDiscovery: { state: "ready", label: "5 of 7 capabilities available" },
+      backendTools: [
+        { name: "github_search", catalogId: "github", description: "Search and read GitHub resources", risk: "read_only", available: true, requiredEnvironment: ["GITHUB_TOKEN"] },
+        { name: "github_manage", catalogId: "github", description: "Create comments and reviews", risk: "mutating", available: true, requiredEnvironment: ["GITHUB_TOKEN"] },
+        { name: "github_actions_manage", catalogId: "github", description: "Control approved workflow runs", risk: "mutating", available: true, requiredEnvironment: ["GITHUB_TOKEN"] },
+        { name: "notion_search", catalogId: "notion", description: "Search and read shared Notion pages", risk: "read_only", available: true, requiredEnvironment: ["NOTION_TOKEN"] },
+        { name: "notion_manage", catalogId: "notion", description: "Create and update approved Notion pages", risk: "mutating", available: false, unavailableReason: "Integration needs insert-content permission", requiredEnvironment: ["NOTION_TOKEN"] },
+        { name: "linear_search", catalogId: "linear", description: "Search Linear issues", risk: "read_only", available: false, unavailableReason: "Set LINEAR_API_KEY on the backend", requiredEnvironment: ["LINEAR_API_KEY"] },
+        { name: "subagent", catalogId: "subagent", description: "Delegate a bounded model task", risk: "read_only", available: true, requiredEnvironment: ["MODEL"] },
+      ],
+    });
+  });
+
+  await openServices(page);
+  await expect(page.getByText("5 of 7 capabilities available", { exact: true })).toBeVisible();
+  await expect(page.locator('[data-provider="github"]')).toHaveAttribute("data-state", "ready");
+  await expect(page.locator('[data-provider="notion"]')).toHaveAttribute("data-state", "partial");
+  await expect(page.locator('[data-provider="linear"]')).toHaveAttribute("data-state", "unavailable");
+  await expect(page.locator('[data-provider="notion"] .backend-provider-state')).toHaveText("Partial");
+
+  const notionSummary = page.locator('[data-provider="notion"] .backend-provider-summary');
+  await notionSummary.focus();
+  await expect(notionSummary).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(notionSummary).toHaveAttribute("aria-expanded", "true");
+  const notionProvider = page.locator('[data-provider="notion"]');
+  await expect(notionProvider.getByText("notion_search", { exact: true })).toBeVisible();
+  await expect(notionProvider.getByText("notion_manage", { exact: true })).toBeVisible();
+  await expect(notionProvider.getByText("Approval required", { exact: true })).toBeVisible();
+  await expect(notionProvider.getByText("Integration needs insert-content permission", { exact: true })).toBeVisible();
+  await expect(notionProvider.getByText("Requires NOTION_TOKEN", { exact: true })).toBeVisible();
+  if (testInfo.project.name === "tool-window-420") await captureShell(page, "services-cloud-discovery.png");
+
+  const refresh = page.getByRole("button", { name: "Refresh backend tools", exact: true });
+  await refresh.click();
+  await expect(page.getByRole("status").filter({ hasText: "Checking backend capabilities" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh backend tools", exact: true })).toBeDisabled();
+  await expect(page.getByText("5 of 7 capabilities available", { exact: true })).toBeVisible();
+
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      backendToolDiscovery: { state: "error", label: "HTTP 503 from /v1/tools" },
+    });
+  });
+  await expect(page.getByRole("alert")).toContainText("HTTP 503 from /v1/tools");
+  const retry = page.getByRole("button", { name: "Retry backend tool discovery", exact: true });
+  await retry.click();
+  await expect(page.getByRole("status").filter({ hasText: "Checking backend capabilities" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh backend tools", exact: true })).toBeEnabled();
+
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      backendToolDiscovery: { state: "ready", label: "Backend reported no tool capabilities" },
+      backendTools: [],
+    });
+  });
+  await expect(page.getByText("No capabilities reported", { exact: true })).toBeVisible();
+  await expect(page.getByText("Tool discovery failed", { exact: true })).toBeHidden();
+
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      backendToolDiscovery: { state: "unavailable", label: "Sign in to discover backend tools" },
+    });
+  });
+  const unavailableStatus = page.getByRole("status").filter({ hasText: "Backend tools unavailable" });
+  await expect(unavailableStatus).toBeVisible();
+  await expect(unavailableStatus.getByText("Sign in to discover backend tools", { exact: true })).toBeVisible();
+  await expectViewportIntegrity(page);
 });
 
 test("Context Window Usage exposes live telemetry in a bounded modal", async ({ page }, testInfo) => {

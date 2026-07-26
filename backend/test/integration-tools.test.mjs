@@ -24,6 +24,9 @@ test("reports missing integration credentials and rejects execution explicitly",
   assert.match(tools.find((tool) => tool.name === "github_actions_manage").unavailableReason, /Actions write access/);
   assert.equal(tools.find((tool) => tool.name === "github_merge_pull_request").risk, "mutating");
   assert.match(tools.find((tool) => tool.name === "github_merge_pull_request").unavailableReason, /Pull requests write access/);
+  assert.equal(tools.find((tool) => tool.name === "notion_search").risk, "read_only");
+  assert.equal(tools.find((tool) => tool.name === "notion_manage").risk, "mutating");
+  assert.match(tools.find((tool) => tool.name === "notion_manage").unavailableReason, /NOTION_TOKEN/);
   assert.equal(tools.find((tool) => tool.name === "subagent").available, false);
   await assert.rejects(
     registry.execute("web_search", { query: "CodeAgent" }),
@@ -840,7 +843,7 @@ test("executes configured HTTP integration adapters and normalizes real provider
     SUPABASE_TABLES: "tickets,projects",
   }, fetchImpl, modelGateway);
 
-  assert.equal(registry.list().filter((tool) => tool.available).length, 12);
+  assert.equal(registry.list().filter((tool) => tool.available).length, 13);
   assert.match((await registry.execute("web_search", { query: "web" })).output, /Web result/);
   assert.match((await registry.execute("github_search", { query: "bug" })).output, /GitHub issue/);
   assert.match((await registry.execute("linear_search", { query: "linear" })).output, /ENG-1/);
@@ -870,6 +873,158 @@ test("executes configured HTTP integration adapters and normalizes real provider
   assert.equal(modelCalls[0].maxOutputTokens, 2048);
   assert.match(modelCalls[0].messages[0].content, /review subagent/);
   assert.match(modelCalls[0].messages[1].content, /Prioritized findings/);
+});
+
+test("reads and approval-classifies bounded Notion page operations", async () => {
+  const pageId = "12345678-1234-1234-1234-123456789abc";
+  const parentPageId = "abcdefab-cdef-abcd-efab-cdefabcdefab";
+  const calls = [];
+  const registry = createIntegrationToolRegistryFromEnv({
+    NOTION_TOKEN: "notion-secret",
+    NOTION_API_URL: "https://notion.test/v1",
+  }, async (url, options = {}) => {
+    const requestUrl = String(url);
+    calls.push({ url: requestUrl, options });
+    if (requestUrl === `https://notion.test/v1/pages/${pageId}` && (!options.method || options.method === "GET")) {
+      return jsonResponse({
+        object: "page",
+        id: pageId,
+        url: "https://notion.test/read-page",
+        last_edited_time: "2026-07-26T00:00:00.000Z",
+        properties: { title: { type: "title", title: [{ plain_text: "Cloud plan" }] } },
+      });
+    }
+    if (requestUrl === `https://notion.test/v1/blocks/${pageId}/children?page_size=100`) {
+      return jsonResponse({
+        results: [
+          { type: "heading_2", heading_2: { rich_text: [{ plain_text: "Milestone" }] } },
+          { type: "paragraph", paragraph: { rich_text: [{ plain_text: "Verified content" }] } },
+          { type: "child_page", child_page: { title: "Evidence" } },
+        ],
+        has_more: false,
+      });
+    }
+    if (requestUrl === "https://notion.test/v1/pages" && options.method === "POST") {
+      return jsonResponse({ object: "page", id: pageId, url: "https://notion.test/created-page" });
+    }
+    if (requestUrl === `https://notion.test/v1/pages/${pageId}` && options.method === "PATCH") {
+      return jsonResponse({ object: "page", id: pageId, url: "https://notion.test/updated-page" });
+    }
+    if (requestUrl === `https://notion.test/v1/blocks/${pageId}/children` && options.method === "PATCH") {
+      return jsonResponse({ results: [{ object: "block", id: "block-1" }] });
+    }
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  }, {});
+
+  const searchCapability = registry.list().find((tool) => tool.name === "notion_search");
+  const manageCapability = registry.list().find((tool) => tool.name === "notion_manage");
+  assert.equal(searchCapability.risk, "read_only");
+  assert.equal(manageCapability.risk, "mutating");
+
+  const page = await registry.execute("notion_search", { operation: "get_page", page_id: pageId });
+  assert.match(page.output, /Cloud plan/);
+  assert.match(page.output, /Verified content/);
+  assert.match(page.output, /\[Child page\] Evidence/);
+
+  const created = await registry.execute("notion_manage", {
+    operation: "create_page",
+    parent_page_id: parentPageId.replaceAll("-", ""),
+    title: "Dogfood result",
+    content: "Created through the approved tool.",
+  });
+  assert.match(created.output, /Created Notion page/);
+
+  const updated = await registry.execute("notion_manage", {
+    operation: "update_page",
+    page_id: pageId,
+    title: "Dogfood result verified",
+    title_property: "Name",
+  });
+  assert.match(updated.output, /Updated Notion page/);
+
+  const appended = await registry.execute("notion_manage", {
+    operation: "append_content",
+    page_id: pageId,
+    content: "Append after approval.",
+  });
+  assert.match(appended.output, /Appended content to Notion page/);
+
+  const createBody = JSON.parse(calls.find((call) => call.url === "https://notion.test/v1/pages").options.body);
+  assert.equal(createBody.parent.page_id, parentPageId);
+  assert.equal(createBody.properties.title.title[0].text.content, "Dogfood result");
+  assert.equal(createBody.children[0].paragraph.rich_text[0].text.content, "Created through the approved tool.");
+  const titleCall = calls.find((call) => call.url.endsWith(`/pages/${pageId}`) && call.options.method === "PATCH");
+  assert.equal(JSON.parse(titleCall.options.body).properties.Name.title[0].text.content, "Dogfood result verified");
+  const appendCall = calls.find((call) => call.url.endsWith(`/blocks/${pageId}/children`) && call.options.method === "PATCH");
+  assert.equal(JSON.parse(appendCall.options.body).children[0].paragraph.rich_text[0].text.content, "Append after approval.");
+  assert.ok(calls.every((call) => call.options.headers.authorization === "Bearer notion-secret"));
+});
+
+test("preserves Notion permission failures while redacting credentials", async () => {
+  const registry = createIntegrationToolRegistryFromEnv({
+    NOTION_TOKEN: "notion-secret",
+    NOTION_API_URL: "https://notion.test/v1",
+  }, async () => jsonResponse({ message: "permission denied for notion-secret" }, 403), {});
+
+  await assert.rejects(
+    registry.execute("notion_manage", {
+      operation: "create_page",
+      parent_page_id: "abcdefab-cdef-abcd-efab-cdefabcdefab",
+      title: "Denied",
+    }),
+    (error) => error.statusCode === 502
+      && error.providerStatus === 403
+      && /permission denied/.test(error.message)
+      && /\[REDACTED\]/.test(error.message)
+      && !error.message.includes("notion-secret"),
+  );
+});
+
+test("rejects malformed and unbounded Notion operations", async () => {
+  let fetchCount = 0;
+  const registry = createIntegrationToolRegistryFromEnv({
+    NOTION_TOKEN: "notion-secret",
+    NOTION_API_URL: "https://notion.test/v1",
+  }, async () => {
+    fetchCount += 1;
+    return jsonResponse({ object: "page", id: "12345678-1234-1234-1234-123456789abc" });
+  }, {});
+
+  await assert.rejects(
+    registry.execute("notion_search", { operation: "get_page", page_id: "not-a-page" }),
+    /must be a Notion UUID/,
+  );
+  await assert.rejects(
+    registry.execute("notion_manage", {
+      operation: "create_page",
+      parent_page_id: "abcdefab-cdef-abcd-efab-cdefabcdefab",
+      title: "x".repeat(201),
+    }),
+    /at most 200 characters/,
+  );
+  await assert.rejects(
+    registry.execute("notion_manage", {
+      operation: "update_page",
+      page_id: "12345678-1234-1234-1234-123456789abc",
+    }),
+    /title is required/,
+  );
+  await assert.rejects(
+    registry.execute("notion_manage", {
+      operation: "append_content",
+      page_id: "12345678-1234-1234-1234-123456789abc",
+    }),
+    /content is required/,
+  );
+  assert.equal(fetchCount, 0);
+
+  await assert.rejects(
+    registry.execute("notion_search", {
+      operation: "get_page",
+      page_id: "12345678-1234-1234-1234-123456789abc",
+    }),
+    /page content read returned an unexpected response shape/,
+  );
 });
 
 test("serves tool discovery and returns 503 for an unconfigured backend tool", async () => {

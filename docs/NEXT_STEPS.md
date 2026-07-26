@@ -99,6 +99,16 @@ configuration per provider once credentials exist. Verify that successful
 operations are correctly reported, failures preserve provider status without
 leaking secrets, and every remote mutation is approval-gated.
 
+Notion now has a locally verified search/read adapter and a separate
+approval-gated adapter whose create, title-update, and content-append operations
+each map to one provider mutation. Fake-provider tests cover request
+shape, risk classification, bounds, malformed responses, permission failures,
+and token redaction. Services also distinguishes discovery failure from a
+healthy empty result and groups partial provider readiness. This is code-complete
+and locally verified, not live acceptance: real Notion dogfood remains blocked
+until the backend receives an isolated `NOTION_TOKEN` with the minimum required
+read/insert/update permissions.
+
 ## Completed Gates
 
 ### Threads and Task Continuation Alignment

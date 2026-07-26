@@ -207,6 +207,8 @@ export interface ModelRegistry {
 export interface BackendToolCapability {
   name: string;
   catalogId: string;
+  description: string;
+  risk: "read_only" | "local_state" | "mutating";
   available: boolean;
   unavailableReason?: string;
   requiredEnvironment: string[];
@@ -498,6 +500,10 @@ export interface AppSnapshot {
     defaultModel?: string;
   };
   models: ModelRegistry;
+  backendToolDiscovery: {
+    state: "idle" | "loading" | "ready" | "error" | "unavailable";
+    label: string;
+  };
   backendTools: BackendToolCapability[];
   configurations: ConfigurationSnapshot;
   mcpRuntime: McpRuntimeSnapshot;
@@ -1082,6 +1088,20 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     window.setTimeout(() => updateDevelopmentSnapshot((snapshot) => ({
       ...snapshot,
       backendHealth: { state: "online", label: "Connected to codeagent-backend", protocolVersion: 1 },
+    })), 220);
+    return;
+  }
+  if (command.type === "refreshBackendTools") {
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      backendToolDiscovery: { state: "loading", label: "Refreshing backend tools" },
+    }));
+    window.setTimeout(() => updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      backendToolDiscovery: {
+        state: "ready",
+        label: `${snapshot.backendTools.filter((tool) => tool.available).length} of ${snapshot.backendTools.length} capabilities available`,
+      },
     })), 220);
     return;
   }
@@ -1876,10 +1896,16 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       ],
       label: "5 models",
     },
+    backendToolDiscovery: {
+      state: "ready",
+      label: "1 of 2 capabilities available",
+    },
     backendTools: [
       {
         name: "web_search",
         catalogId: "web",
+        description: "Search the public web through the configured provider",
+        risk: "read_only",
         available: false,
         unavailableReason: "Set WEB_SEARCH_ENDPOINT",
         requiredEnvironment: ["WEB_SEARCH_ENDPOINT"],
@@ -1887,6 +1913,8 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       {
         name: "subagent",
         catalogId: "subagent",
+        description: "Delegate a bounded task to a specialized model worker",
+        risk: "read_only",
         available: true,
         requiredEnvironment: ["MODEL"],
       },

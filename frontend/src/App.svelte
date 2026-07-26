@@ -19,6 +19,7 @@
     sendCommand,
     type AppSnapshot,
     type AgentRunPhase,
+    type BackendToolCapability,
     type ChatMessage,
     type EventEnvelope,
     type GitFile,
@@ -64,6 +65,7 @@
     github_merge_pull_request: "git-merge",
     linear_search: "linear",
     notion_search: "notion",
+    notion_manage: "notion",
     jira_search: "jira",
     confluence_search: "confluence",
     glean_search: "glean",
@@ -135,6 +137,7 @@
   let byokSaving = false;
   let byokValidationError = "";
   let toolsExpanded = new Set<string>();
+  let backendProvidersExpanded = new Set<string>();
   let resolvingApprovalIds = new Set<string>();
   let askUserSelection: Record<string, string> = {};
   let askUserText: Record<string, string> = {};
@@ -1810,6 +1813,54 @@
     return TOOL_CATALOG.find((entry) => entry.id === catalogId)?.name ?? catalogId;
   }
 
+  type BackendProviderState = "ready" | "partial" | "unavailable";
+  type BackendProviderGroup = {
+    catalogId: string;
+    name: string;
+    icon: string;
+    state: BackendProviderState;
+    available: number;
+    capabilities: BackendToolCapability[];
+  };
+
+  function backendToolGroups(currentSnapshot: AppSnapshot): BackendProviderGroup[] {
+    const groups = new Map<string, BackendToolCapability[]>();
+    currentSnapshot.backendTools.forEach((tool) => {
+      const capabilities = groups.get(tool.catalogId) ?? [];
+      capabilities.push(tool);
+      groups.set(tool.catalogId, capabilities);
+    });
+    return [...groups.entries()].map(([catalogId, capabilities]) => {
+      const catalog = TOOL_CATALOG.find((entry) => entry.id === catalogId);
+      const sorted = [...capabilities].sort((left, right) => Number(right.available) - Number(left.available) || left.name.localeCompare(right.name));
+      const available = sorted.filter((tool) => tool.available).length;
+      const state: BackendProviderState = available === sorted.length ? "ready" : available === 0 ? "unavailable" : "partial";
+      return {
+        catalogId,
+        name: catalog?.name ?? catalogId,
+        icon: catalog?.icon ?? "plug",
+        state,
+        available,
+        capabilities: sorted,
+      };
+    }).sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  function toggleBackendProvider(catalogId: string) {
+    const next = new Set(backendProvidersExpanded);
+    if (next.has(catalogId)) next.delete(catalogId);
+    else next.add(catalogId);
+    backendProvidersExpanded = next;
+  }
+
+  function refreshBackendToolDiscovery() {
+    sendCommand("refreshBackendTools");
+  }
+
+  function backendRiskLabel(risk: BackendToolCapability["risk"]) {
+    return risk === "mutating" ? "Approval required" : risk === "local_state" ? "Local state" : "Read only";
+  }
+
   function insertToolSeed(toolId: string) {
     const entry = TOOL_CATALOG.find((tool) => tool.id === toolId);
     if (!entry) return;
@@ -3165,20 +3216,82 @@
                 </footer>
               </section>
               {#if settingsSection === "Services"}
-                <section class="settings-block list-block">
-                  <header><strong>Backend tools</strong><span>{snapshot.backendTools.filter((tool) => tool.available).length} connected</span></header>
-                  {#each snapshot.backendTools as tool}
-                    <div>
-                      <Icon name={TOOL_CATALOG.find((entry) => entry.id === tool.catalogId)?.icon ?? "plug"} size={14} />
-                      <span>
-                        <strong>{catalogName(tool.catalogId)}</strong>
-                        <small>{tool.available ? tool.name : tool.unavailableReason ?? "Not configured"}</small>
-                      </span>
-                      <i>{tool.available ? "On" : "Off"}</i>
+                <section class="settings-block backend-tool-panel" aria-labelledby="backend-tool-panel-title">
+                  <header>
+                    <span class="backend-tool-panel-title">
+                      <strong id="backend-tool-panel-title">Cloud & integration tools</strong>
+                      <small>{snapshot.backendToolDiscovery.label}</small>
+                    </span>
+                    <button
+                      type="button"
+                      disabled={snapshot.backendToolDiscovery.state === "loading"}
+                      aria-label={snapshot.backendToolDiscovery.state === "error" ? "Retry backend tool discovery" : "Refresh backend tools"}
+                      onclick={refreshBackendToolDiscovery}
+                    >
+                      <Icon name={snapshot.backendToolDiscovery.state === "loading" ? "circle-dashed" : "refresh-ccw"} size={12} />
+                      {snapshot.backendToolDiscovery.state === "loading" ? "Refreshing..." : snapshot.backendToolDiscovery.state === "error" ? "Retry" : "Refresh"}
+                    </button>
+                  </header>
+
+                  {#if snapshot.backendToolDiscovery.state === "loading"}
+                    <div class="backend-discovery-banner loading" role="status" aria-live="polite">
+                      <Icon name="circle-dashed" size={14} />
+                      <span><strong>Checking backend capabilities</strong><small>{snapshot.backendTools.length > 0 ? "Current results remain visible until discovery finishes." : "Waiting for the backend capability response."}</small></span>
                     </div>
-                  {:else}
-                    <p>No backend tool capabilities reported.</p>
-                  {/each}
+                  {:else if snapshot.backendToolDiscovery.state === "error"}
+                    <div class="backend-discovery-banner error" role="alert">
+                      <Icon name="circle-alert" size={14} />
+                      <span><strong>Tool discovery failed</strong><small>{snapshot.backendToolDiscovery.label}{snapshot.backendTools.length > 0 ? " · Showing the last reported capabilities below." : ""}</small></span>
+                    </div>
+                  {:else if snapshot.backendToolDiscovery.state === "unavailable"}
+                    <div class="backend-discovery-banner backend-unavailable" role="status">
+                      <Icon name="unplug" size={14} />
+                      <span><strong>Backend tools unavailable</strong><small>{snapshot.backendToolDiscovery.label}</small></span>
+                    </div>
+                  {/if}
+
+                  <div class="backend-provider-list" class:stale={snapshot.backendToolDiscovery.state === "error" || snapshot.backendToolDiscovery.state === "loading"}>
+                    {#each backendToolGroups(snapshot) as provider (provider.catalogId)}
+                      <article class="backend-provider" data-provider={provider.catalogId} data-state={provider.state}>
+                        <button
+                          type="button"
+                          class="backend-provider-summary"
+                          aria-expanded={backendProvidersExpanded.has(provider.catalogId)}
+                          aria-controls={`backend-provider-${provider.catalogId}`}
+                          onclick={() => toggleBackendProvider(provider.catalogId)}
+                        >
+                          <span class="backend-provider-icon"><Icon name={provider.icon} size={15} /></span>
+                          <span class="backend-provider-copy">
+                            <strong>{provider.name}</strong>
+                            <small>{provider.available}/{provider.capabilities.length} {provider.capabilities.length === 1 ? "capability" : "capabilities"} available</small>
+                          </span>
+                          <span class="backend-provider-state state-{provider.state}">{provider.state === "ready" ? "Ready" : provider.state === "partial" ? "Partial" : "Unavailable"}</span>
+                          <Icon name={backendProvidersExpanded.has(provider.catalogId) ? "chevron-down" : "chevron-right"} size={13} />
+                        </button>
+                        <div class="backend-capability-list" id={`backend-provider-${provider.catalogId}`} hidden={!backendProvidersExpanded.has(provider.catalogId)}>
+                          {#each provider.capabilities as tool (tool.name)}
+                            <div class="backend-capability" class:is-unavailable={!tool.available}>
+                              <div>
+                                <code>{tool.name}</code>
+                                <span class="backend-risk {tool.risk}">{backendRiskLabel(tool.risk)}</span>
+                              </div>
+                              <p>{tool.available ? tool.description : tool.unavailableReason ?? "The backend did not provide an availability reason."}</p>
+                              {#if !tool.available && tool.requiredEnvironment.length > 0}
+                                <small>Requires {tool.requiredEnvironment.join(", ")}</small>
+                              {/if}
+                            </div>
+                          {/each}
+                        </div>
+                      </article>
+                    {:else}
+                      {#if snapshot.backendToolDiscovery.state === "ready"}
+                        <div class="backend-provider-empty" role="status">
+                          <Icon name="plug" size={16} />
+                          <span><strong>No capabilities reported</strong><small>The backend responded successfully but did not advertise integration tools.</small></span>
+                        </div>
+                      {/if}
+                    {/each}
+                  </div>
                 </section>
               {/if}
             {:else if settingsSection === "Memories"}

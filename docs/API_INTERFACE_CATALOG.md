@@ -141,6 +141,7 @@ Transport:
 | `saveConfiguration` | `{ kind, id, value }` | validates/persists then refreshes `snapshot.configurations` |
 | `deleteConfiguration` | `{ kind, id }` | deletes then refreshes `snapshot.configurations` |
 | `checkBackend` | none | `snapshot.backendHealth` / models / backendTools |
+| `refreshBackendTools` | none | `snapshot.backendToolDiscovery` + `snapshot.backendTools` |
 | `getContextStatus` | none | `snapshot.context` |
 | `indexWorkspace` | none | indexing progress via `snapshot.context` |
 
@@ -169,7 +170,8 @@ Errors for failed commands: event `error` with `{ message: string }`.
 | `context` | object | ContextEngine state/label/files/chunks |
 | `backendHealth` | object | online/offline + protocol/provider |
 | `models` | object | state, provider, default/selected, options[] |
-| `backendTools` | array | backend tool name/catalogId/availability/reason/required env |
+| `backendToolDiscovery` | object | explicit `idle`/`loading`/`ready`/`error`/`unavailable` state and label |
+| `backendTools` | array | backend tool name/catalogId/description/risk/availability/reason/required env |
 | `configurations` | object | state, label, and typed MCP/command/hook/agent/plugin/tool-permission records |
 | `customization` | object | rules[], skills[], maxSelectedSkills |
 
@@ -299,7 +301,7 @@ Executes one configured backend-owned tool. Credentials remain in backend enviro
 
 Success returns `{ "output": "…", "summary": "…", "detail": "…" }`. Missing configuration returns `503 { "error": "…" }`; provider failures or invalid provider responses return `502`; unknown tools return `404`.
 
-Current adapters: `web_search`, `github_search`, approval-gated `github_manage`, separately approval-gated `github_actions_manage` and `github_merge_pull_request`, `linear_search`, `notion_search`, `jira_search`, `confluence_search`, `glean_search`, `supabase_query`, and synchronous model-only `subagent`.
+Current adapters: `web_search`, `github_search`, approval-gated `github_manage`, separately approval-gated `github_actions_manage` and `github_merge_pull_request`, `linear_search`, `notion_search` (search and bounded page read), approval-gated `notion_manage` (atomic `create_page`, `update_page`, and `append_content` operations), `jira_search`, `confluence_search`, `glean_search`, `supabase_query`, and synchronous model-only `subagent`.
 
 GitHub operations are split by effect and risk:
 
