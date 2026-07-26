@@ -48,7 +48,12 @@ internal class ManagedProcessRegistry(
     private val sequence = AtomicLong()
     private val lifecycleLock = Any()
 
-    fun launch(command: String, name: String? = null, cwd: String? = null): ManagedProcessSnapshot {
+    fun launch(
+        command: String,
+        name: String? = null,
+        cwd: String? = null,
+        keepStdinOpen: Boolean = false,
+    ): ManagedProcessSnapshot {
         val normalizedCommand = command.trim()
         require(normalizedCommand.isNotEmpty()) { "command is required" }
         require(normalizedCommand.length <= MAX_COMMAND_CHARS) { "command exceeds $MAX_COMMAND_CHARS characters" }
@@ -78,6 +83,9 @@ internal class ManagedProcessRegistry(
                 processes[id] = it
             }
         }
+        // Closing stdin up front stops readers such as ripgrep from blocking on a
+        // terminal that will never receive input; write_process needs it left open.
+        if (!keepStdinOpen) runCatching { entry.process.outputStream.close() }
         executor.execute { entry.captureOutput() }
         return entry.snapshot()
     }
@@ -345,7 +353,8 @@ private val NON_PROMPT_PATTERNS = listOf(
 class ManagedProcessService(project: Project) : Disposable {
     private val registry = ManagedProcessRegistry(Path.of(requireNotNull(project.basePath)).toAbsolutePath().normalize())
 
-    internal fun launch(command: String, name: String?, cwd: String?): ManagedProcessSnapshot = registry.launch(command, name, cwd)
+    internal fun launch(command: String, name: String?, cwd: String?, keepStdinOpen: Boolean = false): ManagedProcessSnapshot =
+        registry.launch(command, name, cwd, keepStdinOpen)
 
     internal fun list(): List<ManagedProcessSnapshot> = registry.list()
 

@@ -1312,3 +1312,53 @@ test("subtasks render under their parent and delete with it", async ({ page }) =
   await expect(page.locator(".task-workspace-row")).toHaveCount(1);
   await expect(page.locator(".task-workspace-row").first().locator("strong")).toHaveText("Ship the change");
 });
+
+test("a multi-question ask_user requires every answer before submitting", async ({ page }) => {
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      runState: "awaiting_approval",
+      agentRun: { ...snapshot.agentRun, phase: "approval" },
+      tools: [{
+        id: "e2e-ask-many",
+        name: "ask_user",
+        summary: "Two questions",
+        status: "approval",
+        askContext: "Both answers change the migration plan.",
+        askQuestions: [
+          { question: "Which database?", options: ["Postgres", "SQLite"] },
+          { question: "Run migrations now?", options: ["Yes", "No"] },
+        ],
+        canRevert: false,
+        createdAt: Date.now(),
+      }],
+    });
+  });
+
+  const card = page.locator(".ask-card");
+  await expect(card.locator(".ask-question")).toHaveCount(2);
+  await expect(card.locator(".ask-card-context")).toHaveText("Both answers change the migration plan.");
+  await expect(card.locator(".ask-card-question").first()).toContainText("1. Which database?");
+  await expect(card.locator(".ask-card-question").nth(1)).toContainText("2. Run migrations now?");
+  await expect(card.locator(".ask-progress")).toHaveText("0/2 answered");
+
+  const submit = page.getByRole("button", { name: "Submit answers" });
+  await expect(submit).toBeDisabled();
+  await expectViewportIntegrity(page);
+
+  // One answered question is not enough; the Agent asked for both.
+  await card.locator(".ask-question").first().getByRole("button", { name: "Postgres" }).click();
+  await expect(card.locator(".ask-progress")).toHaveText("1/2 answered");
+  await expect(submit).toBeDisabled();
+
+  await card.locator(".ask-question").nth(1).getByRole("button", { name: "No" }).click();
+  await expect(card.locator(".ask-progress")).toHaveText("2/2 answered");
+  await expect(submit).toBeEnabled();
+
+  await submit.click();
+  const answered = await page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot());
+  const resolved = answered?.tools.find((tool) => tool.id === "e2e-ask-many");
+  expect(resolved?.status).not.toBe("approval");
+});

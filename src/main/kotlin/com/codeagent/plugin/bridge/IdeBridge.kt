@@ -1347,6 +1347,10 @@ class IdeBridge(
                         askOptions = askRequest?.options?.distinct(),
                         askAllowText = askRequest?.let { true },
                         askDefault = askRequest?.default,
+                        askContext = askRequest?.context,
+                        askQuestions = askRequest?.questions
+                            ?.takeIf { it.size > 1 }
+                            ?.map { AskQuestionDto(it.question, it.options.distinct()) },
                     )
                     val persisted = conversations.upsertTool(tool.toConversationTool())
                     tools[call.id] = tool.copy(timelineSequence = persisted.timelineSequence.takeIf { it > 0 })

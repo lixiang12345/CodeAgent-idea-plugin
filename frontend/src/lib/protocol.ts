@@ -48,6 +48,9 @@ export interface ToolRun {
   askOptions?: string[];
   askAllowText?: boolean;
   askDefault?: string;
+  askContext?: string;
+  /** Present only when the Agent asked several questions in one pause. */
+  askQuestions?: { question: string; options: string[] }[];
 }
 
 export interface AgentRunTelemetry {

@@ -30,7 +30,7 @@ class ManagedProcessRegistryTest {
     fun `writes stdin and can terminate a running process`() {
         val root = Files.createTempDirectory("codeagent-process-")
         ManagedProcessRegistry(root).use { registry ->
-            val interactive = registry.launch("IFS= read -r line; printf 'received:%s\\n' \"\$line\"; sleep 30", "interactive")
+            val interactive = registry.launch("IFS= read -r line; printf 'received:%s\\n' \"\$line\"; sleep 30", "interactive", keepStdinOpen = true)
             registry.write(interactive.id, "hello", appendNewline = true)
             waitUntil { registry.read(interactive.id).output.contains("received:hello") }
 
@@ -95,7 +95,7 @@ class ManagedProcessRegistryTest {
     fun `wait returns early when a process is prompting for input`() {
         val root = Files.createTempDirectory("codeagent-process-")
         ManagedProcessRegistry(root, inputPromptIdleMillis = 50).use { registry ->
-            val launched = registry.launch("printf 'Password:'; sleep 30", "prompt")
+            val launched = registry.launch("printf 'Password:'; sleep 30", "prompt", keepStdinOpen = true)
             val waiting = registry.waitFor(launched.id, 5)
 
             assertEquals("running", waiting.state)
@@ -103,6 +103,25 @@ class ManagedProcessRegistryTest {
             registry.write(launched.id, "secret", appendNewline = true)
             assertFalse(registry.read(launched.id).process.waitingForInput)
             registry.kill(launched.id)
+        }
+        Files.deleteIfExists(root)
+    }
+
+    @Test
+    fun `closes stdin by default so readers do not hang`() {
+        val root = Files.createTempDirectory("codeagent-process-")
+        ManagedProcessRegistry(root).use { registry ->
+            // Without keep_stdin_open this reader sees EOF immediately instead of blocking forever.
+            val closed = registry.launch("cat; printf 'done\\n'", "stdin-closed")
+            val completed = registry.waitFor(closed.id, 10)
+
+            assertEquals("completed", completed.state)
+            assertEquals(0, completed.exitCode)
+            assertTrue(registry.read(closed.id).output.contains("done"))
+
+            val open = registry.launch("cat; printf 'done\\n'", "stdin-open", keepStdinOpen = true)
+            assertEquals("running", registry.waitFor(open.id, 2).state)
+            registry.kill(open.id)
         }
         Files.deleteIfExists(root)
     }

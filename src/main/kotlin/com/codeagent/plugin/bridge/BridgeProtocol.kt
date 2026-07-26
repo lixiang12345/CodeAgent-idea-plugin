@@ -96,6 +96,15 @@ data class ToolRunDto(
     @EncodeDefault(EncodeDefault.Mode.NEVER) val askOptions: List<String>? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val askAllowText: Boolean? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val askDefault: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val askContext: String? = null,
+    /** Present only when the Agent asked several questions in one pause. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val askQuestions: List<AskQuestionDto>? = null,
+)
+
+@Serializable
+data class AskQuestionDto(
+    val question: String,
+    val options: List<String> = emptyList(),
 )
 
 @Serializable

@@ -168,6 +168,16 @@ carry no path. A pre-chat gate replaces the empty-thread card while the account
 is signed out or errored, or while the project is indexing or unindexed, and
 offers the corresponding action.
 
+Also resolved in slice 3, process and question contracts: `launch_process`
+accepts `keep_stdin_open`, and stdin now closes by default so readers such as
+`ripgrep` see EOF instead of blocking on a terminal that will never receive
+input. `ask_user` accepts the original `questions[]` array of up to ten
+`{question, suggested_responses}` objects, plus `context`, and treats
+`suggested_responses` as an alias for `options` on the single-question form.
+The panel stacks the questions rather than tabbing them, because a 420 px tool
+window has no room for a tab strip, and Submit stays disabled until every
+question is answered.
+
 Also resolved in slice 3, task hierarchy: `add_tasks` accepts the original
 plugin's task objects with `parent_task_id`, `after_task_id`, `description`, and
 an initial `state`, and `update_tasks` accepts `description`. Nesting is bounded

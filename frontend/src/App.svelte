@@ -855,16 +855,40 @@
     sendCommand("resolveApproval", { toolId, approved });
   }
 
-  function selectAskOption(toolId: string, option: string) {
-    askUserSelection = { ...askUserSelection, [toolId]: option };
+  function selectAskOption(key: string, option: string) {
+    askUserSelection = { ...askUserSelection, [key]: option };
+  }
+
+  /** One question keeps the bare tool ID so single-question answers stay unchanged. */
+  function askKey(toolId: string, index: number) {
+    return index === 0 ? toolId : `${toolId}#${index}`;
+  }
+
+  function askQuestionsOf(tool: ToolRun) {
+    return tool.askQuestions ?? [{ question: tool.askQuestion ?? tool.summary, options: tool.askOptions ?? [] }];
+  }
+
+  function askAnswerAt(tool: ToolRun, index: number) {
+    const key = askKey(tool.id, index);
+    return [askUserSelection[key], (askUserText[key] ?? "").trim()]
+      .filter((part) => part && part.length > 0)
+      .join(" ")
+      .trim();
+  }
+
+  function answeredAskCount(tool: ToolRun, asked: { question: string }[]) {
+    return asked.filter((_, index) => askAnswerAt(tool, index).length > 0).length;
   }
 
   function submitAskUser(tool: ToolRun) {
     if (resolvingApprovalIds.has(tool.id)) return;
-    const selected = askUserSelection[tool.id];
-    const extra = (askUserText[tool.id] ?? "").trim();
-    const answer = [selected, extra].filter((part) => part && part.length > 0).join(" ").trim();
-    if (!answer) return;
+    const asked = askQuestionsOf(tool);
+    const answers = asked.map((_, index) => askAnswerAt(tool, index));
+    if (answers.some((answer) => !answer)) return;
+    // Several answers are labelled so the Agent can tell them apart in one string.
+    const answer = answers.length === 1
+      ? answers[0]
+      : asked.map((entry, index) => `${index + 1}. ${entry.question}\n${answers[index]}`).join("\n\n");
     resolvingApprovalIds = new Set(resolvingApprovalIds).add(tool.id);
     sendCommand("resolveAskUser", { toolId: tool.id, answer, skipped: false });
   }
@@ -3156,40 +3180,55 @@
                             </div>
                           {/if}
                           {#if tool.status === "approval" && tool.name === "ask_user"}
-                            <div class="ask-card" role="group" aria-label="Question from Agent" aria-busy={resolvingApprovalIds.has(tool.id)}>
-                              <div class="ask-card-question"><Icon name="message-circle" size={14} /><span>{tool.askQuestion ?? tool.summary}</span></div>
-                              {#if (tool.askOptions ?? []).length > 0}
-                                <div class="ask-opts">
-                                  {#each tool.askOptions ?? [] as option, index (option)}
-                                    <button
-                                      type="button"
-                                      class="ask-opt"
-                                      class:on={askUserSelection[tool.id] === option}
-                                      aria-pressed={askUserSelection[tool.id] === option}
+                            {@const asked = askQuestionsOf(tool)}
+                            <div class="ask-card" role="group" aria-label={asked.length > 1 ? `${asked.length} questions from Agent` : "Question from Agent"} aria-busy={resolvingApprovalIds.has(tool.id)}>
+                              {#if tool.askContext}
+                                <p class="ask-card-context">{tool.askContext}</p>
+                              {/if}
+                              {#each asked as entry, questionIndex}
+                                <!-- Stacked rather than tabbed: a 420 px tool window has no room for a tab strip. -->
+                                <div class="ask-question">
+                                  <div class="ask-card-question">
+                                    <Icon name="message-circle" size={14} />
+                                    <span>{asked.length > 1 ? `${questionIndex + 1}. ${entry.question}` : entry.question}</span>
+                                  </div>
+                                  {#if entry.options.length > 0}
+                                    <div class="ask-opts">
+                                      {#each entry.options as option, index (option)}
+                                        <button
+                                          type="button"
+                                          class="ask-opt"
+                                          class:on={askUserSelection[askKey(tool.id, questionIndex)] === option}
+                                          aria-pressed={askUserSelection[askKey(tool.id, questionIndex)] === option}
+                                          disabled={resolvingApprovalIds.has(tool.id)}
+                                          onclick={() => selectAskOption(askKey(tool.id, questionIndex), option)}
+                                        >
+                                          <span class="ask-opt-badge">{String.fromCharCode(65 + index)}</span>
+                                          <span class="ask-opt-label">{option}</span>
+                                        </button>
+                                      {/each}
+                                    </div>
+                                  {/if}
+                                  {#if (tool.askAllowText ?? true)}
+                                    <textarea
+                                      bind:value={askUserText[askKey(tool.id, questionIndex)]}
+                                      placeholder={entry.options.length > 0 ? "Optional details…" : "Type your answer…"}
+                                      aria-label={asked.length > 1 ? `Answer to question ${questionIndex + 1}` : "Answer details"}
                                       disabled={resolvingApprovalIds.has(tool.id)}
-                                      onclick={() => selectAskOption(tool.id, option)}
-                                    >
-                                      <span class="ask-opt-badge">{String.fromCharCode(65 + index)}</span>
-                                      <span class="ask-opt-label">{option}</span>
-                                    </button>
-                                  {/each}
+                                    ></textarea>
+                                  {/if}
                                 </div>
-                              {/if}
-                              {#if (tool.askAllowText ?? true)}
-                                <textarea
-                                  bind:value={askUserText[tool.id]}
-                                  placeholder={(tool.askOptions ?? []).length > 0 ? "Optional details…" : "Type your answer…"}
-                                  aria-label="Answer details"
-                                  disabled={resolvingApprovalIds.has(tool.id)}
-                                ></textarea>
-                              {/if}
+                              {/each}
                               <div class="ask-card-actions">
+                                {#if asked.length > 1}
+                                  <small class="ask-progress">{answeredAskCount(tool, asked)}/{asked.length} answered</small>
+                                {/if}
                                 <button disabled={resolvingApprovalIds.has(tool.id)} onclick={() => skipAskUser(tool)}>Skip</button>
                                 <button
                                   class="primary"
-                                  disabled={resolvingApprovalIds.has(tool.id) || (!askUserSelection[tool.id] && !(askUserText[tool.id] ?? "").trim())}
+                                  disabled={resolvingApprovalIds.has(tool.id) || answeredAskCount(tool, asked) < asked.length}
                                   onclick={() => submitAskUser(tool)}
-                                ><Icon name="circle-play" size={12} />{resolvingApprovalIds.has(tool.id) ? "Submitting…" : "Submit answer"}</button>
+                                ><Icon name="circle-play" size={12} />{resolvingApprovalIds.has(tool.id) ? "Submitting…" : asked.length > 1 ? "Submit answers" : "Submit answer"}</button>
                               </div>
                             </div>
                           {:else if tool.status === "approval"}

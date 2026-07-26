@@ -212,13 +212,15 @@ internal class AgentToolExecutor(
                     "input" to stringProperty("Alias for patch; same accepted formats"),
                 ),
             )))
-            add(tool("ask_user", "Pause for one blocking clarification that cannot be resolved from available context. Ask a specific question and include a safe default only when appropriate. Provide options when the answer is a choice among known alternatives; the user can still type a custom answer", schema(
+            add(tool("ask_user", "Pause for blocking clarification that cannot be resolved from available context. Pass question for one question, or questions[] to ask several in one pause; use one or the other, not both. Provide suggested answers when the answer is a choice among known alternatives; the user can still type a custom answer", schema(
                 properties = mapOf(
-                    "question" to stringProperty("Question shown to the user"),
-                    "default" to stringProperty("Optional default answer"),
-                    "options" to stringArrayProperty("Optional list of suggested answers the user can pick from", minItems = 0, maxItems = 12, minItemLength = 1),
+                    "question" to stringProperty("A single question shown to the user"),
+                    "questions" to askQuestionArrayProperty(),
+                    "default" to stringProperty("Optional default answer for a single question"),
+                    "options" to stringArrayProperty("Suggested answers for a single question", minItems = 0, maxItems = 12, minItemLength = 1),
+                    "suggested_responses" to stringArrayProperty("Compatibility alias for options", minItems = 0, maxItems = 12, minItemLength = 1),
+                    "context" to stringProperty("Optional context explaining why you are asking"),
                 ),
-                required = listOf("question"),
             )))
             add(tool("run_terminal", "Run a bounded shell command in the project root for build, test, inspection, or automation. Avoid destructive commands and inspect exit status and output", schema(
                 properties = mapOf(
@@ -234,6 +236,7 @@ internal class AgentToolExecutor(
                     "cwd" to stringProperty("Optional project-relative working directory; paths outside the project are rejected"),
                     "wait" to booleanProperty("Wait for completion or an interactive input prompt before returning; defaults to false"),
                     "max_wait_seconds" to integerProperty("Maximum launch wait in seconds", 1, 60),
+                    "keep_stdin_open" to booleanProperty("Keep stdin open so write_process can send input later. Defaults to false, which closes stdin immediately so commands like ripgrep do not hang. Only set this when you plan to use write_process"),
                 ),
                 required = listOf("command"),
             )))
@@ -727,7 +730,12 @@ internal class AgentToolExecutor(
     }
 
     private fun launchProcess(args: JsonObject): ToolExecutionResult {
-        var process = managedProcesses.launch(args.requiredString("command"), args.string("name"), args.string("cwd"))
+        var process = managedProcesses.launch(
+            args.requiredString("command"),
+            args.string("name"),
+            args.string("cwd"),
+            args["keep_stdin_open"]?.jsonPrimitive?.booleanOrNull ?: false,
+        )
         val wait = args["wait"]?.jsonPrimitive?.booleanOrNull ?: false
         if (wait) {
             process = managedProcesses.waitFor(
@@ -1144,6 +1152,27 @@ internal class AgentToolExecutor(
         })
         put("minItems", 1)
         put("maxItems", 20)
+    }
+
+    private fun askQuestionArrayProperty() = buildJsonObject {
+        put("type", "array")
+        put("description", "Several questions answered in one pause; use this or question, not both")
+        put("items", buildJsonObject {
+            put("type", "object")
+            put("properties", buildJsonObject {
+                put("question", stringProperty("The question to ask the user"))
+                put("suggested_responses", stringArrayProperty(
+                    "1-4 suggested responses. The user can still type a custom answer, so do not add options like Other",
+                    minItems = 1,
+                    maxItems = 4,
+                    minItemLength = 1,
+                ))
+            })
+            put("required", buildJsonArray { add(JsonPrimitive("question")) })
+            put("additionalProperties", false)
+        })
+        put("minItems", 1)
+        put("maxItems", 10)
     }
 
     private fun taskCreateArrayProperty() = buildJsonObject {

@@ -157,7 +157,14 @@ Remaining, ranked:
 4. **Process hosting.** Running agent-launched commands through an IDE Run
    configuration so they appear in the Run/Terminal tool window; this adds
    plugin dependencies and needs a deliberate compatibility decision.
-5. **`keep_stdin_open` and `read-terminal`**, plus multi-question `ask_user`.
+5. **`read-terminal`.** `keep_stdin_open` and multi-question `ask_user` landed.
+   `read-terminal` did not: the extracted 0.482.3 artifacts contain the name
+   only, in a tool-type enum in the sidecar bundle and in the webview protocol
+   map. No input schema, description, or implementation survives in what was
+   extracted, so its parameters and semantics cannot be reproduced from
+   evidence. Reading the IDE's own terminal is also a different capability from
+   the managed processes CodeAgent runs, and would need its own approval story.
+   Leaving it unimplemented rather than inventing a contract.
 6. **Needs a backend contract:** async sub-agent lifecycle
    (spawn/check/message/await with parent reporting), semantic commit-history
    retrieval, and completion recency payloads.

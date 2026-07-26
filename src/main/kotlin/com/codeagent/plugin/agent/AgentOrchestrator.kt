@@ -12,6 +12,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.Closeable
@@ -24,6 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 private const val AGENT_PREFLIGHT_TIMEOUT_SECONDS = 45L
+private const val MAX_ASK_QUESTIONS = 10
 
 @Service(Service.Level.PROJECT)
 class AgentOrchestrator(private val project: Project) : Disposable {
@@ -527,17 +529,6 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         }.whenComplete { _, _ -> context.askAnswers.remove(call.id, pendingAnswer) }
     }
 
-    private fun parseAskUserRequest(argumentsJson: String): AskUserRequest {
-        val arguments = runCatching { json.parseToJsonElement(argumentsJson).jsonObject }
-            .getOrElse { error("Invalid arguments for ask_user: ${it.message}") }
-        val question = arguments["question"]?.jsonPrimitive?.contentOrNull ?: error("question is required")
-        require(question.isNotBlank()) { "question must not be blank" }
-        return AskUserRequest(
-            question = question,
-            default = arguments["default"]?.jsonPrimitive?.contentOrNull,
-            options = arguments.optionalStringListArgument("options").distinct(),
-        )
-    }
 
     private fun requestApproval(
         context: RunContext,
@@ -571,7 +562,48 @@ private class RemoteRunCancelledException : RuntimeException("Agent run cancelle
 
 private data class AskUserResponse(val answer: String, val skipped: Boolean)
 
-data class AskUserRequest(val question: String, val default: String?, val options: List<String>)
+private val ASK_USER_JSON = Json { ignoreUnknownKeys = true }
+
+internal fun parseAskUserRequest(argumentsJson: String): AskUserRequest {
+    val arguments = runCatching { ASK_USER_JSON.parseToJsonElement(argumentsJson).jsonObject }
+        .getOrElse { error("Invalid arguments for ask_user: ${it.message}") }
+    val batch = arguments["questions"]?.jsonArray?.takeIf { it.isNotEmpty() }
+    val single = arguments["question"]?.jsonPrimitive?.contentOrNull
+    require(batch == null || single == null) { "Pass question or questions, not both" }
+    require(batch != null || !single.isNullOrBlank()) { "question is required" }
+    require(batch == null || batch.size <= MAX_ASK_QUESTIONS) { "Ask at most $MAX_ASK_QUESTIONS questions at once" }
+
+    val questions = batch?.map { element ->
+        val entry = element.jsonObject
+        val text = entry["question"]?.jsonPrimitive?.contentOrNull
+        require(!text.isNullOrBlank()) { "Each question must not be blank" }
+        AskUserQuestion(text, entry.optionalStringListArgument("suggested_responses").distinct())
+    } ?: listOf(
+        AskUserQuestion(
+            single!!,
+            (arguments.optionalStringListArgument("options")
+                .ifEmpty { arguments.optionalStringListArgument("suggested_responses") })
+                .distinct(),
+        ),
+    )
+    return AskUserRequest(
+        questions = questions,
+        default = arguments["default"]?.jsonPrimitive?.contentOrNull,
+        context = arguments["context"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank),
+    )
+}
+
+data class AskUserQuestion(val question: String, val options: List<String>)
+
+data class AskUserRequest(
+    val questions: List<AskUserQuestion>,
+    val default: String?,
+    val context: String?,
+) {
+    /** The first question doubles as the card headline and as the single-question contract. */
+    val question: String get() = questions.first().question
+    val options: List<String> get() = questions.first().options
+}
 
 interface AgentRunListener {
     fun onAssistantDelta(delta: String, turnIndex: Int) = Unit

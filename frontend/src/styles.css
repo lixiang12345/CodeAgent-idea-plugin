@@ -276,7 +276,11 @@ button { color: inherit; }
 .ask-opt-label { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .ask-card textarea { width: 100%; box-sizing: border-box; min-height: 46px; padding: 5px 7px; resize: vertical; border: 1px solid var(--line); border-radius: 4px; color: var(--text); background: #191b1e; font-family: inherit; font-size: calc(11px * var(--chat-zoom)); }
 .ask-card textarea:disabled { opacity: .55; cursor: default; }
-.ask-card-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.ask-card-context { margin: 0; color: var(--muted); font-size: calc(10px * var(--chat-zoom)); line-height: 1.45; }
+.ask-question { display: flex; flex-direction: column; gap: 6px; }
+.ask-question + .ask-question { padding-top: 7px; border-top: 1px solid var(--line); }
+.ask-progress { margin-right: auto; color: var(--muted); font-size: 9px; }
+.ask-card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .ask-card-actions button { height: 24px; padding: 0 10px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid #5b5e64; border-radius: 3px; color: var(--text); background: #292b30; font-size: 9px; cursor: pointer; }
 .ask-card-actions button.primary { border-color: #3f5b86; color: #cfe0fb; background: #2a3a55; }
 .ask-card-actions button:disabled { opacity: .55; cursor: default; }
