@@ -18,10 +18,10 @@ Envelope version: `1`
 | `sendMessage` | `{ text, mode }` | Start agent run or fail if invalid |
 | `queueMessage` | `{ text, mode }` | Queue while busy |
 | `sendMessageNow` | `{ text, mode }` | Interrupt the active run and start this composer message without discarding the queue |
-| `updateQueuedMessage` | `{ messageId, text }` | Update one queued prompt in place |
+| `updateQueuedMessage` | `{ messageId, text, resumeQueue? }` | Update one queued prompt in place and optionally resume queue drain |
 | `setMessageQueuePaused` | `{ paused }` | Pause automatic queue drain or resume FIFO execution |
 | `sendQueuedMessageNow` | `{ messageId }` | Remove one queued prompt, interrupt the active run, and start it immediately |
-| `removeQueuedMessage` | `{ messageId }` | Drop queued item |
+| `removeQueuedMessage` | `{ messageId, resumeQueue? }` | Drop queued item and optionally resume queue drain |
 | `cancelRun` | — | Abort the active run and pause any queued prompts without deleting them |
 | `setMode` | `{ mode }` | `agent` \| `chat` \| `ask` |
 | `selectModel` | `{ modelId }` | Persist per-thread model |

@@ -212,17 +212,26 @@ class ChangeReviewService(private val project: Project) {
             createdAt = createdAt,
             changeCount = changes.size,
             paths = changes.map { it.change.path }.distinct(),
-            files = changes
-                .groupBy { it.change.path }
-                // A tool may touch the same path more than once in a turn; keep the
-                // last recorded change so the summary reflects the checkpointed state.
-                .map { (path, group) -> lineChangeSummary(path, group.last().change) },
+            files = checkpointFileSummaries(changes.map { it.change }),
         )
     }
 
     companion object {
         private const val MAX_CHANGES = 100
         private const val MAX_CHECKPOINTS = 20
+
+        internal fun checkpointFileSummaries(changes: List<FileChange>): List<CheckpointFileSummary> = changes
+            .groupBy(FileChange::path)
+            .map { (path, history) ->
+                lineChangeSummary(
+                    path,
+                    FileChange(
+                        path = path,
+                        before = history.first().before,
+                        after = history.last().after,
+                    ),
+                )
+            }
 
         // Counts added/removed lines between the recorded before/after content so the
         // UI can show a per-file diff summary without reopening each change. New files

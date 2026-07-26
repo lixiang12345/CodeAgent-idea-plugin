@@ -122,7 +122,7 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
     fun updateQueuedMessage(messageId: String, text: String): ConversationQueuedMessage {
         val thread = mutableActive()
         val state = thread.messageQueue.firstOrNull { it.id == messageId }
-            ?: error("Queued message no longer exists")
+        requireNotNull(state) { "Queued message no longer exists" }
         val updated = ConversationQueuedMessage(state.id, text, state.mode).normalized()
         state.text = updated.text
         return updated
@@ -156,6 +156,34 @@ class ConversationStore : PersistentStateComponent<ConversationStoreState> {
         }
         require(thread.messageQueue.none { it.id == normalized.id }) { "Queued message ID already exists" }
         thread.messageQueue.add(0, normalized.toState())
+    }
+
+    @Synchronized
+    fun recoverFailedQueuedMessageStart(message: ConversationQueuedMessage) {
+        val thread = mutableActive()
+        val normalized = message.normalized()
+        thread.messages.firstOrNull { it.id == normalized.id }?.let { persisted ->
+            require(persisted.role == "user") { "Queued message ID belongs to a non-user message" }
+            val failedSequence = persisted.timelineSequence
+            thread.messages.removeIf { it.timelineSequence >= failedSequence }
+            thread.tools.removeIf { it.timelineSequence > failedSequence }
+            thread.summary = ""
+            thread.contextUsage = ConversationContextUsageState()
+            val latestRemainingMessage = thread.messages.maxOfOrNull { it.timelineSequence } ?: 0
+            thread.lastReadTimelineSequence = thread.lastReadTimelineSequence.coerceIn(0, latestRemainingMessage)
+        }
+        val queuedIndex = thread.messageQueue.indexOfFirst { it.id == normalized.id }
+        when {
+            queuedIndex < 0 -> {
+                require(thread.messageQueue.size < MAX_QUEUED_MESSAGES) {
+                    "Queue can contain at most $MAX_QUEUED_MESSAGES messages"
+                }
+                thread.messageQueue.add(0, normalized.toState())
+            }
+            queuedIndex > 0 -> thread.messageQueue.add(0, thread.messageQueue.removeAt(queuedIndex))
+        }
+        thread.messageQueuePaused = true
+        thread.updatedAt = System.currentTimeMillis()
     }
 
     @Synchronized

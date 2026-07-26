@@ -201,13 +201,15 @@ button { color: inherit; }
 .turn-summary-item { display: inline-flex; align-items: center; gap: 4px; color: #7f8791; font: calc(8.5px * var(--chat-zoom)) var(--mono); white-space: nowrap; }
 .turn-summary-item svg { flex: 0 0 auto; color: #6d757f; }
 .turn-summary-item b { color: #a7aeb7; font-weight: 550; }
+.turn-summary-item i { font-style: normal; }
 .generation-status { min-height: 26px; margin: 6px 8px 8px; display: flex; align-items: center; gap: 8px; color: #858b94; font-size: 10px; }
 .generation-status svg { flex: 0 0 auto; color: #79818c; animation: status-spin .9s linear infinite; }
 .generation-status span { background: linear-gradient(90deg,#858b94 0%,#c5cad1 20%,#858b94 40%,#c5cad1 60%,#858b94 80%,#c5cad1 100%); background-size: 400% 100%; background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: response-shimmer 8s linear infinite; }
 .generation-status.retrying svg { color: #d0a05b; }
 .generation-status.approval svg { color: #d0a05b; animation: none; }
 @keyframes response-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-@media (prefers-reduced-motion: reduce) { .generation-status svg, .generation-status span, .context-compaction-strip > svg, .approval button.approve, .tool-card, .tool-card.running .tool-status svg { animation: none; } .context-compaction-track > i { transition: none; } }
+/* Authoritative reduced-motion overrides live at the end of this file so they
+   reliably win by source order over every base rule they target. */
 .tool-list { display: flex; flex-direction: column; gap: 2px; }
 .tool-card { border: 0; border-radius: 4px; overflow: visible; background: transparent; animation: tool-card-enter .18s ease-out both; }
 @keyframes tool-card-enter { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
@@ -256,15 +258,17 @@ button { color: inherit; }
 @keyframes approval-pulse { 100% { box-shadow: 0 0 0 6px transparent; } }
 .ask-card { width: 100%; box-sizing: border-box; padding: 7px 8px; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); background: #202227; }
 .ask-card-question { display: flex; align-items: flex-start; gap: 6px; color: #d4d7dc; font-size: calc(11px * var(--chat-zoom)); font-weight: 500; line-height: 1.4; }
-.ask-card-question :global(svg) { flex: 0 0 auto; margin-top: 1px; color: #8ab4f8; }
+.ask-card-question svg { flex: 0 0 auto; margin-top: 1px; color: #8ab4f8; }
 .ask-opts { display: flex; flex-direction: column; gap: 1px; }
 .ask-opt { width: 100%; display: flex; align-items: center; gap: 7px; padding: 5px 6px; border: 0; border-radius: 5px; color: #d4d7dc; background: transparent; font-size: calc(11px * var(--chat-zoom)); text-align: left; cursor: pointer; }
-.ask-opt:hover { background: rgba(255,255,255,.05); }
+.ask-opt:not(:disabled):hover { background: rgba(255,255,255,.05); }
 .ask-opt.on { background: rgba(59,130,246,.12); }
+.ask-opt:disabled { opacity: .55; cursor: default; }
 .ask-opt-badge { flex: 0 0 auto; width: 19px; height: 19px; display: grid; place-items: center; border-radius: 4px; color: #9aa0aa; background: rgba(255,255,255,.06); font-size: calc(10px * var(--chat-zoom)); font-weight: 500; }
 .ask-opt.on .ask-opt-badge { color: #fff; background: var(--accent, #3b82f6); }
 .ask-opt-label { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .ask-card textarea { width: 100%; box-sizing: border-box; min-height: 46px; padding: 5px 7px; resize: vertical; border: 1px solid var(--line); border-radius: 4px; color: var(--text); background: #191b1e; font-family: inherit; font-size: calc(11px * var(--chat-zoom)); }
+.ask-card textarea:disabled { opacity: .55; cursor: default; }
 .ask-card-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .ask-card-actions button { height: 24px; padding: 0 10px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid #5b5e64; border-radius: 3px; color: var(--text); background: #292b30; font-size: 9px; cursor: pointer; }
 .ask-card-actions button.primary { border-color: #3f5b86; color: #cfe0fb; background: #2a3a55; }
@@ -1153,16 +1157,6 @@ button { color: inherit; }
   border-color: var(--focus-ring);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .settings-navigation {
-    transition: none;
-  }
-
-  .context-usage-ring-fill {
-    transition: none;
-  }
-}
-
 .settings-stats {
   gap: 8px;
   margin-bottom: 12px;
@@ -1681,5 +1675,31 @@ button { color: inherit; }
   .shell.canvas-active {
     width: 100%;
     max-width: none;
+  }
+}
+
+/* Authoritative reduced-motion overrides. Placed last so they win by source
+   order over every base rule they target, regardless of where those rules sit. */
+@media (prefers-reduced-motion: reduce) {
+  .settings-navigation,
+  .context-usage-ring-fill,
+  .context-compaction-track > i {
+    transition: none;
+  }
+
+  .generation-status svg,
+  .generation-status span,
+  .context-compaction-strip > svg,
+  .approval button.approve,
+  .tool-card,
+  .tool-card.running .tool-status svg,
+  .thread-activity svg,
+  .repository-strip .index-state.checking svg,
+  .chip.index-state.checking svg,
+  .repository-strip .index-state.indexing svg,
+  .chip.index-state.indexing svg,
+  .generation-button svg,
+  .context-home .progress.indexing span {
+    animation: none;
   }
 }

@@ -2782,11 +2782,9 @@ class IdeBridge(
             runs.invalidate()
             interruptActiveToolsLocked("queued message failed to start")
             runState = "idle"
-            val active = conversations.active()
-            if (requeue != null && active.messages.none { it.id == requeue.id }) {
-                conversations.requeueMessageFirst(requeue)
-            }
-            if (conversations.messageQueue().messages.isNotEmpty()) {
+            if (requeue != null) {
+                conversations.recoverFailedQueuedMessageStart(requeue)
+            } else if (conversations.messageQueue().messages.isNotEmpty()) {
                 conversations.setMessageQueuePaused(true)
             }
             conversations.active()

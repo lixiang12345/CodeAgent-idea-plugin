@@ -218,8 +218,24 @@ class ConversationStoreTest {
             store.updateQueuedMessage("queue-0", "   ")
         }
         assertFailsWith<IllegalArgumentException> {
+            store.updateQueuedMessage("missing", "Still valid")
+        }
+        assertFailsWith<IllegalArgumentException> {
             ConversationStore().enqueueMessage(ConversationQueuedMessage("queue-invalid", "Prompt", "invalid"))
         }
+    }
+
+    @Test
+    fun `recovers a persisted queued prompt after synchronous start failure`() {
+        val store = ConversationStore()
+        val queued = ConversationQueuedMessage("queue-retry", "Retry this prompt", "agent")
+        store.addMessage("user", queued.text, messageId = queued.id)
+
+        store.recoverFailedQueuedMessageStart(queued)
+
+        assertTrue(store.active().messages.none { it.id == queued.id })
+        assertEquals(listOf(queued), store.messageQueue().messages)
+        assertTrue(store.messageQueue().paused)
     }
 
     @Test

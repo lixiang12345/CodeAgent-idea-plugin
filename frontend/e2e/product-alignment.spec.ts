@@ -821,6 +821,101 @@ test("long conversations preserve reading position and expose request navigation
   await expectViewportIntegrity(page);
 });
 
+test("ask_user card stays bounded and drives selection, text, submit, and skip", async ({ page }) => {
+  // A single unbroken token that would overflow a narrow tool window unless the
+  // option label wraps (overflow-wrap: anywhere on .ask-opt-label).
+  const LONG_OPTION = "AdoptTheConsolidatedAuthenticationAndAuthorizationPipelineWithRotatingRefreshTokensEverywhere";
+  await page.evaluate((longOption) => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      runState: "awaiting_approval",
+      agentRun: { ...snapshot.agentRun, phase: "approval" },
+      tools: [
+        ...snapshot.tools,
+        {
+          id: "e2e-ask",
+          name: "ask_user",
+          summary: "Which authentication strategy should we adopt?",
+          status: "approval",
+          askQuestion: "Which authentication strategy should we adopt?",
+          askOptions: [longOption, "Keep the existing session cookies"],
+          askAllowText: true,
+          canRevert: false,
+          timelineSequence: 12,
+        },
+      ],
+    });
+  }, LONG_OPTION);
+
+  const card = page.getByRole("group", { name: "Question from Agent" });
+  await expect(card).toBeVisible();
+
+  // The long unbroken option must not push the layout past the viewport.
+  await expectViewportIntegrity(page);
+  const overflow = await card.evaluate((node) => node.scrollWidth - node.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+
+  const submit = card.getByRole("button", { name: "Submit answer" });
+  const skip = card.getByRole("button", { name: "Skip" });
+
+  // Disabled with neither a selection nor typed text.
+  await expect(submit).toBeDisabled();
+  await expect(skip).toBeEnabled();
+
+  // Typed text alone enables submission.
+  const details = card.getByRole("textbox", { name: "Answer details" });
+  await details.fill("Prefer short-lived tokens.");
+  await expect(submit).toBeEnabled();
+  await details.fill("");
+  await expect(submit).toBeDisabled();
+
+  // Selecting an option enables submission and marks the chosen option.
+  const chosen = card.getByRole("button", { name: LONG_OPTION });
+  const unchosen = card.getByRole("button", { name: "Keep the existing session cookies" });
+  await expect(chosen).toHaveAttribute("aria-pressed", "false");
+  await chosen.focus();
+  await chosen.press("Enter");
+  await expect(chosen).toHaveClass(/\bon\b/);
+  await expect(chosen).toHaveAttribute("aria-pressed", "true");
+  await expect(unchosen).toHaveAttribute("aria-pressed", "false");
+  await expect(submit).toBeEnabled();
+
+  // Submitting resolves the question through resolveAskUser.
+  await submit.click();
+  await expect(card).toBeHidden();
+  const answered = await page.evaluate(() =>
+    window.CodeAgentDevelopment?.getSnapshot()?.tools.find((tool) => tool.id === "e2e-ask")?.status);
+  expect(answered).toBe("completed");
+
+  // Re-seed a fresh question to exercise the Skip path.
+  await page.evaluate((longOption) => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      runState: "awaiting_approval",
+      agentRun: { ...snapshot.agentRun, phase: "approval" },
+      tools: snapshot.tools.map((tool) => tool.id === "e2e-ask"
+        ? { ...tool, status: "approval", askQuestion: "Which authentication strategy should we adopt?", askOptions: [longOption, "Keep the existing session cookies"], askAllowText: true }
+        : tool),
+    });
+  }, LONG_OPTION);
+  const reopened = page.getByRole("group", { name: "Question from Agent" });
+  await reopened.getByRole("button", { name: "Skip" }).click();
+  await expect(reopened).toBeHidden();
+  const skipped = await page.evaluate(() =>
+    window.CodeAgentDevelopment?.getSnapshot()?.tools.find((tool) => tool.id === "e2e-ask")?.status);
+  expect(skipped).toBe("rejected");
+
+  // Under prefers-reduced-motion the settled tool card must not animate.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const animationName = await page.locator(".tool-card").first().evaluate((node) =>
+    getComputedStyle(node).animationName);
+  expect(animationName).toBe("none");
+});
+
 test("Threads exposes active approval and failure states", async ({ page }) => {
   await page.evaluate(() => {
     const snapshot = window.CodeAgentDevelopment?.getSnapshot();

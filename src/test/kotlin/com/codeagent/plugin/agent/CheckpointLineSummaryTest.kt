@@ -48,4 +48,19 @@ class CheckpointLineSummaryTest {
         assertEquals(0, summary.added)
         assertEquals(0, summary.removed)
     }
+
+    @Test
+    fun `summarizes the complete history for repeated edits to one path`() {
+        val summaries = ChangeReviewService.checkpointFileSummaries(
+            listOf(
+                FileChange(path = "src/Repeated.kt", before = "base", after = "base\nfirst"),
+                FileChange(path = "src/Repeated.kt", before = "base\nfirst", after = "base\nfirst\nsecond"),
+            ),
+        )
+
+        assertEquals(1, summaries.size)
+        assertEquals("src/Repeated.kt", summaries.single().path)
+        assertEquals(2, summaries.single().added)
+        assertEquals(0, summaries.single().removed)
+    }
 }

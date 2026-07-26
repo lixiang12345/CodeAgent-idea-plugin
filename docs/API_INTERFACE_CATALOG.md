@@ -79,10 +79,10 @@ Transport:
 | `sendMessage` | `{ text: string, mode: "agent"\|"chat"\|"ask" }` | run starts; stream via events |
 | `queueMessage` | `{ text: string, mode }` | `snapshot` with queue |
 | `sendMessageNow` | `{ text: string, mode }` | interrupt current run and start priority message |
-| `updateQueuedMessage` | `{ messageId: string, text: string }` | `snapshot` with updated queue item |
+| `updateQueuedMessage` | `{ messageId: string, text: string, resumeQueue?: boolean }` | `snapshot` with updated queue item |
 | `setMessageQueuePaused` | `{ paused: boolean }` | pause or resume FIFO queue drain |
 | `sendQueuedMessageNow` | `{ messageId: string }` | interrupt current run and start selected queue item |
-| `removeQueuedMessage` | `{ messageId: string }` | `snapshot` |
+| `removeQueuedMessage` | `{ messageId: string, resumeQueue?: boolean }` | `snapshot` |
 | `cancelRun` | none | `snapshot` runState idle; queued prompts retained and paused |
 | `setMode` | `{ mode }` | `snapshot` |
 | `selectModel` | `{ modelId: string }` | `snapshot.models` |

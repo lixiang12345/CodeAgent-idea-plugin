@@ -2,6 +2,9 @@
 
 export const PROTOCOL_VERSION = 1;
 
+/** Maximum number of messages the development queue can hold at once. */
+export const MAX_QUEUE_SIZE = 10;
+
 export type Mode = "agent" | "chat" | "ask";
 export type MessageRole = "user" | "assistant" | "system";
 export type RunState = "idle" | "starting" | "running" | "awaiting_approval" | "failed";
@@ -1139,8 +1142,8 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     const request = command.payload as { text?: string; mode?: Mode; clientMessageId?: string } | undefined;
     const text = String(request?.text ?? "").trim();
     if (!text) return;
-    if ((developmentSnapshot?.messageQueue.length ?? 0) >= 10) {
-      emitDevelopmentEvent("error", { message: "Queue can contain at most 10 messages" });
+    if ((developmentSnapshot?.messageQueue.length ?? 0) >= MAX_QUEUE_SIZE) {
+      emitDevelopmentEvent("error", { message: `Queue can contain at most ${MAX_QUEUE_SIZE} messages` });
       return;
     }
     updateDevelopmentSnapshot((snapshot) => ({
@@ -1414,7 +1417,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     if (!text || !developmentSnapshot) return;
     if (developmentSnapshot.messageQueue.length === 0) {
       startDevelopmentMessage({ ...request, text });
-    } else if (developmentSnapshot.messageQueue.length < 10) {
+    } else if (developmentSnapshot.messageQueue.length < MAX_QUEUE_SIZE) {
       updateDevelopmentSnapshot((snapshot) => ({
         ...snapshot,
         messageQueue: [...snapshot.messageQueue, {
@@ -1425,7 +1428,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       }));
       startNextDevelopmentQueuedMessage();
     } else {
-      emitDevelopmentEvent("error", { message: "Queue can contain at most 10 messages" });
+      emitDevelopmentEvent("error", { message: `Queue can contain at most ${MAX_QUEUE_SIZE} messages` });
     }
     return;
   }

@@ -258,7 +258,10 @@ private data class RuleMetadata(
     val descriptions: MutableMap<String, String> = linkedMapOf(),
 )
 
-internal class WorkspaceGuidanceLoader(private val projectRoot: Path?) {
+internal class WorkspaceGuidanceLoader(
+    private val projectRoot: Path?,
+    private val readText: (Path) -> String = Files::readString,
+) {
     fun load(): String? = runCatching {
         val root = projectRoot?.toRealPath() ?: return null
         buildList {
@@ -269,7 +272,9 @@ internal class WorkspaceGuidanceLoader(private val projectRoot: Path?) {
             // layer last, as lower-priority workspace context after CodeAgent's
             // own instruction files.
             for ((relative, label) in FOREIGN_RULE_FILES) {
-                readGuidanceFile(root, root.resolve(relative))?.let { add("$label:\n$it") }
+                runCatching { readGuidanceFile(root, root.resolve(relative)) }
+                    .getOrNull()
+                    ?.let { add("$label:\n$it") }
             }
         }.joinToString("\n\n").trim().take(MAX_GUIDANCE_CHARS).takeIf(String::isNotEmpty)
     }.getOrNull()
@@ -278,7 +283,7 @@ internal class WorkspaceGuidanceLoader(private val projectRoot: Path?) {
         if (!Files.isRegularFile(file)) return null
         val resolvedFile = file.toRealPath()
         if (!resolvedFile.startsWith(root)) return null
-        return Files.readString(resolvedFile).trim().takeIf(String::isNotEmpty)
+        return readText(resolvedFile).trim().takeIf(String::isNotEmpty)
     }
 
     companion object {

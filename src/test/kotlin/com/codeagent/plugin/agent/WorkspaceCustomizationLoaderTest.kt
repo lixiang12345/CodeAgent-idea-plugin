@@ -1,5 +1,6 @@
 package com.codeagent.plugin.agent
 
+import java.io.IOException
 import java.nio.file.Files
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
@@ -68,6 +69,29 @@ class WorkspaceCustomizationLoaderTest {
             assertTrue(guidance.contains("Copilot instructions:\nFollow style guide."))
             assertTrue(guidance.indexOf("AGENTS.md:") < guidance.indexOf("CLAUDE.md:"))
             assertTrue(!guidance.contains("Windsurf rules:"))
+        } finally {
+            project.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `keeps primary guidance when one optional foreign rule cannot be read`() {
+        val project = Files.createTempDirectory("codeagent-foreign-failure")
+        try {
+            project.resolve("AGENTS.md").writeText("Primary repository guidance.")
+            project.resolve("CLAUDE.md").writeText("Unreadable optional guidance.")
+            project.resolve(".cursorrules").writeText("Keep the surviving foreign rule.")
+
+            val guidance = requireNotNull(
+                WorkspaceGuidanceLoader(project) { file ->
+                    if (file.fileName.toString() == "CLAUDE.md") throw IOException("simulated read failure")
+                    Files.readString(file)
+                }.load(),
+            )
+
+            assertTrue(guidance.contains("AGENTS.md:\nPrimary repository guidance."))
+            assertTrue(guidance.contains("Cursor rules:\nKeep the surviving foreign rule."))
+            assertTrue(!guidance.contains("Unreadable optional guidance."))
         } finally {
             project.toFile().deleteRecursively()
         }

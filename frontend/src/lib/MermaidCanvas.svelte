@@ -47,4 +47,5 @@
   .mermaid-error { max-width: 520px; padding: 18px; display: flex; flex-direction: column; gap: 7px; text-align: center; }
   .mermaid-error strong { color: #e38a90; font-size: 11px; }
   .mermaid-error span { color: #9b8083; font: 9px/1.45 "JetBrains Mono", monospace; overflow-wrap: anywhere; }
+  @media (prefers-reduced-motion: reduce) { .mermaid-svg { transition: none; } }
 </style>

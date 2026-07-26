@@ -1600,7 +1600,7 @@
 
   // Runtime ToolRun.name values are the backend's snake_case tool names (the
   // same vocabulary toolIcons/toolTitle switch on), not the catalog ids.
-  const CHANGE_TOOL_NAMES = new Set(["replace_text", "write_file"]);
+  const CHANGE_TOOL_NAMES = new Set(["replace_text", "write_file", "remove_files", "apply_patch"]);
   const EXAMINE_TOOL_NAMES = new Set(["read_file", "list_files", "search_text"]);
   const INDEX_TOOL_NAMES = new Set(["codebase_retrieval"]);
 
@@ -2352,8 +2352,8 @@
                   <button onclick={() => { copyThread(); closeMenus(); }}><Icon name="share-2" size={13} /><span>Share link to session</span></button>
                   <button onclick={() => { exportThread(); closeMenus(); }}><Icon name="upload" size={13} /><span>Export conversation</span></button>
                   <button onclick={() => { sendCommand("importThread"); closeMenus(); }}><Icon name="file-input" size={13} /><span>Import conversation</span></button>
-                  <button onclick={() => continueInNewChat(false)}><Icon name="git-branch" size={13} /><span>Continue in New Chat</span></button>
-                  <button onclick={() => continueInNewChat(true)}><Icon name="orbit" size={13} /><span>Continue in New Chat</span></button>
+                  <button aria-label="Continue in new local chat" onclick={() => continueInNewChat(false)}><Icon name="git-branch" size={13} /><span>Continue in New Chat</span></button>
+                  <button aria-label="Continue in new cloud chat" onclick={() => continueInNewChat(true)}><Icon name="orbit" size={13} /><span>Continue in New Chat</span></button>
                   <div class="menu-sep"></div>
                   <button onclick={() => requestDeleteOldThreads()}><Icon name="trash-2" size={13} /><span>{confirmingDeleteOldThreads ? "Confirm delete old threads" : "Delete Old Threads…"}</span></button>
                   <button onclick={() => exportRemoteAgentsHistory()}><Icon name="cloud-download" size={13} /><span>Export Remote Agents History</span></button>
@@ -2542,8 +2542,8 @@
                             </div>
                           {/if}
                           {#if tool.status === "approval" && tool.name === "ask_user"}
-                            <div class="ask-card" role="group" aria-label="Question from Agent">
-                              <h4><Icon name="message-circle" size={14} /><span>{tool.askQuestion ?? tool.summary}</span></h4>
+                            <div class="ask-card" role="group" aria-label="Question from Agent" aria-busy={resolvingApprovalIds.has(tool.id)}>
+                              <div class="ask-card-question"><Icon name="message-circle" size={14} /><span>{tool.askQuestion ?? tool.summary}</span></div>
                               {#if (tool.askOptions ?? []).length > 0}
                                 <div class="ask-opts">
                                   {#each tool.askOptions ?? [] as option, index (option)}
@@ -2551,26 +2551,28 @@
                                       type="button"
                                       class="ask-opt"
                                       class:on={askUserSelection[tool.id] === option}
+                                      aria-pressed={askUserSelection[tool.id] === option}
+                                      disabled={resolvingApprovalIds.has(tool.id)}
                                       onclick={() => selectAskOption(tool.id, option)}
                                     >
                                       <span class="ask-opt-badge">{String.fromCharCode(65 + index)}</span>
-                                      <span>{option}</span>
+                                      <span class="ask-opt-label">{option}</span>
                                     </button>
                                   {/each}
                                 </div>
                               {/if}
                               {#if (tool.askAllowText ?? true)}
                                 <textarea
-                                  class="ask-extra"
                                   bind:value={askUserText[tool.id]}
                                   placeholder={(tool.askOptions ?? []).length > 0 ? "Optional details…" : "Type your answer…"}
                                   aria-label="Answer details"
+                                  disabled={resolvingApprovalIds.has(tool.id)}
                                 ></textarea>
                               {/if}
-                              <div class="ask-actions">
+                              <div class="ask-card-actions">
                                 <button disabled={resolvingApprovalIds.has(tool.id)} onclick={() => skipAskUser(tool)}>Skip</button>
                                 <button
-                                  class="approve"
+                                  class="primary"
                                   disabled={resolvingApprovalIds.has(tool.id) || (!askUserSelection[tool.id] && !(askUserText[tool.id] ?? "").trim())}
                                   onclick={() => submitAskUser(tool)}
                                 ><Icon name="circle-play" size={12} />{resolvingApprovalIds.has(tool.id) ? "Submitting…" : "Submit answer"}</button>
