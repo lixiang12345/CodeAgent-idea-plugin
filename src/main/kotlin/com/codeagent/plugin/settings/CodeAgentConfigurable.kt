@@ -5,8 +5,10 @@ import com.codeagent.plugin.agent.ToolPermissionRules
 import com.codeagent.plugin.context.NodeRuntimeLocator
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionPlaces
+import com.intellij.openapi.actionSystem.ActionUiKind
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DataContext
+import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.openapi.options.SearchableConfigurable
@@ -85,8 +87,8 @@ class CodeAgentConfigurable : SearchableConfigurable {
             }, BorderLayout.WEST)
         })
         configureCompletionShortcut.addActionListener { openKeymapForCompletionAction() }
-        signInButton.addActionListener { performAction("CodeAgent.SignIn") }
-        signOutButton.addActionListener { performAction("CodeAgent.SignOut") }
+        signInButton.addActionListener { runAction("CodeAgent.SignIn") }
+        signOutButton.addActionListener { runAction("CodeAgent.SignOut") }
         panel = root
         reset()
         return root
@@ -98,10 +100,18 @@ class CodeAgentConfigurable : SearchableConfigurable {
             .showSettingsDialog(null, com.intellij.openapi.keymap.impl.ui.KeymapPanel::class.java)
     }
 
-    private fun performAction(actionId: String) {
+    /** `AnAction.actionPerformed` is `@ApiStatus.OverrideOnly`; the platform runs it for us. */
+    private fun runAction(actionId: String) {
         val action = ActionManager.getInstance().getAction(actionId) ?: return
-        val event = AnActionEvent.createFromDataContext(ActionPlaces.UNKNOWN, null, DataContext.EMPTY_CONTEXT)
-        action.actionPerformed(event)
+        val event = AnActionEvent.createEvent(
+            action,
+            DataContext.EMPTY_CONTEXT,
+            null,
+            ActionPlaces.UNKNOWN,
+            ActionUiKind.NONE,
+            null,
+        )
+        ActionUtil.performAction(action, event)
     }
 
     private fun completionShortcutLabel(): String {
