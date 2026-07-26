@@ -1310,6 +1310,21 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     }));
     return;
   }
+  if (command.type === "attachDroppedFiles") {
+    // The JetBrains host resolves and confines each URI; here the last path segment stands in.
+    const uris = (command.payload as { uris?: string[] } | undefined)?.uris ?? [];
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      attachments: [
+        ...snapshot.attachments,
+        ...uris.map((uri) => {
+          const path = decodeURIComponent(uri.replace(/^file:\/\//, ""));
+          return { id: path, label: path.split("/").pop() ?? path, path, kind: "file" as const };
+        }),
+      ],
+    }));
+    return;
+  }
   if (command.type === "attachImage") {
     updateDevelopmentSnapshot((snapshot) => ({
       ...snapshot,

@@ -8,6 +8,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.problems.WolfTheProblemSolver
+import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -39,6 +40,28 @@ internal class AttachmentContextResolver(private val project: Project) {
 
     fun kindFor(path: String): String =
         if (imageMimeType(projectFile(path)) != null) "image" else "file"
+
+    /**
+     * Drag-and-drop hands over file: URIs. Anything outside the project, or not a
+     * regular file, is rejected here rather than surfacing as a broken attachment.
+     */
+    fun droppedItems(uris: List<String>): List<ContextItemDto> {
+        require(uris.isNotEmpty()) { "No files were dropped" }
+        require(uris.size <= MAX_ATTACHMENTS) { "Drop at most $MAX_ATTACHMENTS files at a time" }
+        return uris.map { uri ->
+            val path = requireNotNull(localFilePath(uri)) { "Dropped item is not a local file: $uri" }
+            val relative = requireNotNull(projectRelative(path)) {
+                "Only files inside the current project can be attached: ${path.fileName}"
+            }
+            projectFile(relative)
+            ContextItemDto(
+                id = relative,
+                label = path.fileName.toString(),
+                path = relative,
+                kind = kindFor(relative),
+            )
+        }
+    }
 
     fun resolve(items: List<ContextItemDto>): List<AgentAttachment> {
         require(items.size <= MAX_ATTACHMENTS) { "Attach at most $MAX_ATTACHMENTS context items" }
@@ -231,7 +254,16 @@ internal class AttachmentContextResolver(private val project: Project) {
 
     private data class TextExcerpt(val text: String?, val truncated: Boolean)
 
-    private companion object {
+    internal companion object {
+        /** Only absolute local file: URIs survive; a remote or opaque URI yields null. */
+        fun localFilePath(uri: String): Path? = runCatching {
+            val parsed = URI(uri.trim())
+            if (!parsed.isAbsolute || parsed.isOpaque) return null
+            if (!parsed.scheme.equals("file", ignoreCase = true)) return null
+            if (!parsed.host.isNullOrBlank()) return null
+            Path.of(parsed)
+        }.getOrNull()
+
         const val MAX_ATTACHMENTS = 8
         const val MAX_IMAGES = 2
         const val MAX_FILE_BYTES = 128_000L

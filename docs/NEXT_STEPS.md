@@ -137,26 +137,31 @@ completion-shortcut link and sign-in-state-aware account buttons.
 
 Remaining, ranked:
 
-1. **Composer fidelity.** Mention chips, drag-drop and paste image attachment,
-   paste size guard, and inline input completion; ours is a plain textarea.
-2. **Onboarding and pre-chat gate views.** Feature coach-marks, suggested
-   questions, and the sign-in / open-folder / indexing states the original
-   shows before the chat surface.
-3. **Extension Status dialog** with copyable structured sections replacing the
-   notification balloon, and inclusion of that report in the log export ZIP.
-4. **Task-tool hierarchy.** `parent_task_id` / `after_task_id` and subtask
+1. **Composer fidelity — mention chips and inline input completion.** Drag-drop
+   attachment, the paste size guard, and the clipboard-file explanation landed;
+   what remains needs the composer to stop being a plain textarea. Rendering an
+   `@file` mention as a removable chip means a rich-text surface, and removing
+   the chip has to remove the corresponding text, so `sendMessage` must carry a
+   structured mention list instead of a plain string. That is a joint JVM and
+   webview protocol change, not a webview-only one.
+2. **Onboarding coach-marks.** The pre-chat gate views landed for the states
+   that apply here — signed out, account error, indexing, and not indexed.
+   There is no open-folder state because an IDEA tool window only exists inside
+   an open project. Coach-marks still need a product decision on which features
+   they introduce and when they first appear.
+3. **Task-tool hierarchy.** `parent_task_id` / `after_task_id` and subtask
    rendering; this needs the conversation task model, persistence, and the
    panel to change together.
-5. **MCP OAuth** metadata discovery (`.well-known`) and dynamic client
-   registration, plus the `header` auth kind and an `auth_required` state.
-6. **Settings polish.** Sound settings with a test button, plugin-update
-   checking wired to the declared `CodeAgent.Updates` notification group, and a
-   Markdown-rich rules editor.
-7. **Process hosting.** Running agent-launched commands through an IDE Run
+4. **Rules editor richness.** The rules editor is still a plain textarea.
+   Embedding Monaco in JCEF costs bundle size and needs an offline-safe build,
+   so weigh it against reusing the IDEA editor: opening
+   `.codeagent/guidelines.md` in a real editor tab already works and inherits
+   the IDE's own Markdown support, theme, and keymap. Decide before scheduling.
+5. **Process hosting.** Running agent-launched commands through an IDE Run
    configuration so they appear in the Run/Terminal tool window; this adds
    plugin dependencies and needs a deliberate compatibility decision.
-8. **`keep_stdin_open` and `read-terminal`**, plus multi-question `ask_user`.
-9. **Needs a backend contract:** async sub-agent lifecycle
+6. **`keep_stdin_open` and `read-terminal`**, plus multi-question `ask_user`.
+7. **Needs a backend contract:** async sub-agent lifecycle
    (spawn/check/message/await with parent reporting), semantic commit-history
    retrieval, and completion recency payloads.
 

@@ -1175,3 +1175,94 @@ test("subscription reports quotas it counted and stays explicit when unconfigure
   await expect(page.getByRole("button", { name: "Manage", exact: true })).toBeVisible();
   await expectViewportIntegrity(page);
 });
+
+test("the pre-chat gate replaces the empty card until the panel can answer", async ({ page }) => {
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      messages: [],
+      account: { ...snapshot.account, state: "signed_out", label: "Sign in to sync Agent sessions" },
+    });
+  });
+  await expect(page.getByRole("heading", { name: "Sign in to start" })).toBeVisible();
+  await expect(page.getByText("Sign in to sync Agent sessions")).toBeVisible();
+  await expect(page.locator(".suggested-question")).toHaveCount(0);
+  await expectViewportIntegrity(page);
+
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      account: { ...snapshot.account, state: "signed_in" },
+      context: { ...snapshot.context, state: "indexing", label: "Indexing 240 files" },
+    });
+  });
+  await expect(page.getByRole("heading", { name: "Indexing this project" })).toBeVisible();
+  await expect(page.locator(".gate-card p")).toHaveText("Indexing 240 files");
+
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      context: { ...snapshot.context, state: "ready" },
+    });
+  });
+  // Once the panel can answer, the ordinary empty-thread card returns.
+  await expect(page.getByRole("heading", { name: /New (Agent|Chat|Ask) Thread/ })).toBeVisible();
+});
+
+test("an oversized paste is refused instead of silently sent", async ({ page }) => {
+  const composer = page.locator(".composer textarea");
+  await composer.click();
+
+  await page.evaluate(() => {
+    const textarea = document.querySelector<HTMLTextAreaElement>(".composer textarea");
+    if (!textarea) throw new Error("Composer is unavailable");
+    const transfer = new DataTransfer();
+    transfer.setData("text/plain", "x".repeat(200_001));
+    textarea.dispatchEvent(new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator(".composer-notice.error")).toContainText("over the 200 KB composer limit");
+  await expect(composer).toHaveValue("");
+
+  await page.locator(".composer-notice").getByRole("button", { name: "Dismiss composer notice" }).click();
+  await expect(page.locator(".composer-notice")).toHaveCount(0);
+
+  // A paste large enough to be worth attaching warns but is still allowed through.
+  await page.evaluate(() => {
+    const textarea = document.querySelector<HTMLTextAreaElement>(".composer textarea");
+    if (!textarea) throw new Error("Composer is unavailable");
+    const transfer = new DataTransfer();
+    transfer.setData("text/plain", "y".repeat(20_001));
+    textarea.dispatchEvent(new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator(".composer-notice")).toContainText("Attaching the file keeps more of it in context");
+  await expectViewportIntegrity(page);
+});
+
+test("dropping project files attaches them and a pathless drop says why it cannot", async ({ page }) => {
+  await page.evaluate(() => {
+    const composer = document.querySelector(".composer");
+    if (!composer) throw new Error("Composer is unavailable");
+    const transfer = new DataTransfer();
+    transfer.setData("text/uri-list", "file:///project/src/main.ts\nfile:///project/docs/guide.md");
+    composer.dispatchEvent(new DragEvent("drop", { dataTransfer: transfer, bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator(".composer-notice")).toContainText("Attaching 2 files");
+  await expect(page.locator(".context-chips .chip").filter({ hasText: "main.ts" })).toBeVisible();
+  await expect(page.locator(".context-chips .chip").filter({ hasText: "guide.md" })).toBeVisible();
+
+  await page.evaluate(() => {
+    const composer = document.querySelector(".composer");
+    if (!composer) throw new Error("Composer is unavailable");
+    const transfer = new DataTransfer();
+    transfer.setData("text/uri-list", "https://example.com/not-a-file");
+    composer.dispatchEvent(new DragEvent("drop", { dataTransfer: transfer, bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator(".composer-notice.error")).toContainText("carry no file path");
+  await expectViewportIntegrity(page);
+});

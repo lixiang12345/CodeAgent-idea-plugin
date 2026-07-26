@@ -1001,6 +1001,12 @@ class IdeBridge(
                 synchronized(stateLock) { attachments[attachment.id] = attachment }
                 emitSnapshot()
             }
+            "attachDroppedFiles" -> {
+                val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<DroppedFilesPayload>(it) }
+                val items = attachmentResolver.droppedItems(request.uris)
+                synchronized(stateLock) { items.forEach { attachments[it.id] = it } }
+                emitSnapshot()
+            }
             "openMermaidEditor" -> {
                 val request = requireNotNull(command.payload).let { json.decodeFromJsonElement<MermaidEditorPayload>(it) }
                 require(request.code.isNotBlank()) { "Mermaid source must not be blank" }
@@ -3752,6 +3758,9 @@ class IdeBridge(
 
     @Serializable
     private data class ExternalLinkPayload(val url: String)
+
+    @Serializable
+    private data class DroppedFilesPayload(val uris: List<String>)
 
     companion object {
         private val LOG = logger<IdeBridge>()

@@ -263,6 +263,9 @@
   let confirmingDeleteOldThreads = false;
   let confirmingUnshare = false;
   let dismissedNotificationIds = new Set<string>();
+  let dropActive = false;
+  let composerNotice: { level: "info" | "error"; text: string } | null = null;
+  let composerNoticeTimer: number | undefined;
   let recoveryBanner: { visible: boolean; text: string; done: boolean } = { visible: false, text: "", done: false };
   let recoveryBannerTimer: number | undefined;
   let announceBannerDismissed = false;
@@ -1512,6 +1515,50 @@
     return currentSnapshot.context.state;
   }
 
+  /**
+   * The pre-chat gate replaces the empty-thread card while the panel cannot yet
+   * answer usefully. The IDE always has a project open, so there is no
+   * no-folder state to gate on; only account and index readiness apply.
+   */
+  function preChatGate(current: AppSnapshot) {
+    if (current.account.state === "signed_out") {
+      return {
+        icon: "log-in",
+        title: "Sign in to start",
+        detail: current.account.label,
+        action: { label: "Sign in", run: () => sendCommand("signIn") },
+      };
+    }
+    if (current.account.state === "error") {
+      return {
+        icon: "triangle-alert",
+        title: "Account unavailable",
+        detail: current.account.label,
+        action: { label: "Retry", run: () => sendCommand("bootstrap") },
+      };
+    }
+    if (current.context.state === "indexing") {
+      return {
+        icon: "database",
+        title: "Indexing this project",
+        detail: current.context.label,
+        // Indeterminate unless the host reported a file count to divide by.
+        progress: current.context.files && current.context.chunks
+          ? Math.min(100, Math.round((current.context.chunks / Math.max(current.context.files, 1)) * 10))
+          : undefined,
+      };
+    }
+    if (current.context.state === "not_indexed") {
+      return {
+        icon: "database",
+        title: "This project is not indexed",
+        detail: "Agent answers stay available, but codebase retrieval needs an index.",
+        action: { label: "Build index", run: () => sendCommand("indexWorkspace") },
+      };
+    }
+    return null;
+  }
+
   function contextIndexLabel(currentSnapshot: AppSnapshot | null) {
     if (!currentSnapshot) return "Context unavailable";
     if (currentSnapshot.context.watchError) return "Sync error";
@@ -1953,6 +2000,75 @@
       });
     }
     return [...commands.values()].sort((left, right) => left.command.localeCompare(right.command));
+  }
+
+  // Beyond this a paste is almost certainly a file dump; the composer says so
+  // rather than silently sending an unreviewable request.
+  const PASTE_WARNING_CHARS = 20_000;
+  const PASTE_LIMIT_CHARS = 200_000;
+
+  function showComposerNotice(level: "info" | "error", text: string) {
+    composerNotice = { level, text };
+    if (composerNoticeTimer) window.clearTimeout(composerNoticeTimer);
+    composerNoticeTimer = window.setTimeout(() => composerNotice = null, 10_000);
+  }
+
+  function handleComposerPaste(event: ClipboardEvent) {
+    const transfer = event.clipboardData;
+    if (!transfer) return;
+    const paths = droppedProjectPaths(transfer);
+    if (paths.length > 0) {
+      event.preventDefault();
+      attachDroppedPaths(paths);
+      return;
+    }
+    // A clipboard image arrives as bytes with no path, and attachments are
+    // project-relative, so say what to do instead of dropping it silently.
+    if (Array.from(transfer.items).some((item) => item.kind === "file")) {
+      event.preventDefault();
+      showComposerNotice("error", "Pasted file data has no project path. Save it into the project, then attach it with @ or the Image Canvas.");
+      return;
+    }
+    const pasted = transfer.getData("text/plain");
+    if (pasted.length > PASTE_LIMIT_CHARS) {
+      event.preventDefault();
+      showComposerNotice("error", `That paste is ${Math.round(pasted.length / 1000)} KB, over the ${PASTE_LIMIT_CHARS / 1000} KB composer limit. Attach the file instead.`);
+      return;
+    }
+    if (pasted.length > PASTE_WARNING_CHARS) {
+      showComposerNotice("info", `Pasted ${Math.round(pasted.length / 1000)} KB. Attaching the file keeps more of it in context than pasting.`);
+    }
+  }
+
+  function hasDroppableFiles(event: DragEvent): boolean {
+    return [...(event.dataTransfer?.types ?? [])].some((type) => type === "Files" || type === "text/uri-list");
+  }
+
+  function handleComposerDrop(event: DragEvent) {
+    dropActive = false;
+    const transfer = event.dataTransfer;
+    if (!transfer || !hasDroppableFiles(event)) return;
+    event.preventDefault();
+    const paths = droppedProjectPaths(transfer);
+    if (paths.length === 0) {
+      showComposerNotice("error", "Dropped items carry no file path. Drag from the Project tool window or a file manager.");
+      return;
+    }
+    attachDroppedPaths(paths);
+  }
+
+  /** JCEF exposes dropped files as file: URIs; the host resolves and confines them to the project. */
+  function droppedProjectPaths(transfer: DataTransfer): string[] {
+    return transfer.getData("text/uri-list")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("file:"))
+      .slice(0, 8);
+  }
+
+  function attachDroppedPaths(uris: string[]) {
+    showComposerNotice("info", uris.length === 1 ? "Attaching 1 file" : `Attaching ${uris.length} files`);
+    sendCommand("attachDroppedFiles", { uris });
   }
 
   function insertMention(kind: string) {
@@ -2875,7 +2991,24 @@
               {/each}
             </div>
           {/if}
-          {#if snapshot.messages.length === 0 && pendingUserMessages.length === 0}
+          {#if snapshot.messages.length === 0 && pendingUserMessages.length === 0 && preChatGate(snapshot)}
+            {@const gate = preChatGate(snapshot)!}
+            <div class="empty-thread" data-mode={snapshot.mode}>
+              <section class="empty-thread-card gate-card" aria-labelledby="pre-chat-gate-title" role="status">
+                <header>
+                  <span class="empty-thread-icon"><Icon name={gate.icon} size={14} /></span>
+                  <h1 id="pre-chat-gate-title">{gate.title}</h1>
+                </header>
+                <p>{gate.detail}</p>
+                {#if gate.progress !== undefined}
+                  <i class="gate-track" aria-hidden="true"><i style={`width: ${gate.progress}%`}></i></i>
+                {/if}
+                {#if gate.action}
+                  <button class="btn sm primary gate-action" onclick={gate.action.run}>{gate.action.label}</button>
+                {/if}
+              </section>
+            </div>
+          {:else if snapshot.messages.length === 0 && pendingUserMessages.length === 0}
             <div class="empty-thread" data-mode={snapshot.mode}>
               {#key snapshot.mode}
                 <section class="empty-thread-card" aria-labelledby="empty-thread-title">
@@ -3184,9 +3317,24 @@
             ondelete={deleteQueuedMessage}
             oncancel={cancelQueuedMessageEdit}
           />
-          <div class="composer comp" class:busy={isBusy(snapshot)}>
+          <div
+            class="composer comp"
+            class:busy={isBusy(snapshot)}
+            class:drop-target={dropActive}
+            ondragover={(event) => { if (hasDroppableFiles(event)) { event.preventDefault(); dropActive = true; } }}
+            ondragleave={(event) => { if (event.currentTarget === event.target) dropActive = false; }}
+            ondrop={handleComposerDrop}
+            role="presentation"
+          >
             {#if snapshot.mode === "ask"}
               <div class="ask-badge"><Icon name="message-circle" size={12} /> Ask Mode (read-only)<button class="icon-button compact" title="Switch to Agent" onclick={() => setMode("agent")}><Icon name="x" size={11} /></button></div>
+            {/if}
+            {#if composerNotice}
+              <div class="composer-notice {composerNotice.level}" role="status">
+                <Icon name={composerNotice.level === "error" ? "triangle-alert" : "info"} size={12} />
+                <span>{composerNotice.text}</span>
+                <button class="icon-button compact" title="Dismiss" aria-label="Dismiss composer notice" onclick={() => composerNotice = null}><Icon name="x" size={11} /></button>
+              </div>
             {/if}
             {#if slashOpen}
               <div class="composer-popup slash-menu">
@@ -3241,6 +3389,7 @@
                   slashOpen = false;
                 }
               }}
+              onpaste={handleComposerPaste}
               onkeydown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();

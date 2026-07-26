@@ -159,11 +159,22 @@ metadata discovery (RFC 9728/8414/OpenID) with RFC 7591 dynamic client
 registration and a `header` auth kind whose value stays in Password Safe; and
 notification sound settings with an empty-thread suggested-question card.
 
-Still open, local and feasible: rich composer behaviors (mention chips,
-drag-drop/paste attachments, paste size guard, inline input completion),
-onboarding coach-marks and pre-chat gate views, Monaco-based rules editing,
-task-tool hierarchy, and IDE Run-tool-window hosting for agent-launched
-commands.
+Also resolved in slice 3, composer and gating: files dragged onto the composer
+attach through their `file:` URIs, which the JVM confines to the project before
+accepting; a paste over 200 KB is refused with its size and a paste over 20 KB
+warns that attaching keeps more in context; clipboard file *data* is declined
+with an explanation, because attachments are project-relative and pasted bytes
+carry no path. A pre-chat gate replaces the empty-thread card while the account
+is signed out or errored, or while the project is indexing or unindexed, and
+offers the corresponding action.
+
+Still open, local and feasible: mention chips and inline input completion, both
+of which need the composer to become a rich-text surface and `sendMessage` to
+carry structured mentions rather than a plain string; onboarding coach-marks,
+which need a product decision on trigger points; Monaco-based rules editing;
+task-tool hierarchy; and IDE Run-tool-window hosting for agent-launched
+commands. There is no no-folder gate because an IDEA tool window only exists
+inside an open project.
 Cloud-dependent surfaces (shareable session links, subscription banners,
 server-driven notifications, marketplace management) are no longer withheld as a
 whole: all four are implemented end to end, and each is unavailable only where a

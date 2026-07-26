@@ -369,6 +369,14 @@ button { color: inherit; }
 .thread-share-state { display: flex; flex-direction: column; gap: 3px; padding: 6px 9px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 9px; }
 .thread-share-state > span { display: flex; align-items: center; gap: 5px; color: var(--text); }
 .thread-share-state code { overflow: hidden; color: var(--text); font: 9px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.composer.drop-target { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.composer-notice { display: flex; align-items: center; gap: 6px; margin: 8px 10px 0; padding: 5px 8px; border: 1px solid var(--line-strong); border-left: 2px solid var(--blue); border-radius: 4px; color: var(--text); font-size: 10px; line-height: 1.4; }
+.composer-notice.error { border-left-color: var(--amber); }
+.composer-notice > span { flex: 1; overflow-wrap: anywhere; }
+.composer-notice .icon-button { flex: 0 0 auto; width: 18px; height: 18px; padding: 0; }
+.gate-card .gate-track { display: block; height: 3px; overflow: hidden; border-radius: 2px; background: #30353b; }
+.gate-card .gate-track > i { display: block; height: 100%; background: var(--blue); transition: width .3s ease; }
+.gate-card .gate-action { align-self: flex-start; }
 .ask-badge { margin: 8px 10px 0; height: 24px; padding: 0 8px; display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; border: 1px solid var(--amber); border-radius: 99px; color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); font-size: 10px; }
 .ask-badge .icon-button { width: 16px; height: 16px; padding: 0; margin-left: 2px; }
 .chat-view .composer textarea { width: 100%; min-height: 38px; max-height: 110px; padding: 0 2px; flex: 0 0 auto; resize: none; outline: 0; border: 0; color: var(--bright); background: transparent; font-size: calc(12.5px * var(--chat-zoom)); line-height: 1.45; }
