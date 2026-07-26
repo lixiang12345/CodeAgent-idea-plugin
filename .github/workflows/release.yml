@@ -22,7 +22,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0
+          fetch-depth: 500
           submodules: recursive
 
       - name: Set up Java
