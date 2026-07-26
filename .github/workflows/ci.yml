@@ -126,7 +126,13 @@ jobs:
           if-no-files-found: error
 
       - name: Evaluate repository retrieval
-        run: node scripts/evaluate-retrieval.mjs
+        env:
+          RETRIEVAL_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          verified_ref="$(git rev-parse HEAD)"
+          trap 'git checkout --detach "$verified_ref"' EXIT
+          git checkout --detach "$RETRIEVAL_REF"
+          node scripts/evaluate-retrieval.mjs
 
       - name: Upload retrieval evaluation report
         if: always()
