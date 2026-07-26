@@ -2049,7 +2049,9 @@
   function beginByokEdit(provider: ByokProvider) {
     byokEditorProvider = provider;
     byokSecret = "";
-    byokEndpoint = provider === "openai" ? "https://api.openai.com" : "https://api.anthropic.com";
+    byokEndpoint = provider === "openai"
+      ? (snapshot?.byok.openAiBaseUrl ?? "https://api.openai.com")
+      : (snapshot?.byok.anthropicBaseUrl ?? "https://api.anthropic.com");
     byokAccessKeyId = "";
     byokRegion = "us-east-1";
     byokModel = "";
@@ -2488,13 +2490,22 @@
             </div>
           {/if}
           {#if snapshot.messages.length === 0 && pendingUserMessages.length === 0}
-            <div class="empty-state">
-              <span class="empty-logo"><Icon name="plugin-icon" size={18} /></span>
-              <h1>Start a new task</h1>
-              <p>Ask about the project or let Agent make an approved change.</p>
-              <button onclick={() => prompt = "Explain how this project is structured"}><Icon name="file-text" size={14} />Explain this project</button>
-              <button onclick={() => prompt = "Find a bug and fix it with a regression test"}><Icon name="circle-alert" size={14} />Fix a bug with tests</button>
-              <button onclick={() => prompt = "Run the most relevant tests and investigate failures"}><Icon name="play" size={14} />Check the build</button>
+            <div class="empty-thread" data-mode={snapshot.mode}>
+              {#key snapshot.mode}
+                <section class="empty-thread-card" aria-labelledby="empty-thread-title">
+                  <header>
+                    <span class="empty-thread-icon">
+                      <Icon name={snapshot.mode === "agent" ? "wand-sparkles" : "message-square"} size={14} />
+                    </span>
+                    <h1 id="empty-thread-title">{snapshot.mode === "agent" ? "New Agent Thread" : "New Chat Thread"}</h1>
+                  </header>
+                  <p>
+                    {snapshot.mode === "agent"
+                      ? "Work with your agent to use tools and make file edits."
+                      : "Ask questions and plan with codebase awareness."}
+                  </p>
+                </section>
+              {/key}
             </div>
           {:else}
             <div class="message-list">
@@ -3085,10 +3096,13 @@
               </p>
               {#if settingsSection === "API Keys"}
                 <section class="settings-block list-block byok-provider-list">
-                  <header><strong>Bring your own model provider</strong><span>{snapshot.byok.activeProvider ?? "Backend default"}</span></header>
+                  <header>
+                    <strong>Provider Keys</strong>
+                    <span>{[snapshot.byok.openAiConfigured, snapshot.byok.anthropicConfigured, snapshot.byok.bedrockConfigured].filter(Boolean).length} configured</span>
+                  </header>
                   <div class="byok-provider-row">
                     <Icon name="sparkles" size={14} />
-                    <span><strong>OpenAI Responses</strong><small>{snapshot.byok.openAiConfigured ? (snapshot.byok.activeProvider === "openai" ? "Configured and active" : "Configured") : "Not configured"}</small></span>
+                    <span><strong>OpenAI</strong><small>{snapshot.byok.openAiConfigured ? snapshot.byok.openAiBaseUrl : "Not configured"}</small></span>
                     {#if byokEditorProvider !== "openai"}
                       <button onclick={() => beginByokEdit("openai")}>{snapshot.byok.openAiConfigured ? "Update" : "Add key"}</button>
                       {#if snapshot.byok.openAiConfigured}<button class="danger" title="Remove OpenAI key" onclick={() => clearByok("openai")}>Remove</button>{/if}
@@ -3104,7 +3118,7 @@
                   </div>
                   <div class="byok-provider-row">
                     <Icon name="bot" size={14} />
-                    <span><strong>Anthropic Messages</strong><small>{snapshot.byok.anthropicConfigured ? (snapshot.byok.activeProvider === "anthropic" ? "Configured and active" : "Configured") : "Not configured"}</small></span>
+                    <span><strong>Anthropic</strong><small>{snapshot.byok.anthropicConfigured ? snapshot.byok.anthropicBaseUrl : "Not configured"}</small></span>
                     {#if byokEditorProvider !== "anthropic"}
                       <button onclick={() => beginByokEdit("anthropic")}>{snapshot.byok.anthropicConfigured ? "Update" : "Add key"}</button>
                       {#if snapshot.byok.anthropicConfigured}<button class="danger" title="Remove Anthropic key" onclick={() => clearByok("anthropic")}>Remove</button>{/if}
@@ -3120,7 +3134,7 @@
                   </div>
                   <div class="byok-provider-row">
                     <Icon name="cloud" size={14} />
-                    <span><strong>AWS Bedrock Converse</strong><small>{snapshot.byok.bedrockConfigured ? (snapshot.byok.activeProvider === "aws-bedrock" ? "Configured and active · SigV4" : "Configured · SigV4") : "Access key, secret, region, and model required"}</small></span>
+                    <span><strong>AWS Bedrock</strong><small>{snapshot.byok.bedrockConfigured ? "Configured · SigV4" : "Access key, secret, region, and model required"}</small></span>
                     {#if byokEditorProvider !== "aws-bedrock"}
                       <button onclick={() => beginByokEdit("aws-bedrock")}>{snapshot.byok.bedrockConfigured ? "Update" : "Add credentials"}</button>
                       {#if snapshot.byok.bedrockConfigured}<button class="danger" title="Remove AWS credentials" onclick={() => clearByok("aws-bedrock")}>Remove</button>{/if}
@@ -3137,7 +3151,7 @@
                       </form>
                     {/if}
                   </div>
-                  <p>Provider secrets are never written to project files, product configuration, backend storage, or logs. Durable background jobs continue to use the deployed backend credential because BYOK secrets are intentionally not persisted server-side.</p>
+                  <p>Configured provider keys coexist. Model discovery merges their catalogs, and each selected model is routed through its matching provider. Secrets remain in JetBrains Password Safe and are never persisted by the CodeAgent backend.</p>
                 </section>
               {/if}
               <section class="settings-form settings-block" oninput={markSettingsDirty}>

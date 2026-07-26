@@ -160,12 +160,13 @@ button { color: inherit; }
 .generation-menu small { overflow: hidden; color: #858d97; font: 8.5px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .generation-menu > button { width: 100%; min-height: 28px; padding: 4px 6px; display: flex; align-items: center; gap: 7px; border: 0; border-radius: 4px; color: #b5bbc3; background: transparent; font-size: 9.5px; text-align: left; cursor: pointer; }
 .generation-menu > button:hover { color: #e0e3e7; background: rgba(255,255,255,.06); }
-.empty-state { min-height: 100%; padding: 42px 22px 160px; display: flex; flex-direction: column; align-items: stretch; justify-content: center; }
-.empty-logo { align-self: center; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 7px; background: transparent; color: var(--bright); }
-.empty-state h1 { margin: 12px 0 3px; text-align: center; font-size: 15px; font-weight: 600; }
-.empty-state p { margin: 0 0 16px; text-align: center; color: var(--muted); font-size: 11px; line-height: 1.45; }
-.empty-state > button { width: 100%; min-height: 34px; margin-top: 6px; padding: 0 10px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: #c8ccd2; font-size: 11px; cursor: pointer; }
-.empty-state > button:hover { border-color: var(--line-strong); background: var(--panel-2); }
+.empty-thread { max-width: 100%; padding: 32px 16px 16px; display: flex; justify-content: center; overflow-x: hidden; }
+.empty-thread-card { width: 100%; min-width: 0; padding: 20px; display: flex; flex-direction: column; gap: 16px; border: 1px solid var(--line-strong); border-radius: var(--ds-radius-3); background: rgba(255,255,255,.025); animation: empty-thread-enter .15s ease-out both; }
+.empty-thread-card header { min-width: 0; display: flex; align-items: baseline; gap: 0; }
+.empty-thread-icon { position: relative; top: 1px; padding-right: 4px; display: inline-flex; align-items: center; color: var(--bright); }
+.empty-thread-card h1 { min-width: 0; margin: 0; color: var(--ds-color-neutral-12); font-size: 15px; font-weight: 500; line-height: 1.25; }
+.empty-thread-card p { margin: 0; color: var(--ds-color-neutral-11); font-size: 12px; line-height: 1.45; }
+@keyframes empty-thread-enter { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
 .message-list { padding: 10px 10px 20px; }
 .user-message:not(.queued-message) { width: 100%; max-width: none; margin: 2px 0 14px; padding: 0; display: flex; flex-direction: column; align-items: flex-end; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .user-message:not(.queued-message) > time { margin: 0 3px 4px 0; color: #737b85; font: calc(8.5px * var(--chat-zoom)) var(--mono); }
@@ -1967,6 +1968,7 @@ button { color: inherit; }
   .context-compaction-strip > svg,
   .approval button.approve,
   .tool-card,
+  .empty-thread-card,
   .tool-card.running .tool-status svg,
   .thread-activity svg,
   .repository-strip .index-state.checking svg,

@@ -17,35 +17,34 @@ class ByokService : PersistentStateComponent<ByokState> {
         this.state = state
     }
 
-    fun snapshot(): ByokSnapshot = ByokSnapshot(
-        activeProvider = state.activeProvider.takeIf { it in PROVIDERS },
-        openAiConfigured = !PasswordSafe.instance.getPassword(OPENAI_KEY).isNullOrBlank(),
-        anthropicConfigured = !PasswordSafe.instance.getPassword(ANTHROPIC_KEY).isNullOrBlank(),
-        bedrockConfigured = !PasswordSafe.instance.getPassword(AWS_ACCESS_KEY).isNullOrBlank() &&
-            !PasswordSafe.instance.getPassword(AWS_SECRET_KEY).isNullOrBlank() &&
-            state.awsRegion.isNotBlank() && state.awsModel.isNotBlank(),
-    )
+    fun snapshot(): ByokSnapshot {
+        val accessKey = PasswordSafe.instance.getPassword(AWS_ACCESS_KEY)
+        val secretKey = PasswordSafe.instance.getPassword(AWS_SECRET_KEY)
+        return ByokSnapshot(
+            openAiConfigured = !PasswordSafe.instance.getPassword(OPENAI_KEY).isNullOrBlank(),
+            anthropicConfigured = !PasswordSafe.instance.getPassword(ANTHROPIC_KEY).isNullOrBlank(),
+            bedrockConfigured = hasCompleteBedrockConfig(accessKey, secretKey, state.awsRegion, state.awsModel),
+            openAiBaseUrl = state.openAiBaseUrl,
+            anthropicBaseUrl = state.anthropicBaseUrl,
+        )
+    }
 
     fun setOpenAi(apiKey: String, baseUrl: String = DEFAULT_OPENAI_BASE_URL) {
         PasswordSafe.instance.setPassword(OPENAI_KEY, requiredSecret(apiKey, "OpenAI API key"))
         state.openAiBaseUrl = normalizeProviderUrl(baseUrl, "OpenAI Base URL")
-        state.activeProvider = "openai"
     }
 
     fun clearOpenAi() {
         PasswordSafe.instance.setPassword(OPENAI_KEY, null)
-        if (state.activeProvider == "openai") state.activeProvider = fallbackProvider()
     }
 
     fun setAnthropic(apiKey: String, baseUrl: String = DEFAULT_ANTHROPIC_BASE_URL) {
         PasswordSafe.instance.setPassword(ANTHROPIC_KEY, requiredSecret(apiKey, "Anthropic API key"))
         state.anthropicBaseUrl = normalizeProviderUrl(baseUrl, "Anthropic Base URL")
-        state.activeProvider = "anthropic"
     }
 
     fun clearAnthropic() {
         PasswordSafe.instance.setPassword(ANTHROPIC_KEY, null)
-        if (state.activeProvider == "anthropic") state.activeProvider = fallbackProvider()
     }
 
     fun setBedrock(
@@ -64,43 +63,37 @@ class ByokService : PersistentStateComponent<ByokState> {
         PasswordSafe.instance.setPassword(AWS_SESSION_TOKEN, sessionToken?.trim()?.takeIf(String::isNotEmpty))
         state.awsRegion = normalizedRegion
         state.awsModel = normalizedModel
-        state.activeProvider = "aws-bedrock"
     }
 
     fun clearBedrock() {
         PasswordSafe.instance.setPassword(AWS_ACCESS_KEY, null)
         PasswordSafe.instance.setPassword(AWS_SECRET_KEY, null)
         PasswordSafe.instance.setPassword(AWS_SESSION_TOKEN, null)
-        if (state.activeProvider == "aws-bedrock") state.activeProvider = fallbackProvider()
     }
 
-    fun requestCredentials(): ByokRequestCredentials? = when (state.activeProvider) {
-        "openai" -> PasswordSafe.instance.getPassword(OPENAI_KEY)?.takeIf(String::isNotBlank)?.let {
-            ByokRequestCredentials.OpenAi(it, state.openAiBaseUrl)
-        }
-        "anthropic" -> PasswordSafe.instance.getPassword(ANTHROPIC_KEY)?.takeIf(String::isNotBlank)?.let {
-            ByokRequestCredentials.Anthropic(it, state.anthropicBaseUrl)
-        }
-        "aws-bedrock" -> {
+    fun requestCredentials(): ByokRequestCredentials? {
+        val providers = buildList {
+            PasswordSafe.instance.getPassword(OPENAI_KEY)?.takeIf(String::isNotBlank)?.let {
+                add(ByokRequestCredentials.OpenAi(it, state.openAiBaseUrl))
+            }
+            PasswordSafe.instance.getPassword(ANTHROPIC_KEY)?.takeIf(String::isNotBlank)?.let {
+                add(ByokRequestCredentials.Anthropic(it, state.anthropicBaseUrl))
+            }
             val accessKey = PasswordSafe.instance.getPassword(AWS_ACCESS_KEY)
             val secretKey = PasswordSafe.instance.getPassword(AWS_SECRET_KEY)
-            if (accessKey.isNullOrBlank() || secretKey.isNullOrBlank()) null else ByokRequestCredentials.Bedrock(
-                accessKeyId = accessKey,
-                secretAccessKey = secretKey,
+            if (hasCompleteBedrockConfig(accessKey, secretKey, state.awsRegion, state.awsModel)) add(ByokRequestCredentials.Bedrock(
+                accessKeyId = requireNotNull(accessKey),
+                secretAccessKey = requireNotNull(secretKey),
                 sessionToken = PasswordSafe.instance.getPassword(AWS_SESSION_TOKEN),
                 region = state.awsRegion,
                 model = state.awsModel,
-            )
+            ))
         }
-        else -> null
-    }
-
-    private fun fallbackProvider(): String = when {
-        !PasswordSafe.instance.getPassword(OPENAI_KEY).isNullOrBlank() -> "openai"
-        !PasswordSafe.instance.getPassword(ANTHROPIC_KEY).isNullOrBlank() -> "anthropic"
-        !PasswordSafe.instance.getPassword(AWS_ACCESS_KEY).isNullOrBlank() &&
-            !PasswordSafe.instance.getPassword(AWS_SECRET_KEY).isNullOrBlank() -> "aws-bedrock"
-        else -> ""
+        return when (providers.size) {
+            0 -> null
+            1 -> providers.single()
+            else -> ByokRequestCredentials.Combined(providers)
+        }
     }
 
     private fun requiredSecret(value: String, label: String): String = value.trim().also {
@@ -110,7 +103,6 @@ class ByokService : PersistentStateComponent<ByokState> {
     companion object {
         const val DEFAULT_OPENAI_BASE_URL = "https://api.openai.com"
         const val DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com"
-        private val PROVIDERS = setOf("openai", "anthropic", "aws-bedrock")
         private val OPENAI_KEY = CredentialAttributes("CodeAgent BYOK OpenAI API key")
         private val ANTHROPIC_KEY = CredentialAttributes("CodeAgent BYOK Anthropic API key")
         private val AWS_ACCESS_KEY = CredentialAttributes("CodeAgent BYOK AWS access key ID")
@@ -141,6 +133,30 @@ sealed interface ByokRequestCredentials {
                 sessionToken?.takeIf(String::isNotBlank)?.let { put("X-CodeAgent-BYOK-AWS-Session-Token", it) }
                 put("X-CodeAgent-BYOK-Model", model)
             }
+            is Combined -> buildMap {
+                put("X-CodeAgent-BYOK-Providers", providers.joinToString(",") { it.providerId() })
+                providers.forEach { provider ->
+                    val prefix = "X-CodeAgent-BYOK-${provider.providerId().providerHeaderName()}"
+                    when (provider) {
+                        is OpenAi -> {
+                            put("$prefix-API-Key", provider.apiKey)
+                            put("$prefix-Base-URL", normalizeProviderUrl(provider.baseUrl, "OpenAI Base URL"))
+                        }
+                        is Anthropic -> {
+                            put("$prefix-API-Key", provider.apiKey)
+                            put("$prefix-Base-URL", normalizeProviderUrl(provider.baseUrl, "Anthropic Base URL"))
+                        }
+                        is Bedrock -> {
+                            put("$prefix-AWS-Region", provider.region)
+                            put("$prefix-AWS-Access-Key-ID", provider.accessKeyId)
+                            put("$prefix-AWS-Secret-Access-Key", provider.secretAccessKey)
+                            provider.sessionToken?.takeIf(String::isNotBlank)?.let { put("$prefix-AWS-Session-Token", it) }
+                            put("$prefix-Model", provider.model)
+                        }
+                        is Combined -> error("Nested BYOK credential groups are not supported")
+                    }
+                }
+            }
         }
     }
 
@@ -153,13 +169,24 @@ sealed interface ByokRequestCredentials {
         val region: String,
         val model: String,
     ) : ByokRequestCredentials
+
+    data class Combined(val providers: List<ByokRequestCredentials>) : ByokRequestCredentials {
+        init {
+            require(providers.size >= 2) { "Combined BYOK credentials require at least two providers" }
+            require(providers.none { it is Combined }) { "Nested BYOK credential groups are not supported" }
+            require(providers.map { it.providerId() }.distinct().size == providers.size) {
+                "Combined BYOK credentials cannot contain duplicate providers"
+            }
+        }
+    }
 }
 
 data class ByokSnapshot(
-    val activeProvider: String? = null,
     val openAiConfigured: Boolean = false,
     val anthropicConfigured: Boolean = false,
     val bedrockConfigured: Boolean = false,
+    val openAiBaseUrl: String = ByokService.DEFAULT_OPENAI_BASE_URL,
+    val anthropicBaseUrl: String = ByokService.DEFAULT_ANTHROPIC_BASE_URL,
 )
 
 class ByokState {
@@ -168,6 +195,20 @@ class ByokState {
     var anthropicBaseUrl: String = ByokService.DEFAULT_ANTHROPIC_BASE_URL
     var awsRegion: String = "us-east-1"
     var awsModel: String = ""
+}
+
+private fun ByokRequestCredentials.providerId(): String = when (this) {
+    is ByokRequestCredentials.OpenAi -> "openai"
+    is ByokRequestCredentials.Anthropic -> "anthropic"
+    is ByokRequestCredentials.Bedrock -> "aws-bedrock"
+    is ByokRequestCredentials.Combined -> error("Combined credentials do not have a provider ID")
+}
+
+private fun String.providerHeaderName(): String = when (this) {
+    "openai" -> "OpenAI"
+    "anthropic" -> "Anthropic"
+    "aws-bedrock" -> "AWS-Bedrock"
+    else -> error("Unsupported BYOK provider: $this")
 }
 
 internal fun requireSecureBackend(value: String) {
@@ -186,3 +227,6 @@ internal fun normalizeProviderUrl(value: String, label: String): String {
     require(uri.userInfo == null && uri.host != null && uri.query == null && uri.fragment == null) { "$label is invalid" }
     return uri.toString().trimEnd('/')
 }
+
+internal fun hasCompleteBedrockConfig(accessKey: String?, secretKey: String?, region: String, model: String): Boolean =
+    !accessKey.isNullOrBlank() && !secretKey.isNullOrBlank() && region.isNotBlank() && model.isNotBlank()

@@ -22,6 +22,16 @@ export function createModelGatewayFromEnv(env = process.env, fetchImpl = fetch) 
 }
 
 export function createRequestModelGateway(headers, fallbackGateway, fetchImpl = fetch) {
+  const providers = requestHeader(headers, "x-codeagent-byok-providers", 128)
+    .split(",")
+    .map((provider) => provider.trim().toLowerCase())
+    .filter(Boolean)
+    .filter((provider, index, values) => values.indexOf(provider) === index);
+  if (providers.length > 0) {
+    const gateways = providers.map((provider) => createNamedByokGateway(provider, headers, fetchImpl));
+    return gateways.length === 1 ? gateways[0] : new MultiProviderByokGateway(gateways);
+  }
+
   const provider = requestHeader(headers, "x-codeagent-byok-provider", 32).toLowerCase();
   if (!provider) return fallbackGateway;
   if (provider === "openai" || provider === "anthropic") {
@@ -42,6 +52,86 @@ export function createRequestModelGateway(headers, fallbackGateway, fetchImpl = 
     });
   }
   throw new Error(`Unsupported BYOK provider: ${provider}`);
+}
+
+function createNamedByokGateway(provider, headers, fetchImpl) {
+  const prefix = `x-codeagent-byok-${provider}`;
+  if (provider === "openai" || provider === "anthropic") {
+    const apiKey = requestHeader(headers, `${prefix}-api-key`, 8_192, true);
+    if (!apiKey) throw new Error(`BYOK ${provider} API key is required`);
+    const endpoint = requestHeader(headers, `${prefix}-base-url`, 4_000)
+      || (provider === "openai" ? "https://api.openai.com" : "https://api.anthropic.com");
+    return new SingleProviderByokGateway({ provider, endpoint, apiKey, fetchImpl });
+  }
+  if (provider === "aws-bedrock") {
+    return new BedrockConverseGateway({
+      region: requestHeader(headers, `${prefix}-aws-region`, 64),
+      accessKeyId: requestHeader(headers, `${prefix}-aws-access-key-id`, 512, true),
+      secretAccessKey: requestHeader(headers, `${prefix}-aws-secret-access-key`, 8_192, true),
+      sessionToken: requestHeader(headers, `${prefix}-aws-session-token`, 16_384, true) || null,
+      model: requestHeader(headers, `${prefix}-model`, 1_000),
+      fetchImpl,
+    });
+  }
+  throw new Error(`Unsupported BYOK provider: ${provider}`);
+}
+
+class MultiProviderByokGateway {
+  constructor(gateways) {
+    if (!Array.isArray(gateways) || gateways.length < 2) {
+      throw new Error("Multi-provider BYOK routing requires at least two providers");
+    }
+    this.provider = "byok-multi";
+    this.gateways = gateways;
+    this.models = null;
+    this.routes = new Map();
+    this.defaultModel = "";
+    this.discoveryPromise = null;
+  }
+
+  async listModels({ signal } = {}) {
+    await this.#ensureDiscovered(signal);
+    return this.models.map((model) => ({ ...model }));
+  }
+
+  async stream(request) {
+    await this.#ensureDiscovered(request.signal);
+    const model = request.model || this.defaultModel;
+    const gateway = this.routes.get(model);
+    if (!gateway) throw new Error(`Model is not enabled: ${model}`);
+    return gateway.stream({ ...request, model });
+  }
+
+  async #ensureDiscovered(signal) {
+    if (this.models) return;
+    if (!this.discoveryPromise) {
+      this.discoveryPromise = this.#discover(signal).catch((error) => {
+        this.discoveryPromise = null;
+        throw error;
+      });
+    }
+    await this.discoveryPromise;
+  }
+
+  async #discover(signal) {
+    const discovered = await Promise.all(this.gateways.map(async (gateway) => ({
+      gateway,
+      models: await gateway.listModels({ signal }),
+    })));
+    const routes = new Map();
+    const models = [];
+    for (const { gateway, models: providerModels } of discovered) {
+      for (const model of providerModels) {
+        if (routes.has(model.id)) throw new Error(`BYOK model is exposed by more than one provider: ${model.id}`);
+        routes.set(model.id, gateway);
+        models.push(model);
+      }
+    }
+    if (models.length === 0) throw new Error("BYOK model discovery returned no models");
+    this.routes = routes;
+    this.models = models;
+    this.defaultModel = models[0].id;
+  }
 }
 
 class SingleProviderByokGateway {

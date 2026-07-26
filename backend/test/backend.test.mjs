@@ -1602,6 +1602,52 @@ test("creates request-scoped OpenAI BYOK routing without persisting the key", as
   assert.doesNotMatch(requests[0].url, /sk-request-only/);
 });
 
+test("merges request-scoped BYOK providers and routes the selected model", async () => {
+  const requests = [];
+  const gateway = createRequestModelGateway({
+    "x-codeagent-byok-providers": "openai,anthropic",
+    "x-codeagent-byok-openai-api-key": "sk-openai-request-only",
+    "x-codeagent-byok-openai-base-url": "https://openai.example.test",
+    "x-codeagent-byok-anthropic-api-key": "sk-anthropic-request-only",
+    "x-codeagent-byok-anthropic-base-url": "https://anthropic.example.test",
+  }, { provider: "fallback" }, async (url, init) => {
+    const request = { url: String(url), init };
+    requests.push(request);
+    if (request.url === "https://openai.example.test/v1/models") {
+      assert.equal(init.headers.authorization, "Bearer sk-openai-request-only");
+      return Response.json({ data: [{ id: "gpt-request", owned_by: "openai" }] });
+    }
+    if (request.url === "https://anthropic.example.test/v1/models") {
+      assert.equal(init.headers["x-api-key"], "sk-anthropic-request-only");
+      return Response.json({ data: [{ id: "claude-request", owned_by: "anthropic" }] });
+    }
+    if (request.url === "https://anthropic.example.test/v1/messages") {
+      assert.equal(init.headers["x-api-key"], "sk-anthropic-request-only");
+      assert.equal(JSON.parse(init.body).model, "claude-request");
+      return Response.json({ type: "message", content: [{ type: "text", text: "Claude routed" }] });
+    }
+    throw new Error(`Unexpected request: ${request.url}`);
+  });
+
+  assert.equal(gateway.provider, "byok-multi");
+  assert.deepEqual(await gateway.listModels(), [
+    { id: "gpt-request", ownedBy: "openai", protocol: "openai-responses" },
+    { id: "claude-request", ownedBy: "anthropic", protocol: "anthropic-messages" },
+  ]);
+  let streamed = "";
+  const result = await gateway.stream({
+    model: "claude-request",
+    messages: [{ role: "user", content: "Route this" }],
+    tools: [],
+    signal: undefined,
+    onTextDelta(delta) { streamed += delta; },
+  });
+  assert.equal(result.content, "Claude routed");
+  assert.equal(streamed, "");
+  assert.equal(requests.filter((request) => request.url.endsWith("/v1/messages")).length, 1);
+  assert.ok(requests.every((request) => !request.url.includes("request-only")));
+});
+
 test("signs and executes AWS Bedrock Converse BYOK requests with SigV4", async () => {
   const requests = [];
   const gateway = new BedrockConverseGateway({

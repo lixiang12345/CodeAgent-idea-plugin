@@ -66,6 +66,46 @@ test("main Agent workspace stays dense and bounded", async ({ page }) => {
   await captureShell(page, "main-agent-workspace.png");
 });
 
+test("empty threads mirror the original mode-specific panel card", async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({ ...snapshot, mode: "agent", messages: [] });
+  });
+
+  const agentCard = page.locator('.empty-thread[data-mode="agent"] .empty-thread-card');
+  await expect(agentCard.getByRole("heading", { name: "New Agent Thread", exact: true })).toBeVisible();
+  await expect(agentCard.getByText("Work with your agent to use tools and make file edits.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Start a new task", { exact: true })).toBeHidden();
+  await expect(page.getByText("Explain this project", { exact: true })).toBeHidden();
+
+  const composer = page.getByPlaceholder("Type a message or command...");
+  await expect(composer).toBeVisible();
+  const layout = await page.evaluate(() => {
+    const card = document.querySelector(".empty-thread-card")?.getBoundingClientRect();
+    const composerBox = document.querySelector(".composer")?.getBoundingClientRect();
+    return { cardTop: card?.top, cardBottom: card?.bottom, composerTop: composerBox?.top };
+  });
+  expect(layout.cardTop).toBeDefined();
+  expect(layout.cardBottom).toBeDefined();
+  expect(layout.composerTop).toBeDefined();
+  expect(layout.cardTop!).toBeLessThan(280);
+  expect(layout.cardBottom!).toBeLessThan(layout.composerTop!);
+  if (testInfo.project.name === "docked-640") {
+    const cardWidth = await agentCard.evaluate((element) => element.getBoundingClientRect().width);
+    expect(cardWidth).toBeGreaterThan(560);
+  }
+  if (testInfo.project.name === "tool-window-420") await captureShell(page, "empty-agent-thread.png");
+
+  await page.locator(".mode-button").click();
+  await page.locator(".mode-menu button").filter({ hasText: "Chat Mode" }).click();
+  const chatCard = page.locator('.empty-thread[data-mode="chat"] .empty-thread-card');
+  await expect(chatCard.getByRole("heading", { name: "New Chat Thread", exact: true })).toBeVisible();
+  await expect(chatCard.getByText("Ask questions and plan with codebase awareness.", { exact: true })).toBeVisible();
+  await expect(composer).toBeVisible();
+  await expectViewportIntegrity(page);
+});
+
 test("Services groups cloud capabilities and distinguishes discovery states", async ({ page }, testInfo) => {
   await page.evaluate(() => {
     const snapshot = window.CodeAgentDevelopment?.getSnapshot();
@@ -556,15 +596,19 @@ test("Settings exposes connected and conditional capabilities", async ({ page },
   await captureShell(page, "mcp-settings.png");
   await page.getByRole("button", { name: "All settings" }).click();
   await page.getByRole("button", { name: "API Keys", exact: true }).click();
-  const anthropic = page.locator(".byok-provider-row").filter({ hasText: "Anthropic Messages" });
+  await expect(page.getByText("Provider Keys", { exact: true })).toBeVisible();
+  const anthropic = page.locator(".byok-provider-row").filter({ hasText: "Anthropic" });
   await anthropic.getByRole("button", { name: "Add key", exact: true }).click();
   await page.getByLabel("Anthropic API key").fill("sk-ant-development-only");
+  await page.getByLabel("Anthropic Base URL").fill("https://anthropic.example.test");
   await page.getByLabel("Anthropic API key").press("Escape");
   await expect(page.getByLabel("Anthropic API key")).toBeHidden();
   await anthropic.getByRole("button", { name: "Add key", exact: true }).click();
   await page.getByLabel("Anthropic API key").fill("sk-ant-development-only");
+  await page.getByLabel("Anthropic Base URL").fill("https://anthropic.example.test");
   await page.getByRole("button", { name: "Save securely", exact: true }).click();
-  await expect(anthropic.getByText("Configured and active", { exact: true })).toBeVisible();
+  await expect(anthropic.getByText("https://anthropic.example.test", { exact: true })).toBeVisible();
+  await expect(page.getByText("2 configured", { exact: true })).toBeVisible();
   await expectViewportIntegrity(page);
   await captureShell(page, "api-keys-settings.png");
 });

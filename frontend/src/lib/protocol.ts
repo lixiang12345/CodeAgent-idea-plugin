@@ -472,10 +472,12 @@ export interface AppSnapshot {
   settings: SettingsSnapshot;
   account: AccountSnapshot;
   byok: {
-    activeProvider?: "openai" | "anthropic" | "aws-bedrock";
+    activeProvider?: "openai" | "anthropic" | "aws-bedrock" | null;
     openAiConfigured: boolean;
     anthropicConfigured: boolean;
     bedrockConfigured: boolean;
+    openAiBaseUrl: string;
+    anthropicBaseUrl: string;
   };
   context: {
     state: "unavailable" | "not_indexed" | "indexing" | "checking" | "ready" | "error";
@@ -1357,10 +1359,15 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       ...snapshot,
       byok: {
         ...snapshot.byok,
-        activeProvider: command.type === "configureByok" ? provider as "openai" | "anthropic" | "aws-bedrock" : snapshot.byok.activeProvider === provider ? undefined : snapshot.byok.activeProvider,
         openAiConfigured: provider === "openai" ? command.type === "configureByok" : snapshot.byok.openAiConfigured,
         anthropicConfigured: provider === "anthropic" ? command.type === "configureByok" : snapshot.byok.anthropicConfigured,
         bedrockConfigured: provider === "aws-bedrock" ? command.type === "configureByok" : snapshot.byok.bedrockConfigured,
+        openAiBaseUrl: provider === "openai" && command.type === "configureByok"
+          ? String((command.payload as { baseUrl?: string } | undefined)?.baseUrl ?? snapshot.byok.openAiBaseUrl)
+          : snapshot.byok.openAiBaseUrl,
+        anthropicBaseUrl: provider === "anthropic" && command.type === "configureByok"
+          ? String((command.payload as { baseUrl?: string } | undefined)?.baseUrl ?? snapshot.byok.anthropicBaseUrl)
+          : snapshot.byok.anthropicBaseUrl,
       },
     }));
     emitDevelopmentEvent("notice", { message: command.type === "configureByok" ? "Development BYOK provider configured" : "Development BYOK credential cleared" });
@@ -1874,10 +1881,11 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
       label: "Signed in as CodeAgent Developer",
     },
     byok: {
-      activeProvider: "openai",
       openAiConfigured: true,
       anthropicConfigured: false,
       bedrockConfigured: false,
+      openAiBaseUrl: "https://api.openai.com",
+      anthropicBaseUrl: "https://api.anthropic.com",
     },
 
     context: { state: "not_indexed", label: "Preparing automatic project index" },

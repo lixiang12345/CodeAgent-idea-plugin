@@ -34,4 +34,28 @@ class ByokServiceTest {
         assertEquals("anthropic.claude-3-5-sonnet:0", headers["X-CodeAgent-BYOK-Model"])
         assertEquals(null, headers["X-CodeAgent-BYOK-API-Key"])
     }
+
+    @Test
+    fun `builds isolated headers for multiple configured providers`() {
+        val headers = ByokRequestCredentials.Combined(
+            listOf(
+                ByokRequestCredentials.OpenAi("sk-openai", "https://openai.example.test"),
+                ByokRequestCredentials.Anthropic("sk-anthropic", "https://anthropic.example.test"),
+            ),
+        ).headersFor("https://codeagent.example.test")
+
+        assertEquals("openai,anthropic", headers["X-CodeAgent-BYOK-Providers"])
+        assertEquals("sk-openai", headers["X-CodeAgent-BYOK-OpenAI-API-Key"])
+        assertEquals("https://openai.example.test", headers["X-CodeAgent-BYOK-OpenAI-Base-URL"])
+        assertEquals("sk-anthropic", headers["X-CodeAgent-BYOK-Anthropic-API-Key"])
+        assertEquals("https://anthropic.example.test", headers["X-CodeAgent-BYOK-Anthropic-Base-URL"])
+        assertEquals(null, headers["X-CodeAgent-BYOK-API-Key"])
+    }
+
+    @Test
+    fun `excludes incomplete Bedrock credentials from request routing`() {
+        assertFalse(hasCompleteBedrockConfig("AKID", "secret", "us-east-1", ""))
+        assertFalse(hasCompleteBedrockConfig("AKID", "", "us-east-1", "model-id"))
+        assertEquals(true, hasCompleteBedrockConfig("AKID", "secret", "us-east-1", "model-id"))
+    }
 }

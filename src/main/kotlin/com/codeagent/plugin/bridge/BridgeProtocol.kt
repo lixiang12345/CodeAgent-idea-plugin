@@ -1,5 +1,6 @@
 package com.codeagent.plugin.bridge
 
+import com.codeagent.plugin.agent.ByokService
 import com.codeagent.plugin.settings.DEFAULT_BACKEND_URL
 import com.codeagent.plugin.settings.DEFAULT_CONTEXT_HTTP_URL
 import com.codeagent.plugin.settings.DEFAULT_CONTEXT_MODE
@@ -250,6 +251,8 @@ data class ByokSnapshotDto(
     val openAiConfigured: Boolean = false,
     val anthropicConfigured: Boolean = false,
     val bedrockConfigured: Boolean = false,
+    val openAiBaseUrl: String = ByokService.DEFAULT_OPENAI_BASE_URL,
+    val anthropicBaseUrl: String = ByokService.DEFAULT_ANTHROPIC_BASE_URL,
 )
 
 @Serializable

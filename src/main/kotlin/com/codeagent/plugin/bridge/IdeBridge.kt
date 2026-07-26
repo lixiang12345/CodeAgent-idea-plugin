@@ -1497,7 +1497,14 @@ class IdeBridge(
                 ),
                 account = account,
                 byok = byokService.snapshot().let {
-                    ByokSnapshotDto(it.activeProvider, it.openAiConfigured, it.anthropicConfigured, it.bedrockConfigured)
+                    ByokSnapshotDto(
+                        activeProvider = null,
+                        openAiConfigured = it.openAiConfigured,
+                        anthropicConfigured = it.anthropicConfigured,
+                        bedrockConfigured = it.bedrockConfigured,
+                        openAiBaseUrl = it.openAiBaseUrl,
+                        anthropicBaseUrl = it.anthropicBaseUrl,
+                    )
                 },
                 context = context,
                 backendHealth = backendHealth,
