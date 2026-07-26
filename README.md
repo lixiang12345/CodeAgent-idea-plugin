@@ -56,13 +56,15 @@ cd vendor/context-engine && npm ci && cd ../..
 
 The installable ZIP is written to `build/distributions/`.
 
-For an official local release build, use:
+Prepare a release version, review and commit the synchronized metadata, then build the candidate from that clean commit:
 
 ```bash
-node scripts/build-release.mjs
+node scripts/build-release.mjs --patch
+# Review and commit the version changes.
+node scripts/build-release.mjs --current
 ```
 
-That command requires JDK 21 and a clean worktree, increments the patch version across the plugin, frontend, sidecar, backend, OpenAPI contract, Docker image, MCP client metadata, and Changelog, then runs the complete verification suite and creates the versioned ZIP plus `build/reports/release-candidate.json`. Use `--minor` or `--major` when preparing those release types. Use `--current` to reconstruct and verify the already-synchronized version without changing metadata. `--allow-dirty` is available only for local verification while release-tooling changes are still uncommitted.
+The first command updates the plugin, frontend, sidecar, backend, OpenAPI contract, Docker image, MCP client metadata, and Changelog without building an artifact; use `--minor` or `--major` for those release types. The `--current` command requires JDK 21, synchronized metadata, and a clean worktree, then runs the complete verification suite and creates the versioned ZIP plus `build/reports/release-candidate.json`. Dirty worktrees are rejected so the recorded source revision always reconstructs the candidate.
 
 ContextEngine is pinned as a Git submodule and bundled into the local Node sidecar. The JVM connects through an authenticated loopback Protobuf/gRPC stream; its SQLite index and file watcher run on each developer machine. Lexical, symbol, path, graph, and Git-lineage retrieval need no model. CodeAgent does not install or start a local embedding or reranker model; semantic retrieval is an explicit opt-in to an operator- or organization-hosted OpenAI-compatible endpoint and requires an explicit index rebuild. Its MIT license is included in the plugin distribution; see [third-party notices](THIRD_PARTY_NOTICES.md).
 

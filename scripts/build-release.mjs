@@ -19,13 +19,12 @@ function parseArguments(argv) {
   let increment = "--patch";
   let incrementSpecified = false;
   let current = false;
-  let allowDirty = false;
 
   for (const argument of argv) {
-    if (argument === "--allow-dirty") {
-      allowDirty = true;
-    } else if (argument === "--current") {
+    if (argument === "--current") {
       current = true;
+    } else if (argument === "--allow-dirty") {
+      throw new Error("--allow-dirty is not supported; release candidates require a clean worktree");
     } else if (["--patch", "--minor", "--major"].includes(argument)) {
       increment = argument;
       incrementSpecified = true;
@@ -38,7 +37,7 @@ function parseArguments(argv) {
     throw new Error("--current cannot be combined with --patch, --minor, or --major");
   }
 
-  return { increment, current, allowDirty };
+  return { increment, current };
 }
 
 function run(command, arguments_, options = {}) {
@@ -63,18 +62,12 @@ function run(command, arguments_, options = {}) {
   return options.capture ? result.stdout : "";
 }
 
-function requireCleanWorktree(allowDirty) {
+function requireCleanWorktree() {
   const status = run("git", ["status", "--porcelain", "--untracked-files=all"], { capture: true }).trim();
   if (!status) {
     return;
   }
-  if (!allowDirty) {
-    throw new Error(
-      "Release builds require a clean worktree. Commit or stash current changes, "
-      + "or use --allow-dirty for a local verification build.",
-    );
-  }
-  console.warn("\nWarning: building a release from a dirty worktree because --allow-dirty was supplied.");
+  throw new Error("Release candidates require a clean worktree. Commit or stash current changes.");
 }
 
 function requireJava21() {
@@ -139,19 +132,24 @@ function findAvailablePort() {
 }
 
 async function main() {
-  const { increment, current, allowDirty } = parseArguments(process.argv.slice(2));
-  requireCleanWorktree(allowDirty);
-  const javaRuntime = requireJava21();
+  const { increment, current } = parseArguments(process.argv.slice(2));
+  requireCleanWorktree();
 
+  if (!current) {
+    run(process.execPath, ["scripts/bump-version.mjs", increment]);
+    run(process.execPath, ["scripts/bump-version.mjs", "--check"]);
+    console.log("\nRelease metadata preparation completed.");
+    console.log("Review and commit the synchronized version changes, then rerun with --current.");
+    return;
+  }
+
+  const javaRuntime = requireJava21();
   const sourceRevision = run("git", ["rev-parse", "HEAD"], { capture: true }).trim();
   const contextEngineRevision = run(
     "git",
     ["-C", "vendor/context-engine", "rev-parse", "HEAD"],
     { capture: true },
   ).trim();
-  if (!current) {
-    run(process.execPath, ["scripts/bump-version.mjs", increment]);
-  }
   const version = readVersion();
   run(process.execPath, ["scripts/bump-version.mjs", "--check"]);
 
@@ -188,7 +186,7 @@ async function main() {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
     version,
-    mode: current ? "current" : increment.slice(2),
+    mode: "current",
     sourceRevision,
     contextEngineRevision,
     buildEnvironment: {
@@ -221,11 +219,7 @@ async function main() {
   console.log(`Artifact: ${artifactPath}`);
   console.log(`SHA-256: ${artifactDigest}`);
   console.log(`Report: ${reportPath}`);
-  if (current) {
-    console.log("Current version metadata was verified without modification.");
-  } else {
-    console.log("Commit the synchronized version changes before creating the release tag.");
-  }
+  console.log("Current version metadata was verified without modification.");
 }
 
 try {

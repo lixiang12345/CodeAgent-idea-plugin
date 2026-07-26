@@ -255,7 +255,10 @@ button { color: inherit; }
 .approval button { flex: 1; height: 23px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border: 1px solid #5b5e64; border-radius: 3px; background: #292b30; font-size: 9px; cursor: pointer; }
 .approval button.approve { display: inline-flex; align-items: center; gap: 4px; border-color: #4e755a; color: #bce1c5; background: #2a4733; animation: approval-pulse 1s infinite; }
 .approval button:disabled { opacity: .55; cursor: default; }
-@keyframes approval-pulse { 100% { box-shadow: 0 0 0 6px transparent; } }
+@keyframes approval-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(78,117,90,.5); }
+  100% { box-shadow: 0 0 0 6px transparent; }
+}
 .ask-card { width: 100%; box-sizing: border-box; padding: 7px 8px; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); background: #202227; }
 .ask-card-question { display: flex; align-items: flex-start; gap: 6px; color: #d4d7dc; font-size: calc(11px * var(--chat-zoom)); font-weight: 500; line-height: 1.4; }
 .ask-card-question svg { flex: 0 0 auto; margin-top: 1px; color: #8ab4f8; }
