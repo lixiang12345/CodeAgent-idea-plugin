@@ -23,7 +23,9 @@ class CodeAgentInlineCompletionProvider : InlineCompletionProvider {
 
     override fun isEnabled(event: InlineCompletionEvent): Boolean {
         val settings = settings()
-        if (!settings.isEnabled()) return false
+        // Disabling automatic completions must not disable explicit invocation
+        // (Call Inline Completion action / Code Completion menu).
+        if (event !is InlineCompletionEvent.DirectCall && !settings.isEnabled()) return false
         val request = runCatching { event.toRequest() }.getOrNull() ?: return false
         if (request.editor.isDisposed) return false
         val fileName = request.file.virtualFile?.name ?: request.file.name

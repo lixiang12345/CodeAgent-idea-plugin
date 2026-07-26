@@ -39,6 +39,9 @@ class AgentOrchestrator(private val project: Project) : Disposable {
     private val hookRuntime = project.service<HookRuntimeService>()
     private val guidanceLoader = WorkspaceGuidanceLoader(project.basePath?.let(Path::of))
     private val json = Json { ignoreUnknownKeys = true }
+
+    private fun parseToolArguments(arguments: String): kotlinx.serialization.json.JsonObject? =
+        runCatching { json.parseToJsonElement(arguments).jsonObject }.getOrNull()
     private val log = Logger.getInstance(AgentOrchestrator::class.java)
 
     fun start(
@@ -68,6 +71,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
                 require(history.none { it.role == "system" }) { "Conversation history cannot contain system messages" }
                 awaitStage("authentication", oidcLogin.ensureFreshToken())
                 val settings = settingsService.snapshot()
+                val permissionRules = ToolPermissionRules.parse(settingsService.toolPermissionRulesText())
                 val customization = customizations.refresh()
                 val pluginContributions = pluginRuntime.snapshot()
                 val client = RemoteAgentClient(settings, byokCredentials = byok.requestCredentials())
@@ -168,6 +172,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
                             toolRunner = toolRunner,
                             allowedTools = definitions.mapTo(mutableSetOf(), AgentToolDefinition::name),
                             autoApproveReadOnly = settings.autoApproveReadOnly,
+                            permissionRules = permissionRules,
                             listener = listener,
                         )
                     },
@@ -319,6 +324,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         toolRunner: AgentToolRunner,
         allowedTools: Set<String>,
         autoApproveReadOnly: Boolean,
+        permissionRules: List<ToolPermissionRule>,
         listener: AgentRunListener,
     ) {
         ensureActive(context)
@@ -345,6 +351,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
                 toolRunner = toolRunner,
                 allowedTools = allowedTools,
                 autoApproveReadOnly = autoApproveReadOnly,
+                permissionRules = permissionRules,
                 listener = listener,
             )
             "run.error" -> error(json.decodeFromJsonElement<RemoteRunError>(payload).message)
@@ -358,6 +365,7 @@ class AgentOrchestrator(private val project: Project) : Disposable {
         toolRunner: AgentToolRunner,
         allowedTools: Set<String>,
         autoApproveReadOnly: Boolean,
+        permissionRules: List<ToolPermissionRule>,
         listener: AgentRunListener,
     ) {
         val runId = requireNotNull(context.remoteRunId.get()) { "Backend sent a tool request before run.started" }
@@ -374,7 +382,20 @@ class AgentOrchestrator(private val project: Project) : Disposable {
             client.submitToolResult(runId, RemoteToolResult(call.id, "rejected", output = message))
             return
         }
-        val needsApproval = risk == ToolRisk.MUTATING || (risk == ToolRisk.READ_ONLY && !autoApproveReadOnly)
+        val decision = ToolPermissionRules.decide(
+            toolName = call.name,
+            risk = risk,
+            shellInput = ToolPermissionRules.shellInputOf(parseToolArguments(call.arguments)),
+            rules = permissionRules,
+            autoApproveReadOnly = autoApproveReadOnly,
+        )
+        if (decision == ToolPermissionDecision.DENY) {
+            val message = "Denied by a CodeAgent tool permission rule"
+            listener.onToolChanged(call, message, "rejected", call.arguments, request.turnIndex)
+            client.submitToolResult(runId, RemoteToolResult(call.id, "rejected", output = message))
+            return
+        }
+        val needsApproval = decision == ToolPermissionDecision.ASK
         if (needsApproval && !requestApproval(context, call, request.turnIndex, listener)) {
             listener.onToolChanged(call, "Rejected by user", "rejected", call.arguments, request.turnIndex)
             client.submitToolResult(runId, RemoteToolResult(call.id, "rejected", output = "Rejected by user"))

@@ -1,11 +1,15 @@
 package com.codeagent.plugin.diagnostics
 
 import com.codeagent.plugin.context.ContextEngineService
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.StartupActivity
+import com.intellij.openapi.util.registry.Registry
 import java.time.Duration
+import java.util.concurrent.atomic.AtomicBoolean
 
 class CodeAgentDiagnosticsStartupActivity : StartupActivity.DumbAware {
     override fun runActivity(project: Project) {
@@ -13,6 +17,26 @@ class CodeAgentDiagnosticsStartupActivity : StartupActivity.DumbAware {
         service<CrashDetectionService>().markStarted()
         service<ClientMetricsReporter>().projectOpened()
         project.service<OnboardingSessionEventReporter>()
+        warnAboutOutOfProcessJcef(project)
+    }
+
+    private fun warnAboutOutOfProcessJcef(project: Project) {
+        val outOfProcess = runCatching { Registry.`is`("ide.browser.jcef.out-of-process.enabled") }.getOrDefault(false)
+        if (!outOfProcess || !JCEF_WARNING_SHOWN.compareAndSet(false, true)) return
+        NotificationGroupManager.getInstance()
+            .getNotificationGroup("CodeAgent")
+            .createNotification(
+                "Out-of-process JCEF is enabled",
+                "The registry key ide.browser.jcef.out-of-process.enabled is on. " +
+                    "This setting is known to cause blank or broken CodeAgent panels; " +
+                    "disable it in Registry if the tool window fails to render.",
+                NotificationType.WARNING,
+            )
+            .notify(project)
+    }
+
+    private companion object {
+        val JCEF_WARNING_SHOWN = AtomicBoolean(false)
     }
 }
 

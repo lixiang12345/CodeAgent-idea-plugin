@@ -55,7 +55,7 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | Main panel | Implemented | 420 px IDEA tool window, interleaved user/assistant/tool timeline, context strip, tool cards, approvals, composer, stop/send states, a clickable Context Window Usage ring with a bounded telemetry modal, and assistant code blocks with Copy plus Insert-into-active-editor actions |
 | Threads | Implemented | Create, select, search, pinned/time groups, mode tags, row-level rename/pin/delete menus, confirmed row/group deletion, active run/approval/failure indicators, persisted unread reply counts, pin ordering, and Markdown import/export work. Task List `Continue in New Chat` clones task state and thread customization without copying transcript history |
 | Composer | Implemented | Modes, attachments, Skills, model picker, slash menu, @ mention menu, Auto, real prompt enhancement via backend `/v1/enhance`, adaptive input height, and persisted user-message edit/resend work. The conversation-scoped queue has a composer-adjacent collapsible panel, pause/resume, edit, delete, priority send, Stop-without-loss, restart-safe paused recovery, and FIFO execution |
-| Tools | Conditional | Local tools remain IDEA-owned; dedicated detail presentations preserve file/diff, retrieval/search, Web, provider integration, task, subagent/Ask User, diagnostics, terminal/process, and Mermaid result structure. Bounded foreground commands plus managed launch/list/read/write/wait/kill process sessions use the original terminal argument contract, support project-contained working directories and interactive-input detection, backend-owned discovery/execution connects configured cloud adapters and subagents, and the local MCP gateway contributes dynamically discovered namespaced tools under the same policy. Each completed tool pass appends a compact per-turn summary strip counting changed/examined/indexed files, tools used, and elapsed seconds, derived from CodeAgent's own tool records. Long tool result output is bounded to 100 lines with an explicit Show more/Show less toggle instead of silently dropping the remainder. The Ask User tool accepts an optional list of suggested answers rendered as a chooser while still permitting a custom typed answer |
+| Tools | Conditional | Local tools remain IDEA-owned; dedicated detail presentations preserve file/diff, retrieval/search, Web, provider integration, task, subagent/Ask User, diagnostics, terminal/process, and Mermaid result structure. Bounded foreground commands plus managed launch/list/read/write/wait/kill process sessions use the original terminal *argument* contract (execution is hosted by a plugin-managed process, not an IDE Run configuration), support project-contained working directories and interactive-input detection, backend-owned discovery/execution connects configured cloud adapters and subagents, and the local MCP gateway contributes dynamically discovered namespaced tools under the same policy. Each completed tool pass appends a compact per-turn summary strip counting changed/examined/indexed files, tools used, and elapsed seconds, derived from CodeAgent's own tool records. Long tool result output is bounded to 100 lines with an explicit Show more/Show less toggle instead of silently dropping the remainder. The Ask User tool accepts an optional list of suggested answers rendered as a chooser while still permitting a custom typed answer |
 | Agent edits | Implemented | Native Diff, undo, keep/discard, Agent Edits overlay, and local checkpoints with restore and an expandable per-checkpoint changed-file breakdown with per-file added/removed line counts |
 | Tasks | Implemented | Persistent per-thread tasks, filtering, add/delete/state, clear, Markdown import/export, run-one/run-all, and Agent task tools |
 | Git | Implemented | Real branch/index/worktree status, stage/unstage, native Diff, local message draft, confirmation, and commit |
@@ -71,7 +71,65 @@ This table is the release gate. `Partial` means the visible surface exists but a
 
 ## Native parity and intentional architecture differences
 
-The current plugin registers the original action and extension surface that is meaningful in this product boundary: **33 IDEA Actions**, **26 IntelliJ extensions**, and **4 application/project listeners**, including the standalone settings sections, sign-in/sign-out, account management, log export, cloud conversation recovery, sync report, BYOK actions, FileBasedIndex, inline-completion element manipulation, OAuth/MCP callback handlers, lifecycle listeners, and error/performance/client telemetry services.
+The current plugin registers the original action and extension surface that is meaningful in this product boundary: **36 IDEA Actions**, **26 IntelliJ extensions**, and **4 application/project listeners**, including the standalone settings sections, sign-in/sign-out, account management, log export, cloud conversation recovery, sync report, BYOK actions, FileBasedIndex, inline-completion element manipulation, OAuth/MCP callback handlers, lifecycle listeners, and error/performance/client telemetry services.
+
+### Known original-plugin deltas (0.482.3 source audit, 2026-07-26)
+
+A three-surface audit against the extracted 0.482.3 plugin (JVM, webview sources
+recovered from shipped source maps, sidecar bundle) confirmed the following
+user-visible deltas that earlier rows understated. They are recorded here so the
+release gate measures what actually differs; the remediation backlog lives in
+`docs/NEXT_STEPS.md`.
+
+Resolved in slice 1: primary (non-secondary) tool-window stripe, tool-window
+gear menu with sign-in-state-aware entries, status-bar click toggling the
+panel, explicit inline-completion invocation while automatic completions are
+disabled, Hooks/Agents/Plugins settings actions, a JCEF out-of-process warning,
+`search_text` case/glob/context-line parameters, and `apply_patch` accepting
+the original `input` property and `*** Begin Patch` envelope format.
+
+Resolved in slice 2:
+
+- **IDE theme bridge.** `CodeAgentThemeTokens` maps IDE `UIDefaults` and the
+  editor color scheme to the webview's CSS variables, pushed on connect and on
+  `LafManagerListener` / `UISettingsListener` / `EditorColorsManager` changes.
+  The webview validates every key and value before applying it, and the shipped
+  dark values remain the default when no event arrives.
+- **Status-bar state machine.** An icon presentation driven by a prioritized
+  six-state machine (initializing, backend unavailable, generating completion,
+  no completions, completions disabled, ready). Completion activity is
+  event-driven; polling is now limited to backend and context health.
+- **Live selection tracking.** A per-editor selection listener publishes the
+  line-boundary-expanded selection to the panel, which offers it as a composer
+  chip that attaches through the existing editor-attachment path.
+- **Keyboard shortcuts.** Mode cycling, enhance, new thread, thread navigation,
+  approve tool, toggle threads, page scrolling, and Escape precedence, with
+  platform-aware hints on the corresponding controls.
+- **Failure recovery and states.** Per-turn Retry with a copyable run ID,
+  mode-specific empty-thread cards, a panel error boundary, and a
+  scroll-to-bottom affordance.
+- **Tool contracts.** Multi-edit and line-insert `replace_text` with
+  line-number disambiguation and overlap rejection; an untruncated-output store
+  with `view_range_untruncated` and `search_untruncated`; batch `update_tasks`
+  accepting the original `COMPLETE` vocabulary; `add_tasks` accepting task
+  objects.
+- **MCP compatibility.** Import of the original container shapes, `env` maps
+  with `${VAR}` / `${VAR:-default}` expansion, arbitrary headers, the `http`
+  transport alias, and the `disabled` flag.
+- **Per-tool permission rules.** `toolName=allow|deny|ask[;shellInputRegex]`
+  rules with specificity ordering and deny precedence, editable in the now
+  searchable native settings page alongside a completion-shortcut link and
+  sign-in-state-aware account buttons.
+
+Still open, local and feasible: rich composer behaviors (mention chips,
+drag-drop/paste attachments, paste size guard, inline input completion),
+onboarding coach-marks and pre-chat gate views, a copyable Extension Status
+dialog, sound settings, Monaco-based rules editing, plugin-update checking,
+task-tool hierarchy, MCP OAuth metadata discovery and dynamic client
+registration, and IDE Run-tool-window hosting for agent-launched commands.
+Cloud-dependent surfaces (shareable session links, subscription banners,
+server-driven notifications, marketplace management) remain intentionally
+unavailable under the no-fake rule.
 
 ACP is implemented through the official `@agentclientprotocol/sdk` v1 runtime in the sidecar, with agent discovery, capability negotiation, `session/new`, `session/load`, prompt/update/cancel handling, persisted session state, and explicit permission denial as the default safety boundary.
 

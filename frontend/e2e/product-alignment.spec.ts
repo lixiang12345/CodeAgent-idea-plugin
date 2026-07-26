@@ -449,7 +449,7 @@ test("Message Queue supports pause, edit, priority send, stop, and resume", asyn
   await composer.fill("Run the second deferred check.");
   await composer.press("Enter");
   await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messageQueue.length)).toBe(2);
-  await page.getByTitle("Stop", { exact: true }).click();
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.runState)).toBe("idle");
   await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messageQueuePaused)).toBe(true);
   await expect(panel.getByText("2 Queued (Paused)", { exact: true })).toBeVisible();

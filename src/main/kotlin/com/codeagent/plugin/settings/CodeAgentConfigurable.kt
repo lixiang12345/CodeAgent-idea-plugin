@@ -1,22 +1,31 @@
 package com.codeagent.plugin.settings
 
 import com.codeagent.plugin.agent.InlineCompletionSettingsService
+import com.codeagent.plugin.agent.ToolPermissionRules
 import com.codeagent.plugin.context.NodeRuntimeLocator
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionPlaces
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.options.Configurable
+import com.intellij.openapi.keymap.KeymapUtil
+import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
 import java.awt.BorderLayout
+import java.awt.Dimension
 import javax.swing.JComponent
 import javax.swing.JButton
 import javax.swing.JPanel
 
-class CodeAgentConfigurable : Configurable {
+class CodeAgentConfigurable : SearchableConfigurable {
     private val backendUrl = JBTextField()
     private val nodePath = JBTextField()
     private val contextMode = ComboBox(arrayOf("remote-http", "lexical", "private-semantic"))
@@ -28,8 +37,14 @@ class CodeAgentConfigurable : Configurable {
     private val showTimestamps = JBCheckBox("Show message timestamps")
     private val showRunTelemetry = JBCheckBox("Show run telemetry")
     private val detectNodeButton = JButton("Auto-detect")
+    private val toolPermissionRules = JBTextArea(5, 40)
+    private val configureCompletionShortcut = JButton()
+    private val signInButton = JButton("Sign In")
+    private val signOutButton = JButton("Sign Out")
 
     private var panel: JPanel? = null
+
+    override fun getId(): String = "com.codeagent.plugin.settings"
 
     override fun getDisplayName(): String = "CodeAgent"
 
@@ -50,12 +65,56 @@ class CodeAgentConfigurable : Configurable {
         addFullRow(root, 7, JBLabel("Comma separated file extensions, for example *.js, *.ts").apply {
             foreground = com.intellij.util.ui.UIUtil.getContextHelpForeground()
         })
-        addFullRow(root, 8, desktopNotifications)
-        addFullRow(root, 9, showTimestamps)
-        addFullRow(root, 10, showRunTelemetry)
+        addFullRow(root, 8, JPanel(BorderLayout(6, 0)).apply {
+            add(configureCompletionShortcut, BorderLayout.WEST)
+        })
+        addFullRow(root, 9, desktopNotifications)
+        addFullRow(root, 10, showTimestamps)
+        addFullRow(root, 11, showRunTelemetry)
+        addRow(root, 12, "Tool permission rules", JBScrollPane(toolPermissionRules).apply {
+            preferredSize = Dimension(420, 96)
+        })
+        addFullRow(root, 13, JBLabel("One rule per line: toolName=allow|deny|ask[;shellInputRegex]. " +
+            "Use * to match every tool and a trailing * for a prefix.").apply {
+            foreground = com.intellij.util.ui.UIUtil.getContextHelpForeground()
+        })
+        addFullRow(root, 14, JPanel(BorderLayout(6, 0)).apply {
+            add(JPanel().apply {
+                add(signInButton)
+                add(signOutButton)
+            }, BorderLayout.WEST)
+        })
+        configureCompletionShortcut.addActionListener { openKeymapForCompletionAction() }
+        signInButton.addActionListener { performAction("CodeAgent.SignIn") }
+        signOutButton.addActionListener { performAction("CodeAgent.SignOut") }
         panel = root
         reset()
         return root
+    }
+
+    /** Mirrors the original plugin's explicit-completion shortcut affordance. */
+    private fun openKeymapForCompletionAction() {
+        com.intellij.openapi.options.ShowSettingsUtil.getInstance()
+            .showSettingsDialog(null, com.intellij.openapi.keymap.impl.ui.KeymapPanel::class.java)
+    }
+
+    private fun performAction(actionId: String) {
+        val action = ActionManager.getInstance().getAction(actionId) ?: return
+        val event = AnActionEvent.createFromDataContext(ActionPlaces.UNKNOWN, null, DataContext.EMPTY_CONTEXT)
+        action.actionPerformed(event)
+    }
+
+    private fun completionShortcutLabel(): String {
+        val shortcut = ActionManager.getInstance().getAction(EXPLICIT_COMPLETION_ACTION_ID)
+            ?.shortcutSet
+            ?.shortcuts
+            ?.firstOrNull()
+        val rendered = shortcut?.let { KeymapUtil.getShortcutText(it) }
+        return if (rendered.isNullOrBlank()) {
+            "Configure Explicit Completion Shortcut"
+        } else {
+            "Configure Explicit Completion Shortcut ($rendered)"
+        }
     }
 
     override fun isModified(): Boolean {
@@ -75,7 +134,11 @@ class CodeAgentConfigurable : Configurable {
             || showRunTelemetry.isSelected != current.showRunTelemetry
             || inlineCompletions.isSelected != completionEnabled
             || disabledLanguagesChanged
+            || normalizedRuleText() != current.toolPermissionRulesText
     }
+
+    private fun normalizedRuleText(): String =
+        toolPermissionRules.text.lines().map(String::trim).filter(String::isNotEmpty).joinToString("\n")
 
     override fun apply() {
         val settingsService = ApplicationManager.getApplication().getService(CodeAgentSettingsService::class.java)
@@ -107,6 +170,8 @@ class CodeAgentConfigurable : Configurable {
         completionService.setEnabled(inlineCompletions.isSelected)
         completionService.setDisabledLanguages(disabledCompletionLanguages.text)
         disabledCompletionLanguages.text = completionService.disabledLanguages()
+        settingsService.setToolPermissionRulesText(toolPermissionRules.text)
+        toolPermissionRules.text = settingsService.toolPermissionRulesText()
     }
 
     override fun reset() {
@@ -125,6 +190,12 @@ class CodeAgentConfigurable : Configurable {
         disabledCompletionLanguages.text = completionService.disabledLanguages()
         detectNodeButton.text = "Auto-detect"
         detectNodeButton.isEnabled = true
+        val settingsService = ApplicationManager.getApplication().getService(CodeAgentSettingsService::class.java)
+        toolPermissionRules.text = settingsService.toolPermissionRulesText()
+        configureCompletionShortcut.text = completionShortcutLabel()
+        val signedIn = settingsService.isSignedIn()
+        signInButton.isVisible = !signedIn
+        signOutButton.isVisible = signedIn
     }
 
     override fun disposeUIResources() {
@@ -165,6 +236,10 @@ class CodeAgentConfigurable : Configurable {
             insets = Insets(4, 4, 4, 4)
         }
         root.add(component, fieldConstraints)
+    }
+
+    private companion object {
+        const val EXPLICIT_COMPLETION_ACTION_ID = "CallInlineCompletionAction"
     }
 
     private fun addFullRow(root: JPanel, row: Int, component: JComponent) {

@@ -109,6 +109,60 @@ and locally verified, not live acceptance: real Notion dogfood remains blocked
 until the backend receives an isolated `NOTION_TOKEN` with the minimum required
 read/insert/update permissions.
 
+## Priority 4: Original-Plugin Alignment Backlog (audit of 2026-07-26)
+
+**Status:** slices 1 and 2 landed; the remaining items below are ordered by
+user-visible impact and are all locally feasible unless marked otherwise.
+
+The 2026-07-26 three-surface audit compared the extracted 0.482.3 plugin (JVM
+classes, webview sources recovered from shipped source maps, sidecar bundle)
+against CodeAgent. The first slice delivered: primary tool-window stripe, gear
+menu with sign-in-state-aware entries, status-bar click toggle, explicit
+inline-completion invocation while automatic completions are disabled,
+Hooks/Agents/Plugins settings actions, a JCEF out-of-process warning,
+`search_text` case/glob/context-line parameters, and `apply_patch` support for
+the original `input` property and `*** Begin Patch` envelope format.
+
+Slice 2 delivered: the IDE theme bridge, the prioritized status-bar state
+machine with event-driven completion signals, live editor-selection tracking
+into the panel, the keyboard-shortcut system with hints, per-turn Retry with a
+copyable run ID, mode-specific empty-thread cards, a panel error boundary, a
+scroll-to-bottom affordance, multi-edit/insert `replace_text`, the
+untruncated-output reference store with `view_range_untruncated` /
+`search_untruncated`, batch `update_tasks` with the original `COMPLETE`
+vocabulary, MCP config import with `env`/`headers` expansion and the `http`
+alias, per-tool permission rules, and a searchable native settings page with a
+completion-shortcut link and sign-in-state-aware account buttons.
+
+Remaining, ranked:
+
+1. **Composer fidelity.** Mention chips, drag-drop and paste image attachment,
+   paste size guard, and inline input completion; ours is a plain textarea.
+2. **Onboarding and pre-chat gate views.** Feature coach-marks, suggested
+   questions, and the sign-in / open-folder / indexing states the original
+   shows before the chat surface.
+3. **Extension Status dialog** with copyable structured sections replacing the
+   notification balloon, and inclusion of that report in the log export ZIP.
+4. **Task-tool hierarchy.** `parent_task_id` / `after_task_id` and subtask
+   rendering; this needs the conversation task model, persistence, and the
+   panel to change together.
+5. **MCP OAuth** metadata discovery (`.well-known`) and dynamic client
+   registration, plus the `header` auth kind and an `auth_required` state.
+6. **Settings polish.** Sound settings with a test button, plugin-update
+   checking wired to the declared `CodeAgent.Updates` notification group, and a
+   Markdown-rich rules editor.
+7. **Process hosting.** Running agent-launched commands through an IDE Run
+   configuration so they appear in the Run/Terminal tool window; this adds
+   plugin dependencies and needs a deliberate compatibility decision.
+8. **`keep_stdin_open` and `read-terminal`**, plus multi-question `ask_user`.
+9. **Needs a backend contract:** async sub-agent lifecycle
+   (spawn/check/message/await with parent reporting), semantic commit-history
+   retrieval, and completion recency payloads.
+
+Cloud-only surfaces (shareable session links, subscription and credit banners,
+server-driven notifications, marketplace management, Augment cloud auth,
+telemetry) stay out of scope per Explicit Non-Goals.
+
 ## Completed Gates
 
 ### Threads and Task Continuation Alignment

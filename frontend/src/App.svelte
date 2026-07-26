@@ -260,9 +260,17 @@
   let recoveryBanner: { visible: boolean; text: string; done: boolean } = { visible: false, text: "", done: false };
   let recoveryBannerTimer: number | undefined;
   let announceBannerDismissed = false;
+  let liveSelection: { path: string; fileName: string; startLine: number; endLine: number } | null = null;
+  let panelError: string | null = null;
+  let panelErrorReports = 0;
+  let showScrollToBottom = false;
 
   onMount(() => {
     const unsubscribe = onHostEvent(handleEvent);
+    const onWindowError = (event: ErrorEvent) => reportPanelError(event.error ?? event.message);
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => reportPanelError(event.reason);
+    window.addEventListener("error", onWindowError);
+    window.addEventListener("unhandledrejection", onUnhandledRejection);
     sendCommand("bootstrap");
     const jobPoller = window.setInterval(() => {
       const hasActiveJobs = snapshot?.jobs.items.some((job) => job.status === "queued" || job.status === "running");
@@ -277,9 +285,22 @@
       if (noticeTimer !== undefined) window.clearTimeout(noticeTimer);
       if (errorTimer !== undefined) window.clearTimeout(errorTimer);
       clearContextCompactionTimers();
+      window.removeEventListener("error", onWindowError);
+      window.removeEventListener("unhandledrejection", onUnhandledRejection);
       unsubscribe();
     };
   });
+
+  // Uncaught render/runtime failures must never blank the JCEF panel: surface a
+  // dismissible fallback banner instead. Reporting is capped so a failure loop
+  // cannot re-trigger itself indefinitely.
+  function reportPanelError(raw: unknown) {
+    if (panelErrorReports >= 5) return;
+    const message = raw instanceof Error ? raw.message : typeof raw === "string" ? raw : "";
+    if (!message || message === "Script error." || message.includes("ResizeObserver loop")) return;
+    panelErrorReports += 1;
+    if (panelError === null) panelError = message;
+  }
 
   $: reconcileToastTimers(notice, error, autoDismissNotifications);
   $: requestCount = snapshot ? conversationRequestCount(snapshot, pendingUserMessages) : 0;
@@ -398,6 +419,14 @@
       contextTestLabel = String(checked.label ?? (checked.ok ? "ContextEngine connection verified" : "ContextEngine connection failed"));
       return;
     }
+    if (event.type === "themeTokens") {
+      applyThemeTokens(event.payload);
+      return;
+    }
+    if (event.type === "selectionContext") {
+      applySelectionContext(event.payload);
+      return;
+    }
     if (event.type === "error") {
       const message = String((event.payload as { message?: string })?.message ?? "Unexpected error");
       enhancing = false;
@@ -480,10 +509,55 @@
     pendingUserMessages = pendingUserMessages.filter((message) => !persistedIds.has(message.id));
   }
 
+  // IDE theme bridge: the JVM pushes validated CSS custom properties; the dark
+  // values in styles.css stay the defaults until the first event arrives.
+  const THEME_TOKEN_KEY_PATTERN = /^--[a-z0-9-]+$/;
+
+  function applyThemeTokens(payload: unknown) {
+    if (!payload || typeof payload !== "object") return;
+    const root = document.documentElement;
+    for (const [key, value] of Object.entries(payload as Record<string, unknown>)) {
+      if (typeof value !== "string") continue;
+      if (key === "colorScheme") {
+        if (value === "light" || value === "dark") {
+          root.style.colorScheme = value;
+          root.classList.toggle("theme-light", value === "light");
+        }
+        continue;
+      }
+      if (!THEME_TOKEN_KEY_PATTERN.test(key)) continue;
+      if (value.length > 120 || value.includes(";") || value.includes("{") || value.includes("}") || value.toLowerCase().includes("url(")) continue;
+      root.style.setProperty(key, value);
+    }
+  }
+
+  function applySelectionContext(payload: unknown) {
+    const data = payload as { cleared?: boolean; path?: string; fileName?: string; startLine?: number | string; endLine?: number | string } | undefined;
+    if (!data || data.cleared || !data.fileName) {
+      liveSelection = null;
+      return;
+    }
+    const startLine = Math.trunc(Number(data.startLine));
+    const endLine = Math.trunc(Number(data.endLine));
+    liveSelection = {
+      path: String(data.path ?? data.fileName),
+      fileName: String(data.fileName),
+      startLine: Number.isFinite(startLine) && startLine > 0 ? startLine : 0,
+      endLine: Number.isFinite(endLine) && endLine > 0 ? endLine : 0,
+    };
+  }
+
+  function selectionChipLabel(selection: NonNullable<typeof liveSelection>) {
+    if (selection.startLine <= 0) return selection.fileName;
+    const end = selection.endLine > selection.startLine ? `-${selection.endLine}` : "";
+    return `${selection.fileName}:${selection.startLine}${end}`;
+  }
+
   function updateConversationFollow() {
     if (!conversationElement) return;
     const distanceFromBottom = conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight;
     followConversation = distanceFromBottom <= 48;
+    showScrollToBottom = distanceFromBottom > 300;
     updateVisibleRequest();
     if (followConversation) markActiveThreadRead();
   }
@@ -494,6 +568,7 @@
       if (!conversationElement || (!force && !followConversation)) return;
       conversationElement.scrollTop = conversationElement.scrollHeight;
       followConversation = true;
+      showScrollToBottom = false;
       updateVisibleRequest();
       markActiveThreadRead();
     });
@@ -542,6 +617,20 @@
   function jumpToLatest() {
     generationMenuOpen = false;
     scrollConversationToBottom(true);
+  }
+
+  function prefersReducedMotion() {
+    return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  }
+
+  function scrollToBottomSmooth() {
+    if (!conversationElement || prefersReducedMotion()) {
+      jumpToLatest();
+      return;
+    }
+    generationMenuOpen = false;
+    followConversation = true;
+    conversationElement.scrollTo({ top: conversationElement.scrollHeight, behavior: "smooth" });
   }
 
   function reconcileToastTimers(currentNotice: string, currentError: string, autoDismiss: boolean) {
@@ -713,6 +802,24 @@
     followConversation = true;
     forceConversationFollow = true;
     sendCommand("editAndResendMessage", { messageId: message.id, text: next });
+  }
+
+  // When a run ends in failure, expose the failed request's id (when the data
+  // carries one — never fabricated) plus a Retry that re-sends the last user
+  // message through the existing resend path.
+  function failedRunInfo(currentSnapshot: AppSnapshot | null) {
+    if (!currentSnapshot) return null;
+    if (currentSnapshot.runState !== "failed" && currentSnapshot.agentRun.phase !== "failed") return null;
+    const lastUser = [...currentSnapshot.messages].reverse().find((message) => message.role === "user");
+    if (!lastUser) return null;
+    const lastAssistant = [...currentSnapshot.messages].reverse().find((message) => message.role === "assistant");
+    return { message: lastUser, requestId: lastUser.runId ?? lastAssistant?.runId };
+  }
+
+  function retryFailedRun() {
+    const info = failedRunInfo(snapshot);
+    if (!info) return;
+    editAndResendMessage(info.message, info.message.content);
   }
 
   function resizeComposer() {
@@ -2180,6 +2287,130 @@
     return true;
   }
 
+  // Global keyboard shortcut system. Bindings marked allowInEditable also fire
+  // while the composer (or another field) is focused; the rest stay inert while
+  // typing so plain characters are never intercepted.
+  const isMacPlatform = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform ?? "");
+  const SHORTCUT_HINTS = {
+    cycleMode: isMacPlatform ? "⌘." : "Ctrl+.",
+    enhance: isMacPlatform ? "⌘/" : "Ctrl+/",
+    newThread: isMacPlatform ? "⌘N" : "Ctrl+N",
+    threads: isMacPlatform ? "⌘⌥'" : "Ctrl+Alt+'",
+    approve: isMacPlatform ? "⌘⇧↵" : "Ctrl+Shift+Enter",
+    stop: "Esc",
+  };
+
+  function isEditableTarget(target: EventTarget | null) {
+    return target instanceof HTMLElement
+      && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable);
+  }
+
+  function primaryModifier(event: KeyboardEvent) {
+    return event.metaKey || event.ctrlKey;
+  }
+
+  function cycleComposerMode() {
+    if (!snapshot) return;
+    const order: Mode[] = ["agent", "chat", "ask"];
+    setMode(order[(order.indexOf(snapshot.mode) + 1) % order.length]);
+  }
+
+  function goToAdjacentThread(offset: number) {
+    const threads = snapshot?.threads ?? [];
+    if (threads.length < 2) return;
+    const activeIndex = threads.findIndex((thread) => thread.active);
+    const nextIndex = activeIndex < 0 ? 0 : activeIndex + offset;
+    if (nextIndex < 0 || nextIndex >= threads.length) return;
+    selectThread(threads[nextIndex].id);
+  }
+
+  function toggleThreadDrawer() {
+    const open = !threadDrawerOpen;
+    closeMenus();
+    threadDrawerOpen = open;
+  }
+
+  function approvePendingToolFromKeyboard() {
+    const tool = snapshot?.tools.find((candidate) => candidate.status === "approval" && candidate.name !== "ask_user");
+    if (tool) resolveApproval(tool.id, true);
+  }
+
+  function scrollConversationByPage(direction: 1 | -1) {
+    if (currentView !== "chat" || !conversationElement) return;
+    conversationElement.scrollBy({
+      top: direction * Math.max(60, conversationElement.clientHeight - 40),
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+    });
+  }
+
+  type KeyBinding = {
+    matches: (event: KeyboardEvent) => boolean;
+    allowInEditable?: boolean;
+    run: () => void;
+  };
+
+  const KEY_BINDINGS: KeyBinding[] = [
+    { matches: (event) => primaryModifier(event) && !event.shiftKey && !event.altKey && (event.key === "." || event.code === "Period"), allowInEditable: true, run: cycleComposerMode },
+    { matches: (event) => primaryModifier(event) && !event.shiftKey && !event.altKey && (event.key === "/" || event.code === "Slash"), allowInEditable: true, run: enhancePrompt },
+    { matches: (event) => primaryModifier(event) && !event.shiftKey && !event.altKey && (event.key.toLowerCase() === "n" || event.code === "KeyN"), run: () => startNewThread() },
+    { matches: (event) => primaryModifier(event) && !event.shiftKey && !event.altKey && (event.key === "]" || event.code === "BracketRight"), run: () => goToAdjacentThread(1) },
+    { matches: (event) => primaryModifier(event) && !event.shiftKey && !event.altKey && (event.key === "[" || event.code === "BracketLeft"), run: () => goToAdjacentThread(-1) },
+    { matches: (event) => primaryModifier(event) && event.shiftKey && !event.altKey && event.key === "Enter", allowInEditable: true, run: approvePendingToolFromKeyboard },
+    { matches: (event) => primaryModifier(event) && event.altKey && (event.code === "Quote" || event.key === "'"), allowInEditable: true, run: toggleThreadDrawer },
+    { matches: (event) => !primaryModifier(event) && event.altKey && !event.shiftKey && (event.code === "Quote" || event.key === "'"), run: toggleThreadDrawer },
+    { matches: (event) => primaryModifier(event) && !event.shiftKey && !event.altKey && event.key === "ArrowUp", run: () => scrollConversationByPage(-1) },
+    { matches: (event) => primaryModifier(event) && !event.shiftKey && !event.altKey && event.key === "ArrowDown", run: () => scrollConversationByPage(1) },
+  ];
+
+  function handleGlobalEscape(event: KeyboardEvent) {
+    const settingsDrawerWasOpen = currentView === "settings" && settingsNavigationOpen;
+    const overlayWasOpen = threadDrawerOpen || moreMenuOpen || threadOptOpen || modeMenuOpen || agentMenuOpen
+      || modelMenuOpen || skillsOpen || generationMenuOpen || slashOpen || atOpen || threadMenuOpenId !== null
+      || confirmingThreadDeleteId !== null || confirmingThreadGroupDelete !== null || settingsDrawerWasOpen;
+    threadDrawerOpen = false;
+    closeMenus();
+    if (settingsDrawerWasOpen) {
+      settingsNavigationOpen = false;
+      event.preventDefault();
+      return;
+    }
+    // Stop generation only when no overlay or field-level handler consumed
+    // this Escape press.
+    if (!overlayWasOpen && !event.defaultPrevented && isBusy(snapshot)) {
+      event.preventDefault();
+      cancelRun();
+    }
+  }
+
+  function handleGlobalKeydown(event: KeyboardEvent) {
+    if (contextUsageOpen) {
+      if (event.key === "Escape") {
+        closeContextUsage();
+        event.preventDefault();
+      }
+      return;
+    }
+    if (handleChatZoomShortcut(event)) return;
+    if (primaryModifier(event) && !event.shiftKey && event.key === "Enter" && document.activeElement === composerTextarea) {
+      event.preventDefault();
+      submit(true);
+      return;
+    }
+    if (event.key === "Escape") {
+      handleGlobalEscape(event);
+      return;
+    }
+    const editable = isEditableTarget(event.target);
+    for (const binding of KEY_BINDINGS) {
+      if (!binding.matches(event)) continue;
+      if (editable && !binding.allowInEditable) return;
+      event.preventDefault();
+      event.stopPropagation();
+      binding.run();
+      return;
+    }
+  }
+
   function seedSlash() {
     if (!prompt.startsWith("/")) prompt = "/";
     slashOpen = true;
@@ -2304,29 +2535,21 @@
   }
 </script>
 
-<svelte:window onkeydown={(event) => {
-  if (contextUsageOpen) {
-    if (event.key === "Escape") {
-      closeContextUsage();
-      event.preventDefault();
-    }
-    return;
-  }
-  if (handleChatZoomShortcut(event)) return;
-  if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && document.activeElement === composerTextarea) {
-    event.preventDefault();
-    submit(true);
-  }
-  if (event.key === "Escape") {
-    const settingsDrawerWasOpen = currentView === "settings" && settingsNavigationOpen;
-    threadDrawerOpen = false;
-    closeMenus();
-    if (settingsDrawerWasOpen) {
-      settingsNavigationOpen = false;
-      event.preventDefault();
-    }
-  }
-}} />
+<svelte:window onkeydown={handleGlobalKeydown} />
+
+{#if panelError !== null}
+  <div class="panel-error-banner" role="alertdialog" aria-label="Panel rendering error">
+    <Icon name="circle-alert" size={15} />
+    <div class="panel-error-copy">
+      <strong>The panel hit a rendering error.</strong>
+      <small>{panelError}</small>
+    </div>
+    <div class="panel-error-actions">
+      <button type="button" class="primary" onclick={() => location.reload()}>Reload panel</button>
+      <button type="button" onclick={() => { panelError = null; }}>Dismiss</button>
+    </div>
+  </div>
+{/if}
 
 {#if !snapshot}
   <main class="loading"><Icon name="plugin-icon" size={18} /><span>Starting CodeAgent</span></main>
@@ -2344,8 +2567,8 @@
       </div>
       <div class="header-actions">
         {#if currentView === "chat"}
-          <button class="icon-button" title="Threads" aria-label="Threads" onclick={() => { closeMenus(); threadDrawerOpen = true; }}><Icon name="menu" size={15} /></button>
-          <button class="icon-button" title="New Thread" aria-label="New Thread" onclick={() => startNewThread()}><Icon name="plus" size={16} /></button>
+          <button class="icon-button" title={`Threads (${SHORTCUT_HINTS.threads})`} aria-label="Threads" onclick={() => { closeMenus(); threadDrawerOpen = true; }}><Icon name="menu" size={15} /></button>
+          <button class="icon-button" title={`New Thread (${SHORTCUT_HINTS.newThread})`} aria-label="New Thread" onclick={() => startNewThread()}><Icon name="plus" size={16} /></button>
           <button class="icon-button" title="Share / copy thread" aria-label="Share" onclick={copyThread}><Icon name="share-2" size={14} /></button>
           <div class="more-control">
             <button class="icon-button" class:active={moreMenuOpen} title="More options" aria-label="More options" onclick={() => { moreMenuOpen = !moreMenuOpen; threadOptOpen = false; }}><Icon name="ellipsis" size={16} /></button>
@@ -2379,7 +2602,7 @@
     {#if currentView === "chat"}
       <section class="chat-view">
         <header class="thread-header ch">
-          <button class="icon-button compact" title="Threads" onclick={() => { closeMenus(); threadDrawerOpen = true; }}><Icon name="menu" size={14} /></button>
+          <button class="icon-button compact" title={`Threads (${SHORTCUT_HINTS.threads})`} aria-label="Threads" onclick={() => { closeMenus(); threadDrawerOpen = true; }}><Icon name="menu" size={14} /></button>
           {#if renaming}
             <form class="rename-form" onsubmit={(event) => { event.preventDefault(); commitRename(); }}>
               <input bind:value={renameTitle} maxlength="48" aria-label="Rename thread" />
@@ -2495,19 +2718,22 @@
                 <section class="empty-thread-card" aria-labelledby="empty-thread-title">
                   <header>
                     <span class="empty-thread-icon">
-                      <Icon name={snapshot.mode === "agent" ? "wand-sparkles" : "message-square"} size={14} />
+                      <Icon name={snapshot.mode === "agent" ? "wand-sparkles" : snapshot.mode === "ask" ? "search" : "message-square"} size={14} />
                     </span>
-                    <h1 id="empty-thread-title">{snapshot.mode === "agent" ? "New Agent Thread" : "New Chat Thread"}</h1>
+                    <h1 id="empty-thread-title">{snapshot.mode === "agent" ? "New Agent Thread" : snapshot.mode === "ask" ? "New Ask Thread" : "New Chat Thread"}</h1>
                   </header>
                   <p>
                     {snapshot.mode === "agent"
                       ? "Work with your agent to use tools and make file edits."
-                      : "Ask questions and plan with codebase awareness."}
+                      : snapshot.mode === "ask"
+                        ? "Get quick answers about your code."
+                        : "Ask questions and plan with codebase awareness."}
                   </p>
                 </section>
               {/key}
             </div>
           {:else}
+            {@const failedRun = failedRunInfo(snapshot)}
             <div class="message-list">
               {#each conversationTimeline(snapshot, pendingUserMessages) as item (item.kind === "user" || item.kind === "assistant" ? item.message.id : item.kind === "tools" ? `tools-${item.runId ?? "legacy"}-${item.turnIndex}` : item.kind)}
                 {#if item.kind === "user"}
@@ -2645,7 +2871,7 @@
                               <div class="approval-note"><Icon name="circle-alert" size={14} /><span>Waiting for user input</span></div>
                               <div class="approval-actions">
                                 <button disabled={resolvingApprovalIds.has(tool.id)} onclick={() => resolveApproval(tool.id, false)}>Skip</button>
-                                <button class="approve" disabled={resolvingApprovalIds.has(tool.id)} onclick={() => resolveApproval(tool.id, true)}><Icon name="circle-play" size={12} />{resolvingApprovalIds.has(tool.id) ? "Approving..." : "Approve"}</button>
+                                <button class="approve" title={`Approve (${SHORTCUT_HINTS.approve})`} disabled={resolvingApprovalIds.has(tool.id)} onclick={() => resolveApproval(tool.id, true)}><Icon name="circle-play" size={12} />{resolvingApprovalIds.has(tool.id) ? "Approving..." : "Approve"}</button>
                               </div>
                             </div>
                           {/if}
@@ -2690,6 +2916,24 @@
                   </section>
                 {/if}
               {/each}
+              {#if failedRun}
+                <div class="run-failure-row" role="alert">
+                  <Icon name="circle-alert" size={13} />
+                  {#if failedRun.requestId}
+                    <span class="run-failure-id">Request ID: <code>{failedRun.requestId}</code></span>
+                    <button type="button" class="run-failure-copy" title="Copy request ID" aria-label="Copy request ID" onclick={() => copyText(failedRun.requestId ?? "", "Request ID copied")}><Icon name="copy" size={11} /></button>
+                  {:else}
+                    <span class="run-failure-id">The last run failed.</span>
+                  {/if}
+                  <button type="button" class="run-failure-retry" aria-label="Retry last request" onclick={retryFailedRun}><Icon name="refresh-ccw" size={11} />Retry</button>
+                </div>
+              {/if}
+            </div>
+          {/if}
+
+          {#if showScrollToBottom}
+            <div class="scroll-to-bottom-anchor">
+              <button type="button" class="scroll-to-bottom" aria-label="Scroll to bottom" title="Scroll to bottom" onclick={scrollToBottomSmooth}><Icon name="chevron-down" size={15} /></button>
             </div>
           {/if}
 
@@ -2739,18 +2983,21 @@
               <button class="discard" onclick={() => sendCommand("discardChanges", { toolIds: changeTools().map((tool) => tool.id) })}>Discard All</button>
             </div>
           {/if}
-          {#if snapshot.attachments.length > 0}
-            <div class="context-chips chips">
-              {#each snapshot.attachments as item}
-                <span class="chip accent"><Icon name={attachmentIcon(item)} size={12} /><b title={item.path}>{item.label}</b><button title="Remove" onclick={() => sendCommand("removeContext", { id: item.id })}><Icon name="x" size={11} /></button></span>
-              {/each}
-              <button class="chip" onclick={() => sendCommand("pickContext")}><Icon name="plus" size={12} /> context</button>
-            </div>
-          {:else}
-            <div class="context-chips chips">
-              <button class="chip" onclick={() => sendCommand("pickContext")}><Icon name="plus" size={12} /> context</button>
-            </div>
-          {/if}
+          <div class="context-chips chips">
+            {#each snapshot.attachments as item}
+              <span class="chip accent"><Icon name={attachmentIcon(item)} size={12} /><b title={item.path}>{item.label}</b><button title="Remove" onclick={() => sendCommand("removeContext", { id: item.id })}><Icon name="x" size={11} /></button></span>
+            {/each}
+            {#if liveSelection}
+              <button
+                type="button"
+                class="chip selection-chip"
+                title="Add selection to context"
+                aria-label={`Add selection ${selectionChipLabel(liveSelection)} to context`}
+                onclick={() => sendCommand("attachActiveEditor")}
+              ><Icon name="text-cursor-input" size={12} /><b title={liveSelection.path}>{selectionChipLabel(liveSelection)}</b></button>
+            {/if}
+            <button class="chip" onclick={() => sendCommand("pickContext")}><Icon name="plus" size={12} /> context</button>
+          </div>
           <MessageQueuePanel
             messages={snapshot.messageQueue}
             paused={snapshot.messageQueuePaused}
@@ -2828,7 +3075,8 @@
                   if (editingQueuedMessageId) {
                     event.preventDefault();
                     cancelQueuedMessageEdit();
-                  } else {
+                  } else if (slashOpen || atOpen) {
+                    event.preventDefault();
                     slashOpen = false;
                     atOpen = false;
                   }
@@ -2837,7 +3085,7 @@
             ></textarea>
             <div class="composer-toolbar abar">
               <div class="mode-control">
-                <button class="mode-button dd-btn" onclick={() => { modeMenuOpen = !modeMenuOpen; agentMenuOpen = false; modelMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}>
+                <button class="mode-button dd-btn" title={`Switch mode (${SHORTCUT_HINTS.cycleMode})`} onclick={() => { modeMenuOpen = !modeMenuOpen; agentMenuOpen = false; modelMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}>
                   <span class="tag {snapshot.mode}">{modeLabel(snapshot.mode)}</span>
                   <Icon name="chevron-down" size={12} />
                 </button>
@@ -2925,7 +3173,7 @@
               <button title="@ mention" onclick={seedMention}><Icon name="at-sign" size={14} /></button>
               <button title="Slash commands" onclick={seedSlash}><Icon name="square-terminal" size={14} /></button>
               <button title="Attach file/image" onclick={() => sendCommand("pickContext")}><Icon name="file-input" size={14} /></button>
-              <button title={enhancing ? "Enhancing…" : "Enhance prompt"} disabled={!prompt.trim() || enhancing || isBusy(snapshot)} onclick={enhancePrompt}><Icon name="sparkles" size={14} /></button>
+              <button title={enhancing ? "Enhancing…" : `Enhance prompt (${SHORTCUT_HINTS.enhance})`} aria-label="Enhance prompt" disabled={!prompt.trim() || enhancing || isBusy(snapshot)} onclick={enhancePrompt}><Icon name="sparkles" size={14} /></button>
               <div class="skill-control">
                 <button class:active={skillsOpen} title="Skills" onclick={() => { skillsOpen = !skillsOpen; modeMenuOpen = false; agentMenuOpen = false; modelMenuOpen = false; }}>
                   <Icon name="wand-sparkles" size={14} />
@@ -2954,7 +3202,7 @@
                 <button class="send-button apply" title="Apply queued edit" aria-label="Apply queued edit" disabled={!prompt.trim()} onclick={applyQueuedMessageEdit}><Icon name="check" size={14} /></button>
               {:else if isBusy(snapshot)}
                 <button class="send-button queue-send" title="Queue message" disabled={!prompt.trim()} onclick={() => submit()}><Icon name="send-horizontal" size={13} /></button>
-                <button class="send-button stop" title="Stop" onclick={cancelRun}><Icon name="square" size={13} /></button>
+                <button class="send-button stop" title={`Stop (${SHORTCUT_HINTS.stop})`} aria-label="Stop" onclick={cancelRun}><Icon name="square" size={13} /></button>
               {:else}
                 <button class="send-button" title="Send" disabled={!prompt.trim()} onclick={() => submit()}><Icon name="send-horizontal" size={15} /></button>
               {/if}
@@ -3953,7 +4201,7 @@
         <header class="drawer-head">
           <strong>Threads</strong>
           <div class="new-thread-control">
-            <button class="new-thread" onclick={() => startNewThread()}><Icon name="plus" size={14} /> New {modeLabel(snapshot.mode)}</button>
+            <button class="new-thread" title={`New Thread (${SHORTCUT_HINTS.newThread})`} onclick={() => startNewThread()}><Icon name="plus" size={14} /> New {modeLabel(snapshot.mode)}</button>
           </div>
           <button class="icon-button" title="Close" onclick={() => threadDrawerOpen = false}><Icon name="x" size={15} /></button>
         </header>

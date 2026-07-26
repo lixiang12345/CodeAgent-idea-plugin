@@ -18,12 +18,38 @@ class InlineCompletionTelemetryService {
     private val totalLatencyMs = AtomicLong()
     private val lastLatencyMs = AtomicLong()
     private val lastSuggestionAt = AtomicLong()
+    private val inFlight = AtomicInteger()
+
+    @Volatile
+    private var lastRequestProducedSuggestion: Boolean? = null
+
+    private val activityListeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
+
+    /**
+     * Registers a listener notified whenever completion activity changes, so
+     * status presentations can be event-driven instead of polling.
+     */
+    fun addActivityListener(listener: () -> Unit): () -> Unit {
+        activityListeners += listener
+        return { activityListeners -= listener }
+    }
+
+    /** True while at least one completion request is outstanding. */
+    fun isGenerating(): Boolean = inFlight.get() > 0
+
+    /** Null until a request completes; false when the last completed request returned nothing. */
+    fun lastRequestSuggested(): Boolean? = lastRequestProducedSuggestion
 
     fun editorInstalled() = installedEditors.incrementAndGet()
 
     fun editorUninstalled() = installedEditors.updateAndGet { (it - 1).coerceAtLeast(0) }
 
-    fun requestStarted() = requests.incrementAndGet()
+    fun requestStarted(): Long {
+        inFlight.incrementAndGet()
+        val value = requests.incrementAndGet()
+        notifyActivity()
+        return value
+    }
 
     fun cacheHit() = cacheHits.incrementAndGet()
 
@@ -37,6 +63,19 @@ class InlineCompletionTelemetryService {
         }
         if (failed) failures.incrementAndGet()
         if (cancelled) cancellations.incrementAndGet()
+        if (!cancelled) lastRequestProducedSuggestion = suggested
+        inFlight.updateAndGet { (it - 1).coerceAtLeast(0) }
+        notifyActivity()
+    }
+
+    /** Clears the transient "no completions" signal, for example when the setting is toggled. */
+    fun resetLastRequestOutcome() {
+        lastRequestProducedSuggestion = null
+        notifyActivity()
+    }
+
+    fun notifyActivity() {
+        activityListeners.forEach { listener -> runCatching { listener() } }
     }
 
     fun snapshot(): InlineCompletionTelemetry = InlineCompletionTelemetry(

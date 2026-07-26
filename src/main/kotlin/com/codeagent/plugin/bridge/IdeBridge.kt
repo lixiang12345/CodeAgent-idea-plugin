@@ -46,7 +46,10 @@ import com.codeagent.plugin.settings.CodeAgentSettingsService
 import com.codeagent.plugin.settings.CodeAgentSettingsUpdate
 import com.codeagent.plugin.settings.DEFAULT_CONTEXT_MODE
 import com.codeagent.plugin.settings.OidcLoginService
+import com.codeagent.plugin.ui.CodeAgentThemeTokens
 import com.codeagent.plugin.ui.CodeAgentUiRequest
+import com.codeagent.plugin.ui.EditorSelectionSnapshot
+import com.codeagent.plugin.ui.EditorSelectionTrackingService
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
@@ -193,6 +196,10 @@ class IdeBridge(
     @Volatile
     private var syncedAccountUserId: String? = null
 
+    private var unsubscribeSelection: (() -> Unit)? = null
+
+    private var themeConnection: com.intellij.util.messages.MessageBusConnection? = null
+
     init {
         restoreConversationPresentation()
         cloudSync.setChangeListener {
@@ -228,6 +235,53 @@ class IdeBridge(
             handleSafely(raw)
             null
         }
+        unsubscribeSelection = project.service<EditorSelectionTrackingService>().subscribe(::emitSelectionContext)
+        subscribeToThemeChanges()
+    }
+
+    /**
+     * Pushes IDE theme tokens on connect and whenever the Look and Feel or UI
+     * settings change, so the webview follows Light, Dark, and custom themes.
+     */
+    private fun subscribeToThemeChanges() {
+        emitThemeTokens()
+        val connection = ApplicationManager.getApplication().messageBus.connect()
+        themeConnection = connection
+        connection.subscribe(
+            com.intellij.ide.ui.LafManagerListener.TOPIC,
+            com.intellij.ide.ui.LafManagerListener { emitThemeTokens() },
+        )
+        connection.subscribe(
+            com.intellij.ide.ui.UISettingsListener.TOPIC,
+            com.intellij.ide.ui.UISettingsListener { emitThemeTokens() },
+        )
+        connection.subscribe(
+            com.intellij.openapi.editor.colors.EditorColorsManager.TOPIC,
+            com.intellij.openapi.editor.colors.EditorColorsListener { emitThemeTokens() },
+        )
+    }
+
+    private fun emitThemeTokens() {
+        if (disposed.get()) return
+        runCatching { CodeAgentThemeTokens.current() }
+            .onSuccess { tokens -> emit("themeTokens", tokens) }
+            .onFailure { error -> LOG.warn("Failed to compute CodeAgent theme tokens", error) }
+    }
+
+    private fun emitSelectionContext(snapshot: EditorSelectionSnapshot?) {
+        if (disposed.get()) return
+        val payload = if (snapshot == null) {
+            mapOf("cleared" to "true")
+        } else {
+            mapOf(
+                "path" to snapshot.path,
+                "fileName" to snapshot.fileName,
+                "startLine" to snapshot.startLine.toString(),
+                "endLine" to snapshot.endLine.toString(),
+                "text" to snapshot.text,
+            )
+        }
+        emit("selectionContext", payload)
     }
 
     fun injectBridgeJavaScript(): String = """
@@ -276,6 +330,10 @@ class IdeBridge(
         syncedAccountUserId = null
         cloudSync.reset()
         conversationSummaries.reset()
+        unsubscribeSelection?.invoke()
+        unsubscribeSelection = null
+        themeConnection?.disconnect()
+        themeConnection = null
         browserEvents.reset()
         query.dispose()
     }

@@ -19,7 +19,11 @@ class InlineCompletionSettingsService : PersistentStateComponent<InlineCompletio
     fun isEnabled(): Boolean = state.enabled
 
     fun setEnabled(enabled: Boolean) {
+        val changed = state.enabled != enabled
         state.enabled = enabled
+        if (changed) {
+            com.intellij.openapi.components.service<InlineCompletionTelemetryService>().resetLastRequestOutcome()
+        }
     }
 
     fun disabledLanguages(): String = state.disabledLanguages

@@ -34,6 +34,103 @@ export interface McpServerConfiguration {
   accessToken?: string | null;
   requiredEnvironment?: string[];
   timeoutSeconds?: number;
+  /** Literal environment entries; values may reference ${VAR} or ${VAR:-default}. */
+  env?: Record<string, string>;
+  /** Extra headers for http/sse transports; values support the same expansion. */
+  headers?: Record<string, string>;
+}
+
+const MAX_ENV_ENTRIES = 64;
+const MAX_HEADER_ENTRIES = 32;
+const MAX_ENV_VALUE_CHARS = 4_096;
+const MAX_IMPORTED_SERVERS = 64;
+
+/**
+ * Expands `${VAR}` and `${VAR:-default}` references against the process
+ * environment, matching the original plugin's MCP configuration contract.
+ * `\${` escapes an expansion. Unset variables without a default expand to "".
+ */
+export function expandEnvironmentReferences(
+  value: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): string {
+  if (value.length > MAX_ENV_VALUE_CHARS) {
+    throw new Error(`MCP environment value exceeds ${MAX_ENV_VALUE_CHARS} characters`);
+  }
+  return value.replace(
+    /\\\$\{|\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g,
+    (match, name?: string, fallback?: string) => {
+      if (match === "\\${") return "${";
+      const resolved = environment[name as string];
+      if (resolved !== undefined && resolved !== "") return resolved;
+      return fallback ?? "";
+    },
+  );
+}
+
+/**
+ * Accepts the container shapes the original plugin's MCP configuration files
+ * use — a bare array, `{servers: [...]}`, `{mcpServers: [...]}`, or a
+ * name-keyed object under either key — and returns configurations ready for
+ * `reconcile`. Server names become IDs when no explicit ID is present.
+ */
+export function importMcpServerConfigurations(source: unknown): McpServerConfiguration[] {
+  const container = source && typeof source === "object" && !Array.isArray(source)
+    ? (source as Record<string, unknown>)
+    : undefined;
+  const raw = Array.isArray(source)
+    ? source
+    : container?.servers ?? container?.mcpServers ?? undefined;
+  if (raw === undefined) throw new Error("MCP configuration must contain servers or mcpServers");
+
+  const entries: Array<[string | undefined, Record<string, unknown>]> = Array.isArray(raw)
+    ? raw.map((value) => {
+      if (!value || typeof value !== "object") throw new Error("Each MCP server entry must be an object");
+      return [undefined, value as Record<string, unknown>];
+    })
+    : Object.entries(raw as Record<string, unknown>).map(([key, value]) => {
+      if (!value || typeof value !== "object") throw new Error(`MCP server '${key}' must be an object`);
+      return [key, value as Record<string, unknown>];
+    });
+
+  if (entries.length > MAX_IMPORTED_SERVERS) {
+    throw new Error(`MCP configuration accepts at most ${MAX_IMPORTED_SERVERS} servers`);
+  }
+
+  return entries.map(([key, entry]) => {
+    const name = String(entry.name ?? entry.title ?? key ?? "").trim();
+    if (!name) throw new Error("Each MCP server needs a name");
+    const id = String(entry.id ?? key ?? name).trim().replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 120);
+    const transport = entry.transport ?? entry.type ?? (entry.command ? "stdio" : "streamable-http");
+    return normalizeConfiguration({
+      ...(entry as unknown as McpServerConfiguration),
+      id,
+      name,
+      transport: transport as McpTransportKind,
+      enabled: entry.enabled !== false && entry.disabled !== true,
+    });
+  });
+}
+
+function normalizeStringMap(
+  value: unknown,
+  label: string,
+  maxEntries: number,
+  keyPattern: RegExp,
+): Record<string, string> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`MCP ${label} must be an object`);
+  }
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > maxEntries) throw new Error(`MCP ${label} accepts at most ${maxEntries} entries`);
+  const result: Record<string, string> = {};
+  for (const [key, raw] of entries) {
+    if (!keyPattern.test(key)) throw new Error(`Invalid MCP ${label} name '${key}'`);
+    if (typeof raw !== "string") throw new Error(`MCP ${label} value for '${key}' must be a string`);
+    result[key] = expandEnvironmentReferences(raw);
+  }
+  return result;
 }
 
 export interface McpToolSnapshot {
@@ -332,6 +429,8 @@ export class McpRuntimeManager {
         const value = process.env[name];
         if (value !== undefined) env[name] = value;
       }
+      // Literal env entries win over allowlisted pass-through values.
+      for (const [name, value] of Object.entries(configuration.env ?? {})) env[name] = value;
       const transport = new StdioClientTransport({
         command: requireText(configuration.command, "command"),
         args: configuration.args ?? [],
@@ -351,16 +450,26 @@ export class McpRuntimeManager {
       : configuration.authMode === "oauth"
         ? requireText(configuration.accessToken, "OAuth access token")
         : undefined;
-    const authenticatedFetch = token ? bearerFetch(token) : fetch;
+    const configuredHeaders = configuration.headers ?? {};
+    const headers: Record<string, string> = {
+      ...configuredHeaders,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+    const hasHeaders = Object.keys(headers).length > 0;
+    const authenticatedFetch = token
+      ? bearerFetch(token, configuredHeaders)
+      : Object.keys(configuredHeaders).length > 0
+        ? headerFetch(configuredHeaders)
+        : fetch;
     if (configuration.transport === "sse") {
       return new SSEClientTransport(url, {
         fetch: authenticatedFetch,
-        requestInit: { headers: token ? { Authorization: `Bearer ${token}` } : undefined },
+        requestInit: { headers: hasHeaders ? headers : undefined },
       });
     }
     return new StreamableHTTPClientTransport(url, {
       fetch: authenticatedFetch,
-      requestInit: { headers: token ? { Authorization: `Bearer ${token}` } : undefined },
+      requestInit: { headers: hasHeaders ? headers : undefined },
       reconnectionOptions: {
         initialReconnectionDelay: 1_000,
         maxReconnectionDelay: 30_000,
@@ -500,29 +609,42 @@ function createRuntime(config: McpServerConfiguration): ServerRuntime {
   };
 }
 
+/** Accepts the original plugin's `http` alias for the Streamable HTTP transport. */
+function normalizeTransport(value: unknown): McpTransportKind {
+  const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (raw === "http") return "streamable-http";
+  if (raw === "stdio" || raw === "streamable-http" || raw === "sse") return raw;
+  throw new Error(`Unsupported MCP transport '${String(value)}'`);
+}
+
 function normalizeConfiguration(value: McpServerConfiguration): McpServerConfiguration {
   if (!value || typeof value !== "object") throw new Error("MCP configuration must be an object");
   const id = requireText(value.id, "id");
   const name = requireText(value.name, "name");
   if (!/^[A-Za-z0-9._-]{1,120}$/.test(id)) throw new Error(`Invalid MCP server ID '${id}'`);
-  if (!["stdio", "streamable-http", "sse"].includes(value.transport)) {
-    throw new Error(`Unsupported MCP transport '${String(value.transport)}'`);
-  }
+  const transport = normalizeTransport(value.transport);
   if (!["none", "bearer-environment", "oauth"].includes(value.authMode ?? "none")) {
     throw new Error(`Unsupported MCP authentication mode '${String(value.authMode)}'`);
   }
   const timeoutSeconds = Number.isInteger(value.timeoutSeconds) ? Number(value.timeoutSeconds) : 60;
   if (timeoutSeconds < 1 || timeoutSeconds > 600) throw new Error("MCP timeout must be between 1 and 600 seconds");
+  const env = normalizeStringMap(value.env, "env", MAX_ENV_ENTRIES, /^[A-Za-z_][A-Za-z0-9_]{0,127}$/);
+  const headers = normalizeStringMap(value.headers, "headers", MAX_HEADER_ENTRIES, /^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,128}$/);
+  // The original plugin uses `disabled`; CodeAgent persists `enabled`.
+  const disabled = (value as { disabled?: unknown }).disabled === true;
   return {
     ...value,
     id,
     name,
-    enabled: value.enabled !== false,
+    transport,
+    enabled: value.enabled !== false && !disabled,
     args: Array.isArray(value.args) ? value.args.map(String).slice(0, 128) : [],
     requiredEnvironment: Array.isArray(value.requiredEnvironment)
       ? [...new Set(value.requiredEnvironment.map(String))].slice(0, 64)
       : [],
     timeoutSeconds,
+    ...(env ? { env } : {}),
+    ...(headers ? { headers } : {}),
   };
 }
 
@@ -552,10 +674,19 @@ function resolveWorkingDirectory(rootValue: string, configured?: string | null):
   return candidate;
 }
 
-export function bearerFetch(token: string): typeof fetch {
+export function bearerFetch(token: string, extraHeaders: Record<string, string> = {}): typeof fetch {
   return async (input, init = {}) => {
     const headers = new Headers(init.headers);
+    for (const [name, value] of Object.entries(extraHeaders)) headers.set(name, value);
     headers.set("Authorization", `Bearer ${token}`);
+    return fetch(input, { ...init, headers });
+  };
+}
+
+export function headerFetch(extraHeaders: Record<string, string>): typeof fetch {
+  return async (input, init = {}) => {
+    const headers = new Headers(init.headers);
+    for (const [name, value] of Object.entries(extraHeaders)) headers.set(name, value);
     return fetch(input, { ...init, headers });
   };
 }

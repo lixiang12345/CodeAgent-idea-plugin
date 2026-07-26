@@ -42,6 +42,9 @@
         "CodeAgent.OpenSettingsMemories",
         "CodeAgent.OpenSettingsCommands",
         "CodeAgent.OpenSettingsSkills",
+        "CodeAgent.OpenSettingsHooks",
+        "CodeAgent.OpenSettingsAgents",
+        "CodeAgent.OpenSettingsPlugins",
         "CodeAgent.OpenSettingsUserExperience",
         "CodeAgent.OpenSettingsFeatureFlags",
         "CodeAgent.OpenSettingsBeta",
@@ -63,7 +66,7 @@
         "CodeAgent.ByokSetBedrockKey",
         "CodeAgent.ByokClearBedrockKey"
       ],
-      "extensionCount": 26,
+      "extensionCount": 29,
       "listenerCount": 4
     },
     "settingsSections": [

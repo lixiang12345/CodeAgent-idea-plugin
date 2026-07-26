@@ -4,7 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { bearerFetch, McpRuntimeManager } from "../dist/mcp-runtime.mjs";
+import {
+  bearerFetch,
+  expandEnvironmentReferences,
+  headerFetch,
+  importMcpServerConfigurations,
+  McpRuntimeManager,
+} from "../dist/mcp-runtime.mjs";
 
 const testRoot = path.dirname(fileURLToPath(import.meta.url));
 const fixture = path.join(testRoot, "fixtures", "echo-mcp-server.mjs");
@@ -106,6 +112,106 @@ test("injects an OAuth bearer token without exposing it in the URL", async () =>
     assert.equal(requests[0].headers.get("authorization"), "Bearer oauth-secret");
     assert.equal(requests[0].headers.get("x-client"), "CodeAgent");
     assert.doesNotMatch(requests[0].input, /oauth-secret/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("expands ${VAR} and ${VAR:-default} environment references", () => {
+  const environment = { PRESENT: "value", EMPTY: "" };
+  assert.equal(expandEnvironmentReferences("${PRESENT}", environment), "value");
+  assert.equal(expandEnvironmentReferences("a-${PRESENT}-b", environment), "a-value-b");
+  assert.equal(expandEnvironmentReferences("${MISSING:-fallback}", environment), "fallback");
+  assert.equal(expandEnvironmentReferences("${EMPTY:-fallback}", environment), "fallback");
+  assert.equal(expandEnvironmentReferences("${MISSING}", environment), "");
+  assert.equal(expandEnvironmentReferences("\\${PRESENT}", environment), "${PRESENT}");
+  assert.equal(expandEnvironmentReferences("${A}${B:-b}", { A: "a" }), "ab");
+});
+
+test("rejects oversized environment values", () => {
+  assert.throws(() => expandEnvironmentReferences("x".repeat(5_000)), /exceeds/);
+});
+
+test("imports the original plugin's MCP container shapes", () => {
+  const fromArray = importMcpServerConfigurations([
+    { name: "Echo", command: "node", args: ["server.mjs"] },
+  ]);
+  assert.equal(fromArray.length, 1);
+  assert.equal(fromArray[0].id, "Echo");
+  assert.equal(fromArray[0].transport, "stdio");
+
+  const fromServersKey = importMcpServerConfigurations({
+    servers: [{ name: "Remote", type: "http", url: "https://mcp.example.test/rpc" }],
+  });
+  assert.equal(fromServersKey[0].transport, "streamable-http");
+
+  const fromNameKeyedMap = importMcpServerConfigurations({
+    mcpServers: {
+      "my server": { command: "node", args: ["a.mjs"] },
+      disabledOne: { command: "node", disabled: true },
+    },
+  });
+  assert.equal(fromNameKeyedMap.length, 2);
+  assert.equal(fromNameKeyedMap[0].id, "my-server");
+  assert.equal(fromNameKeyedMap[0].name, "my server");
+  assert.equal(fromNameKeyedMap[1].enabled, false);
+});
+
+test("imports literal env and header maps with expansion", () => {
+  process.env.CODEAGENT_TEST_MCP_TOKEN = "secret-token";
+  try {
+    const [configuration] = importMcpServerConfigurations({
+      mcpServers: {
+        remote: {
+          type: "sse",
+          url: "https://mcp.example.test/sse",
+          env: { API_MODE: "live", API_KEY: "${CODEAGENT_TEST_MCP_TOKEN}" },
+          headers: { "X-Api-Key": "${CODEAGENT_TEST_MCP_TOKEN}", "X-Fallback": "${MISSING:-none}" },
+        },
+      },
+    });
+    assert.equal(configuration.transport, "sse");
+    assert.deepEqual(configuration.env, { API_MODE: "live", API_KEY: "secret-token" });
+    assert.deepEqual(configuration.headers, { "X-Api-Key": "secret-token", "X-Fallback": "none" });
+  } finally {
+    delete process.env.CODEAGENT_TEST_MCP_TOKEN;
+  }
+});
+
+test("rejects malformed env and header maps", () => {
+  assert.throws(
+    () => importMcpServerConfigurations({ mcpServers: { a: { command: "node", env: ["x"] } } }),
+    /env must be an object/,
+  );
+  assert.throws(
+    () => importMcpServerConfigurations({ mcpServers: { a: { command: "node", env: { "bad name": "x" } } } }),
+    /Invalid MCP env name/,
+  );
+  assert.throws(
+    () => importMcpServerConfigurations({ mcpServers: { a: { command: "node", headers: { "X-A": 5 } } } }),
+    /must be a string/,
+  );
+});
+
+test("rejects a configuration without a server container", () => {
+  assert.throws(() => importMcpServerConfigurations({ other: [] }), /servers or mcpServers/);
+});
+
+test("merges configured headers with an OAuth bearer token", async () => {
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    requests.push(new Headers(init?.headers));
+    return new Response("ok");
+  };
+  try {
+    await bearerFetch("token", { "X-Api-Key": "k" })("https://mcp.example.test/rpc");
+    assert.equal(requests[0].get("authorization"), "Bearer token");
+    assert.equal(requests[0].get("x-api-key"), "k");
+
+    await headerFetch({ "X-Only": "1" })("https://mcp.example.test/rpc");
+    assert.equal(requests[1].get("x-only"), "1");
+    assert.equal(requests[1].get("authorization"), null);
   } finally {
     globalThis.fetch = originalFetch;
   }

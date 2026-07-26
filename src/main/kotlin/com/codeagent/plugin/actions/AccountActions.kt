@@ -1,7 +1,9 @@
 package com.codeagent.plugin.actions
 
+import com.codeagent.plugin.settings.CodeAgentSettingsService
 import com.codeagent.plugin.ui.CodeAgentUiRequest
 import com.codeagent.plugin.ui.CodeAgentUiService
+import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.DumbAwareAction
@@ -16,9 +18,23 @@ abstract class CodeAgentUiAction(private val request: CodeAgentUiRequest) : Dumb
     }
 }
 
-class SignInAction : CodeAgentUiAction(CodeAgentUiRequest("signIn"))
+class SignInAction : CodeAgentUiAction(CodeAgentUiRequest("signIn")) {
+    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
-class SignOutAction : CodeAgentUiAction(CodeAgentUiRequest("signOut"))
+    override fun update(e: AnActionEvent) {
+        e.presentation.isEnabledAndVisible =
+            e.project != null && !service<CodeAgentSettingsService>().isSignedIn()
+    }
+}
+
+class SignOutAction : CodeAgentUiAction(CodeAgentUiRequest("signOut")) {
+    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+
+    override fun update(e: AnActionEvent) {
+        e.presentation.isEnabledAndVisible =
+            e.project != null && service<CodeAgentSettingsService>().isSignedIn()
+    }
+}
 
 class RecoverCloudConversationsAction : CodeAgentUiAction(CodeAgentUiRequest("recoverConversations"))
 

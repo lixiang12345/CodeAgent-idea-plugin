@@ -31,7 +31,6 @@
                            isLogByDefault="true"/>
         <toolWindow id="CodeAgent"
                     anchor="right"
-                    secondary="true"
                     icon="/icons/plugin.svg"
                     factoryClass="com.codeagent.plugin.ui.CodeAgentToolWindowFactory"/>
         <postStartupActivity implementation="com.codeagent.plugin.context.CodeAgentPostStartupActivity"/>
@@ -67,6 +66,9 @@
         <httpRequestHandler implementation="com.codeagent.plugin.agent.CodeAgentMcpOAuthCallbackHandler"/>
         <editorFactoryListener implementation="com.codeagent.plugin.diagnostics.CodeAgentEditorFocusListener"/>
         <editorFactoryListener implementation="com.codeagent.plugin.diagnostics.CodeAgentChatSelectionListener"/>
+        <editorFactoryListener implementation="com.codeagent.plugin.ui.CodeAgentEditorSelectionListener"/>
+        <projectService serviceImplementation="com.codeagent.plugin.ui.EditorSelectionTrackingService"/>
+        <projectService serviceImplementation="com.codeagent.plugin.agent.UntruncatedContentStore"/>
         <notificationGroup id="CodeAgent"
                            displayType="BALLOON"
                            isLogByDefault="true"/>
@@ -132,6 +134,9 @@
         <action id="CodeAgent.OpenSettingsMemories" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Memories Settings"/>
         <action id="CodeAgent.OpenSettingsCommands" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Commands Settings"/>
         <action id="CodeAgent.OpenSettingsSkills" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Skills Settings"/>
+        <action id="CodeAgent.OpenSettingsHooks" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Hooks Settings"/>
+        <action id="CodeAgent.OpenSettingsAgents" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Agents Settings"/>
+        <action id="CodeAgent.OpenSettingsPlugins" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Plugins Settings"/>
         <action id="CodeAgent.OpenSettingsUserExperience" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open User Experience Settings"/>
         <action id="CodeAgent.OpenSettingsFeatureFlags" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Feature Flags Settings"/>
         <action id="CodeAgent.OpenSettingsBeta" class="com.codeagent.plugin.actions.OpenSettingsSectionAction" icon="AllIcons.General.Settings" text="CodeAgent: Open Beta Settings"/>

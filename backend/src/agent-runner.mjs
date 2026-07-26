@@ -494,8 +494,11 @@ function mutationPaths(call) {
     if (typeof value === "string") add(value);
     else if (value && typeof value === "object") add(value.path);
   }
-  if (call.name === "apply_patch" && typeof args.patch === "string") {
-    for (const line of args.patch.split(/\r?\n/)) {
+  const patchText = call.name === "apply_patch"
+    ? (typeof args.patch === "string" ? args.patch : typeof args.input === "string" ? args.input : null)
+    : null;
+  if (patchText !== null) {
+    for (const line of patchText.split(/\r?\n/)) {
       const structured = line.match(/^\*\*\* (?:Add|Update|Delete) File:\s+(.+)$/);
       if (structured) add(structured[1]);
       const unified = line.match(/^(?:---|\+\+\+)\s+(.+)$/);

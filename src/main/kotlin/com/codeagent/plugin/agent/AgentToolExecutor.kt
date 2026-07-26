@@ -55,6 +55,7 @@ internal class AgentToolExecutor(
     private val mcpRuntime = project.service<McpRuntimeService>()
     private val acpRuntime = project.service<AcpRuntimeService>()
     private val managedProcesses = project.service<ManagedProcessService>()
+    private val untruncatedContent = project.service<UntruncatedContentStore>()
     private val remoteTools = remoteCapabilities.filter(RemoteToolCapability::available).associateBy(RemoteToolCapability::name)
     private val json = Json { ignoreUnknownKeys = true }
     private val executor = AppExecutorUtil.getAppExecutorService()
@@ -101,8 +102,29 @@ internal class AgentToolExecutor(
                 "query" to stringProperty("Text or regular expression"),
                 "path" to stringProperty("Optional project-relative directory"),
                 "regex" to booleanProperty("Interpret query as a regular expression"),
+                "case_sensitive" to booleanProperty("Match case exactly; defaults to true"),
+                "files_include_glob_pattern" to stringProperty("Optional glob restricting which files are searched, e.g. **/*.kt"),
+                "files_exclude_glob_pattern" to stringProperty("Optional glob excluding files from the search"),
+                "context_lines_before" to integerProperty("Context lines before each match", 0, 8),
+                "context_lines_after" to integerProperty("Context lines after each match", 0, 8),
             ),
             required = listOf("query"),
+        )))
+        add(tool("view_range_untruncated", "Read a line range from a tool output that was truncated. Use the reference_id printed in the truncation footer", schema(
+            properties = mapOf(
+                "reference_id" to stringProperty("Reference ID from a truncation footer"),
+                "start_line" to integerProperty("First 1-based line", 1, 1_000_000),
+                "end_line" to integerProperty("Last 1-based line", 1, 1_000_000),
+            ),
+            required = listOf("reference_id", "start_line", "end_line"),
+        )))
+        add(tool("search_untruncated", "Find a term inside a tool output that was truncated. Use the reference_id printed in the truncation footer", schema(
+            properties = mapOf(
+                "reference_id" to stringProperty("Reference ID from a truncation footer"),
+                "search_term" to stringProperty("Text to find; matching is case-insensitive"),
+                "context_lines" to integerProperty("Context lines around each match", 0, 10),
+            ),
+            required = listOf("reference_id", "search_term"),
         )))
         add(tool("diagnostics", "Verify whether IntelliJ currently reports problems for one known project file. Use after inspection or edits; it does not replace project tests", schema(
             properties = mapOf("path" to stringProperty("Project-relative file path")),
@@ -145,13 +167,13 @@ internal class AgentToolExecutor(
                 properties = mapOf("tasks" to stringArrayProperty("Task names in the order they should run", 1, 20)),
                 required = listOf("tasks"),
             )))
-            add(tool("update_tasks", "Update one existing task by ID as work starts, completes, changes, or is cancelled. Read tasks first when IDs are unknown", schema(
+            add(tool("update_tasks", "Update existing tasks by ID as work starts, completes, changes, or is cancelled. Pass task_id for one task, or tasks[] to update several in one call. Read tasks first when IDs are unknown", schema(
                 properties = mapOf(
                     "task_id" to stringProperty("Task ID returned by view_tasks"),
                     "state" to enumStringProperty("New task state", listOf("not_started", "in_progress", "completed", "cancelled")),
                     "name" to stringProperty("Optional replacement task name"),
+                    "tasks" to taskUpdateArrayProperty(),
                 ),
-                required = listOf("task_id"),
             )))
             add(tool("reorg_tasks", "Reorder the current task list only when execution order materially changes. Supply every current task ID exactly once", schema(
                 properties = mapOf("task_ids" to stringArrayProperty("Task IDs in the new order", 0, 100)),
@@ -164,14 +186,17 @@ internal class AgentToolExecutor(
                 ),
                 required = listOf("path", "content"),
             )))
-            add(tool("replace_text", "Make a focused exact-text replacement in one known file. By default the old text must occur exactly once; this mutates project content", schema(
+            add(tool("replace_text", "Make focused exact-text replacements or line insertions in one known file. Pass old_text/new_text for a single edit, or edits[] to apply several non-overlapping edits to the same file in one approved pass. Ambiguous matches can be disambiguated with old_text_start_line; this mutates project content", schema(
                 properties = mapOf(
                     "path" to stringProperty("Project-relative file path"),
-                    "old_text" to stringProperty("Exact existing text"),
-                    "new_text" to stringProperty("Replacement text"),
+                    "old_text" to stringProperty("Exact existing text for a single replacement"),
+                    "new_text" to stringProperty("Replacement text for a single replacement"),
                     "replace_all" to booleanProperty("Replace every occurrence instead of requiring exactly one"),
+                    "old_text_start_line" to integerProperty("1-based line where old_text starts; disambiguates repeated text", 1, 1_000_000),
+                    "insert_line" to integerProperty("1-based line after which new_text is inserted; use 0 to insert at the top", 0, 1_000_000),
+                    "edits" to editArrayProperty(),
                 ),
-                required = listOf("path", "old_text", "new_text"),
+                required = listOf("path"),
             )))
             add(tool("remove_files", "Delete known project files only when removal is required by the task. Verify references first; this mutates project content", schema(
                 properties = mapOf(
@@ -179,11 +204,11 @@ internal class AgentToolExecutor(
                 ),
                 required = listOf("paths"),
             )))
-            add(tool("apply_patch", "Apply a focused unified diff across one or more project files. Preserve unrelated work, keep hunks minimal, and inspect the result after mutation", schema(
+            add(tool("apply_patch", "Apply a focused patch across one or more project files. Accepts unified diff text or a '*** Begin Patch' envelope with Add/Update/Delete File sections. Preserve unrelated work, keep hunks minimal, and inspect the result after mutation", schema(
                 properties = mapOf(
-                    "patch" to stringProperty("Unified diff text (---/+++/@@ hunks)"),
+                    "patch" to stringProperty("Unified diff text (---/+++/@@ hunks) or a '*** Begin Patch' envelope"),
+                    "input" to stringProperty("Alias for patch; same accepted formats"),
                 ),
-                required = listOf("patch"),
             )))
             add(tool("ask_user", "Pause for one blocking clarification that cannot be resolved from available context. Ask a specific question and include a safe default only when appropriate. Provide options when the answer is a choice among known alternatives; the user can still type a custom answer", schema(
                 properties = mapOf(
@@ -288,7 +313,23 @@ internal class AgentToolExecutor(
         }
 
     override fun execute(call: AgentToolCall): CompletableFuture<ToolExecutionResult> =
-        CompletableFuture.supplyAsync({ executeBlocking(call) }, executor)
+        CompletableFuture.supplyAsync({ preserveUntruncated(call.name, executeBlocking(call)) }, executor)
+
+    /**
+     * Stores oversized tool output and appends a recovery footer, so the model
+     * can re-read the remainder with view_range_untruncated / search_untruncated
+     * instead of silently losing it.
+     */
+    private fun preserveUntruncated(toolName: String, result: ToolExecutionResult): ToolExecutionResult {
+        if (toolName in UNTRUNCATED_TOOLS || result.output.length <= MAX_TOOL_OUTPUT_CHARS) return result
+        val referenceId = untruncatedContent.store(toolName, result.output)
+        val totalLines = result.output.count { it == '\n' } + 1
+        val visible = result.output.take(MAX_TOOL_OUTPUT_CHARS)
+        val footer = "\n\n[Output truncated to ${visible.length} of ${result.output.length} characters " +
+            "($totalLines lines). Re-read the remainder with view_range_untruncated or search_untruncated " +
+            "using reference_id=$referenceId]"
+        return result.copy(output = visible + footer)
+    }
 
     private fun executeBlocking(call: AgentToolCall): ToolExecutionResult {
         val args = runCatching { json.parseToJsonElement(call.arguments).jsonObject }
@@ -299,6 +340,8 @@ internal class AgentToolExecutor(
             "read_file" -> readFile(args)
             "list_files" -> listFiles(args)
             "search_text" -> searchText(args)
+            "view_range_untruncated" -> viewRangeUntruncated(args)
+            "search_untruncated" -> searchUntruncated(args)
             "diagnostics" -> diagnostics(args)
             "git_history" -> gitHistory(args)
             "view_tasks" -> viewTasks()
@@ -396,26 +439,73 @@ internal class AgentToolExecutor(
         val query = args.requiredString("query")
         val directory = guard.existingDirectory(args.string("path") ?: "")
         val isRegex = args["regex"]?.jsonPrimitive?.booleanOrNull ?: false
-        val pattern = Pattern.compile(if (isRegex) query else Pattern.quote(query))
-        val matches = mutableListOf<String>()
-        Files.walk(directory).use { stream ->
-            val iterator = stream.filter { it.isRegularFile() }
-                .filter { !isIgnored(it) }
-                .limit(3_000)
-                .iterator()
-            while (iterator.hasNext() && matches.size < 80) {
-                val file = iterator.next()
-                if (Files.size(file) > 1_000_000) continue
-                val lines = runCatching { Files.readAllLines(file, StandardCharsets.UTF_8) }.getOrNull() ?: continue
-                lines.forEachIndexed { index, line ->
-                    if (matches.size < 80 && pattern.matcher(line).find()) {
-                        matches += "${root.relativize(file)}:${index + 1}: ${line.trim().take(240)}"
+        val caseSensitive = args["case_sensitive"]?.jsonPrimitive?.booleanOrNull ?: true
+        val contextBefore = (args["context_lines_before"]?.jsonPrimitive?.intOrNull ?: 0).coerceIn(0, 8)
+        val contextAfter = (args["context_lines_after"]?.jsonPrimitive?.intOrNull ?: 0).coerceIn(0, 8)
+        val includeMatcher = args.string("files_include_glob_pattern")?.takeIf(String::isNotBlank)?.let(::globMatcher)
+        val excludeMatcher = args.string("files_exclude_glob_pattern")?.takeIf(String::isNotBlank)?.let(::globMatcher)
+        val flags = if (caseSensitive) 0 else Pattern.CASE_INSENSITIVE or Pattern.UNICODE_CASE
+        val pattern = Pattern.compile(if (isRegex) query else Pattern.quote(query), flags)
+        var matchCount = 0
+        val output = buildString {
+            Files.walk(directory).use { stream ->
+                val iterator = stream.filter { it.isRegularFile() }
+                    .filter { !isIgnored(it) }
+                    .limit(3_000)
+                    .iterator()
+                while (iterator.hasNext() && matchCount < 80) {
+                    val file = iterator.next()
+                    val relative = root.relativize(file)
+                    if (includeMatcher != null && !matchesGlob(includeMatcher, relative)) continue
+                    if (excludeMatcher != null && matchesGlob(excludeMatcher, relative)) continue
+                    if (Files.size(file) > 1_000_000) continue
+                    val lines = runCatching { Files.readAllLines(file, StandardCharsets.UTF_8) }.getOrNull() ?: continue
+                    lines.forEachIndexed { index, line ->
+                        if (matchCount < 80 && pattern.matcher(line).find()) {
+                            matchCount += 1
+                            for (context in (index - contextBefore).coerceAtLeast(0) until index) {
+                                appendLine("$relative:${context + 1}- ${lines[context].trim().take(240)}")
+                            }
+                            appendLine("$relative:${index + 1}: ${line.trim().take(240)}")
+                            for (context in index + 1..(index + contextAfter).coerceAtMost(lines.lastIndex)) {
+                                appendLine("$relative:${context + 1}- ${lines[context].trim().take(240)}")
+                            }
+                        }
                     }
                 }
             }
-        }
-        val output = matches.joinToString("\n").ifEmpty { "No matches" }
-        return ToolExecutionResult(output, "Found ${matches.size} matches", output.take(MAX_DETAIL_CHARS))
+        }.trimEnd().ifEmpty { "No matches" }
+        return ToolExecutionResult(output, "Found $matchCount matches", output.take(MAX_DETAIL_CHARS))
+    }
+
+    private fun globMatcher(pattern: String): java.nio.file.PathMatcher =
+        java.nio.file.FileSystems.getDefault().getPathMatcher("glob:$pattern")
+
+    private fun matchesGlob(matcher: java.nio.file.PathMatcher, relative: Path): Boolean =
+        matcher.matches(relative) || matcher.matches(relative.fileName)
+
+    private fun viewRangeUntruncated(args: JsonObject): ToolExecutionResult {
+        val referenceId = args.requiredString("reference_id")
+        val startLine = requireNotNull(args["start_line"]?.jsonPrimitive?.intOrNull) { "start_line is required" }
+        val endLine = requireNotNull(args["end_line"]?.jsonPrimitive?.intOrNull) { "end_line is required" }
+        val output = untruncatedContent.viewRange(referenceId, startLine, endLine)
+        return ToolExecutionResult(
+            output = output,
+            summary = "Read lines $startLine-$endLine of $referenceId",
+            detail = output.take(MAX_DETAIL_CHARS),
+        )
+    }
+
+    private fun searchUntruncated(args: JsonObject): ToolExecutionResult {
+        val referenceId = args.requiredString("reference_id")
+        val term = args.requiredString("search_term")
+        val context = args["context_lines"]?.jsonPrimitive?.intOrNull ?: 2
+        val output = untruncatedContent.search(referenceId, term, context)
+        return ToolExecutionResult(
+            output = output,
+            summary = "Searched $referenceId for \"$term\"",
+            detail = output.take(MAX_DETAIL_CHARS),
+        )
     }
 
     private fun diagnostics(args: JsonObject): ToolExecutionResult {
@@ -478,20 +568,37 @@ internal class AgentToolExecutor(
     }
 
     private fun addTasks(args: JsonObject): ToolExecutionResult {
-        val names = args["tasks"]?.jsonArray?.map { it.jsonPrimitive.content }
-            ?: error("tasks is required")
+        // Accepts plain names or the original plugin's `{name, description}` objects.
+        val names = args["tasks"]?.jsonArray?.map { element ->
+            when (element) {
+                is JsonObject -> element.requiredString("name")
+                else -> element.jsonPrimitive.content
+            }
+        } ?: error("tasks is required")
         conversations.addTasks(names)
         return viewTasks()
     }
 
     private fun updateTask(args: JsonObject): ToolExecutionResult {
-        val task = conversations.updateTask(
-            taskId = args.requiredString("task_id"),
-            state = args.string("state"),
-            name = args.string("name"),
-        )
+        val batch = args["tasks"]?.jsonArray?.takeIf { it.isNotEmpty() }
+        val updates = batch?.map { it.jsonObject } ?: listOf(args)
+        require(updates.size <= MAX_TASK_UPDATES) { "Update at most $MAX_TASK_UPDATES tasks at once" }
+        val updated = updates.map { update ->
+            conversations.updateTask(
+                taskId = update.requiredString("task_id"),
+                state = update.string("state")?.let(::normalizeTaskState),
+                name = update.string("name"),
+            )
+        }
         val output = formatTasks(conversations.active().tasks)
-        return ToolExecutionResult(output, "Updated ${task.name}", output.take(MAX_DETAIL_CHARS))
+        val summary = if (updated.size == 1) "Updated ${updated.single().name}" else "Updated ${updated.size} tasks"
+        return ToolExecutionResult(output, summary, output.take(MAX_DETAIL_CHARS))
+    }
+
+    /** Accepts both CodeAgent's lower_snake states and the original plugin's UPPER_SNAKE vocabulary. */
+    private fun normalizeTaskState(raw: String): String = when (val value = raw.trim().lowercase()) {
+        "complete" -> "completed"
+        else -> value
     }
 
     private fun reorganizeTasks(args: JsonObject): ToolExecutionResult {
@@ -539,24 +646,48 @@ internal class AgentToolExecutor(
 
     private fun replaceText(args: JsonObject): ToolExecutionResult {
         val relative = args.requiredString("path")
-        val oldText = args.requiredString("old_text")
-        val newText = args.requiredString("new_text", allowEmpty = true)
-        val replaceAll = args["replace_all"]?.jsonPrimitive?.booleanOrNull ?: false
+        val edits = parseTextEdits(args)
         val file = guard.existingFile(relative)
         val content = Files.readString(file, StandardCharsets.UTF_8)
-        val occurrences = content.windowed(oldText.length, 1).count { it == oldText }
-        require(occurrences > 0) { "old_text was not found in $relative" }
-        require(replaceAll || occurrences == 1) {
-            "old_text occurs $occurrences times in $relative; set replace_all=true or provide a more specific match"
-        }
-        val updated = if (replaceAll) content.replace(oldText, newText) else content.replaceFirst(oldText, newText)
+        val updated = TextEditPlan.apply(relative, content, edits)
+        require(updated != content) { "The requested edits did not change $relative" }
         Files.writeString(file, updated, StandardCharsets.UTF_8, StandardOpenOption.TRUNCATE_EXISTING)
         refresh(file)
+        val detail = edits.joinToString("\n\n") { edit ->
+            val removed = edit.oldText?.let { "-${it.take(600)}\n" }.orEmpty()
+            "$removed+${edit.newText.take(600)}"
+        }
         return ToolExecutionResult(
-            "Replaced ${if (replaceAll) occurrences else 1} occurrence(s) in $relative",
+            "Applied ${edits.size} edit(s) to $relative",
             "Edited $relative",
-            "-${oldText.take(1200)}\n+${newText.take(1200)}",
+            detail.take(MAX_DETAIL_CHARS),
             FileChange(relative, content, updated),
+        )
+    }
+
+    private fun parseTextEdits(args: JsonObject): List<TextEdit> {
+        val batch = args["edits"]?.jsonArray
+        if (batch != null && batch.isNotEmpty()) {
+            require(args["old_text"] == null && args["insert_line"] == null) {
+                "Pass either edits[] or a single old_text/insert_line edit, not both"
+            }
+            return batch.map { element -> textEdit(element.jsonObject, replaceAll = false) }
+        }
+        return listOf(textEdit(args, replaceAll = args["replace_all"]?.jsonPrimitive?.booleanOrNull ?: false))
+    }
+
+    private fun textEdit(source: JsonObject, replaceAll: Boolean): TextEdit {
+        val oldText = source.string("old_text")
+        val insertLine = source["insert_line"]?.jsonPrimitive?.intOrNull
+        require(!oldText.isNullOrEmpty() || insertLine != null) {
+            "Each edit needs either old_text to replace or insert_line to insert at"
+        }
+        return TextEdit(
+            oldText = oldText,
+            newText = source.requiredString("new_text", allowEmpty = true),
+            oldTextStartLine = source["old_text_start_line"]?.jsonPrimitive?.intOrNull,
+            insertLine = insertLine,
+            replaceAll = replaceAll,
         )
     }
 
@@ -731,7 +862,8 @@ internal class AgentToolExecutor(
     }
 
     private fun applyPatch(args: JsonObject): ToolExecutionResult {
-        val patch = args.requiredString("patch")
+        val patch = args.string("patch") ?: args.string("input") ?: error("patch (or input) is required")
+        if (PatchEnvelope.isEnvelope(patch)) return applyEnvelopePatch(patch)
         val files = parseUnifiedDiff(patch)
         require(files.isNotEmpty()) { "patch did not contain any file hunks" }
         val summaries = mutableListOf<String>()
@@ -744,6 +876,67 @@ internal class AgentToolExecutor(
             refresh(file)
             summaries += relative
             if (before != after) changes += FileChange(relative, before, after)
+        }
+        val output = "Applied patch to ${summaries.size} file(s):\n" + summaries.joinToString("\n")
+        return ToolExecutionResult(
+            output = output,
+            summary = "Patched ${summaries.size} file(s)",
+            detail = output.take(MAX_DETAIL_CHARS),
+            fileChange = changes.firstOrNull(),
+            fileChanges = changes,
+        )
+    }
+
+    private fun applyEnvelopePatch(patch: String): ToolExecutionResult {
+        val sections = PatchEnvelope.parse(patch)
+        require(sections.isNotEmpty()) { "patch envelope did not contain any file sections" }
+        val summaries = mutableListOf<String>()
+        val changes = mutableListOf<FileChange>()
+        for (section in sections) {
+            when (section) {
+                is PatchEnvelopeSection.AddFile -> {
+                    val file = guard.pathForWrite(section.path)
+                    require(!Files.isRegularFile(file)) { "${section.path} already exists; use Update File" }
+                    Files.createDirectories(requireNotNull(file.parent))
+                    Files.writeString(file, section.content, StandardCharsets.UTF_8, StandardOpenOption.CREATE)
+                    refresh(file)
+                    summaries += "A ${section.path}"
+                    changes += FileChange(section.path, null, section.content)
+                }
+                is PatchEnvelopeSection.DeleteFile -> {
+                    val file = guard.existingFile(section.path)
+                    val before = Files.readString(file, StandardCharsets.UTF_8)
+                    Files.delete(file)
+                    refresh(file)
+                    summaries += "D ${section.path}"
+                    changes += FileChange(section.path, before, "")
+                }
+                is PatchEnvelopeSection.UpdateFile -> {
+                    val file = guard.existingFile(section.path)
+                    val before = Files.readString(file, StandardCharsets.UTF_8).replace("\r\n", "\n")
+                    val after = PatchEnvelope.applyChunks(section.path, before, section.chunks)
+                    val target = section.movePath?.let { move ->
+                        val destination = guard.pathForWrite(move)
+                        Files.createDirectories(requireNotNull(destination.parent))
+                        Files.delete(file)
+                        refresh(file)
+                        destination
+                    } ?: file
+                    Files.writeString(
+                        target,
+                        after,
+                        StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.TRUNCATE_EXISTING,
+                    )
+                    refresh(target)
+                    val label = section.movePath?.let { "${section.path} -> $it" } ?: section.path
+                    summaries += "M $label"
+                    if (before != after || section.movePath != null) {
+                        changes += FileChange(section.movePath ?: section.path, before, after)
+                    }
+                }
+            }
         }
         val output = "Applied patch to ${summaries.size} file(s):\n" + summaries.joinToString("\n")
         return ToolExecutionResult(
@@ -920,6 +1113,41 @@ internal class AgentToolExecutor(
         put("maxItems", maxItems)
     }
 
+    private fun taskUpdateArrayProperty() = buildJsonObject {
+        put("type", "array")
+        put("description", "Task updates applied in one call")
+        put("items", buildJsonObject {
+            put("type", "object")
+            put("properties", buildJsonObject {
+                put("task_id", stringProperty("Task ID returned by view_tasks"))
+                put("state", enumStringProperty("New task state", listOf("not_started", "in_progress", "completed", "cancelled")))
+                put("name", stringProperty("Optional replacement task name"))
+            })
+            put("required", buildJsonArray { add(JsonPrimitive("task_id")) })
+            put("additionalProperties", false)
+        })
+        put("minItems", 1)
+        put("maxItems", 20)
+    }
+
+    private fun editArrayProperty() = buildJsonObject {
+        put("type", "array")
+        put("description", "Non-overlapping edits applied to the same file in one pass")
+        put("items", buildJsonObject {
+            put("type", "object")
+            put("properties", buildJsonObject {
+                put("old_text", stringProperty("Exact existing text to replace; omit when inserting"))
+                put("new_text", stringProperty("Replacement or inserted text"))
+                put("old_text_start_line", integerProperty("1-based line where old_text starts", 1, 1_000_000))
+                put("insert_line", integerProperty("1-based line after which new_text is inserted; 0 inserts at the top", 0, 1_000_000))
+            })
+            put("required", buildJsonArray { add(JsonPrimitive("new_text")) })
+            put("additionalProperties", false)
+        })
+        put("minItems", 1)
+        put("maxItems", 40)
+    }
+
     private fun JsonObject.requiredString(name: String, allowEmpty: Boolean = false): String {
         val value = get(name)?.jsonPrimitive?.contentOrNull ?: error("$name is required")
         require(allowEmpty || value.isNotBlank()) { "$name must not be blank" }
@@ -932,6 +1160,11 @@ internal class AgentToolExecutor(
         private const val MAX_EXPLICIT_RETRIEVAL_TOKENS = 1_000_000
         private const val MAX_DETAIL_CHARS = 8_000
         private const val MAX_MERMAID_CHARS = 8_000
+        private const val MAX_TOOL_OUTPUT_CHARS = 40_000
+        private const val MAX_TASK_UPDATES = 20
+
+        /** Recovery tools must never truncate themselves into a new reference. */
+        private val UNTRUNCATED_TOOLS = setOf("view_range_untruncated", "search_untruncated")
         private val IGNORED_SEGMENTS = setOf(".git", ".idea", ".gradle", ".contextengine", "build", "dist", "node_modules", "out")
         private val HUNK_HEADER = Regex("""^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@.*$""")
     }

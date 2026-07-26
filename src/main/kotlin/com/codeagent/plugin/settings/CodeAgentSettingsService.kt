@@ -18,10 +18,35 @@ const val DEFAULT_CONTEXT_RERANK_MODEL = "Qwen/Qwen3-Reranker-0.6B"
 class CodeAgentSettingsService : PersistentStateComponent<CodeAgentSettingsState> {
     private var settings = CodeAgentSettingsState()
 
+    @Volatile
+    private var signedIn: Boolean? = null
+
     override fun getState(): CodeAgentSettingsState = settings
 
     override fun loadState(state: CodeAgentSettingsState) {
         settings = state
+    }
+
+    fun toolPermissionRulesText(): String = settings.toolPermissionRules
+
+    fun setToolPermissionRulesText(value: String) {
+        val normalized = value.lines().map(String::trim).filter(String::isNotEmpty)
+        require(normalized.size <= MAX_TOOL_PERMISSION_RULES) {
+            "At most $MAX_TOOL_PERMISSION_RULES tool permission rules are supported"
+        }
+        normalized.forEach { line ->
+            require(line.length <= MAX_TOOL_PERMISSION_RULE_CHARS) {
+                "Each tool permission rule must be at most $MAX_TOOL_PERMISSION_RULE_CHARS characters"
+            }
+        }
+        settings.toolPermissionRules = normalized.joinToString("\n")
+    }
+
+    /** Cached credential presence check, cheap enough for action `update()` on the BGT. */
+    fun isSignedIn(): Boolean = signedIn ?: run {
+        val present = !PasswordSafe.instance.getPassword(BACKEND_TOKEN_ATTRIBUTES).isNullOrBlank()
+        signedIn = present
+        present
     }
 
     fun snapshot(): CodeAgentSettings = CodeAgentSettings(
@@ -45,6 +70,7 @@ class CodeAgentSettingsService : PersistentStateComponent<CodeAgentSettingsState
         contextNeuralRerank = settings.contextNeuralRerank,
         contextRerankBaseUrl = settings.contextRerankBaseUrl,
         contextRerankModel = settings.contextRerankModel,
+        toolPermissionRulesText = settings.toolPermissionRules,
     )
 
     fun update(update: CodeAgentSettingsUpdate) {
@@ -93,9 +119,11 @@ class CodeAgentSettingsService : PersistentStateComponent<CodeAgentSettingsState
             PasswordSafe.instance.setPassword(BACKEND_TOKEN_ATTRIBUTES, null)
             PasswordSafe.instance.setPassword(REFRESH_TOKEN_ATTRIBUTES, null)
             settings.tokenExpiresAtEpochSeconds = 0
+            signedIn = false
         } else {
             update.backendToken?.takeIf { it.isNotBlank() }?.let {
                 PasswordSafe.instance.setPassword(BACKEND_TOKEN_ATTRIBUTES, it)
+                signedIn = true
             }
         }
         if (update.clearContextHttpApiKey) {
@@ -119,12 +147,14 @@ class CodeAgentSettingsService : PersistentStateComponent<CodeAgentSettingsState
         PasswordSafe.instance.setPassword(BACKEND_TOKEN_ATTRIBUTES, accessToken)
         PasswordSafe.instance.setPassword(REFRESH_TOKEN_ATTRIBUTES, refreshToken)
         settings.tokenExpiresAtEpochSeconds = expiresAtEpochSeconds
+        signedIn = true
     }
 
     fun clearAuthTokens() {
         PasswordSafe.instance.setPassword(BACKEND_TOKEN_ATTRIBUTES, null)
         PasswordSafe.instance.setPassword(REFRESH_TOKEN_ATTRIBUTES, null)
         settings.tokenExpiresAtEpochSeconds = 0
+        signedIn = false
     }
 
     private fun normalizeHttpUrl(value: String, label: String, allowRemoteHttp: Boolean): String {
@@ -141,6 +171,8 @@ class CodeAgentSettingsService : PersistentStateComponent<CodeAgentSettingsState
     }
 
     companion object {
+        const val MAX_TOOL_PERMISSION_RULES = 100
+        const val MAX_TOOL_PERMISSION_RULE_CHARS = 400
         private val BACKEND_TOKEN_ATTRIBUTES = CredentialAttributes("CodeAgent backend authentication token")
         private val REFRESH_TOKEN_ATTRIBUTES = CredentialAttributes("CodeAgent OIDC refresh token")
         private val CONTEXT_HTTP_TOKEN_ATTRIBUTES = CredentialAttributes("CodeAgent ContextEngine HTTP token")
@@ -169,6 +201,7 @@ data class CodeAgentSettings(
     val contextNeuralRerank: Boolean = false,
     val contextRerankBaseUrl: String = "",
     val contextRerankModel: String = DEFAULT_CONTEXT_RERANK_MODEL,
+    val toolPermissionRulesText: String = "",
 )
 
 data class CodeAgentSettingsUpdate(
@@ -212,4 +245,11 @@ class CodeAgentSettingsState {
     var contextNeuralRerank: Boolean = false
     var contextRerankBaseUrl: String = ""
     var contextRerankModel: String = DEFAULT_CONTEXT_RERANK_MODEL
+
+    /**
+     * Per-tool permission rules, one per line, as
+     * `toolName=allow|deny|ask[;shellInputRegex]`. Empty means the global
+     * auto-approve setting alone decides.
+     */
+    var toolPermissionRules: String = ""
 }

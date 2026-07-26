@@ -2,7 +2,9 @@ package com.codeagent.plugin.ui
 
 import com.codeagent.plugin.agent.AgentOrchestrator
 import com.codeagent.plugin.agent.InlineCompletionSettingsService
+import com.codeagent.plugin.agent.InlineCompletionTelemetryService
 import com.codeagent.plugin.context.ContextEngineService
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
@@ -15,6 +17,7 @@ import com.intellij.util.concurrency.AppExecutorUtil
 import java.awt.event.MouseEvent
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import javax.swing.Icon
 
 private const val CODEAGENT_STATUS_WIDGET_ID = "CodeAgentStatusBar"
 
@@ -30,23 +33,33 @@ class CodeAgentStatusBarWidgetFactory : StatusBarWidgetFactory {
     override fun disposeWidget(widget: StatusBarWidget) = widget.dispose()
 
     override fun isEnabledByDefault(): Boolean = true
-
 }
 
 private class CodeAgentStatusBarWidget(
     private val project: Project,
 ) : StatusBarWidget {
     @Volatile
-    private var label = "CodeAgent"
+    private var state = CodeAgentStatusState.INITIALIZING
 
     @Volatile
-    private var tooltip = "CodeAgent: checking backend and project context"
+    private var detail = "checking backend and project context"
+
+    @Volatile
+    private var backendOnline: Boolean? = null
 
     @Volatile
     private var statusBar: StatusBar? = null
 
-    private val refreshTask: ScheduledFuture<*> = AppExecutorUtil.getAppScheduledExecutorService()
-        .scheduleWithFixedDelay(::refresh, 0, REFRESH_SECONDS, TimeUnit.SECONDS)
+    private val telemetry = service<InlineCompletionTelemetryService>()
+
+    /**
+     * Completion activity drives the widget directly; the scheduled task only
+     * refreshes backend and context health, which have no push notification.
+     */
+    private val unsubscribeTelemetry: () -> Unit = telemetry.addActivityListener(::recompute)
+
+    private val healthTask: ScheduledFuture<*> = AppExecutorUtil.getAppScheduledExecutorService()
+        .scheduleWithFixedDelay(::refreshHealth, 0, HEALTH_REFRESH_SECONDS, TimeUnit.SECONDS)
 
     override fun ID(): String = CODEAGENT_STATUS_WIDGET_ID
 
@@ -54,25 +67,31 @@ private class CodeAgentStatusBarWidget(
         this.statusBar = statusBar
     }
 
-    override fun getPresentation(): StatusBarWidget.WidgetPresentation = object : StatusBarWidget.TextPresentation {
-        override fun getText(): String = label
-
-        override fun getAlignment(): Float = 0f
-
-        override fun getTooltipText(): String = tooltip
-
-        override fun getClickConsumer(): Consumer<MouseEvent> = Consumer {
-            ToolWindowManager.getInstance(project).getToolWindow("CodeAgent")?.show()
+    override fun getPresentation(): StatusBarWidget.WidgetPresentation = object : StatusBarWidget.IconPresentation {
+        override fun getIcon(): Icon = when (state) {
+            CodeAgentStatusState.INITIALIZING -> AllIcons.Process.Step_1
+            CodeAgentStatusState.BACKEND_UNAVAILABLE -> AllIcons.General.Warning
+            CodeAgentStatusState.GENERATING_COMPLETION -> AllIcons.Process.Step_passive
+            CodeAgentStatusState.NO_COMPLETIONS -> AllIcons.General.BalloonInformation
+            CodeAgentStatusState.COMPLETIONS_DISABLED -> AllIcons.Diff.GutterCheckBox
+            CodeAgentStatusState.READY -> AllIcons.Actions.Lightning
         }
 
+        override fun getTooltipText(): String = "${state.tooltip} — $detail"
+
+        override fun getClickConsumer(): Consumer<MouseEvent> = Consumer {
+            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("CodeAgent") ?: return@Consumer
+            if (toolWindow.isVisible) toolWindow.hide() else toolWindow.show()
+        }
     }
 
     override fun dispose() {
-        refreshTask.cancel(false)
+        healthTask.cancel(false)
+        unsubscribeTelemetry()
         statusBar = null
     }
 
-    private fun refresh() {
+    private fun refreshHealth() {
         if (project.isDisposed) return
         val backend = project.service<AgentOrchestrator>().health().handle { health, error ->
             error == null && health?.ok == true
@@ -80,29 +99,39 @@ private class CodeAgentStatusBarWidget(
         val context = project.service<ContextEngineService>().status().handle { value, error ->
             if (error == null) value else null
         }
-        backend.thenCombine(context) { backendOnline, contextStatus ->
+        backend.thenCombine(context) { online, contextStatus ->
             val contextText = when {
                 contextStatus == null -> "context unavailable"
                 contextStatus.indexed && contextStatus.watching -> "context synced (${contextStatus.fileCount} files)"
                 contextStatus.indexed -> "context indexed (${contextStatus.fileCount} files)"
                 else -> "context not indexed"
             }
-            val completions = if (service<InlineCompletionSettingsService>().isEnabled()) "inline on" else "inline off"
-            val nextLabel = if (backendOnline) "CodeAgent" else "CodeAgent !"
-            val nextTooltip = "CodeAgent: ${if (backendOnline) "backend online" else "backend unavailable"}, $contextText, $completions"
-            ApplicationManager.getApplication().invokeLater {
-                if (!project.isDisposed) update(nextLabel, nextTooltip)
-            }
+            backendOnline = online
+            detail = "${if (online) "backend online" else "backend unavailable"}, $contextText"
+            recompute()
         }
     }
 
-    private fun update(nextLabel: String, nextTooltip: String) {
-        label = nextLabel
-        tooltip = nextTooltip
-        statusBar?.updateWidget(ID())
+    private fun recompute() {
+        if (project.isDisposed) return
+        val next = CodeAgentStatusState.resolve(
+            initializing = false,
+            backendOnline = backendOnline,
+            generating = telemetry.isGenerating(),
+            lastRequestSuggested = telemetry.lastRequestSuggested(),
+            completionsEnabled = service<InlineCompletionSettingsService>().isEnabled(),
+        )
+        if (next == state) {
+            statusBar?.let { bar -> ApplicationManager.getApplication().invokeLater { bar.updateWidget(ID()) } }
+            return
+        }
+        state = next
+        ApplicationManager.getApplication().invokeLater {
+            if (!project.isDisposed) statusBar?.updateWidget(ID())
+        }
     }
 
     private companion object {
-        const val REFRESH_SECONDS = 20L
+        const val HEALTH_REFRESH_SECONDS = 20L
     }
 }
