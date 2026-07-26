@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -10,19 +16,28 @@ const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 
 function parseArguments(argv) {
   let increment = "--patch";
+  let incrementSpecified = false;
+  let current = false;
   let allowDirty = false;
 
   for (const argument of argv) {
     if (argument === "--allow-dirty") {
       allowDirty = true;
+    } else if (argument === "--current") {
+      current = true;
     } else if (["--patch", "--minor", "--major"].includes(argument)) {
       increment = argument;
+      incrementSpecified = true;
     } else {
       throw new Error(`Unknown argument: ${argument}`);
     }
   }
 
-  return { increment, allowDirty };
+  if (current && incrementSpecified) {
+    throw new Error("--current cannot be combined with --patch, --minor, or --major");
+  }
+
+  return { increment, current, allowDirty };
 }
 
 function run(command, arguments_, options = {}) {
@@ -90,10 +105,18 @@ function sha256(filePath) {
 }
 
 function main() {
-  const { increment, allowDirty } = parseArguments(process.argv.slice(2));
+  const { increment, current, allowDirty } = parseArguments(process.argv.slice(2));
   requireCleanWorktree(allowDirty);
 
-  run(process.execPath, ["scripts/bump-version.mjs", increment]);
+  const sourceRevision = run("git", ["rev-parse", "HEAD"], { capture: true }).trim();
+  const contextEngineRevision = run(
+    "git",
+    ["-C", "vendor/context-engine", "rev-parse", "HEAD"],
+    { capture: true },
+  ).trim();
+  if (!current) {
+    run(process.execPath, ["scripts/bump-version.mjs", increment]);
+  }
   const version = readVersion();
   run(process.execPath, ["scripts/bump-version.mjs", "--check"]);
 
@@ -117,11 +140,46 @@ function main() {
   run(process.execPath, ["scripts/verify-ides.mjs"]);
 
   const artifactPath = findArtifact(version);
+  const artifactDigest = sha256(artifactPath);
+  const reportPath = path.join(repositoryRoot, "build", "reports", "release-candidate.json");
+  const report = {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    version,
+    mode: current ? "current" : increment.slice(2),
+    sourceRevision,
+    contextEngineRevision,
+    artifact: {
+      path: path.relative(repositoryRoot, artifactPath),
+      sha256: artifactDigest,
+    },
+    verification: {
+      versionMetadata: "passed",
+      frontend: "passed",
+      sidecar: "passed",
+      backend: "passed",
+      contextEngine: "passed",
+      prototypeParity: "passed",
+      githubLiveEvidence: "passed",
+      integrationReadiness: "passed",
+      repositoryRetrieval: "passed",
+      pluginTests: "passed",
+      pluginStructure: "passed",
+      installedIdeVerifier: "passed",
+    },
+  };
+  mkdirSync(path.dirname(reportPath), { recursive: true });
+  writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
   console.log("\nRelease build completed.");
   console.log(`Version: ${version}`);
   console.log(`Artifact: ${artifactPath}`);
-  console.log(`SHA-256: ${sha256(artifactPath)}`);
-  console.log("Commit the synchronized version changes before creating the release tag.");
+  console.log(`SHA-256: ${artifactDigest}`);
+  console.log(`Report: ${reportPath}`);
+  if (current) {
+    console.log("Current version metadata was verified without modification.");
+  } else {
+    console.log("Commit the synchronized version changes before creating the release tag.");
+  }
 }
 
 try {

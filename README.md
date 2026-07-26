@@ -62,7 +62,7 @@ For an official local release build, use:
 node scripts/build-release.mjs
 ```
 
-That command requires a clean worktree, increments the patch version across the plugin, frontend, sidecar, backend, OpenAPI contract, Docker image, and MCP client metadata, then runs the complete verification suite and creates the versioned ZIP. Use `--minor` or `--major` when preparing those release types. `--allow-dirty` is available only for local verification while release-tooling changes are still uncommitted.
+That command requires a clean worktree, increments the patch version across the plugin, frontend, sidecar, backend, OpenAPI contract, Docker image, MCP client metadata, and Changelog, then runs the complete verification suite and creates the versioned ZIP plus `build/reports/release-candidate.json`. Use `--minor` or `--major` when preparing those release types. Use `--current` to reconstruct and verify the already-synchronized version without changing metadata. `--allow-dirty` is available only for local verification while release-tooling changes are still uncommitted.
 
 ContextEngine is pinned as a Git submodule and bundled into the local Node sidecar. The JVM connects through an authenticated loopback Protobuf/gRPC stream; its SQLite index and file watcher run on each developer machine. Lexical, symbol, path, graph, and Git-lineage retrieval need no model. CodeAgent does not install or start a local embedding or reranker model; semantic retrieval is an explicit opt-in to an operator- or organization-hosted OpenAI-compatible endpoint and requires an explicit index rebuild. Its MIT license is included in the plugin distribution; see [third-party notices](THIRD_PARTY_NOTICES.md).
 

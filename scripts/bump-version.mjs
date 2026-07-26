@@ -114,6 +114,17 @@ function assertSynchronized(version) {
     errors.push(`sidecar/src/acp-runtime.ts client: expected ${version}, found ${acpRuntimeVersion ?? "<missing>"}`);
   }
 
+  const escapedVersion = version.replaceAll(".", "\\.");
+  const changelog = read("CHANGELOG.md");
+  const releaseHeadings = [
+    ...changelog.matchAll(new RegExp(`^## ${escapedVersion} - \\d{4}-\\d{2}-\\d{2}$`, "gm")),
+  ];
+  if (releaseHeadings.length !== 1) {
+    errors.push(
+      `CHANGELOG.md: expected one release heading for ${version}, found ${releaseHeadings.length}`,
+    );
+  }
+
   if (errors.length > 0) {
     throw new Error(`Version metadata is not synchronized:\n- ${errors.join("\n- ")}`);
   }
@@ -179,6 +190,22 @@ function buildUpdates(fromVersion, toVersion) {
     read("sidecar/src/acp-runtime.ts").replace(
       `clientInfo: { name: "CodeAgent", title: "CodeAgent for JetBrains", version: "${fromVersion}" }`,
       `clientInfo: { name: "CodeAgent", title: "CodeAgent for JetBrains", version: "${toVersion}" }`,
+    ),
+  );
+
+  const changelog = read("CHANGELOG.md");
+  const unreleasedHeadings = [...changelog.matchAll(/^## Unreleased$/gm)];
+  if (unreleasedHeadings.length !== 1) {
+    throw new Error(
+      `CHANGELOG.md must contain exactly one Unreleased heading, found ${unreleasedHeadings.length}`,
+    );
+  }
+  const releaseDate = new Date().toISOString().slice(0, 10);
+  updates.set(
+    "CHANGELOG.md",
+    changelog.replace(
+      /^## Unreleased$/m,
+      `## Unreleased\n\n## ${toVersion} - ${releaseDate}`,
     ),
   );
 
