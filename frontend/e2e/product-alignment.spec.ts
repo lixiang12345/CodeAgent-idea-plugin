@@ -145,10 +145,30 @@ test("Services groups cloud capabilities and distinguishes discovery states", as
   await expect(notionProvider.getByText("Requires NOTION_TOKEN", { exact: true })).toBeVisible();
   if (testInfo.project.name === "tool-window-420") await captureShell(page, "services-cloud-discovery.png");
 
-  const refresh = page.getByRole("button", { name: "Refresh backend tools", exact: true });
-  await refresh.click();
+  // The loading state is asserted from an explicit snapshot: the development host
+  // holds it for 220 ms, which a loaded machine can outrun between assertions.
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      backendToolDiscovery: { state: "loading", label: "Refreshing backend tools" },
+    });
+  });
   await expect(page.getByRole("status").filter({ hasText: "Checking backend capabilities" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Refresh backend tools", exact: true })).toBeDisabled();
+
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      backendToolDiscovery: { state: "ready", label: "5 of 7 capabilities available" },
+    });
+  });
+  const refresh = page.getByRole("button", { name: "Refresh backend tools", exact: true });
+  await expect(refresh).toBeEnabled();
+  await refresh.click();
   await expect(page.getByText("5 of 7 capabilities available", { exact: true })).toBeVisible();
 
   await page.evaluate(() => {
@@ -161,9 +181,11 @@ test("Services groups cloud capabilities and distinguishes discovery states", as
   });
   await expect(page.getByRole("alert")).toContainText("HTTP 503 from /v1/tools");
   const retry = page.getByRole("button", { name: "Retry backend tool discovery", exact: true });
+  await expect(retry).toBeEnabled();
   await retry.click();
-  await expect(page.getByRole("status").filter({ hasText: "Checking backend capabilities" })).toBeVisible();
+  // Retrying leaves the error state and settles back into a labelled ready row.
   await expect(page.getByRole("button", { name: "Refresh backend tools", exact: true })).toBeEnabled();
+  await expect(page.getByRole("alert")).toHaveCount(0);
 
   await page.evaluate(() => {
     const snapshot = window.CodeAgentDevelopment?.getSnapshot();
@@ -1401,4 +1423,52 @@ test("@ mentions search project files, become removable chips, and ride along wi
   await page.locator("button.send-button").click();
   await expect(page.locator(".mention-chip")).toHaveCount(0);
   await expect(composer).toHaveValue("");
+});
+
+test("overlays return focus to the control that opened them", async ({ page }) => {
+  const threadsButton = page.getByRole("button", { name: "Threads", exact: true }).first();
+  await threadsButton.click();
+  await expect(page.locator(".thread-drawer")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".thread-drawer")).toHaveCount(0);
+  await expect(threadsButton).toBeFocused();
+
+  // Closing through the explicit button must land in the same place as Escape.
+  await threadsButton.click();
+  await page.getByRole("button", { name: "Close", exact: true }).first().click();
+  await expect(threadsButton).toBeFocused();
+
+  const options = page.getByTitle("Thread options").first();
+  await options.click();
+  await expect(page.locator(".thread-opt-menu")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".thread-opt-menu")).toHaveCount(0);
+  await expect(options).toBeFocused();
+  await expectViewportIntegrity(page);
+});
+
+test("disabled controls say why they are unavailable", async ({ page }) => {
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      models: { ...snapshot.models, state: "error", label: "Sign in to load models", options: [] },
+      sharing: { state: "unavailable", reason: "Shareable links are not configured on this deployment" },
+    });
+  });
+
+  const modelButton = page.locator("button.model-select");
+  await expect(modelButton).toBeDisabled();
+  await expect(modelButton).toHaveAttribute("title", "Sign in to load models");
+
+  const shareButton = page.getByRole("button", { name: "Share this conversation" });
+  await expect(shareButton).toBeDisabled();
+  await expect(shareButton).toHaveAttribute("title", "Shareable links are not configured on this deployment");
+
+  // Every disabled control in the composer must carry an explanation.
+  const unexplained = await page.evaluate(() => [...document.querySelectorAll(".composer button[disabled]")]
+    .filter((button) => !button.getAttribute("title") && !button.getAttribute("aria-label"))
+    .map((button) => button.className));
+  expect(unexplained).toEqual([]);
 });

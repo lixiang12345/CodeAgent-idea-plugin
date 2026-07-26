@@ -105,6 +105,7 @@
   let settingsSection = "Home";
   let settingsNavigationOpen = false;
   let threadDrawerOpen = false;
+  let overlayTrigger: HTMLElement | null = null;
   let contextUsageOpen = false;
   let contextUsageButton: HTMLButtonElement | null = null;
   let modeMenuOpen = false;
@@ -692,6 +693,24 @@
     }
   }
 
+  /**
+   * Overlays return focus to whatever opened them, so keyboard users are not
+   * dropped back at the top of the document when a menu or drawer closes.
+   */
+  function captureOverlayTrigger() {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== document.body) overlayTrigger = active;
+  }
+
+  function restoreOverlayFocus() {
+    const target = overlayTrigger;
+    overlayTrigger = null;
+    if (!target) return;
+    void tick().then(() => {
+      if (target.isConnected) target.focus();
+    });
+  }
+
   function closeMenus() {
     moreMenuOpen = false;
     threadOptOpen = false;
@@ -705,6 +724,19 @@
     threadMenuOpenId = null;
     confirmingThreadDeleteId = null;
     confirmingThreadGroupDelete = null;
+    restoreOverlayFocus();
+  }
+
+  function openThreadDrawer() {
+    closeMenus();
+    captureOverlayTrigger();
+    threadDrawerOpen = true;
+  }
+
+  function closeThreadDrawer() {
+    if (!threadDrawerOpen) return;
+    threadDrawerOpen = false;
+    restoreOverlayFocus();
   }
 
   function submit(immediate = false) {
@@ -990,6 +1022,7 @@
     if (!snapshot || snapshot.models.state !== "ready" || snapshot.models.options.length === 0) return;
     const open = !modelMenuOpen;
     closeMenus();
+    if (open) captureOverlayTrigger();
     modelMenuOpen = open;
   }
 
@@ -1939,7 +1972,11 @@
 
   function selectThread(threadId: string) {
     sendCommand("selectThread", { threadId });
+    // The drawer closes onto the thread the user just chose, so focus follows
+    // the composer rather than returning to the drawer trigger.
     threadDrawerOpen = false;
+    overlayTrigger = null;
+    void tick().then(() => composerTextarea?.focus());
   }
 
   function openSettings(section = "Home") {
@@ -2695,7 +2732,7 @@
     const overlayWasOpen = threadDrawerOpen || moreMenuOpen || threadOptOpen || modeMenuOpen || agentMenuOpen
       || modelMenuOpen || skillsOpen || generationMenuOpen || slashOpen || atOpen || threadMenuOpenId !== null
       || confirmingThreadDeleteId !== null || confirmingThreadGroupDelete !== null || settingsDrawerWasOpen;
-    threadDrawerOpen = false;
+    closeThreadDrawer();
     closeMenus();
     if (settingsDrawerWasOpen) {
       settingsNavigationOpen = false;
@@ -2895,11 +2932,11 @@
       </div>
       <div class="header-actions">
         {#if currentView === "chat"}
-          <button class="icon-button" title={`Threads (${SHORTCUT_HINTS.threads})`} aria-label="Threads" onclick={() => { closeMenus(); threadDrawerOpen = true; }}><Icon name="menu" size={15} /></button>
+          <button class="icon-button" title={`Threads (${SHORTCUT_HINTS.threads})`} aria-label="Threads" onclick={openThreadDrawer}><Icon name="menu" size={15} /></button>
           <button class="icon-button" title={`New Thread (${SHORTCUT_HINTS.newThread})`} aria-label="New Thread" onclick={() => startNewThread()}><Icon name="plus" size={16} /></button>
           <button class="icon-button" title="Share / copy thread" aria-label="Share" onclick={copyThread}><Icon name="share-2" size={14} /></button>
           <div class="more-control">
-            <button class="icon-button" class:active={moreMenuOpen} title="More options" aria-label="More options" onclick={() => { moreMenuOpen = !moreMenuOpen; threadOptOpen = false; }}><Icon name="ellipsis" size={16} /></button>
+            <button class="icon-button" class:active={moreMenuOpen} title="More options" aria-label="More options" onclick={() => { if (!moreMenuOpen) captureOverlayTrigger(); moreMenuOpen = !moreMenuOpen; threadOptOpen = false; }}><Icon name="ellipsis" size={16} /></button>
             {#if moreMenuOpen}
               <div class="workspace-menu menu">
                 <button onclick={() => { beginRename(); }}><Icon name="square-pen" size={14} /><span>Rename</span></button>
@@ -2930,7 +2967,7 @@
     {#if currentView === "chat"}
       <section class="chat-view">
         <header class="thread-header ch">
-          <button class="icon-button compact" title={`Threads (${SHORTCUT_HINTS.threads})`} aria-label="Threads" onclick={() => { closeMenus(); threadDrawerOpen = true; }}><Icon name="menu" size={14} /></button>
+          <button class="icon-button compact" title={`Threads (${SHORTCUT_HINTS.threads})`} aria-label="Threads" onclick={openThreadDrawer}><Icon name="menu" size={14} /></button>
           {#if renaming}
             <form class="rename-form" onsubmit={(event) => { event.preventDefault(); commitRename(); }}>
               <input bind:value={renameTitle} maxlength="48" aria-label="Rename thread" />
@@ -2961,7 +2998,7 @@
               onclick={shareActiveThread}
             ><Icon name="share-2" size={13} /></button>
             <div class="more-control">
-              <button class="icon-button compact" class:active={threadOptOpen} title="Thread options" onclick={() => { threadOptOpen = !threadOptOpen; moreMenuOpen = false; }}><Icon name="ellipsis" size={14} /></button>
+              <button class="icon-button compact" class:active={threadOptOpen} title="Thread options" onclick={() => { if (!threadOptOpen) captureOverlayTrigger(); threadOptOpen = !threadOptOpen; moreMenuOpen = false; }}><Icon name="ellipsis" size={14} /></button>
               {#if threadOptOpen}
                 <div class="workspace-menu menu thread-opt-menu">
                   <button onclick={() => beginRename()}><Icon name="square-pen" size={13} /><span>Rename thread</span></button>
@@ -2983,7 +3020,7 @@
                     <button onclick={() => { shareActiveThread(); closeMenus(); }}><Icon name="share-2" size={13} /><span>Copy new link (replaces current)</span></button>
                     <button class="danger" onclick={unshareActiveThread}><Icon name="trash-2" size={13} /><span>{confirmingUnshare ? "Confirm stop sharing" : "Stop sharing"}</span></button>
                   {:else}
-                    <button disabled={snapshot.sharing.state === "working"} onclick={() => { shareActiveThread(); closeMenus(); }}><Icon name="share-2" size={13} /><span>{snapshot.sharing.state === "working" ? "Working…" : "Share link to session"}</span></button>
+                    <button disabled={snapshot.sharing.state === "working"} title={snapshot.sharing.state === "working" ? "Working" : "Create and copy a share link"} onclick={() => { shareActiveThread(); closeMenus(); }}><Icon name="share-2" size={13} /><span>{snapshot.sharing.state === "working" ? "Working…" : "Share link to session"}</span></button>
                   {/if}
                   <button onclick={() => { exportThread(); closeMenus(); }}><Icon name="upload" size={13} /><span>Export conversation</span></button>
                   <button onclick={() => { sendCommand("importThread"); closeMenus(); }}><Icon name="file-input" size={13} /><span>Import conversation</span></button>
@@ -3177,7 +3214,7 @@
                         ></textarea>
                         <div class="user-message-edit-actions">
                           <button type="button" onclick={cancelMessageEdit}>Cancel</button>
-                          <button type="button" class="primary" disabled={!editingMessageText.trim()} onclick={() => editAndResendMessage(item.message)}>Apply &amp; Resend</button>
+                          <button type="button" class="primary" disabled={!editingMessageText.trim()} title={editingMessageText.trim() ? "Resend this edited message" : "Enter a message before resending"} onclick={() => editAndResendMessage(item.message)}>Apply &amp; Resend</button>
                         </div>
                       </div>
                     {:else}
@@ -3293,10 +3330,11 @@
                                 {#if asked.length > 1}
                                   <small class="ask-progress">{answeredAskCount(tool, asked)}/{asked.length} answered</small>
                                 {/if}
-                                <button disabled={resolvingApprovalIds.has(tool.id)} onclick={() => skipAskUser(tool)}>Skip</button>
+                                <button disabled={resolvingApprovalIds.has(tool.id)} title={resolvingApprovalIds.has(tool.id) ? "Submitting your answer" : "Skip this question"} onclick={() => skipAskUser(tool)}>Skip</button>
                                 <button
                                   class="primary"
                                   disabled={resolvingApprovalIds.has(tool.id) || answeredAskCount(tool, asked) < asked.length}
+                                  title={resolvingApprovalIds.has(tool.id) ? "Submitting your answer" : answeredAskCount(tool, asked) < asked.length ? `Answer all ${asked.length} questions first` : "Send your answer to the Agent"}
                                   onclick={() => submitAskUser(tool)}
                                 ><Icon name="circle-play" size={12} />{resolvingApprovalIds.has(tool.id) ? "Submitting…" : asked.length > 1 ? "Submit answers" : "Submit answer"}</button>
                               </div>
@@ -3305,7 +3343,7 @@
                             <div class="approval" role="status" aria-live="polite">
                               <div class="approval-note"><Icon name="circle-alert" size={14} /><span>Waiting for user input</span></div>
                               <div class="approval-actions">
-                                <button disabled={resolvingApprovalIds.has(tool.id)} onclick={() => resolveApproval(tool.id, false)}>Skip</button>
+                                <button disabled={resolvingApprovalIds.has(tool.id)} title={resolvingApprovalIds.has(tool.id) ? "Recording your decision" : "Skip this tool call"} onclick={() => resolveApproval(tool.id, false)}>Skip</button>
                                 <button class="approve" title={`Approve (${SHORTCUT_HINTS.approve})`} disabled={resolvingApprovalIds.has(tool.id)} onclick={() => resolveApproval(tool.id, true)}><Icon name="circle-play" size={12} />{resolvingApprovalIds.has(tool.id) ? "Approving..." : "Approve"}</button>
                               </div>
                             </div>
@@ -3376,7 +3414,7 @@
             <nav class="conversation-navigation" aria-label="Conversation navigation">
               {#if isBusy(snapshot)}
                 <div class="generation-control">
-                  <button class="generation-button {snapshot.agentRun.phase}" aria-label="Generation status" aria-expanded={generationMenuOpen} onclick={() => generationMenuOpen = !generationMenuOpen}>
+                  <button class="generation-button {snapshot.agentRun.phase}" aria-label="Generation status" aria-expanded={generationMenuOpen} onclick={() => { if (!generationMenuOpen) captureOverlayTrigger(); generationMenuOpen = !generationMenuOpen; }}>
                     <Icon name="circle-dashed" size={12} /><span>{runPhaseLabel(snapshot.agentRun.phase)}</span>
                   </button>
                   {#if generationMenuOpen}
@@ -3551,7 +3589,7 @@
             ></textarea>
             <div class="composer-toolbar abar">
               <div class="mode-control">
-                <button class="mode-button dd-btn" title={`Switch mode (${SHORTCUT_HINTS.cycleMode})`} onclick={() => { modeMenuOpen = !modeMenuOpen; agentMenuOpen = false; modelMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}>
+                <button class="mode-button dd-btn" title={`Switch mode (${SHORTCUT_HINTS.cycleMode})`} onclick={() => { if (!modeMenuOpen) captureOverlayTrigger(); modeMenuOpen = !modeMenuOpen; agentMenuOpen = false; modelMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}>
                   <span class="tag {snapshot.mode}">{modeLabel(snapshot.mode)}</span>
                   <Icon name="chevron-down" size={12} />
                 </button>
@@ -3597,6 +3635,7 @@
                   class="model-select"
                   class:active={modelMenuOpen}
                   disabled={snapshot.models.state !== "ready" || snapshot.models.options.length === 0}
+                  title={snapshot.models.state !== "ready" ? snapshot.models.label : snapshot.models.options.length === 0 ? "The backend reported no models" : "Choose a model for this thread"}
                   aria-label="Model selection"
                   aria-haspopup="listbox"
                   aria-expanded={modelMenuOpen}
@@ -3641,7 +3680,7 @@
               <button title="Attach file/image" onclick={() => sendCommand("pickContext")}><Icon name="file-input" size={14} /></button>
               <button title={enhancing ? "Enhancing…" : `Enhance prompt (${SHORTCUT_HINTS.enhance})`} aria-label="Enhance prompt" disabled={!prompt.trim() || enhancing || isBusy(snapshot)} onclick={enhancePrompt}><Icon name="sparkles" size={14} /></button>
               <div class="skill-control">
-                <button class:active={skillsOpen} title="Skills" onclick={() => { skillsOpen = !skillsOpen; modeMenuOpen = false; agentMenuOpen = false; modelMenuOpen = false; }}>
+                <button class:active={skillsOpen} title="Skills" onclick={() => { if (!skillsOpen) captureOverlayTrigger(); skillsOpen = !skillsOpen; modeMenuOpen = false; agentMenuOpen = false; modelMenuOpen = false; }}>
                   <Icon name="wand-sparkles" size={14} />
                   {#if selectedSkillCount() > 0}<i>{selectedSkillCount()}</i>{/if}
                 </button>
@@ -3712,7 +3751,7 @@
                 <header>
                   <strong>Codebase Index</strong>
                   <button title="Refresh index status" aria-label="Refresh index status" disabled={snapshot.context.state === "checking" || snapshot.context.state === "indexing"} onclick={refreshContextIndex}><Icon name="refresh-ccw" size={12} /></button>
-                  <button disabled={snapshot.context.state === "indexing"} onclick={rebuildContextIndex}>Rebuild index</button>
+                  <button disabled={snapshot.context.state === "indexing"} title={snapshot.context.state === "indexing" ? "An index build is already running" : "Rebuild the project index from scratch"} onclick={rebuildContextIndex}>Rebuild index</button>
                 </header>
                 <div class="context-home-state">
                   <span class="service-status {contextIndexState(snapshot)}"></span>
@@ -4712,14 +4751,14 @@
     {/if}
 
     {#if threadDrawerOpen}
-      <button class="drawer-backdrop" aria-label="Close threads" onclick={() => threadDrawerOpen = false}></button>
+      <button class="drawer-backdrop" aria-label="Close threads" onclick={closeThreadDrawer}></button>
       <aside class="thread-drawer drawer">
         <header class="drawer-head">
           <strong>Threads</strong>
           <div class="new-thread-control">
             <button class="new-thread" title={`New Thread (${SHORTCUT_HINTS.newThread})`} onclick={() => startNewThread()}><Icon name="plus" size={14} /> New {modeLabel(snapshot.mode)}</button>
           </div>
-          <button class="icon-button" title="Close" onclick={() => threadDrawerOpen = false}><Icon name="x" size={15} /></button>
+          <button class="icon-button" title="Close" onclick={closeThreadDrawer}><Icon name="x" size={15} /></button>
         </header>
         <div class="new-thread-modes">
           <button onclick={() => startNewThread("agent")}><Icon name="bot" size={13} />New Agent</button>
