@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
+import { createServer } from "node:net";
 import {
   existsSync,
   mkdirSync,
@@ -45,6 +46,7 @@ function run(command, arguments_, options = {}) {
   const result = spawnSync(command, arguments_, {
     cwd: repositoryRoot,
     encoding: "utf8",
+    env: { ...process.env, ...options.env },
     stdio: options.capture ? "pipe" : "inherit",
   });
 
@@ -104,7 +106,27 @@ function sha256(filePath) {
   return createHash("sha256").update(readFileSync(filePath)).digest("hex");
 }
 
-function main() {
+function findAvailablePort() {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.unref();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close();
+        reject(new Error("Could not allocate a local Playwright port"));
+        return;
+      }
+      server.close((error) => {
+        if (error) reject(error);
+        else resolve(address.port);
+      });
+    });
+  });
+}
+
+async function main() {
   const { increment, current, allowDirty } = parseArguments(process.argv.slice(2));
   requireCleanWorktree(allowDirty);
 
@@ -121,7 +143,13 @@ function main() {
   run(process.execPath, ["scripts/bump-version.mjs", "--check"]);
 
   run("npm", ["run", "check", "--prefix", "frontend"]);
-  run("npm", ["run", "test:e2e", "--prefix", "frontend"]);
+  const playwrightPort = await findAvailablePort();
+  run("npm", ["run", "test:e2e", "--prefix", "frontend"], {
+    env: {
+      CI: "1",
+      CODEAGENT_PLAYWRIGHT_PORT: String(playwrightPort),
+    },
+  });
   run("npm", ["test", "--prefix", "sidecar"]);
   run("npm", ["test", "--prefix", "backend"]);
   run("npm", ["test", "--prefix", "vendor/context-engine"]);
@@ -183,7 +211,7 @@ function main() {
 }
 
 try {
-  main();
+  await main();
 } catch (error) {
   console.error(`\nRelease build failed: ${error instanceof Error ? error.message : error}`);
   process.exitCode = 1;
