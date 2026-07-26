@@ -18,7 +18,8 @@
       { "id": "Skills", "label": "Skills", "icon": "wand-sparkles", "badge": "Beta" },
       { "id": "Hooks", "label": "Hooks", "icon": "workflow" },
       { "id": "Agents", "label": "Agents", "icon": "bot", "badge": "Beta" },
-      { "id": "Plugins", "label": "Plugins", "icon": "layers" }
+      { "id": "Plugins", "label": "Plugins", "icon": "layers" },
+      { "id": "Marketplaces", "label": "Marketplaces", "icon": "layers-3" }
     ]
   },
   {

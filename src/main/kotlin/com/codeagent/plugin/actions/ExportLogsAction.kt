@@ -1,5 +1,6 @@
 package com.codeagent.plugin.actions
 
+import com.codeagent.plugin.diagnostics.ExtensionStatusReport
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
@@ -18,6 +19,7 @@ import java.nio.file.Path
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -29,7 +31,12 @@ class ExportLogsAction : DumbAwareAction() {
             .withDescription("Choose a folder for the local diagnostic archive")
         FileChooser.chooseFile(descriptor, project, null) { directory ->
             AppExecutorUtil.getAppExecutorService().execute {
-                runCatching { exportLogs(directory.toNioPath()) }
+                val statusReport = runCatching {
+                    ExtensionStatusReport.collect(project).get(STATUS_REPORT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                }.getOrElse { error ->
+                    "CodeAgent extension status unavailable (${error.message ?: error.javaClass.simpleName})"
+                }
+                runCatching { exportLogs(directory.toNioPath(), statusReport) }
                     .onSuccess { path -> notify(project, "CodeAgent logs exported", path.toString(), NotificationType.INFORMATION) }
                     .onFailure { error ->
                         notify(project, "CodeAgent log export failed", error.message ?: "Archive creation failed", NotificationType.ERROR)
@@ -38,7 +45,7 @@ class ExportLogsAction : DumbAwareAction() {
         }
     }
 
-    private fun exportLogs(destination: Path): Path {
+    private fun exportLogs(destination: Path, statusReport: String): Path {
         val timestamp = FILE_TIMESTAMP.format(Instant.now())
         val output = destination.resolve("codeagent-logs-$timestamp.zip")
         val logRoot = Path.of(PathManager.getLogPath()).toAbsolutePath().normalize()
@@ -57,6 +64,10 @@ class ExportLogsAction : DumbAwareAction() {
             }
             zip.putNextEntry(ZipEntry("codeagent-environment.txt"))
             zip.write(metadata.toByteArray(StandardCharsets.UTF_8))
+            zip.closeEntry()
+
+            zip.putNextEntry(ZipEntry("extension-status.txt"))
+            zip.write(statusReport.toByteArray(StandardCharsets.UTF_8))
             zip.closeEntry()
 
             if (Files.isDirectory(logRoot)) {
@@ -109,6 +120,7 @@ class ExportLogsAction : DumbAwareAction() {
 
     private companion object {
         const val PLUGIN_ID = "com.codeagent.workspace.idea"
+        const val STATUS_REPORT_TIMEOUT_SECONDS = 20L
         const val MAX_FILE_BYTES = 25L * 1024 * 1024
         const val MAX_ARCHIVE_INPUT_BYTES = 200L * 1024 * 1024
         val FILE_TIMESTAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC)

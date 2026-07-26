@@ -10,6 +10,7 @@
   import { ICON_NAMES } from "./lib/icons";
   import settingsGroupsData from "./lib/settings-sections.json";
   import { MENTION_KINDS, SLASH_COMMANDS, TOOL_CATALOG } from "./lib/tools-catalog";
+  import { playNotificationChime, canPlaySound } from "./lib/sound-utils";
 
   // Main JCEF product surface: account and service settings, Threads, composer,
   // approvals, tool cards, tasks, edits, and long-conversation navigation.
@@ -217,8 +218,11 @@
   let showRunTelemetry = true;
   let desktopNotifications = false;
   let autoDismissNotifications = true;
+  let notificationSoundsEnabled = true;
+  let notificationSoundsOnlyWhenUnfocused = true;
   let slashOpen = false;
   let atOpen = false;
+  let dismissedSuggestedQuestions = false;
   let iconFilter = "";
   let toolFilter = "";
   let feedbackText = "";
@@ -373,6 +377,13 @@
         settingsHydrated = true;
       }
       if (snapshot.jobs.state !== "loading") creatingJob = false;
+      const runCompleted = snapshot !== null && isBusy(snapshot) && !isBusy(nextSnapshot);
+      if (runCompleted && notificationSoundsEnabled) {
+        const shouldPlay = !notificationSoundsOnlyWhenUnfocused || !document.hasFocus();
+        if (shouldPlay && canPlaySound()) {
+          playNotificationChime();
+        }
+      }
       scrollConversationToBottom(forceFollow);
       return;
     }
@@ -1204,6 +1215,15 @@
     contextNeuralRerank = currentSnapshot.settings.contextNeuralRerank;
     contextRerankBaseUrl = currentSnapshot.settings.contextRerankBaseUrl;
     contextRerankModel = currentSnapshot.settings.contextRerankModel;
+    const stored = localStorage.getItem("codeagent-preferences");
+    if (stored) {
+      try {
+        const prefs = JSON.parse(stored);
+        if (typeof prefs.notificationSoundsEnabled === "boolean") notificationSoundsEnabled = prefs.notificationSoundsEnabled;
+        if (typeof prefs.notificationSoundsOnlyWhenUnfocused === "boolean") notificationSoundsOnlyWhenUnfocused = prefs.notificationSoundsOnlyWhenUnfocused;
+        if (typeof prefs.dismissedSuggestedQuestions === "boolean") dismissedSuggestedQuestions = prefs.dismissedSuggestedQuestions;
+      } catch {}
+    }
   }
 
   function testBackend() {
@@ -1229,6 +1249,22 @@
 
   function saveUserExperience() {
     sendSettingsUpdate();
+    persistFrontendPreferences();
+  }
+
+  function persistFrontendPreferences() {
+    const prefs = {
+      notificationSoundsEnabled,
+      notificationSoundsOnlyWhenUnfocused,
+      dismissedSuggestedQuestions,
+    };
+    localStorage.setItem("codeagent-preferences", JSON.stringify(prefs));
+  }
+
+  function testNotificationSound() {
+    if (canPlaySound()) {
+      playNotificationChime();
+    }
   }
 
   function signIn() {
@@ -2300,6 +2336,21 @@
     stop: "Esc",
   };
 
+  const SUGGESTED_QUESTIONS = [
+    "What does this codebase do?",
+    "How is authentication handled?",
+    "Where is error handling implemented?",
+    "Explain the project structure",
+  ];
+
+  function applySuggestedQuestion(question: string) {
+    prompt = question;
+    void tick().then(() => {
+      resizeComposer();
+      composerTextarea?.focus();
+    });
+  }
+
   function isEditableTarget(target: EventTarget | null) {
     return target instanceof HTMLElement
       && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable);
@@ -2729,6 +2780,19 @@
                         ? "Get quick answers about your code."
                         : "Ask questions and plan with codebase awareness."}
                   </p>
+                  {#if !dismissedSuggestedQuestions}
+                    <div class="suggested-questions">
+                      {#each SUGGESTED_QUESTIONS as question}
+                        <button
+                          type="button"
+                          class="suggested-question"
+                          onclick={() => applySuggestedQuestion(question)}
+                        >
+                          {question}
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
                 </section>
               {/key}
             </div>
@@ -3730,10 +3794,23 @@
                   <input type="checkbox" bind:checked={autoDismissNotifications} />
                   <span><strong>Auto-dismiss in-panel notices</strong><small>Success after 4 seconds and errors after 8 seconds</small></span>
                 </label>
-                <p>Notification sound and delivery style follow the IDE notification settings.</p>
+              </section>
+              <section class="settings-form settings-block">
+                <header><strong>Sounds</strong><Icon name="volume-2" size={14} /></header>
+                <label class="toggle-row">
+                  <input type="checkbox" bind:checked={notificationSoundsEnabled} />
+                  <span><strong>Play notification sounds</strong><small>Play a tone when Agent completes or encounters an error</small></span>
+                </label>
+                <label class="toggle-row">
+                  <input type="checkbox" bind:checked={notificationSoundsOnlyWhenUnfocused} disabled={!notificationSoundsEnabled} />
+                  <span><strong>Only when unfocused</strong><small>Play sounds only when the panel or IDE is not focused</small></span>
+                </label>
+                <div class="sound-test-row">
+                  <button disabled={!notificationSoundsEnabled} onclick={testNotificationSound}><Icon name="play-circle" size={13} /> Test sound</button>
+                </div>
                 <footer><button class="primary" onclick={saveUserExperience}>Save preferences</button></footer>
               </section>
-            {:else if ["MCP Servers", "ACP Agents", "Commands", "Hooks", "Agents", "Plugins"].includes(settingsSection)}
+            {:else if ["MCP Servers", "ACP Agents", "Commands", "Hooks", "Agents", "Plugins", "Marketplaces"].includes(settingsSection)}
               <ConfigurationSettings
                 section={settingsSection}
                 configurationSnapshot={snapshot.configurations}

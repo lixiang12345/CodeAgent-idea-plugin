@@ -1,8 +1,10 @@
 package com.codeagent.plugin.agent
 
+import com.codeagent.plugin.settings.CodeAgentSettingsService
 import com.intellij.credentialStore.CredentialAttributes
 import com.intellij.ide.BrowserUtil
 import com.intellij.ide.passwordSafe.PasswordSafe
+import com.intellij.openapi.components.service
 import com.intellij.util.concurrency.AppExecutorUtil
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -30,36 +32,85 @@ class McpOAuthService {
     private val pending = ConcurrentHashMap<String, PendingAuthorization>()
 
     fun authorize(configuration: McpOAuthConfiguration): CompletableFuture<Unit> {
-        val authorizationEndpoint = secureEndpoint(configuration.authorizationEndpoint, "authorizationEndpoint")
-        secureEndpoint(configuration.tokenEndpoint, "tokenEndpoint")
-        require(configuration.clientId.isNotBlank()) { "MCP OAuth client ID is required" }
-
+        val builtInServer = BuiltInServerManager.getInstance().waitForStart()
+        val redirectUri = "http://127.0.0.1:${builtInServer.port}$CALLBACK_PATH"
         val state = randomUrlToken(32)
         val verifier = randomUrlToken(48)
         val challenge = base64Url(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(StandardCharsets.US_ASCII)))
-        val builtInServer = BuiltInServerManager.getInstance().waitForStart()
-        val redirectUri = "http://127.0.0.1:${builtInServer.port}$CALLBACK_PATH"
         val result = CompletableFuture<Unit>()
         pending[state] = PendingAuthorization(configuration, verifier, redirectUri, result)
 
-        val query = linkedMapOf(
-            "response_type" to "code",
-            "client_id" to configuration.clientId,
-            "redirect_uri" to redirectUri,
-            "state" to state,
-            "code_challenge" to challenge,
-            "code_challenge_method" to "S256",
-        )
-        if (configuration.scopes.isNotEmpty()) query["scope"] = configuration.scopes.joinToString(" ")
-        configuration.audience?.takeIf(String::isNotBlank)?.let { query["audience"] = it }
-        BrowserUtil.browse(withQuery(authorizationEndpoint, query))
-
-        scheduler.schedule({
-            pending.remove(state)?.result?.completeExceptionally(
-                IllegalStateException("MCP OAuth authorization timed out"),
+        val metadata = if (configuration.resourceUrl != null) {
+            McpOAuthMetadataDiscovery.discover(configuration.resourceUrl, configuration.tokenEndpoint)
+        } else {
+            CompletableFuture.completedFuture(
+                McpOAuthMetadataDiscovery.DiscoveredMetadata(
+                    authorizationEndpoint = configuration.authorizationEndpoint,
+                    tokenEndpoint = configuration.tokenEndpoint,
+                    registrationEndpoint = null,
+                    supportedScopes = emptyList(),
+                    supportedCodeChallengeMethods = emptyList(),
+                ),
             )
-        }, AUTHORIZATION_TIMEOUT_MINUTES, TimeUnit.MINUTES)
+        }
+
+        metadata.thenCompose { discovered ->
+            val authzEndpoint = discovered.authorizationEndpoint
+                ?: return@thenCompose CompletableFuture.failedFuture<String>(
+                    IllegalStateException("MCP OAuth authorization endpoint was not discovered and is not configured"),
+                )
+            val tokenEndpoint = discovered.tokenEndpoint
+                ?: return@thenCompose CompletableFuture.failedFuture<String>(
+                    IllegalStateException("MCP OAuth token endpoint was not discovered and is not configured"),
+                )
+            secureEndpoint(authzEndpoint, "authorizationEndpoint")
+            secureEndpoint(tokenEndpoint, "tokenEndpoint")
+            service<CodeAgentSettingsService>().setMcpDiscoveredTokenEndpoint(configuration.id, tokenEndpoint)
+
+            val clientId = resolveClientId(configuration, discovered, redirectUri)
+            clientId.thenApply { cid ->
+                val query = linkedMapOf(
+                    "response_type" to "code",
+                    "client_id" to cid,
+                    "redirect_uri" to redirectUri,
+                    "state" to state,
+                    "code_challenge" to challenge,
+                    "code_challenge_method" to "S256",
+                )
+                if (configuration.scopes.isNotEmpty()) query["scope"] = configuration.scopes.joinToString(" ")
+                configuration.audience?.takeIf(String::isNotBlank)?.let { query["audience"] = it }
+                withQuery(URI.create(authzEndpoint), query).toString()
+            }
+        }.whenComplete { authUrl, error ->
+            if (error != null) {
+                pending.remove(state)
+                result.completeExceptionally(error)
+            } else {
+                BrowserUtil.browse(authUrl)
+                scheduler.schedule({
+                    pending.remove(state)?.result?.completeExceptionally(
+                        IllegalStateException("MCP OAuth authorization timed out"),
+                    )
+                }, AUTHORIZATION_TIMEOUT_MINUTES, TimeUnit.MINUTES)
+            }
+        }
         return result
+    }
+
+    private fun resolveClientId(
+        configuration: McpOAuthConfiguration,
+        discovered: McpOAuthMetadataDiscovery.DiscoveredMetadata,
+        redirectUri: String,
+    ): CompletableFuture<String> {
+        if (configuration.clientId.isNotBlank()) return CompletableFuture.completedFuture(configuration.clientId)
+        val existing = service<CodeAgentSettingsService>().mcpDynamicClientId(configuration.id)
+        if (existing != null) return CompletableFuture.completedFuture(existing)
+        val registrationEndpoint = discovered.registrationEndpoint
+            ?: return CompletableFuture.failedFuture(
+                IllegalStateException("MCP OAuth client ID is not configured and dynamic registration is unavailable"),
+            )
+        return McpDynamicClientRegistration.register(configuration.id, registrationEndpoint, redirectUri)
+            .thenApply { service<CodeAgentSettingsService>().mcpDynamicClientId(configuration.id)!! }
     }
 
     fun completeCallback(state: String?, code: String?, error: String?): Boolean {
@@ -72,17 +123,33 @@ class McpOAuthService {
             authorization.result.completeExceptionally(IllegalStateException("MCP OAuth callback contains no code"))
             return true
         }
+        val tokenEndpoint = service<CodeAgentSettingsService>().mcpDiscoveredTokenEndpoint(authorization.configuration.id)
+            ?: authorization.configuration.tokenEndpoint
+            ?: run {
+                authorization.result.completeExceptionally(
+                    IllegalStateException("MCP OAuth token endpoint was not discovered and is not configured"),
+                )
+                return true
+            }
+        val clientId = authorization.configuration.clientId.takeIf(String::isNotBlank)
+            ?: service<CodeAgentSettingsService>().mcpDynamicClientId(authorization.configuration.id)
+            ?: run {
+                authorization.result.completeExceptionally(IllegalStateException("MCP OAuth client ID is unavailable"))
+                return true
+            }
         CompletableFuture.supplyAsync({
-            exchange(
-                configuration = authorization.configuration,
-                fields = linkedMapOf(
-                    "grant_type" to "authorization_code",
-                    "client_id" to authorization.configuration.clientId,
-                    "code" to code,
-                    "redirect_uri" to authorization.redirectUri,
-                    "code_verifier" to authorization.verifier,
-                ),
+            val fields = linkedMapOf(
+                "grant_type" to "authorization_code",
+                "client_id" to clientId,
+                "code" to code,
+                "redirect_uri" to authorization.redirectUri,
+                "code_verifier" to authorization.verifier,
             )
+            val clientSecret = PasswordSafe.instance.getPassword(
+                McpDynamicClientRegistration.dynamicClientSecretAttributes(authorization.configuration.id),
+            )
+            if (!clientSecret.isNullOrBlank()) fields["client_secret"] = clientSecret
+            exchange(authorization.configuration.id, tokenEndpoint, fields)
         }, executor).whenComplete { tokens, exchangeError ->
             if (exchangeError != null) authorization.result.completeExceptionally(exchangeError)
             else {
@@ -98,15 +165,23 @@ class McpOAuthService {
         if (!accessToken.isNullOrBlank()) return CompletableFuture.completedFuture(accessToken)
         val refreshToken = PasswordSafe.instance.getPassword(refreshAttributes(configuration.id))
             ?: return CompletableFuture.completedFuture(null)
+        val tokenEndpoint = service<CodeAgentSettingsService>().mcpDiscoveredTokenEndpoint(configuration.id)
+            ?: configuration.tokenEndpoint
+            ?: return CompletableFuture.completedFuture(null)
+        val clientId = configuration.clientId.takeIf(String::isNotBlank)
+            ?: service<CodeAgentSettingsService>().mcpDynamicClientId(configuration.id)
+            ?: return CompletableFuture.completedFuture(null)
         return CompletableFuture.supplyAsync({
-            val tokens = exchange(
-                configuration,
-                linkedMapOf(
-                    "grant_type" to "refresh_token",
-                    "client_id" to configuration.clientId,
-                    "refresh_token" to refreshToken,
-                ),
+            val fields = linkedMapOf(
+                "grant_type" to "refresh_token",
+                "client_id" to clientId,
+                "refresh_token" to refreshToken,
             )
+            val clientSecret = PasswordSafe.instance.getPassword(
+                McpDynamicClientRegistration.dynamicClientSecretAttributes(configuration.id),
+            )
+            if (!clientSecret.isNullOrBlank()) fields["client_secret"] = clientSecret
+            val tokens = exchange(configuration.id, tokenEndpoint, fields)
             persist(configuration.id, tokens.copy(refreshToken = tokens.refreshToken ?: refreshToken))
             tokens.accessToken
         }, executor)
@@ -117,11 +192,11 @@ class McpOAuthService {
         PasswordSafe.instance.setPassword(refreshAttributes(serverId), null)
     }
 
-    private fun exchange(configuration: McpOAuthConfiguration, fields: Map<String, String>): McpOAuthTokens {
-        val tokenEndpoint = secureEndpoint(configuration.tokenEndpoint, "tokenEndpoint")
+    private fun exchange(serverId: String, tokenEndpoint: String, fields: Map<String, String>): McpOAuthTokens {
+        val uri = secureEndpoint(tokenEndpoint, "tokenEndpoint")
         val body = fields.entries.joinToString("&") { "${encode(it.key)}=${encode(it.value)}" }
         val response = http.send(
-            HttpRequest.newBuilder(tokenEndpoint)
+            HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofSeconds(30))
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .header("Accept", "application/json")
@@ -180,9 +255,10 @@ class McpOAuthService {
 
 data class McpOAuthConfiguration(
     val id: String,
-    val authorizationEndpoint: String,
-    val tokenEndpoint: String,
-    val clientId: String,
+    val resourceUrl: String? = null,
+    val authorizationEndpoint: String? = null,
+    val tokenEndpoint: String? = null,
+    val clientId: String = "",
     val scopes: List<String> = emptyList(),
     val audience: String? = null,
 )
@@ -194,3 +270,4 @@ private data class McpOAuthTokens(
     @SerialName("token_type") val tokenType: String = "Bearer",
     @SerialName("expires_in") val expiresIn: Long = 3_600,
 )
+

@@ -1,7 +1,11 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { inlineCompletionMessages } from "./prompt.mjs";
+import { resolveNotifications, resolveSubscription } from "./cloud-surfaces.mjs";
 
-const CONFIGURATION_KINDS = new Set(["mcp", "acp", "hooks", "commands", "agents", "plugins", "tool-permissions"]);
+const CONFIGURATION_KINDS = new Set([
+  "mcp", "acp", "hooks", "commands", "agents", "plugins", "marketplaces", "tool-permissions",
+]);
+const SHARE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const PLUGIN_CAPABILITIES = new Set(["commands", "agents", "hooks", "mcp", "rules", "skills", "tools", "prompts"]);
 const AGENT_CONFIGURATION_DEFAULTS = {
   general: { maxTurns: 12, maxToolCalls: 48, maxSubagentCalls: 4, verificationPolicy: "after-mutation" },
@@ -24,7 +28,7 @@ export function createRuntimeManifestFromEnv(env = process.env) {
   return { version: 1, runtimes: [], sourceUrl };
 }
 
-export async function handlePublicProductRequest(request, response, { authenticator, runtimeManifest }) {
+export async function handlePublicProductRequest(request, response, { authenticator, runtimeManifest, store }) {
   if (request.url === "/v1/auth/config" && request.method === "GET") {
     return sendJson(response, 200, await authenticator.publicConfig());
   }
@@ -36,10 +40,86 @@ export async function handlePublicProductRequest(request, response, { authentica
       : runtimeManifest;
     return sendJson(response, 200, manifest);
   }
+
+  const shareMatch = store && request.method === "GET"
+    ? new URL(request.url, "http://codeagent.local").pathname.match(/^\/v1\/share\/([^/]+)$/)
+    : null;
+  if (shareMatch) {
+    const token = decodeURIComponent(shareMatch[1]);
+    // An unrecognised token is indistinguishable from a revoked or expired one.
+    if (!SHARE_TOKEN_PATTERN.test(token)) throw notFound("Shared session not found");
+    const share = await store.findConversationShareByTokenHash(hashShareToken(token));
+    if (!share) throw notFound("Shared session not found");
+    const conversation = await store.getConversation(share.userId, share.conversationId);
+    if (!conversation) throw notFound("Shared session not found");
+    response.setHeader("cache-control", "no-store");
+    return sendJson(response, 200, {
+      share: {
+        expiresAt: share.expiresAt,
+        viewCount: share.viewCount,
+        createdAt: share.createdAt,
+      },
+      conversation: sharedConversationView(conversation),
+    });
+  }
   return false;
 }
 
-export async function handleProductRequest(request, response, { principal, authenticator, store, jobRunner, modelGateway, readJson }) {
+/** Read-only projection: no account identity, no revert affordances, no run correlation IDs. */
+function sharedConversationView(conversation) {
+  return {
+    id: conversation.id,
+    title: conversation.title,
+    mode: conversation.mode,
+    updatedAt: conversation.updatedAt,
+    messages: (conversation.messages || []).map((message) => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      createdAt: message.createdAt,
+    })),
+    tasks: (conversation.tasks || []).map((task) => ({ id: task.id, name: task.name, state: task.state })),
+    tools: (conversation.tools || []).map((tool) => ({
+      id: tool.id,
+      name: tool.name,
+      summary: tool.summary,
+      status: tool.status,
+      detail: tool.detail ?? null,
+      changePath: tool.changePath ?? null,
+      createdAt: tool.createdAt,
+    })),
+  };
+}
+
+function hashShareToken(token) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+/** Sharing stays unavailable, with a reason, until a deployment publishes a link base. */
+function sharePolicy(cloud) {
+  const policy = cloud.share;
+  if (!policy?.baseUrl) {
+    const error = new Error("Shareable links are not configured on this deployment");
+    error.statusCode = 503;
+    throw error;
+  }
+  return policy;
+}
+
+function shareView(share, policy) {
+  return {
+    conversationId: share.conversationId,
+    tokenPrefix: share.tokenPrefix,
+    expiresAt: share.expiresAt,
+    viewCount: share.viewCount,
+    lastViewedAt: share.lastViewedAt ?? null,
+    createdAt: share.createdAt,
+    updatedAt: share.updatedAt,
+    baseUrl: policy.baseUrl,
+  };
+}
+
+export async function handleProductRequest(request, response, { principal, authenticator, store, jobRunner, modelGateway, readJson, cloud = {} }) {
   const url = new URL(request.url, "http://codeagent.local");
   const path = url.pathname;
 
@@ -47,7 +127,8 @@ export async function handleProductRequest(request, response, { principal, authe
     const user = await store.getUser(principal.id);
     const usage = await store.getUsage(principal.id);
     const session = await authenticator.sessionInfo(principal);
-    return sendJson(response, 200, { user, usage, session });
+    const subscription = resolveSubscription({ policy: cloud.subscription, principal, usage });
+    return sendJson(response, 200, { user, usage, session, subscription });
   }
 
   if (path === "/v1/auth/logout" && request.method === "POST") {
@@ -91,6 +172,61 @@ export async function handleProductRequest(request, response, { principal, authe
       response.end();
       return true;
     }
+  }
+
+  const shareMatch = path.match(/^\/v1\/conversations\/([^/]+)\/share$/);
+  if (shareMatch) {
+    const conversationId = decodeURIComponent(shareMatch[1]);
+    const policy = sharePolicy(cloud);
+    if (request.method === "GET") {
+      const share = await store.getConversationShare(principal.id, conversationId);
+      if (!share) throw notFound("This conversation is not shared");
+      return sendJson(response, 200, shareView(share, policy));
+    }
+    if (request.method === "POST") {
+      if (!await store.getConversation(principal.id, conversationId)) throw notFound("Conversation not found");
+      const body = await readJson(request);
+      const ttlSeconds = boundedInteger(body?.ttlSeconds, 60, 31_536_000, policy.defaultTtlSeconds);
+      // 256 bits of entropy; only the hash is stored, so the plaintext exists once, here.
+      const token = randomBytes(32).toString("base64url");
+      const rotated = Boolean(await store.getConversationShare(principal.id, conversationId));
+      const share = await store.putConversationShare(principal.id, conversationId, {
+        tokenHash: hashShareToken(token),
+        tokenPrefix: token.slice(0, 8),
+        expiresAt: Date.now() + ttlSeconds * 1000,
+      });
+      response.setHeader("cache-control", "no-store");
+      return sendJson(response, 201, {
+        ...shareView(share, policy),
+        url: `${policy.baseUrl}/v1/share/${token}`,
+        rotated,
+      });
+    }
+    if (request.method === "DELETE") {
+      if (!await store.deleteConversationShare(principal.id, conversationId)) throw notFound("This conversation is not shared");
+      response.writeHead(204);
+      response.end();
+      return true;
+    }
+  }
+
+  if (path === "/v1/notifications" && request.method === "GET") {
+    const dismissals = await store.listNotificationDismissals(principal.id);
+    const data = resolveNotifications({ catalog: cloud.notifications || [], principal, dismissals });
+    return sendJson(response, 200, { data });
+  }
+
+  const notificationMatch = path.match(/^\/v1\/notifications\/([^/]+)\/dismiss$/);
+  if (notificationMatch && request.method === "POST") {
+    const notificationId = identifier(decodeURIComponent(notificationMatch[1]), "Notification ID");
+    if (!(cloud.notifications || []).some((notification) => notification.id === notificationId)) {
+      throw notFound("Notification not found");
+    }
+    const body = await readJson(request);
+    await store.dismissNotification(principal.id, notificationId, optionalText(body?.actionItemTitle, "actionItemTitle", 80));
+    response.writeHead(204);
+    response.end();
+    return true;
   }
 
   if (path === "/v1/jobs" && request.method === "GET") {
@@ -287,11 +423,14 @@ function configurationKind(value) {
 }
 
 function configurationId(value) {
-  const id = decodeURIComponent(value);
-  if (!/^[A-Za-z0-9._-]{1,120}$/.test(id)) {
-    throw badRequest("Configuration ID must use 1-120 letters, numbers, dots, underscores, or hyphens");
+  return identifier(decodeURIComponent(value), "Configuration ID");
+}
+
+function identifier(value, label) {
+  if (!/^[A-Za-z0-9._-]{1,120}$/.test(value)) {
+    throw badRequest(`${label} must use 1-120 letters, numbers, dots, underscores, or hyphens`);
   }
-  return id;
+  return value;
 }
 
 function normalizeConfiguration(kind, value) {
@@ -385,6 +524,13 @@ function normalizeConfiguration(kind, value) {
         capabilities,
       };
     }
+    case "marketplaces":
+      return {
+        ...common,
+        source: normalizedPluginUrl(value.source),
+        // A marketplace only names where manifests come from; installation stays per-device.
+        trusted: optionalBoolean(value.trusted, false),
+      };
     case "mcp":
       return normalizeMcpConfiguration(value, common);
     case "acp":

@@ -37,6 +37,7 @@
         <postStartupActivity implementation="com.codeagent.plugin.diagnostics.CodeAgentDiagnosticsStartupActivity"/>
         <postStartupActivity implementation="com.codeagent.plugin.diagnostics.CodeAgentSidecarStartupActivity"/>
         <postStartupActivity implementation="com.codeagent.plugin.diagnostics.CodeAgentIntegrityStartupActivity"/>
+        <postStartupActivity implementation="com.codeagent.plugin.diagnostics.CodeAgentUpdateStartupActivity"/>
         <errorHandler implementation="com.codeagent.plugin.diagnostics.CodeAgentErrorReportSubmitter"/>
         <applicationService serviceImplementation="com.codeagent.plugin.settings.CodeAgentSettingsService"/>
         <applicationService serviceImplementation="com.codeagent.plugin.agent.ByokService"/>

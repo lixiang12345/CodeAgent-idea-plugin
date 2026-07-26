@@ -16,9 +16,7 @@ class McpRuntimeConfigurationTest {
             kind = "mcp",
             value = buildJsonObject {
                 put("authMode", "oauth")
-                put("authorizationEndpoint", "https://identity.example.test/authorize")
-                put("tokenEndpoint", "https://identity.example.test/token")
-                put("clientId", "codeagent-desktop")
+                put("url", "https://mcp.example.test/api/resources")
                 putJsonArray("scopes") {
                     add(kotlinx.serialization.json.JsonPrimitive("tools.read"))
                     add(kotlinx.serialization.json.JsonPrimitive("tools.execute"))
@@ -29,18 +27,34 @@ class McpRuntimeConfigurationTest {
 
         val oauth = requireNotNull(mcpOAuthConfiguration(remote))
         assertEquals("remote-oauth", oauth.id)
+        assertEquals("https://mcp.example.test/api/resources", oauth.resourceUrl)
         assertEquals(listOf("tools.read", "tools.execute"), oauth.scopes)
         assertEquals("https://mcp.example.test", oauth.audience)
         assertNull(mcpOAuthConfiguration(remote.copy(value = buildJsonObject { put("authMode", "none") })))
     }
 
     @Test
-    fun `requires complete OAuth metadata`() {
+    fun `allows OAuth configuration with discovered endpoints`() {
+        val remote = RemoteConfiguration(
+            id = "discovered-oauth",
+            kind = "mcp",
+            value = buildJsonObject {
+                put("authMode", "oauth")
+                put("url", "https://identity.example.test")
+            },
+        )
+        val oauth = requireNotNull(mcpOAuthConfiguration(remote))
+        assertEquals("https://identity.example.test", oauth.resourceUrl)
+        assertEquals("", oauth.clientId)
+    }
+
+    @Test
+    fun `requires authMode oauth to extract OAuth configuration`() {
         val remote = RemoteConfiguration(
             id = "incomplete",
             kind = "mcp",
-            value = buildJsonObject { put("authMode", "oauth") },
+            value = buildJsonObject { put("authMode", "bearer") },
         )
-        assertFailsWith<IllegalArgumentException> { mcpOAuthConfiguration(remote) }
+        assertNull(mcpOAuthConfiguration(remote))
     }
 }

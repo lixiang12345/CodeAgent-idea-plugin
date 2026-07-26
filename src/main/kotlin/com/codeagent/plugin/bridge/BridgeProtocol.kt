@@ -235,6 +235,34 @@ data class AccountUsageDto(
 )
 
 @Serializable
+data class SubscriptionQuotaDto(
+    val kind: String,
+    val used: Long,
+    val limit: Long,
+    val remaining: Long,
+    val ratio: Double,
+    val state: String,
+)
+
+@Serializable
+data class SubscriptionWarningDto(
+    val level: String,
+    val kind: String,
+    val message: String,
+)
+
+@Serializable
+data class SubscriptionSnapshotDto(
+    val state: String = "unknown",
+    val plan: String? = null,
+    val label: String? = null,
+    val manageUrl: String? = null,
+    val reason: String? = null,
+    val quotas: List<SubscriptionQuotaDto> = emptyList(),
+    val warning: SubscriptionWarningDto? = null,
+)
+
+@Serializable
 data class AccountSnapshotDto(
     val state: String = "checking",
     val mode: String = "unknown",
@@ -243,6 +271,33 @@ data class AccountSnapshotDto(
     val email: String? = null,
     val usage: List<AccountUsageDto> = emptyList(),
     val label: String = "Checking account",
+    val subscription: SubscriptionSnapshotDto? = null,
+)
+
+@Serializable
+data class NotificationActionItemDto(
+    val title: String,
+    val url: String,
+)
+
+@Serializable
+data class NotificationDto(
+    val id: String,
+    val level: String = "info",
+    val message: String,
+    val actionItems: List<NotificationActionItemDto> = emptyList(),
+)
+
+/** `url` holds the plaintext share token; it exists in memory for one create or rotate only. */
+@Serializable
+data class SharingSnapshotDto(
+    val state: String = "unavailable",
+    val reason: String? = null,
+    val url: String? = null,
+    val tokenPrefix: String? = null,
+    val expiresAt: Long? = null,
+    val viewCount: Long? = null,
+    val rotated: Boolean = false,
 )
 
 @Serializable
@@ -598,6 +653,8 @@ data class AppSnapshotDto(
     val attachments: List<ContextItemDto> = emptyList(),
     val settings: SettingsSnapshotDto = SettingsSnapshotDto(),
     val account: AccountSnapshotDto = AccountSnapshotDto(),
+    val notifications: List<NotificationDto> = emptyList(),
+    val sharing: SharingSnapshotDto = SharingSnapshotDto(),
     val byok: ByokSnapshotDto = ByokSnapshotDto(),
 
     val context: ContextSnapshotDto = ContextSnapshotDto(),

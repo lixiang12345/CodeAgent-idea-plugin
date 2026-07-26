@@ -179,7 +179,12 @@ object ManagedNodeRuntimeInstaller {
 }
 
 @Serializable
-data class RuntimeManifest(val version: Int = 1, val runtimes: List<RuntimeArtifact> = emptyList())
+data class RuntimeManifest(
+    val version: Int = 1,
+    val runtimes: List<RuntimeArtifact> = emptyList(),
+    /** Newest plugin build the backend serves; absent means no update information. */
+    val latestPluginVersion: String? = null,
+)
 
 @Serializable
 data class RuntimeArtifact(

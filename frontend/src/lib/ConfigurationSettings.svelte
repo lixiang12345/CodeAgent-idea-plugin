@@ -49,6 +49,7 @@
     contextWindowTokens: number;
     reservedOutputTokens: number;
     source: string;
+    trusted: boolean;
     version: string;
     integrity: string;
     capabilities: string;
@@ -74,6 +75,7 @@
     Hooks: "hooks",
     Agents: "agents",
     Plugins: "plugins",
+    Marketplaces: "marketplaces",
   };
 
   const copy: Record<ConfigurationKind, { title: string; lead: string; singular: string; icon: string }> = {
@@ -112,6 +114,12 @@
       lead: "Declarative extension manifests with device-local installation, integrity verification, explicit permissions, and no arbitrary code loading.",
       singular: "plugin",
       icon: "layers",
+    },
+    marketplaces: {
+      title: "Marketplaces",
+      lead: "Named sources that publish plugin manifests. A marketplace only says where manifests come from; installation stays per-device and permission-gated.",
+      singular: "marketplace",
+      icon: "layers-3",
     },
     "tool-permissions": {
       title: "Tool Permissions",
@@ -174,6 +182,7 @@ $: if (section !== previousSection) {
       contextWindowTokens: 256000,
       reservedOutputTokens: 8192,
       source: "",
+      trusted: false,
       version: "",
       integrity: "",
       capabilities: "",
@@ -207,6 +216,26 @@ $: if (section !== previousSection) {
 
   function parseList(value: string): string[] {
     return [...new Set(value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean))];
+  }
+
+  // Mirrors the backend manifest-source validator so a rejected URL is reported here
+  // with the wording the server would answer with.
+  function sourceError(value: string): string {
+    const source = value.trim();
+    if (!source) return "";
+    let url: URL;
+    try {
+      url = new URL(source);
+    } catch {
+      return "source must be a valid absolute URL";
+    }
+    const loopback = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+    if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+      return "Plugin sources must use https; loopback http is allowed for local development";
+    }
+    if (url.username || url.password) return "Plugin sources must not contain credentials";
+    if (url.hash) return "Plugin sources must not contain fragments";
+    return "";
   }
 
   function beginCreate() {
@@ -245,6 +274,7 @@ $: if (section !== previousSection) {
       contextWindowTokens: numberValue(value.contextWindowTokens, 256000),
       reservedOutputTokens: numberValue(value.reservedOutputTokens, 8192),
       source: text(value.source),
+      trusted: value.trusted === true,
       version: text(value.version),
       integrity: text(value.integrity),
       capabilities: listValue(value.capabilities),
@@ -326,6 +356,13 @@ $: if (section !== previousSection) {
         capabilities: parseList(draft.capabilities),
       };
     }
+    if (kind === "marketplaces") {
+      return {
+        ...common,
+        source: draft.source.trim(),
+        trusted: draft.trusted,
+      };
+    }
     if (kind === "acp") {
       return {
         ...common,
@@ -377,6 +414,7 @@ $: if (section !== previousSection) {
       return Boolean(draft.source.trim())
         && (!draft.integrity.trim() || /^sha256:[a-f0-9]{64}$/.test(draft.integrity.trim()));
     }
+    if (kind === "marketplaces") return Boolean(draft.source.trim()) && sourceError(draft.source) === "";
     if (kind === "acp") return Boolean(draft.command.trim()) && draft.timeoutSeconds >= 1 && draft.timeoutSeconds <= 1800;
     if (draft.transport === "stdio") return Boolean(draft.command.trim());
     if (!draft.url.trim()) return false;
@@ -443,6 +481,9 @@ $: if (section !== previousSection) {
       return runtime
         ? `${runtime.state} · ${runtime.installedVersion ?? "not installed"} · ${runtime.commandCount + runtime.promptCount} templates · ${runtime.ruleCount + runtime.skillCount} context · ${runtime.agentCount} agents · ${runtime.hookCount} hooks · ${runtime.mcpCount} MCP · ${runtime.toolCount} tools`
         : text(value.version) || text(value.source) || "Declarative manifest";
+    }
+    if (kind === "marketplaces") {
+      return `${value.trusted === true ? "Trusted" : "Untrusted"} · ${text(value.source) || "No source"}`;
     }
     return text(value.version) || text(value.source) || "Extension source";
   }
@@ -602,6 +643,21 @@ $: if (section !== previousSection) {
         </div>
       </fieldset>
       <div class="runtime-note"><Icon name="shield" size={13} /><span>Installation downloads and caches one bounded JSON manifest on this device. CodeAgent verifies identity, version, permissions, and optional SHA-256 integrity; plugin JVM, Node, and shell code is never loaded.</span></div>
+    {:else if kind === "marketplaces"}
+      <label>
+        <span>Index URL</span>
+        <input bind:value={draft.source} maxlength="2000" placeholder="https://plugins.example.com/index.json" aria-describedby="marketplace-source-note" aria-invalid={sourceError(draft.source) !== ""} />
+        {#if sourceError(draft.source)}
+          <small class="configuration-invalid" role="alert">{sourceError(draft.source)}</small>
+        {:else}
+          <small id="marketplace-source-note">HTTPS is required except for loopback development URLs. Credentials and fragments are rejected.</small>
+        {/if}
+      </label>
+      <label class="configuration-toggle">
+        <input type="checkbox" bind:checked={draft.trusted} />
+        <span><strong>Trusted source</strong><small>Plugins listed here are still installed and permission-gated one at a time; trust only records that this index is reviewed.</small></span>
+      </label>
+      <div class="runtime-note"><Icon name="shield" size={13} /><span>A marketplace only names where manifests are published. CodeAgent never installs from it automatically, and every install keeps its own integrity and capability confirmation.</span></div>
     {:else if kind === "acp"}
       <label><span>Command</span><input bind:value={draft.command} maxlength="4000" placeholder="gemini" /></label>
       <label><span>Arguments</span><textarea class="list-textarea" bind:value={draft.args} spellcheck="false" placeholder="--experimental-acp"></textarea><small>One argument per line.</small></label>
@@ -956,6 +1012,8 @@ $: if (section !== previousSection) {
   .configuration-editor input:focus, .configuration-editor select:focus, .configuration-editor textarea:focus { border-color: #5478b0; }
   .configuration-editor input:disabled { color: #777c84; background: #202226; }
   .configuration-editor label > small { color: var(--muted); font-size: 7.5px; }
+  .configuration-editor label > small.configuration-invalid { color: var(--ds-color-red-11); }
+  .configuration-editor input[aria-invalid="true"] { border-color: var(--ds-color-red-9); }
   .configuration-toggle { flex-direction: row !important; align-items: center; }
   .configuration-toggle > span { display: flex; flex-direction: column; }
   .configuration-editor fieldset { margin: 0 0 11px; padding: 0; border: 0; }

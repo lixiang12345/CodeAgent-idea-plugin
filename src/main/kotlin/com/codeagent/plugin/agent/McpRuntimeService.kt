@@ -197,6 +197,11 @@ class McpRuntimeService(project: Project) : Disposable {
 internal fun mcpServerConfiguration(configuration: RemoteConfiguration, accessToken: String? = null): McpServerConfiguration {
     require(configuration.kind == "mcp") { "Expected MCP configuration, got ${configuration.kind}" }
     val value = configuration.value
+    val authMode = value.text("authMode") ?: "none"
+    val authHeader = when (authMode) {
+        "header" -> value.text("authHeader")
+        else -> null
+    }
     return McpServerConfiguration(
         id = configuration.id,
         name = value.text("name") ?: configuration.id,
@@ -207,8 +212,9 @@ internal fun mcpServerConfiguration(configuration: RemoteConfiguration, accessTo
         args = value.strings("args"),
         cwd = value.text("cwd"),
         url = value.text("url"),
-        authMode = value.text("authMode") ?: "none",
+        authMode = authMode,
         accessToken = accessToken,
+        authHeader = authHeader,
         tokenEnvironment = value.text("tokenEnvironment"),
         requiredEnvironment = value.strings("requiredEnvironment"),
         timeoutSeconds = value.integer("timeoutSeconds") ?: 60,
@@ -220,9 +226,10 @@ internal fun mcpOAuthConfiguration(configuration: RemoteConfiguration): McpOAuth
     val value = configuration.value
     return McpOAuthConfiguration(
         id = configuration.id,
-        authorizationEndpoint = requireNotNull(value.text("authorizationEndpoint")) { "MCP OAuth authorization endpoint is required" },
-        tokenEndpoint = requireNotNull(value.text("tokenEndpoint")) { "MCP OAuth token endpoint is required" },
-        clientId = requireNotNull(value.text("clientId")) { "MCP OAuth client ID is required" },
+        resourceUrl = value.text("url"),
+        authorizationEndpoint = value.text("authorizationEndpoint"),
+        tokenEndpoint = value.text("tokenEndpoint"),
+        clientId = value.text("clientId").orEmpty(),
         scopes = value.strings("scopes"),
         audience = value.text("audience"),
     )
@@ -265,6 +272,7 @@ internal data class McpServerConfiguration(
     val url: String? = null,
     val authMode: String = "none",
     val accessToken: String? = null,
+    val authHeader: String? = null,
     val tokenEnvironment: String? = null,
     val requiredEnvironment: List<String> = emptyList(),
     val timeoutSeconds: Int = 60,
@@ -289,6 +297,7 @@ data class McpServerSnapshot(
     val transport: String,
     val state: String,
     val label: String,
+    val authRequired: Boolean = false,
     val serverName: String? = null,
     val serverVersion: String? = null,
     val protocolVersion: String? = null,

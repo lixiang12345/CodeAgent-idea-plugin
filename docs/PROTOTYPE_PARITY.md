@@ -64,14 +64,14 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | Mermaid | Implemented | Strict rendering, diagram/code, zoom, fit, error states, and opening source in an IDEA editor tab work |
 | Settings | Implemented | Project Home exposes real index metrics plus distinct status-refresh/rebuild operations; Services groups backend capabilities by provider with explicit loading/ready/error/unavailable discovery, Ready/Partial/Unavailable summaries, per-capability risk/reason detail, and retry; backend health, account, subscription usage, ContextEngine, Rules, Skills, inline Password Safe-backed API key management for OpenAI/Anthropic/Bedrock, persisted chat zoom/timestamps/run telemetry/native notifications, Commands, Hooks, Agent profiles, declarative plugin lifecycle, MCP lifecycle controls, per-thread memory summary inspection/clearing, feature/Beta capability reports, and a redacted live runtime audit are real |
 | Tools catalog / Icon gallery / Feedback | Implemented | UI overlays provide insert-tool seeding, icon name copy, local feedback notes, and a bounded support bundle containing a redacted runtime audit plus explicitly requested conversation context |
-| Cloud integrations | Conditional | Search/read adapters are advertised only when their backend environment is configured; Notion supports bounded search/read plus approval-gated create/update/append operations; provider errors, discovery failures, and missing credentials remain explicit and secret-safe failures. GitHub has live acceptance evidence; Notion live dogfood still requires a scoped backend credential |
+| Cloud integrations | Conditional | Search/read adapters are advertised only when their backend environment is configured; Notion supports bounded search/read plus approval-gated create/update/append operations; provider errors, discovery failures, and missing credentials remain explicit and secret-safe failures. GitHub has live acceptance evidence; Notion live dogfood still requires a scoped backend credential. The deployment-owned cloud surfaces — shareable session links, operator notifications, subscription plan/quota state, and `marketplaces` configuration records — exist in the backend HTTP contract and report an explicit unavailable state with a reason until the deployment configures them; JVM and webview surfacing of those contracts is not verified by this row and is tracked in `docs/NEXT_STEPS.md` |
 | Subagents | Implemented | Synchronous `subagent` plus durable asynchronous jobs support persisted partial output, polling progress, cancellation, retry, composer handoff, and read-only IDE result navigation |
 | MCP | Implemented | Enabled stdio, Streamable HTTP, and legacy SSE definitions are reconciled by a local managed gateway with health checks, bounded reconnects, explicit start/stop/restart/test controls, tool-list refresh notifications, environment allowlisting, bearer-token injection, namespaced Agent tools, approval-aware risk defaults, PKCE OAuth authorization-code flow, Password Safe token storage, refresh, and callback state validation |
 | Plugins | Implemented | Account-synchronized plugin definitions drive explicit per-device install, validate, update, and uninstall actions for bounded declarative manifests. All eight declared capability types are typed and validated: commands/prompts feed slash workflows, rules/skills feed bounded workspace context, Agent profiles are request-scoped, Hooks/MCP reuse supervised runtimes, and Tools are approval-preserving aliases over existing handlers |
 
 ## Native parity and intentional architecture differences
 
-The current plugin registers the original action and extension surface that is meaningful in this product boundary: **36 IDEA Actions**, **26 IntelliJ extensions**, and **4 application/project listeners**, including the standalone settings sections, sign-in/sign-out, account management, log export, cloud conversation recovery, sync report, BYOK actions, FileBasedIndex, inline-completion element manipulation, OAuth/MCP callback handlers, lifecycle listeners, and error/performance/client telemetry services.
+The current plugin registers the original action and extension surface that is meaningful in this product boundary: **36 IDEA Actions**, **30 IntelliJ extension registrations** across 13 extension points, and **4 application/project listeners**, including the standalone settings sections, sign-in/sign-out, account management, log export, cloud conversation recovery, sync report, BYOK actions, FileBasedIndex, inline-completion element manipulation, OAuth/MCP callback handlers, lifecycle listeners, and error/performance/client telemetry services.
 
 ### Known original-plugin deltas (0.482.3 source audit, 2026-07-26)
 
@@ -121,15 +121,47 @@ Resolved in slice 2:
   searchable native settings page alongside a completion-shortcut link and
   sign-in-state-aware account buttons.
 
+Resolved in slice 3, backend contract only:
+
+- **Deployment-owned cloud surfaces.** The backend now implements shareable
+  session links (`GET` / `POST` / `DELETE /v1/conversations/{id}/share` plus the
+  public, `no-store`, read-only `GET /v1/share/{token}` projection), operator
+  notifications (`GET /v1/notifications` and
+  `POST /v1/notifications/{id}/dismiss` with per-account dismissals),
+  subscription plan and quota state on the `subscription` object of
+  `GET /v1/me`, and a `marketplaces` configuration kind on the existing
+  `/v1/configurations/{kind}` routes. Only `sha256(token)` is stored, so a share
+  link is readable exactly once, in the creating response, and every share
+  lookup failure returns the same `404` so tokens cannot be enumerated. Each
+  surface is deployment-configured through `SHARE_BASE_URL`,
+  `NOTIFICATIONS_JSON`, and `SUBSCRIPTION_PLANS_JSON` (see
+  `backend/.env.example`); when a group is unset the backend reports an explicit
+  reason — `503` for sharing, an empty list for notifications, and subscription
+  `state: "unknown"` with a `reason` — instead of a silent no-op or a fabricated
+  success. This entry covers the HTTP contract only: JVM and webview surfacing
+  is tracked separately in `docs/NEXT_STEPS.md` and was not verified here, and
+  `backend/openapi.json` does not describe these routes yet.
+
+Also resolved in slice 3, JVM and webview: a copyable Extension Status
+`DialogWrapper` whose report is also written into the log-export bundle;
+per-version plugin-update checking against the runtime manifest, published
+through the `CodeAgent.Updates` notification group; MCP OAuth `.well-known`
+metadata discovery (RFC 9728/8414/OpenID) with RFC 7591 dynamic client
+registration and a `header` auth kind whose value stays in Password Safe; and
+notification sound settings with an empty-thread suggested-question card.
+
 Still open, local and feasible: rich composer behaviors (mention chips,
 drag-drop/paste attachments, paste size guard, inline input completion),
-onboarding coach-marks and pre-chat gate views, a copyable Extension Status
-dialog, sound settings, Monaco-based rules editing, plugin-update checking,
-task-tool hierarchy, MCP OAuth metadata discovery and dynamic client
-registration, and IDE Run-tool-window hosting for agent-launched commands.
+onboarding coach-marks and pre-chat gate views, Monaco-based rules editing,
+task-tool hierarchy, and IDE Run-tool-window hosting for agent-launched
+commands.
 Cloud-dependent surfaces (shareable session links, subscription banners,
-server-driven notifications, marketplace management) remain intentionally
-unavailable under the no-fake rule.
+server-driven notifications, marketplace management) are no longer withheld as a
+whole: the backend implements all four, and each is unavailable only where a
+deployment has not configured it, in which case it returns an explicit reason
+rather than a fabricated result, as the no-fake rule requires. What remains open
+is the JVM and webview presentation of those contracts, which this audit did not
+verify and which is tracked in `docs/NEXT_STEPS.md`.
 
 ACP is implemented through the official `@agentclientprotocol/sdk` v1 runtime in the sidecar, with agent discovery, capability negotiation, `session/new`, `session/load`, prompt/update/cancel handling, persisted session state, and explicit permission denial as the default safety boundary.
 

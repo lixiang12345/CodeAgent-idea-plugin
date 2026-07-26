@@ -9,6 +9,7 @@ import { createAuthenticatorFromEnv, SharedTokenAuthenticator } from "./auth.mjs
 import { ProductJobRunner } from "./job-runner.mjs";
 import { createProductStoreFromEnv } from "./product-store.mjs";
 import { createRuntimeManifestFromEnv, handleProductRequest, handlePublicProductRequest } from "./product-api.mjs";
+import { createCloudSurfacesFromEnv } from "./cloud-surfaces.mjs";
 import { applyAgentProfile, resolveAgentProfile } from "./agent-profile.mjs";
 import { PROMPT_VERSION, promptEnhancementMessages } from "./prompt.mjs";
 import { contextBudgetFor } from "./context-policy.mjs";
@@ -24,6 +25,7 @@ export function createCodeAgentServer({
   productStore,
   productJobRunner,
   runtimeManifest,
+  cloudSurfaces,
   authToken = "",
   corsOrigins = [],
   logger = console,
@@ -34,6 +36,7 @@ export function createCodeAgentServer({
   const store = productStore || createProductStoreFromEnv();
   const auth = authenticator || (authToken ? new SharedTokenAuthenticator(authToken) : createAuthenticatorFromEnv(process.env, fetch, store));
   const manifest = runtimeManifest || createRuntimeManifestFromEnv();
+  const cloud = cloudSurfaces || createCloudSurfacesFromEnv();
   const jobs = productJobRunner || new ProductJobRunner({ store, modelGateway: gateway, logger });
   const ready = Promise.resolve(store.initialize()).then(() => jobs.start());
   const runs = new Map();
@@ -64,7 +67,7 @@ export function createCodeAgentServer({
         return html(response, 200, DOCS_HTML);
       }
       await ready;
-      if (await handlePublicProductRequest(request, response, { authenticator: auth, runtimeManifest: manifest })) return;
+      if (await handlePublicProductRequest(request, response, { authenticator: auth, runtimeManifest: manifest, store })) return;
       const principal = await auth.authenticate(request);
       await store.upsertUser(principal);
       const requestGateway = createRequestModelGateway(request.headers, gateway);
@@ -76,6 +79,7 @@ export function createCodeAgentServer({
         jobRunner: jobs,
         modelGateway: requestGateway,
         readJson,
+        cloud,
       })) return;
       if (request.url === "/v1/models" && request.method === "GET") {
         const data = typeof requestGateway.listModels === "function" ? await requestGateway.listModels() : [];

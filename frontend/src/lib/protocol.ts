@@ -180,6 +180,32 @@ export interface AccountUsage {
   units: number;
 }
 
+export interface SubscriptionQuota {
+  kind: string;
+  used: number;
+  limit: number;
+  remaining: number;
+  ratio: number;
+  state: "ok" | "approaching" | "exhausted";
+}
+
+export interface SubscriptionWarning {
+  level: "warning" | "error";
+  kind: string;
+  message: string;
+}
+
+export interface SubscriptionSnapshot {
+  state: "ok" | "approaching" | "exhausted" | "unknown";
+  plan?: string | null;
+  label?: string | null;
+  manageUrl?: string | null;
+  /** Present only when the deployment could not resolve a plan. */
+  reason?: string | null;
+  quotas: SubscriptionQuota[];
+  warning?: SubscriptionWarning | null;
+}
+
 export interface AccountSnapshot {
   state: "checking" | "signed_out" | "signing_in" | "signed_in" | "signing_out" | "error";
   mode: "unknown" | "local" | "shared-token" | "oidc";
@@ -188,6 +214,30 @@ export interface AccountSnapshot {
   email?: string;
   usage: AccountUsage[];
   label: string;
+  subscription?: SubscriptionSnapshot | null;
+}
+
+export interface NotificationActionItem {
+  title: string;
+  url: string;
+}
+
+export interface NotificationBanner {
+  id: string;
+  level: "info" | "warning" | "error";
+  message: string;
+  actionItems: NotificationActionItem[];
+}
+
+export interface SharingSnapshot {
+  state: "unavailable" | "unshared" | "shared" | "working";
+  reason?: string | null;
+  /** Only returned by the deployment when a link is minted; it can never be read back. */
+  url?: string | null;
+  tokenPrefix?: string | null;
+  expiresAt?: number | null;
+  viewCount?: number | null;
+  rotated?: boolean;
 }
 
 export interface ModelOption {
@@ -214,7 +264,7 @@ export interface BackendToolCapability {
   requiredEnvironment: string[];
 }
 
-export type ConfigurationKind = "mcp" | "acp" | "hooks" | "commands" | "agents" | "plugins" | "tool-permissions";
+export type ConfigurationKind = "mcp" | "acp" | "hooks" | "commands" | "agents" | "plugins" | "marketplaces" | "tool-permissions";
 
 export interface ProductConfiguration {
   id: string;
@@ -471,6 +521,8 @@ export interface AppSnapshot {
   attachments: ContextItem[];
   settings: SettingsSnapshot;
   account: AccountSnapshot;
+  notifications: NotificationBanner[];
+  sharing: SharingSnapshot;
   byok: {
     activeProvider?: "openai" | "anthropic" | "aws-bedrock" | null;
     openAiConfigured: boolean;
@@ -1319,7 +1371,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     updateDevelopmentSnapshot((snapshot) => ({ ...snapshot, account: { ...snapshot.account, state: "signing_in", label: "Waiting for browser sign-in" } }));
     window.setTimeout(() => updateDevelopmentSnapshot((snapshot) => ({
       ...snapshot,
-      account: { state: "signed_in", mode: "oidc", userId: "dev-user", displayName: "CodeAgent Developer", email: "developer@example.com", usage: snapshot.account.usage, label: "Signed in as CodeAgent Developer" },
+      account: { state: "signed_in", mode: "oidc", userId: "dev-user", displayName: "CodeAgent Developer", email: "developer@example.com", usage: snapshot.account.usage, label: "Signed in as CodeAgent Developer", subscription: snapshot.account.subscription },
     })), 260);
     return;
   }
@@ -1327,8 +1379,50 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     updateDevelopmentSnapshot((snapshot) => ({ ...snapshot, account: { ...snapshot.account, state: "signing_out", label: "Signing out" } }));
     window.setTimeout(() => updateDevelopmentSnapshot((snapshot) => ({
       ...snapshot,
-      account: { state: "signed_out", mode: "oidc", usage: [], label: "Signed out" },
+      account: { state: "signed_out", mode: "oidc", usage: [], label: "Signed out", subscription: null },
     })), 180);
+    return;
+  }
+  if (command.type === "dismissNotification") {
+    const notificationId = String((command.payload as { notificationId?: string } | undefined)?.notificationId ?? "");
+    updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      notifications: snapshot.notifications.filter((notification) => notification.id !== notificationId),
+    }));
+    return;
+  }
+  if (command.type === "openNotificationLink" || command.type === "openSubscriptionManagement") {
+    emitDevelopmentEvent("notice", { message: `${command.type} is implemented by the JetBrains host; the browser development host acknowledged the action without opening a browser` });
+    return;
+  }
+  if (command.type === "shareConversation") {
+    if (developmentSnapshot?.sharing.state === "unavailable") {
+      emitDevelopmentEvent("error", { message: developmentSnapshot.sharing.reason ?? "Shareable links are not configured on this deployment" });
+      return;
+    }
+    const rotated = developmentSnapshot?.sharing.state === "shared";
+    const token = crypto.randomUUID().replaceAll("-", "");
+    updateDevelopmentSnapshot((snapshot) => ({ ...snapshot, sharing: { ...snapshot.sharing, state: "working" } }));
+    window.setTimeout(() => updateDevelopmentSnapshot((snapshot) => ({
+      ...snapshot,
+      sharing: {
+        state: "shared",
+        url: `https://share.example.test/share/${token}`,
+        tokenPrefix: token.slice(0, 8),
+        expiresAt: Date.now() + 604_800_000,
+        viewCount: 0,
+        rotated,
+      },
+    })), 260);
+    return;
+  }
+  if (command.type === "unshareConversation") {
+    updateDevelopmentSnapshot((snapshot) => ({ ...snapshot, sharing: { ...snapshot.sharing, state: "working" } }));
+    window.setTimeout(() => updateDevelopmentSnapshot((snapshot) => ({ ...snapshot, sharing: { state: "unshared" } })), 180);
+    return;
+  }
+  if (command.type === "refreshSharing") {
+    emitDevelopmentSnapshot();
     return;
   }
   if (command.type === "refreshConfigurations" || command.type === "refreshCustomization") {
@@ -1879,7 +1973,20 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
         { kind: "completion", units: 318 },
       ],
       label: "Signed in as CodeAgent Developer",
+      subscription: {
+        state: "ok",
+        plan: "team",
+        label: "Team",
+        manageUrl: "https://billing.example.test/team",
+        quotas: [
+          { kind: "agent-run", used: 42, limit: 400, remaining: 358, ratio: 0.105, state: "ok" },
+          { kind: "completion", used: 318, limit: 2_000, remaining: 1_682, ratio: 0.159, state: "ok" },
+        ],
+        warning: null,
+      },
     },
+    notifications: [],
+    sharing: { state: "unshared" },
     byok: {
       openAiConfigured: true,
       anthropicConfigured: false,
@@ -1973,6 +2080,19 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
               version: null,
               integrity: null,
               capabilities: ["commands"],
+            },
+          },
+        ],
+        marketplaces: [
+          {
+            id: "example-marketplace",
+            kind: "marketplaces",
+            value: {
+              name: "Example marketplace",
+              description: "Shared index of reviewed plugin manifests.",
+              enabled: true,
+              source: "https://plugins.example.test/index.json",
+              trusted: false,
             },
           },
         ],

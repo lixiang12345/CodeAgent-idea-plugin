@@ -1,14 +1,20 @@
 package com.codeagent.plugin.actions
 
-import com.codeagent.plugin.agent.AgentOrchestrator
-import com.codeagent.plugin.agent.InlineCompletionTelemetryService
-import com.codeagent.plugin.context.ContextEngineService
-import com.intellij.notification.NotificationGroupManager
-import com.intellij.notification.NotificationType
+import com.codeagent.plugin.diagnostics.ExtensionStatusReport
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.components.service
-import java.util.concurrent.CompletableFuture
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.ide.CopyPasteManager
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBTextArea
+import com.intellij.util.ui.JBUI
+import java.awt.Font
+import java.awt.datatransfer.StringSelection
+import java.awt.event.ActionEvent
+import javax.swing.Action
+import javax.swing.JComponent
 
 class ShowExtensionStatusAction : AnAction() {
     override fun update(e: AnActionEvent) {
@@ -17,25 +23,35 @@ class ShowExtensionStatusAction : AnAction() {
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        val backend = project.service<AgentOrchestrator>().health()
-            .handle { value, error -> if (error == null && value.ok) "Backend online" else "Backend unavailable" }
-        val context = project.service<ContextEngineService>().status()
-            .handle { value, error ->
-                if (error != null) "Context unavailable"
-                else if (value.indexed) "Context indexed: ${value.fileCount} files, ${value.chunkCount} chunks"
-                else "Context not indexed"
+        ExtensionStatusReport.collect(project).whenComplete { report, error ->
+            val text = report ?: "CodeAgent extension status unavailable (${error?.message ?: "unknown failure"})"
+            ApplicationManager.getApplication().invokeLater {
+                if (!project.isDisposed) ExtensionStatusDialog(project, text).show()
             }
-        val completions = service<InlineCompletionTelemetryService>().snapshot()
-        CompletableFuture.allOf(backend, context).whenComplete { _, _ ->
-            NotificationGroupManager.getInstance()
-                .getNotificationGroup("CodeAgent")
-                .createNotification(
-                    "CodeAgent status",
-                    "${backend.join()}<br>${context.join()}<br>Inline completion: ${completions.suggestions} suggestions, " +
-                        "${completions.cacheHits} cache hits, ${completions.failures} failures",
-                    NotificationType.INFORMATION,
-                )
-                .notify(project)
         }
     }
+}
+
+private class ExtensionStatusDialog(project: Project, private val report: String) : DialogWrapper(project) {
+    init {
+        title = "CodeAgent Extension Status"
+        init()
+    }
+
+    override fun createCenterPanel(): JComponent {
+        val area = JBTextArea(report)
+        area.isEditable = false
+        area.font = Font(Font.MONOSPACED, Font.PLAIN, area.font.size)
+        area.caretPosition = 0
+        return JBScrollPane(area).apply { preferredSize = JBUI.size(640, 360) }
+    }
+
+    override fun createActions(): Array<Action> = arrayOf(
+        object : DialogWrapperAction("Copy") {
+            override fun doAction(e: ActionEvent) {
+                CopyPasteManager.getInstance().setContents(StringSelection(report))
+            }
+        },
+        okAction,
+    )
 }

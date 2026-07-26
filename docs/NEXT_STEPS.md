@@ -111,8 +111,9 @@ read/insert/update permissions.
 
 ## Priority 4: Original-Plugin Alignment Backlog (audit of 2026-07-26)
 
-**Status:** slices 1 and 2 landed; the remaining items below are ordered by
-user-visible impact and are all locally feasible unless marked otherwise.
+**Status:** slices 1 and 2 landed, and slice 3 landed the backend half of the
+cloud surfaces described below; the remaining items are ordered by user-visible
+impact and are all locally feasible unless marked otherwise.
 
 The 2026-07-26 three-surface audit compared the extracted 0.482.3 plugin (JVM
 classes, webview sources recovered from shipped source maps, sidecar bundle)
@@ -159,9 +160,36 @@ Remaining, ranked:
    (spawn/check/message/await with parent reporting), semantic commit-history
    retrieval, and completion recency payloads.
 
-Cloud-only surfaces (shareable session links, subscription and credit banners,
-server-driven notifications, marketplace management, Augment cloud auth,
-telemetry) stay out of scope per Explicit Non-Goals.
+Four surfaces previously listed here as cloud-only now have a backend contract.
+`backend/src/cloud-surfaces.mjs` plus the product API implement shareable
+session links (`GET` / `POST` / `DELETE /v1/conversations/{id}/share` and the
+public read-only `GET /v1/share/{token}`), server-driven notifications
+(`GET /v1/notifications`, `POST /v1/notifications/{id}/dismiss`), subscription
+plan and quota state on `GET /v1/me`, and a `marketplaces` configuration kind.
+Each is deployment-configured through `SHARE_BASE_URL`, `NOTIFICATIONS_JSON`,
+and `SUBSCRIPTION_PLANS_JSON` (`backend/.env.example`) and reports an explicit
+reason while unconfigured: `503` for sharing, an empty list for notifications,
+and subscription `state: "unknown"`. Remaining for these surfaces:
+
+- **JVM and webview surfacing.** The typed layers landed and compile:
+  `RemoteAgentClient` speaks all six routes and carries the backend reason on
+  `RemoteHttpException.serverMessage`, `BridgeProtocol` declares the
+  subscription, notification, and sharing DTOs, `protocol.ts` mirrors them with
+  development-host handlers, and Settings gained a `marketplaces` section.
+  What does not exist yet is the part a user can reach: `IdeBridge` dispatches
+  none of the new commands, and the panel renders no notification banner, no
+  subscription warning, and no share action. Until those land the new client
+  methods are unreachable and untested. That is the next slice.
+- **Contract publication.** `backend/openapi.json` and the
+  `backendOpenApiPaths` list in `evaluation/parity-codeagent.json` do not yet
+  describe the new routes, and the OpenAPI `ConfigurationKind` enum omits
+  `marketplaces` and `acp`.
+- **Deployment exercise.** No deployment in this repository configures the three
+  variable groups, so the configured (non-503, non-empty, non-unknown) paths
+  have no acceptance evidence.
+
+Augment cloud auth, credit/billing integration, and product telemetry stay out
+of scope per Explicit Non-Goals.
 
 ## Completed Gates
 

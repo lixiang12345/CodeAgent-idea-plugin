@@ -232,6 +232,20 @@ class AgentOrchestrator(private val project: Project) : Disposable {
 
     internal fun tools(): CompletableFuture<RemoteToolsResponse> = withClient(RemoteAgentClient::tools)
 
+    internal fun notifications(): CompletableFuture<RemoteNotificationList> = withClient(RemoteAgentClient::notifications)
+
+    internal fun dismissNotification(id: String, actionItemTitle: String?): CompletableFuture<Void> =
+        withClient { it.dismissNotification(id, actionItemTitle) }
+
+    internal fun conversationShare(conversationId: String): CompletableFuture<RemoteConversationShare?> =
+        withClient { it.conversationShare(conversationId) }
+
+    internal fun createConversationShare(conversationId: String): CompletableFuture<RemoteConversationShare> =
+        withClient { it.createConversationShare(conversationId) }
+
+    internal fun deleteConversationShare(conversationId: String): CompletableFuture<Boolean> =
+        withClient { it.deleteConversationShare(conversationId) }
+
     internal fun jobs(limit: Int = 50): CompletableFuture<RemoteJobList> =
         withClient { it.jobs(limit) }
 

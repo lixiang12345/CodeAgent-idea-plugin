@@ -42,6 +42,28 @@ class CodeAgentSettingsService : PersistentStateComponent<CodeAgentSettingsState
         settings.toolPermissionRules = normalized.joinToString("\n")
     }
 
+    fun updateNotifiedVersion(): String? = settings.lastNotifiedUpdateVersion.takeIf(String::isNotBlank)
+
+    fun markUpdateVersionNotified(version: String) {
+        settings.lastNotifiedUpdateVersion = version.trim()
+    }
+
+    fun mcpDynamicClientId(serverId: String): String? =
+        settings.mcpDynamicClientIds[serverId]?.takeIf(String::isNotBlank)
+
+    fun setMcpDynamicClientId(serverId: String, clientId: String) {
+        require(clientId.isNotBlank()) { "MCP dynamic client ID is required" }
+        settings.mcpDynamicClientIds[serverId] = clientId
+    }
+
+    fun mcpDiscoveredTokenEndpoint(serverId: String): String? =
+        settings.mcpDiscoveredTokenEndpoints[serverId]?.takeIf(String::isNotBlank)
+
+    fun setMcpDiscoveredTokenEndpoint(serverId: String, tokenEndpoint: String) {
+        require(tokenEndpoint.isNotBlank()) { "MCP token endpoint is required" }
+        settings.mcpDiscoveredTokenEndpoints[serverId] = tokenEndpoint
+    }
+
     /** Cached credential presence check, cheap enough for action `update()` on the BGT. */
     fun isSignedIn(): Boolean = signedIn ?: run {
         val present = !PasswordSafe.instance.getPassword(BACKEND_TOKEN_ATTRIBUTES).isNullOrBlank()
@@ -245,6 +267,15 @@ class CodeAgentSettingsState {
     var contextNeuralRerank: Boolean = false
     var contextRerankBaseUrl: String = ""
     var contextRerankModel: String = DEFAULT_CONTEXT_RERANK_MODEL
+
+    /** Last plugin version the user was notified about, so each update is announced once. */
+    var lastNotifiedUpdateVersion: String = ""
+
+    /** RFC 7591 dynamic client IDs per MCP server; client secrets stay in Password Safe. */
+    var mcpDynamicClientIds: MutableMap<String, String> = mutableMapOf()
+
+    /** Token endpoints resolved through metadata discovery, kept for refresh-token exchanges. */
+    var mcpDiscoveredTokenEndpoints: MutableMap<String, String> = mutableMapOf()
 
     /**
      * Per-tool permission rules, one per line, as

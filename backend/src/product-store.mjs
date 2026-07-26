@@ -281,6 +281,83 @@ export class PostgresProductStore {
     return result.rowCount > 0;
   }
 
+  async putConversationShare(userId, conversationId, share) {
+    const { rows } = await this.pool.query(
+      `INSERT INTO codeagent_conversation_shares
+         (user_id, conversation_id, token_hash, token_prefix, expires_at)
+       VALUES ($1, $2, $3, $4, to_timestamp($5 / 1000.0))
+       ON CONFLICT (user_id, conversation_id) DO UPDATE SET
+         token_hash = EXCLUDED.token_hash,
+         token_prefix = EXCLUDED.token_prefix,
+         expires_at = EXCLUDED.expires_at,
+         revoked_at = NULL,
+         view_count = 0,
+         last_viewed_at = NULL,
+         updated_at = now()
+       RETURNING conversation_id AS "conversationId", token_prefix AS "tokenPrefix",
+         (EXTRACT(epoch FROM expires_at) * 1000)::bigint AS "expiresAt", view_count::int AS "viewCount",
+         created_at AS "createdAt", updated_at AS "updatedAt"`,
+      [userId, conversationId, share.tokenHash, share.tokenPrefix, share.expiresAt],
+    );
+    return normalizeShare(rows[0]);
+  }
+
+  async getConversationShare(userId, conversationId) {
+    const { rows } = await this.pool.query(
+      `SELECT conversation_id AS "conversationId", token_prefix AS "tokenPrefix",
+         (EXTRACT(epoch FROM expires_at) * 1000)::bigint AS "expiresAt", view_count::int AS "viewCount",
+         (EXTRACT(epoch FROM last_viewed_at) * 1000)::bigint AS "lastViewedAt",
+         created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM codeagent_conversation_shares
+       WHERE user_id = $1 AND conversation_id = $2 AND revoked_at IS NULL AND expires_at > now()`,
+      [userId, conversationId],
+    );
+    return normalizeShare(rows[0]);
+  }
+
+  async deleteConversationShare(userId, conversationId) {
+    const result = await this.pool.query(
+      `UPDATE codeagent_conversation_shares SET revoked_at = now(), updated_at = now()
+       WHERE user_id = $1 AND conversation_id = $2 AND revoked_at IS NULL`,
+      [userId, conversationId],
+    );
+    return result.rowCount > 0;
+  }
+
+  async findConversationShareByTokenHash(tokenHash) {
+    const { rows } = await this.pool.query(
+      `UPDATE codeagent_conversation_shares
+         SET view_count = view_count + 1, last_viewed_at = now()
+       WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
+       RETURNING user_id AS "userId", conversation_id AS "conversationId",
+         (EXTRACT(epoch FROM expires_at) * 1000)::bigint AS "expiresAt", view_count::int AS "viewCount",
+         created_at AS "createdAt"`,
+      [tokenHash],
+    );
+    return normalizeShare(rows[0]);
+  }
+
+  async listNotificationDismissals(userId) {
+    const { rows } = await this.pool.query(
+      `SELECT notification_id AS "notificationId", action_item_title AS "actionItemTitle",
+         dismissed_at AS "dismissedAt"
+       FROM codeagent_notification_dismissals WHERE user_id = $1 ORDER BY notification_id`,
+      [userId],
+    );
+    return rows;
+  }
+
+  async dismissNotification(userId, notificationId, actionItemTitle = null) {
+    await this.pool.query(
+      `INSERT INTO codeagent_notification_dismissals (user_id, notification_id, action_item_title)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, notification_id) DO UPDATE SET
+         action_item_title = COALESCE(EXCLUDED.action_item_title, codeagent_notification_dismissals.action_item_title),
+         dismissed_at = now()`,
+      [userId, notificationId, actionItemTitle],
+    );
+  }
+
   async listConfigurations(userId, kind) {
     const { rows } = await this.pool.query(
       `SELECT id, kind, value, created_at AS "createdAt", updated_at AS "updatedAt"
@@ -395,6 +472,9 @@ export class MemoryProductStore {
     this.configurations = new Map();
     this.jobs = new Map();
     this.usage = new Map();
+    this.shares = new Map();
+    this.shareByTokenHash = new Map();
+    this.notificationDismissals = new Map();
     this.authFlows = new Map();
     this.authCodes = new Map();
     this.sessions = new Map();
@@ -499,7 +579,74 @@ export class MemoryProductStore {
     return clone(stored);
   }
 
-  async deleteConversation(userId, id) { return this.#userMap(this.conversations, userId).delete(id); }
+  async deleteConversation(userId, id) {
+    const share = this.#userMap(this.shares, userId).get(id);
+    if (share) {
+      this.shareByTokenHash.delete(share.tokenHash);
+      this.#userMap(this.shares, userId).delete(id);
+    }
+    return this.#userMap(this.conversations, userId).delete(id);
+  }
+
+  async putConversationShare(userId, conversationId, share) {
+    const map = this.#userMap(this.shares, userId);
+    const previous = map.get(conversationId);
+    if (previous) this.shareByTokenHash.delete(previous.tokenHash);
+    const now = new Date().toISOString();
+    const stored = {
+      userId,
+      conversationId,
+      tokenHash: share.tokenHash,
+      tokenPrefix: share.tokenPrefix,
+      expiresAt: share.expiresAt,
+      revokedAt: null,
+      viewCount: 0,
+      lastViewedAt: null,
+      createdAt: previous?.createdAt || now,
+      updatedAt: now,
+    };
+    map.set(conversationId, stored);
+    this.shareByTokenHash.set(stored.tokenHash, stored);
+    return publicShare(stored);
+  }
+
+  async getConversationShare(userId, conversationId) {
+    const share = this.#userMap(this.shares, userId).get(conversationId);
+    return activeShare(share) ? publicShare(share) : null;
+  }
+
+  async deleteConversationShare(userId, conversationId) {
+    const share = this.#userMap(this.shares, userId).get(conversationId);
+    if (!share || share.revokedAt) return false;
+    share.revokedAt = new Date().toISOString();
+    share.updatedAt = share.revokedAt;
+    this.shareByTokenHash.delete(share.tokenHash);
+    return true;
+  }
+
+  async findConversationShareByTokenHash(tokenHash) {
+    const share = this.shareByTokenHash.get(tokenHash);
+    if (!activeShare(share)) return null;
+    share.viewCount += 1;
+    share.lastViewedAt = Date.now();
+    return { ...publicShare(share), userId: share.userId };
+  }
+
+  async listNotificationDismissals(userId) {
+    return [...this.#userMap(this.notificationDismissals, userId).values()]
+      .sort((a, b) => a.notificationId.localeCompare(b.notificationId))
+      .map(clone);
+  }
+
+  async dismissNotification(userId, notificationId, actionItemTitle = null) {
+    const map = this.#userMap(this.notificationDismissals, userId);
+    const previous = map.get(notificationId);
+    map.set(notificationId, {
+      notificationId,
+      actionItemTitle: actionItemTitle ?? previous?.actionItemTitle ?? null,
+      dismissedAt: new Date().toISOString(),
+    });
+  }
 
   async listConfigurations(userId, kind) {
     const map = this.#userMap(this.configurations, userId);
@@ -691,6 +838,28 @@ UPDATE codeagent_tools SET updated_at_ms = created_at_ms WHERE updated_at_ms IS 
 ALTER TABLE codeagent_tools ALTER COLUMN updated_at_ms SET NOT NULL;
 CREATE INDEX IF NOT EXISTS codeagent_tools_timeline_idx ON codeagent_tools(user_id, conversation_id, timeline_sequence, created_at_ms, id);
 CREATE INDEX IF NOT EXISTS codeagent_tools_order_idx ON codeagent_tools(user_id, conversation_id, created_at_ms, id);
+CREATE TABLE IF NOT EXISTS codeagent_conversation_shares (
+  user_id text NOT NULL,
+  conversation_id text NOT NULL,
+  token_hash text NOT NULL UNIQUE,
+  token_prefix text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  revoked_at timestamptz,
+  view_count bigint NOT NULL DEFAULT 0,
+  last_viewed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, conversation_id),
+  FOREIGN KEY (user_id, conversation_id) REFERENCES codeagent_conversations(user_id, id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS codeagent_shares_expiry_idx ON codeagent_conversation_shares(expires_at);
+CREATE TABLE IF NOT EXISTS codeagent_notification_dismissals (
+  user_id text NOT NULL REFERENCES codeagent_users(id) ON DELETE CASCADE,
+  notification_id text NOT NULL,
+  action_item_title text,
+  dismissed_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, notification_id)
+);
 CREATE TABLE IF NOT EXISTS codeagent_configurations (
   user_id text NOT NULL REFERENCES codeagent_users(id) ON DELETE CASCADE,
   kind text NOT NULL,
@@ -748,6 +917,34 @@ function clone(value) {
 
 function activeSession(session) {
   return Boolean(session && !session.revokedAt && Date.parse(session.refreshExpiresAt) > Date.now());
+}
+
+function activeShare(share) {
+  return Boolean(share && !share.revokedAt && share.expiresAt > Date.now());
+}
+
+/** Share rows never expose the token hash; only the display prefix leaves the store. */
+function publicShare(share) {
+  return clone({
+    conversationId: share.conversationId,
+    tokenPrefix: share.tokenPrefix,
+    expiresAt: share.expiresAt,
+    viewCount: share.viewCount,
+    lastViewedAt: share.lastViewedAt ?? null,
+    createdAt: share.createdAt,
+    updatedAt: share.updatedAt ?? share.createdAt,
+  });
+}
+
+/** Postgres returns bigint columns as strings; the API contract uses epoch milliseconds. */
+function normalizeShare(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    expiresAt: Number(row.expiresAt),
+    viewCount: Number(row.viewCount ?? 0),
+    lastViewedAt: row.lastViewedAt === undefined || row.lastViewedAt === null ? null : Number(row.lastViewedAt),
+  };
 }
 
 function publicSession(session) {

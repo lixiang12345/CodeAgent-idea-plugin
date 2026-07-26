@@ -346,7 +346,7 @@ The adapter preserves `GITHUB_API_URL` for GitHub Enterprise Server and sends `X
 
 ### 3.6 Product configuration CRUD
 
-Configuration kinds are `mcp`, `commands`, `hooks`, `agents`, `plugins`, and `tool-permissions`. IDs use 1-120 ASCII letters, numbers, dots, underscores, or hyphens. Values are normalized by kind and unknown fields are discarded.
+Configuration kinds are `mcp`, `acp`, `commands`, `hooks`, `agents`, `plugins`, `marketplaces`, and `tool-permissions`. IDs use 1-120 ASCII letters, numbers, dots, underscores, or hyphens. Values are normalized by kind and unknown fields are discarded.
 
 - `GET /v1/configurations/{kind}` returns `{ "object": "list", "data": ProductConfiguration[] }`.
 - `PUT /v1/configurations/{kind}/{id}` validates and account-persists one definition, then returns the normalized record.
@@ -355,6 +355,8 @@ Configuration kinds are `mcp`, `commands`, `hooks`, `agents`, `plugins`, and `to
 MCP definitions reference credential environment-variable names only. Remote endpoints require HTTPS except loopback HTTP, and URLs containing embedded credentials are rejected. After configuration refresh, enabled definitions are reconciled into the local managed MCP gateway; secret values are read only from explicitly allowlisted process environment names and never round-trip through the backend or Webview.
 
 Plugin definitions contain `source`, optional exact `version`, optional `sha256:<hex>` `integrity`, and an explicit capability grant list. Sources require HTTPS except loopback HTTP and cannot contain credentials or fragments. The account record does not install a plugin by itself: the Webview invokes the IDE-owned `installPlugin`, `updatePlugin`, `testPlugin`, or `uninstallPlugin` bridge command, and the JVM downloads at most a 1 MiB declarative JSON manifest into the device-local cache. It rejects unknown manifest fields, mismatched identity/version/integrity, undeclared grants, unsupported capabilities, invalid declarative contributions, and command/prompt IDs that collide in the shared slash namespace. Removing the account configuration also removes the local cached manifest.
+
+Marketplace definitions name where plugin manifests come from: `{ name, description, enabled, source, trusted }`. `source` follows the same URL policy as a plugin source (HTTPS except loopback HTTP, no credentials, no fragment). A marketplace record never installs anything; installation stays per-device through the plugin bridge commands above.
 
 Manifest schema version `1` supports the declared capabilities `commands`, `agents`, `hooks`, `mcp`, `rules`, `skills`, `tools`, and `prompts`. Explicitly granted `commands` and `prompts` are exposed to the composer as namespaced slash templates and resolve through the same bounded command runtime as account commands. Explicitly granted `rules` and `skills` become read-only namespaced workspace context, with manual rules and skills selected per conversation. `agents` contributes request-scoped profiles that the backend reconstructs and validates on every run. `hooks` and `mcp` contribute namespaced configurations to the existing supervised Hook and MCP runtimes after local installation. `tools` contributes aliases and default argument templates for existing tools; aliases inherit the target schema, mode restriction, and approval risk and cannot register executable handlers.
 
@@ -370,7 +372,45 @@ Conversation endpoints are account-isolated and require authentication outside l
 
 The IDE keeps local history authoritative while offline, debounces uploads, retains deletion tombstones until the backend confirms removal, and resolves version conflicts using the newer client timestamp. Limits are 200 messages, 100 tasks, and 1,000 tool records per conversation; backend validation also bounds text and timeline fields.
 
-### 3.8 `POST /v1/runs` (SSE)
+### 3.8 Deployment-configured cloud surfaces
+
+These routes exist in every deployment; what they report depends on the configuration documented in `backend/.env.example`. An unconfigured group answers with an explicit unavailable state carrying a reason, which clients must render as an unavailable affordance rather than a no-op or a success. `openapi.json` does not describe these routes yet.
+
+**Session sharing** (authenticated, account-isolated):
+
+- `GET /v1/conversations/{id}/share` returns `{ conversationId, tokenPrefix, expiresAt, viewCount, lastViewedAt, createdAt, updatedAt, baseUrl }`, or `404 { "error": "This conversation is not shared" }`.
+- `POST /v1/conversations/{id}/share` accepts `{ "ttlSeconds": 60..31536000 }` (default `SHARE_LINK_TTL_SECONDS`) and returns `201` with the same fields plus `url` and `rotated`. `url` is the only place the plaintext token ever appears — the backend stores `sha256(token)` — so an existing link cannot be re-read. `rotated=true` means an active share was replaced: the previous link stops working and `viewCount` restarts at `0`. An unknown conversation returns `404`.
+- `DELETE /v1/conversations/{id}/share` revokes and returns `204`, or `404` when nothing is shared.
+- All three return `503 { "error": "Shareable links are not configured on this deployment" }` while `SHARE_BASE_URL` is unset.
+
+**Public shared view** (no auth, `cache-control: no-store`):
+
+- `GET /v1/share/{token}` with `token` matching `^[A-Za-z0-9_-]{43}$` returns `{ share: { expiresAt, viewCount, createdAt }, conversation: { id, title, mode, updatedAt, messages[], tasks[], tools[] } }`. The projection strips `userId`, `canRevert`, `runId`, `turnIndex`, `timelineSequence`, and the selected profile/model/skill/rule IDs.
+- Malformed, unknown, revoked, and expired tokens and deleted conversations all return the same `404 { "error": "Shared session not found" }`, so tokens cannot be enumerated.
+
+**Notifications** (authenticated):
+
+- `GET /v1/notifications` returns `{ "data": [ { id, level, message, actionItems: [{ title, url }], expiresAt } ] }`, already filtered for this principal: dismissed, expired, and out-of-audience entries are absent. An unconfigured deployment returns `{ "data": [] }`; that empty list is a healthy response, not a discovery failure.
+- `POST /v1/notifications/{id}/dismiss` accepts `{ "actionItemTitle": "…" }` (optional, `<=80` chars) and returns `204`. An id outside the deployment catalog returns `404`.
+
+**Subscription state** is carried by `GET /v1/me` as `{ user, usage, session, subscription }`:
+
+```json
+{
+  "plan": "team",
+  "label": "Team",
+  "manageUrl": "https://billing.example.com/codeagent",
+  "state": "approaching",
+  "quotas": [
+    { "kind": "agent_runs", "used": 4200, "limit": 5000, "remaining": 800, "ratio": 0.84, "state": "approaching" }
+  ],
+  "warning": { "level": "warning", "kind": "agent_runs", "message": "…" }
+}
+```
+
+`state` is `ok`, `approaching`, `exhausted`, or `unknown`, and is the worst quota state; `warning` is `null` while every quota is `ok`. `unknown` also carries `reason` and appears when no plans are configured, the account carries no plan, its plan is not declared, or the plan declares no quotas; it must be surfaced as unavailable, not as a healthy plan. Quota counters come from usage the backend counted, and `approaching` starts at `SUBSCRIPTION_WARN_RATIO`.
+
+### 3.9 `POST /v1/runs` (SSE)
 
 **Request body: `RemoteRunRequest`**
 
@@ -444,7 +484,7 @@ Header: `x-codeagent-run-id: <runId>`
 | `run.error` | `{ message }` | Fatal run error |
 | comment heartbeat | `: heartbeat` | Every ~15s |
 
-### 3.9 `POST /v1/runs/{runId}/tool-results`
+### 3.10 `POST /v1/runs/{runId}/tool-results`
 
 **Request body**
 
@@ -472,7 +512,7 @@ Header: `x-codeagent-run-id: <runId>`
 { "accepted": true }
 ```
 
-### 3.10 `DELETE /v1/runs/{runId}`
+### 3.11 `DELETE /v1/runs/{runId}`
 
 **Response 202**
 

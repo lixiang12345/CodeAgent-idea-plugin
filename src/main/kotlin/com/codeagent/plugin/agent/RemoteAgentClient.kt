@@ -59,6 +59,71 @@ internal class RemoteAgentClient(
         }
     }
 
+    fun notifications(): CompletableFuture<RemoteNotificationList> {
+        val uri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/notifications")
+        return httpClient.sendAsync(
+            requestBuilder(uri).timeout(Duration.ofSeconds(15)).GET().build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            if (response.statusCode() != 200) throw remoteHttpError("Notification discovery", response)
+            json.decodeFromString<RemoteNotificationList>(response.body())
+        }
+    }
+
+    fun dismissNotification(id: String, actionItemTitle: String? = null): CompletableFuture<Void> {
+        val body = json.encodeToString(RemoteNotificationDismissal(actionItemTitle))
+        return httpClient.sendAsync(
+            requestBuilder(notificationDismissUri(id))
+                .timeout(Duration.ofSeconds(15))
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            if (response.statusCode() != 204) throw remoteHttpError("Notification dismissal", response)
+            null
+        }
+    }
+
+    fun conversationShare(conversationId: String): CompletableFuture<RemoteConversationShare?> {
+        return httpClient.sendAsync(
+            requestBuilder(conversationShareUri(conversationId)).timeout(Duration.ofSeconds(30)).GET().build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            when (response.statusCode()) {
+                200 -> json.decodeFromString<RemoteConversationShare>(response.body())
+                404 -> null
+                else -> throw remoteHttpError("Share read", response)
+            }
+        }
+    }
+
+    fun createConversationShare(conversationId: String, ttlSeconds: Long? = null): CompletableFuture<RemoteConversationShare> {
+        val body = json.encodeToString(RemoteConversationShareRequest(ttlSeconds))
+        return httpClient.sendAsync(
+            requestBuilder(conversationShareUri(conversationId))
+                .timeout(Duration.ofSeconds(30))
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            if (response.statusCode() != 201) throw remoteHttpError("Share creation", response)
+            json.decodeFromString<RemoteConversationShare>(response.body())
+        }
+    }
+
+    fun deleteConversationShare(conversationId: String): CompletableFuture<Boolean> {
+        return httpClient.sendAsync(
+            requestBuilder(conversationShareUri(conversationId)).timeout(Duration.ofSeconds(30)).DELETE().build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).thenApply { response ->
+            when (response.statusCode()) {
+                204 -> true
+                404 -> false
+                else -> throw remoteHttpError("Share revocation", response)
+            }
+        }
+    }
+
     fun conversations(): CompletableFuture<RemoteConversationList> {
         val uri = URI.create("${settings.backendUrl.trimEnd('/')}/v1/conversations")
         return httpClient.sendAsync(
@@ -376,6 +441,14 @@ internal class RemoteAgentClient(
         return URI.create("${settings.backendUrl.trimEnd('/')}/v1/conversations/$id")
     }
 
+    private fun conversationShareUri(conversationId: String): URI =
+        URI.create("${conversationUri(conversationId)}/share")
+
+    private fun notificationDismissUri(id: String): URI {
+        require(id.matches(Regex("[A-Za-z0-9._-]{1,120}"))) { "Invalid notification ID" }
+        return URI.create("${settings.backendUrl.trimEnd('/')}/v1/notifications/$id/dismiss")
+    }
+
     private fun jobUri(id: String): URI {
         require(id.matches(Regex("[A-Za-z0-9._-]{1,200}"))) { "Invalid job ID" }
         return URI.create("${settings.backendUrl.trimEnd('/')}/v1/jobs/$id")
@@ -390,8 +463,14 @@ internal class RemoteAgentClient(
         return URI.create("${settings.backendUrl.trimEnd('/')}/v1/configurations/$kind$suffix")
     }
 
-    private fun remoteHttpError(operation: String, response: HttpResponse<String>): RemoteHttpException =
-        RemoteHttpException(response.statusCode(), "$operation returned HTTP ${response.statusCode()}: ${errorMessage(response.body())}")
+    private fun remoteHttpError(operation: String, response: HttpResponse<String>): RemoteHttpException {
+        val serverMessage = errorMessage(response.body())
+        return RemoteHttpException(
+            response.statusCode(),
+            "$operation returned HTTP ${response.statusCode()}: $serverMessage",
+            serverMessage,
+        )
+    }
 
     private fun requestBuilder(uri: URI): HttpRequest.Builder = HttpRequest.newBuilder(uri)
         .header("Content-Type", "application/json")
@@ -440,7 +519,8 @@ internal class RemoteAgentClient(
     }
 
     companion object {
-        private val CONFIGURATION_KINDS = setOf("mcp", "acp", "hooks", "commands", "agents", "plugins", "tool-permissions")
+        private val CONFIGURATION_KINDS =
+            setOf("mcp", "acp", "hooks", "commands", "agents", "plugins", "marketplaces", "tool-permissions")
         private val TERMINAL_RUN_EVENTS = setOf("run.completed", "run.error", "run.cancelled")
         private const val STREAM_HEADER_TIMEOUT_SECONDS = 45L
     }
@@ -646,6 +726,8 @@ internal data class RemoteHttpError(
 internal class RemoteHttpException(
     val statusCode: Int,
     message: String,
+    /** Reason authored by the backend, so callers can surface it without inventing text. */
+    val serverMessage: String? = null,
 ) : IllegalStateException(message)
 
 internal class RemoteRunExpiredException(
@@ -670,6 +752,81 @@ internal data class RemoteAccountResponse(
     val user: RemoteAccountUser,
     val usage: List<RemoteUsageSummary> = emptyList(),
     val session: RemoteSession,
+    val subscription: RemoteSubscription? = null,
+)
+
+@Serializable
+internal data class RemoteSubscription(
+    val state: String = "unknown",
+    val plan: String? = null,
+    val label: String? = null,
+    val manageUrl: String? = null,
+    val reason: String? = null,
+    val quotas: List<RemoteSubscriptionQuota> = emptyList(),
+    val warning: RemoteSubscriptionWarning? = null,
+)
+
+@Serializable
+internal data class RemoteSubscriptionQuota(
+    val kind: String,
+    val used: Long = 0,
+    val limit: Long = 0,
+    val remaining: Long = 0,
+    val ratio: Double = 0.0,
+    val state: String = "ok",
+)
+
+@Serializable
+internal data class RemoteSubscriptionWarning(
+    val level: String,
+    val kind: String,
+    val message: String,
+)
+
+@Serializable
+internal data class RemoteNotificationList(
+    val data: List<RemoteNotification> = emptyList(),
+)
+
+@Serializable
+internal data class RemoteNotification(
+    val id: String,
+    val level: String = "info",
+    val message: String,
+    val actionItems: List<RemoteNotificationActionItem> = emptyList(),
+    val expiresAt: Long? = null,
+)
+
+@Serializable
+internal data class RemoteNotificationActionItem(
+    val title: String,
+    val url: String,
+)
+
+@Serializable
+internal data class RemoteNotificationDismissal(
+    val actionItemTitle: String? = null,
+)
+
+@Serializable
+internal data class RemoteConversationShareRequest(
+    val ttlSeconds: Long? = null,
+)
+
+/** `url` carries the plaintext token and is returned by the backend only when a link is created. */
+@Serializable
+internal data class RemoteConversationShare(
+    val conversationId: String,
+    val tokenPrefix: String,
+    val expiresAt: Long,
+    val viewCount: Long = 0,
+    val lastViewedAt: Long? = null,
+    // Epoch milliseconds for the expiry pair; RFC3339 strings for the row timestamps.
+    val createdAt: String = "",
+    val updatedAt: String = "",
+    val baseUrl: String? = null,
+    val url: String? = null,
+    val rotated: Boolean = false,
 )
 
 @Serializable

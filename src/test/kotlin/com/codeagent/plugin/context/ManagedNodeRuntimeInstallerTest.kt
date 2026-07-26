@@ -13,6 +13,7 @@ class ManagedNodeRuntimeInstallerTest {
     @Test
     fun `selects the exact platform and architecture artifact`() {
         val manifest = RuntimeManifest(
+            version = 1,
             runtimes = listOf(
                 RuntimeArtifact("linux", "x64", "22.5.0", "https://downloads.example/linux", "a".repeat(64), "bin/node"),
                 RuntimeArtifact("darwin", "arm64", "22.5.0", "https://downloads.example/macos", "b".repeat(64), "bin/node"),

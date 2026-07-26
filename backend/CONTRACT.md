@@ -44,6 +44,17 @@ Durable analysis uses `POST /v1/jobs` with `type=subagent` or `type=history-summ
 
 The IDEA client polls only while its Durable Jobs page contains queued or running work. Completed output can be returned to the conversation composer; retry creates a new persisted job from the prior normalized input, preserving the original record as audit history.
 
+## Deployment-configured cloud surfaces
+
+These routes are always mounted; what they report depends on deployment configuration documented in `.env.example`. An unconfigured deployment answers with an explicit unavailable state, never with a fabricated one. `openapi.json` does not describe them yet, so this section is their contract until it does.
+
+- `GET /v1/conversations/{id}/share`, `POST /v1/conversations/{id}/share`, and `DELETE /v1/conversations/{id}/share` read, create or rotate, and revoke a shareable link for one account-owned conversation. `POST` accepts `{"ttlSeconds": 60..31536000}` and returns `url` plus `rotated`; that response is the only place the plaintext token exists, because the backend stores only its SHA-256 hash. Without `SHARE_BASE_URL` all three return `503 {"error":"Shareable links are not configured on this deployment"}`; an unshared conversation returns `404`.
+- `GET /v1/share/{token}` is public, sends `cache-control: no-store`, and returns a read-only conversation projection with no account identity, revert affordances, or run correlation IDs. Every failure — malformed, unknown, revoked, expired, or deleted conversation — returns the same `404 {"error":"Shared session not found"}` so tokens cannot be enumerated.
+- `GET /v1/notifications` returns the operator catalog already filtered for this principal; dismissed, expired, and out-of-audience entries are absent. An unconfigured deployment returns `{"data":[]}`, which is a healthy empty response. `POST /v1/notifications/{id}/dismiss` accepts an optional `actionItemTitle` and returns `204`; an id outside the catalog returns `404`.
+- `GET /v1/me` carries a `subscription` object with `state` `ok`, `approaching`, `exhausted`, or `unknown`, per-quota counters computed from usage the backend counted, and one `warning` or `null`. `unknown` always carries a `reason` and must be surfaced as unavailable rather than as a healthy plan.
+
+Clients must present each unavailable state with the backend's reason string; a `503` is never a silent no-op and never a success.
+
 ## SSE events
 
 Each event is an SSE block with an `event` name and one JSON `data` line. Lines beginning with `:` are heartbeats and must be ignored.
