@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>User Manual — CodeAgent for JetBrains</title>
+<meta name="description" content="The complete CodeAgent user manual: installing the plugin, deploying the backend, the three modes, context management, approvals and rollback, Rules and Skills, MCP, BYOK, shortcuts, troubleshooting and FAQ.">
+<link rel="icon" type="image/svg+xml" href="../assets/img/favicon.svg">
+<script>(function(){try{var t=localStorage.getItem("ca-theme");if(t==="dark"||(!t&&matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.setAttribute("data-theme","dark");}catch(e){}})();</script>
+<link rel="stylesheet" href="../assets/css/site.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="nav" aria-label="Site navigation">
+  <div class="nav-inner">
+    <a class="brand" href="index.html" aria-label="CodeAgent home">
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <defs><linearGradient id="lg-nav" x1="2" y1="2" x2="30" y2="30" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#0b8f5c"/><stop offset=".5" stop-color="#0da96e"/><stop offset="1" stop-color="#12839b"/>
+        </linearGradient></defs>
+        <rect x="1.5" y="1.5" width="29" height="29" rx="8.5" stroke="url(#lg-nav)" stroke-width="2.4"/>
+        <path d="M10.5 11 L17 16 L10.5 21" stroke="url(#lg-nav)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M18.5 21.5 H23.5" stroke="url(#lg-nav)" stroke-width="2.6" stroke-linecap="round"/>
+      </svg>
+      CodeAgent <span class="ver">v0.7.30</span>
+    </a>
+    <button class="nav-toggle" aria-expanded="false" aria-label="Open menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="index.html#features">Features</a>
+      <a href="index.html#architecture">Architecture</a>
+      <a href="index.html#security">Security</a>
+      <a href="product.html">Product</a>
+      <a href="manual.html" class="active" aria-current="page">Manual</a>
+      <a class="lang-switch" href="../manual.html" data-lang-link hreflang="zh-CN" lang="zh-CN">中文</a>
+      <button class="theme-toggle" type="button" aria-label="Toggle theme">
+        <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>
+        <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+      <a class="nav-cta" href="#quickstart">Get started</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="container">
+    <div class="docs-layout">
+
+      <!-- ===== Sidebar ===== -->
+      <aside class="docs-side" aria-label="Manual contents">
+        <details>
+          <summary>Contents</summary>
+          <div class="toc-wrap">
+            <div class="toc-group">
+              <div class="toc-cap">Getting started</div>
+              <a href="#quickstart">Quick start</a>
+              <a href="#requirements">Requirements</a>
+              <a href="#install">Install the plugin</a>
+              <a href="#backend">Deploy the backend</a>
+              <a href="#first-run">First run</a>
+            </div>
+            <div class="toc-group">
+              <div class="toc-cap">Everyday use</div>
+              <a href="#interface">Interface tour</a>
+              <a href="#modes">The three modes</a>
+              <a href="#context">Managing context</a>
+              <a href="#approvals">Approvals &amp; permissions</a>
+              <a href="#edits">Agent Edits &amp; rollback</a>
+              <a href="#threads">Managing threads</a>
+              <a href="#workspace">Tasks · Git · Canvas</a>
+            </div>
+            <div class="toc-group">
+              <div class="toc-cap">Advanced</div>
+              <a href="#rules-skills">Rules &amp; Skills</a>
+              <a href="#mcp">MCP servers</a>
+              <a href="#byok">Bring your own keys</a>
+              <a href="#processes">Managed processes</a>
+              <a href="#settings">Settings reference</a>
+            </div>
+            <div class="toc-group">
+              <div class="toc-cap">Reference</div>
+              <a href="#shortcuts">Shortcuts &amp; commands</a>
+              <a href="#troubleshooting">Troubleshooting</a>
+              <a href="#faq">FAQ</a>
+            </div>
+          </div>
+        </details>
+      </aside>
+
+      <!-- ===== Body ===== -->
+      <div class="docs-body">
+        <h1 class="doc-title">User Manual</h1>
+        <p class="doc-lede">Install, configure and get the most out of CodeAgent, from zero. This manual matches plugin v0.7.30; all commands and paths are relative to the repository root.</p>
+
+        <!-- Quick start -->
+        <section class="doc-section" id="quickstart">
+          <h2>Quick start</h2>
+          <p>Four steps to a running CodeAgent. The default route uses the local Docker backend — no account, no cloud service required.</p>
+          <ol class="steps">
+            <li>
+              <b>Start the local agent backend</b>
+              <p>Run one command from the repository root; Docker builds and publishes the service at <code>http://127.0.0.1:8788</code>:</p>
+              <div class="code">
+                <div class="code-bar"><span class="lang">bash</span><button class="copy-btn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
+                <pre>docker compose -f backend/compose.yaml up -d --build</pre>
+              </div>
+            </li>
+            <li>
+              <b>Install the plugin</b>
+              <p>Open <strong>Settings → Plugins → ⚙ → Install Plugin from Disk…</strong>, pick the plugin ZIP from <code>build/distributions/</code>, and restart the IDE when prompted.</p>
+            </li>
+            <li>
+              <b>Open the CodeAgent panel</b>
+              <p>Use <strong>Tools → Show CodeAgent</strong>, or press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd> (<kbd>⌃</kbd>+<kbd>⌘</kbd>+<kbd>I</kbd> on macOS). With the local Docker backend running there is no URL or token to enter.</p>
+            </li>
+            <li>
+              <b>Wait for the index, then send your first task</b>
+              <p>ContextEngine initializes the project index automatically; the status chip shows progress. Pick <strong>Agent</strong> mode, type something like "add failure-path tests for the login endpoint", and watch it work through the approval cards.</p>
+            </li>
+          </ol>
+          <div class="callout good">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+            <div><b>A good first task:</b> ask "what is the overall structure of this repository?" in <b>Ask</b> mode — a zero-risk way to feel the retrieval quality before escalating to Chat and Agent.</div>
+          </div>
+        </section>
+
+        <!-- Requirements -->
+        <section class="doc-section" id="requirements">
+          <h2>Requirements</h2>
+          <h3>For everyday use</h3>
+          <div class="kv">
+            <div>IDE</div><div>IntelliJ IDEA or another IntelliJ-platform IDE (PyCharm, WebStorm, GoLand, CLion, PhpStorm, Rider)</div>
+            <div>Node.js</div><div>22.5 or newer — required by the local sidecar (ContextEngine); the plugin auto-discovers <code>node</code> and common install paths, and Advanced Settings can point to a specific executable</div>
+            <div>Docker</div><div>Needed for the local-backend route; client machines using a hosted backend don't need it</div>
+          </div>
+          <h3>For building from source (optional)</h3>
+          <div class="kv">
+            <div>JDK</div><div>21 (Gradle can provision it via Foojay)</div>
+            <div>Node.js / npm</div><div>Node.js 22.5+ and npm 10+</div>
+            <div>Git submodules</div><div><code>vendor/context-engine</code> must be initialized before building</div>
+          </div>
+        </section>
+
+        <!-- Install -->
+        <section class="doc-section" id="install">
+          <h2>Install the plugin</h2>
+          <h3>From a ZIP</h3>
+          <ol>
+            <li>Get the plugin distribution (<code>CodeAgent-*.zip</code>; build output lives in <code>build/distributions/</code>).</li>
+            <li>Open <strong>Settings → Plugins</strong>, click the ⚙ icon in the top-right, choose <strong>Install Plugin from Disk…</strong>.</li>
+            <li>Select the ZIP, confirm, and restart the IDE when prompted.</li>
+          </ol>
+          <h3>From source</h3>
+          <div class="code">
+            <div class="code-bar"><span class="lang">bash</span><button class="copy-btn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
+            <pre>git submodule update --init --recursive
+cd frontend && npm ci && cd ..
+cd sidecar && npm ci && cd ..
+cd backend && npm ci && cd ..
+cd vendor/context-engine && npm ci && cd ../..
+./gradlew buildPlugin</pre>
+          </div>
+          <p>The installable ZIP is written to <code>build/distributions/</code>; you can also launch a sandbox IDE with the plugin using <code>./gradlew runIde</code>.</p>
+        </section>
+
+        <!-- Backend -->
+        <section class="doc-section" id="backend">
+          <h2>Deploy the agent backend</h2>
+          <p>The backend owns prompts, model credentials, streamed model calls and tool orchestration. Pick whichever deployment shape fits:</p>
+
+          <h3>Option 1: local Docker (recommended for individuals)</h3>
+          <div class="code">
+            <div class="code-bar"><span class="lang">bash</span><button class="copy-btn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
+            <pre><span class="c"># Configure backend/.env from backend/.env.example first, then from the repo root:</span>
+docker compose -f backend/compose.yaml up -d --build</pre>
+          </div>
+          <p>The service is published at <code>http://127.0.0.1:8788</code>, and <strong>fresh plugin installs connect to it automatically</strong> — no login, no URL entry.</p>
+
+          <h3>Option 2: direct development run (no Docker)</h3>
+          <div class="code">
+            <div class="code-bar"><span class="lang">bash</span><button class="copy-btn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
+            <pre>cd backend && npm start</pre>
+          </div>
+          <p>This listens on port <code>8787</code>; you must override the Backend URL in <strong>Advanced Settings</strong> for the plugin to use it.</p>
+
+          <h3>Option 3: hosted deployment (teams)</h3>
+          <p>Build the image from <code>backend/Dockerfile</code>, deploy it on your infrastructure, and configure these environment variables (full details in <code>backend/.env.example</code>):</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Category</th><th>Variables</th><th>Purpose</th></tr></thead>
+              <tbody>
+                <tr><td>Models (pick one)</td><td><code>MODEL_BASE_URL</code> + <code>MODEL_API_KEY</code></td><td>Unified model gateway contract</td></tr>
+                <tr><td></td><td><code>OPENAI_*</code> / <code>GROK_*</code> / <code>ANTHROPIC_*</code></td><td>Fixed multi-provider allowlist</td></tr>
+                <tr><td>Required basics</td><td><code>DATABASE_URL</code></td><td>PostgreSQL connection string</td></tr>
+                <tr><td></td><td><code>OIDC_ISSUER</code> / <code>OIDC_CLIENT_ID</code> / <code>OIDC_CLIENT_SECRET</code></td><td>OIDC single sign-on</td></tr>
+                <tr><td></td><td><code>PUBLIC_BASE_URL</code> / <code>SESSION_SIGNING_KEY</code></td><td>Public address and session signing key</td></tr>
+                <tr><td>Optional: sharing</td><td><code>SHARE_BASE_URL</code> / <code>SHARE_LINK_TTL_SECONDS</code></td><td>Read-only session share links</td></tr>
+                <tr><td>Optional: notifications</td><td><code>NOTIFICATIONS_JSON</code></td><td>Operator notifications</td></tr>
+                <tr><td>Optional: subscription</td><td><code>SUBSCRIPTION_PLANS_JSON</code> etc.</td><td>Plans, quotas and warning thresholds (<code>SUBSCRIPTION_PLAN_CLAIM</code> / <code>SUBSCRIPTION_DEFAULT_PLAN</code> / <code>SUBSCRIPTION_WARN_RATIO</code>)</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>On the client side: enter the backend URL under <strong>Settings → Services</strong>, then sign in from <strong>Settings → Account</strong> via OIDC.</p>
+          <div class="callout">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3v.01"/></svg>
+            <div>Sharing, notifications and subscription are optional cloud surfaces. While unconfigured, share requests answer 503 with a reason, notifications return an empty list, and subscription state is <code>unknown</code> — the UI reports this honestly instead of pretending availability.</div>
+          </div>
+        </section>
+
+        <!-- First run -->
+        <section class="doc-section" id="first-run">
+          <h2>First run</h2>
+          <ol class="steps">
+            <li>
+              <b>Open the panel</b>
+              <p><strong>Tools → Show CodeAgent</strong> or <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd> (<kbd>⌃</kbd>+<kbd>⌘</kbd>+<kbd>I</kbd> on macOS). The panel docks into the IDE's side tool window.</p>
+            </li>
+            <li>
+              <b>Confirm the backend connection</b>
+              <p>The local Docker backend connects automatically; for hosted deployments configure the URL and sign in first. <strong>Settings shows real health-check results</strong> — a configured URL is not the same as an online backend.</p>
+            </li>
+            <li>
+              <b>Wait for index initialization</b>
+              <p>ContextEngine builds the project index automatically, then watches files and syncs incrementally. The repository status chip shows initialization, auto-sync and watcher failures; clicking it only refreshes or retries after an error.</p>
+            </li>
+            <li>
+              <b>Pick a mode and start talking</b>
+              <p>Switch between <strong>Agent / Chat / Ask</strong> above the input box. Node.js is discovered automatically; with multi-version setups, point Advanced Settings at a 22.5+ executable.</p>
+            </li>
+          </ol>
+        </section>
+
+        <!-- Interface -->
+        <section class="doc-section" id="interface">
+          <h2>Interface tour</h2>
+          <p>Top to bottom, the panel has five areas:</p>
+          <ul>
+            <li><strong>Top bar</strong> — thread title, context usage, zoom, sharing and the thread menu; the hamburger on the left opens the threads drawer.</li>
+            <li><strong>Context row</strong> — current workspace (switchable in multi-root projects), the Guidelines entry and the index-sync status chip.</li>
+            <li><strong>Message stream</strong> — user messages, streamed assistant replies, tool cards (retrieval / file IO / terminal / Mermaid and more), approval cards and the task list. Tool cards expand to show input and output detail.</li>
+            <li><strong>Changes bar</strong> — shows "N files changed" whenever edits exist, with Review / Keep All / Discard All shortcuts.</li>
+            <li><strong>Input area</strong> — the message box, mode switcher, model display, attachment / context buttons and send control; it becomes a stop button during a run.</li>
+          </ul>
+          <p>The workspace menu in the top-right opens <a href="#workspace">Tasks, Git and Image Canvas</a>; the settings gear opens the full Settings workspace.</p>
+        </section>
+
+        <!-- Modes -->
+        <section class="doc-section" id="modes">
+          <h2>The three modes</h2>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Mode</th><th>Permissions</th><th>Best for</th></tr></thead>
+              <tbody>
+                <tr><td>Agent</td><td>Read + write + terminal (all approval-gated)</td><td>Building features, fixing bugs, adding tests, refactoring — delivering a complete change</td></tr>
+                <tr><td>Chat</td><td>Read + retrieval</td><td>Design discussions, walkthroughs, review feedback — a colleague who knows the repo</td></tr>
+                <tr><td>Ask</td><td>Strictly read-only</td><td>Understanding unfamiliar code, incident digging — zero-risk questions against production repos</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Switch modes any time at the bottom-left of the input box, and mix them within one thread: analyze in Ask, settle the plan in Chat, then execute in Agent. Messages typed during an active run join a <strong>per-session FIFO queue</strong>, dispatched in order by the IDE capability layer without interrupting the current turn.</p>
+        </section>
+
+        <!-- Context -->
+        <section class="doc-section" id="context">
+          <h2>Managing context</h2>
+          <h3>Automatic retrieval</h3>
+          <p>For every run, the backend retrieves relevant code through the local ContextEngine: lexical, symbol, path, code-graph and Git-lineage retrieval are always available and need no model. Retrieved sources and snippets appear as a tool card you can expand and verify.</p>
+          <h3>Manual attachments</h3>
+          <ul>
+            <li><strong>@ or "+ Context"</strong> — attach specific project files to the current message.</li>
+            <li><strong>Drag &amp; drop / paste</strong> — drag files in from the project view, or paste text and images directly; pastes over 20 KB warn, over 200 KB are rejected with the actual size.</li>
+            <li><strong>Image Canvas</strong> — pick images from a project directory and attach them to the conversation.</li>
+          </ul>
+          <h3>Index maintenance</h3>
+          <ul>
+            <li>The status chip shows initialization / sync / watcher failures; clicking it refreshes, or retries after an error — nothing else.</li>
+            <li>For a full rebuild, run the IDE action <strong>CodeAgent: Reindex Context</strong>.</li>
+            <li>To audit indexing and sync detail, run <strong>CodeAgent: Generate Sync Report</strong>.</li>
+          </ul>
+          <div class="callout">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3v.01"/></svg>
+            <div><b>Semantic retrieval is an explicit opt-in.</b> CodeAgent never installs or starts a local embedding or reranker model; semantic retrieval activates only after you explicitly configure an operator- or organization-hosted OpenAI-compatible endpoint and rebuild the index.</div>
+          </div>
+        </section>
+
+        <!-- Approvals -->
+        <section class="doc-section" id="approvals">
+          <h2>Approvals &amp; permissions</h2>
+          <p>The agent's power is bounded by layered defenses:</p>
+          <ul>
+            <li><strong>Approval cards</strong> — file writes and terminal commands raise inline approval cards before executing; approve or skip after reading them. Runs waiting for approval are clearly labelled.</li>
+            <li><strong>Per-tool permission rules</strong> — configure allow / deny rules per tool in settings (shell commands support input regex); <strong>deny rules win</strong>.</li>
+            <li><strong>Modes as boundaries</strong> — Ask mode forbids all mutations at the capability layer, not by prompt-level convention.</li>
+            <li><strong>Cancel any time</strong> — stop a running turn instantly; failed turns support retry and carry a copyable runId for debugging.</li>
+          </ul>
+        </section>
+
+        <!-- Edits -->
+        <section class="doc-section" id="edits">
+          <h2>Agent Edits &amp; rollback</h2>
+          <p>All file changes from a run are collected in <strong>Agent Edits</strong> (enter via the Review button on the changes bar):</p>
+          <ul>
+            <li><strong>Diff</strong> — open each file in IntelliJ's native Diff viewer, identical to manual code review.</li>
+            <li><strong>Undo</strong> — revert the agent's edit per file, guarded so it won't clobber your own later manual changes.</li>
+            <li><strong>Keep all / Discard all</strong> — accept or drop everything in one click.</li>
+            <li><strong>Checkpoints</strong> — pre-run file snapshots you can restore wholesale.</li>
+          </ul>
+          <div class="callout warn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2.5 19.5h19z"/><path d="M12 10v4m0 3v.01"/></svg>
+            <div><b>Boundary note:</b> edits made by file tools always have a rollback path, but <strong>arbitrary side effects of terminal commands cannot be safely inferred</strong>, so "automatic rollback of terminal side effects" is deliberately not offered. Review risky commands carefully at approval time.</div>
+          </div>
+        </section>
+
+        <!-- Threads -->
+        <section class="doc-section" id="threads">
+          <h2>Managing threads</h2>
+          <ul>
+            <li><strong>Threads drawer</strong> — open with the top-bar hamburger; search, create and switch.</li>
+            <li><strong>Status at a glance</strong> — active runs, pending approvals, failures and unread reply counts show right on list items; unread counts persist.</li>
+            <li><strong>Pin and delete</strong> — pin frequent threads; deletion asks for confirmation.</li>
+            <li><strong>Markdown import / export</strong> — export conversations for archiving, review or migration; import to continue.</li>
+            <li><strong>Long-conversation navigation</strong> — request-by-request jumps plus a jump-to-latest button; tool and approval updates never yank you away from history, and the local read cursor only advances when you actually reach the newest content.</li>
+            <li><strong>Cloud recovery</strong> — for hosted accounts, <strong>CodeAgent: Recover Conversations from Backend</strong> restores your sessions onto this machine.</li>
+          </ul>
+        </section>
+
+        <!-- Workspace -->
+        <section class="doc-section" id="workspace">
+          <h2>Tasks · Git · Image Canvas</h2>
+          <h3>Tasks</h3>
+          <p>Task lists persist per thread: steps planned by the agent update their status live, you can manage them manually, and Markdown import / export plus clear-completed are built in.</p>
+          <h3>Git</h3>
+          <p>The Git page reads the <strong>real</strong> index and working tree: stage / unstage, view diffs with JetBrains Diff, and commit only after explicit confirmation — there is no "oops, it committed".</p>
+          <h3>Image Canvas</h3>
+          <p>Preview bounded raster assets from a directory you choose inside the project, and attach images to the current conversation — for example, hand the agent a design mock to implement against.</p>
+          <h3>Mermaid</h3>
+          <p>Mermaid diagrams in assistant output render directly in the panel — great for having the agent explain flows and structures visually.</p>
+        </section>
+
+        <!-- Rules & Skills -->
+        <section class="doc-section" id="rules-skills">
+          <h2>Rules &amp; Skills</h2>
+          <h3>Workspace guidelines</h3>
+          <p><code>AGENTS.md</code> at the repository root is the workspace-level guidance file, composed into every run's prompt by the backend. Open it quickly with <strong>CodeAgent: Edit Workspace Guidelines</strong>, or via the <strong>Guidelines</strong> entry in the panel's context row.</p>
+          <h3>Rules</h3>
+          <p>Repository rules managed under <strong>Settings → Rules &amp; Guidelines</strong> are <strong>always on</strong>: code style, protected directories, review requirements — configure once, injected into every run.</p>
+          <h3>Skills</h3>
+          <p>Skills are capability packs <strong>selected explicitly per task</strong> (say, "write migration scripts" or "profile performance"). Validated by the JVM, composed by the backend; unselected skills stay out of the prompt budget.</p>
+          <h3>Memories &amp; Commands</h3>
+          <p><strong>Memories</strong> keep persistent cross-session facts; <strong>Commands</strong> provide reusable custom command templates — both managed in their Settings sections.</p>
+        </section>
+
+        <!-- MCP -->
+        <section class="doc-section" id="mcp">
+          <h2>MCP servers</h2>
+          <p>Connect Model Context Protocol servers under <strong>Settings → MCP Servers</strong> to extend the agent's tool surface:</p>
+          <ul>
+            <li>Supports stdio and HTTP transports, and is compatible with the common MCP config JSON container format (including <code>env</code> / <code>headers</code> expansion and the <code>http</code> alias) — existing configs migrate as-is.</li>
+            <li>Remote servers support <strong>OAuth metadata discovery</strong> (RFC 9728 / 8414 / OpenID) and <strong>RFC 7591 dynamic client registration</strong>; discovery failures and missing DCR raise explicit errors instead of silent downgrades.</li>
+            <li>MCP tools obey the same approval and permission rules as built-in tools.</li>
+          </ul>
+        </section>
+
+        <!-- BYOK -->
+        <section class="doc-section" id="byok">
+          <h2>Bring your own keys (BYOK)</h2>
+          <p>Prefer not to route model traffic through the backend's gateway? Bring your own keys. Run these from <strong>Search Actions</strong> (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> / <kbd>⇧</kbd>+<kbd>⌘</kbd>+<kbd>A</kbd>):</p>
+          <div class="kv">
+            <div>Anthropic</div><div>CodeAgent: Set / Clear Anthropic API Key (BYOK)</div>
+            <div>OpenAI</div><div>CodeAgent: Set / Clear OpenAI API Key (BYOK)</div>
+            <div>AWS Bedrock</div><div>CodeAgent: Set / Clear AWS Bedrock Credentials (BYOK) — credentials, region and model</div>
+          </div>
+          <p>Keys are written to <strong>JetBrains Password Safe</strong>, never to plugin config files; the clear actions remove them from Password Safe immediately. The API Keys settings section shows what's currently in effect.</p>
+        </section>
+
+        <!-- Processes -->
+        <section class="doc-section" id="processes">
+          <h2>Managed processes</h2>
+          <p>Dev servers and watch builds shouldn't block a conversation turn. CodeAgent runs them in <strong>project-scoped managed process sessions</strong>:</p>
+          <ul>
+            <li>The agent can launch, list, read output from, write stdin to, wait on and kill processes — each operation independently auditable.</li>
+            <li>Process <strong>mutations require approval</strong>; retained output is capped so memory stays sane.</li>
+            <li>When the project closes, remaining child processes are terminated — no orphans.</li>
+          </ul>
+        </section>
+
+        <!-- Settings -->
+        <section class="doc-section" id="settings">
+          <h2>Settings reference</h2>
+          <p>The panel's gear opens the Settings workspace (the <strong>CodeAgent: Open … Settings</strong> action family jumps straight to any section):</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Group</th><th>Sections</th><th>Purpose</th></tr></thead>
+              <tbody>
+                <tr><td>Integrations</td><td>Home / Services / MCP Servers</td><td>Project overview and index state; backend URL and health checks; MCP server management</td></tr>
+                <tr><td>Preferences</td><td>Rules &amp; Guidelines / API Keys / Commands / Skills / Hooks / Agents / Plugins</td><td>Rules, BYOK key status, custom commands, skills, hooks, agent profiles and declarative plugins</td></tr>
+                <tr><td>IDE &amp; Workspace</td><td>User Experience / Feature Flags / Beta</td><td>Experience preferences (including sounds), feature flags and Beta capabilities</td></tr>
+                <tr><td>Account</td><td>Account / Subscription</td><td>OIDC sign-in state; subscription plan and usage quotas</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Backend health, model and tool discovery shown in Settings are <strong>results of real requests</strong>, including protocol compatibility and missing integration configuration.</p>
+        </section>
+
+        <!-- Shortcuts -->
+        <section class="doc-section" id="shortcuts">
+          <h2>Shortcuts &amp; commands</h2>
+          <h3>Shortcuts</h3>
+          <div class="kv">
+            <div>Open / show panel</div><div><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd> (macOS: <kbd>⌃</kbd>+<kbd>⌘</kbd>+<kbd>I</kbd>)</div>
+            <div>Search actions</div><div><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> (macOS: <kbd>⇧</kbd>+<kbd>⌘</kbd>+<kbd>A</kbd>) — type "CodeAgent" to find every command</div>
+          </div>
+          <h3>Common IDE commands</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+              <tbody>
+                <tr><td>CodeAgent: Show CodeAgent</td><td>Open the panel tool window</td></tr>
+                <tr><td>CodeAgent: Reindex Context</td><td>Fully rebuild the ContextEngine index</td></tr>
+                <tr><td>CodeAgent: Toggle Inline Completions</td><td>Toggle inline completions; explicit triggering still works when auto-trigger is off</td></tr>
+                <tr><td>CodeAgent: Show Extension Status</td><td>View extension and bridge status (copyable)</td></tr>
+                <tr><td>CodeAgent: Generate Sync Report</td><td>Produce an indexing and synchronization report</td></tr>
+                <tr><td>CodeAgent: Export Logs</td><td>Export local IDE logs as a diagnostic ZIP</td></tr>
+                <tr><td>CodeAgent: Sign In / Sign Out</td><td>Sign in to / out of a hosted backend account</td></tr>
+                <tr><td>CodeAgent: Recover Conversations from Backend</td><td>Restore account conversations from the backend</td></tr>
+                <tr><td>CodeAgent: Edit Workspace Guidelines</td><td>Open the repository's AGENTS.md guidance file</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Troubleshooting -->
+        <section class="doc-section" id="troubleshooting">
+          <h2>Troubleshooting</h2>
+          <h3>The panel says the backend is unavailable</h3>
+          <ul>
+            <li>Local route: make sure the container is running — <code>docker ps</code> should list the backend service at <code>http://127.0.0.1:8788</code>.</li>
+            <li>For the direct dev run (<code>npm start</code>, port 8787), the Backend URL must be overridden in Advanced Settings.</li>
+            <li>Hosted route: check <strong>Settings → Services</strong> for the real health verdict; a correct URL with an unreachable service is honestly reported as offline.</li>
+          </ul>
+          <h3>Indexing is stuck, or the watcher failed</h3>
+          <ul>
+            <li>Check the repository status chip: when it shows an error, clicking it retries.</li>
+            <li>If it persists, run <strong>CodeAgent: Reindex Context</strong> for a full rebuild and inspect details with <strong>Generate Sync Report</strong>.</li>
+          </ul>
+          <h3>Node.js not found</h3>
+          <p>The sidecar needs Node.js 22.5+. The plugin probes <code>node</code> and common install locations; with nvm-style multi-version setups, set the executable path explicitly in <strong>Advanced Settings</strong>.</p>
+          <h3>The panel shows a simplified UI</h3>
+          <p>When JCEF is unavailable the plugin automatically falls back to a Swing UI with a notice; running JCEF out-of-process also triggers a warning. Core conversation features keep working; restore JCEF and restart the IDE for the full interface.</p>
+          <h3>Sign-in state is broken</h3>
+          <p><strong>Sign Out</strong>, then <strong>Sign In</strong> again. Tokens live in Password Safe and plugin settings hold only expiry metadata; removing the entries from your system keychain equals a full sign-out.</p>
+          <h3>Filing a bug report</h3>
+          <p>Run <strong>CodeAgent: Export Logs</strong> to produce a diagnostic ZIP (including extension status), and submit it with reproduction steps and the failing turn's runId to <a href="https://github.com/lixiang12345/CodeAgent-idea-plugin/issues" rel="noopener">GitHub Issues</a>.</p>
+        </section>
+
+        <!-- FAQ -->
+        <section class="doc-section" id="faq">
+          <h2>FAQ</h2>
+          <h3>Does my source code get uploaded?</h3>
+          <p>Never wholesale. The index and your source stay on your machine; each run sends only the <strong>selected</strong> repository context, rules, skills, messages and tool results to the backend you configured. If you deploy that backend yourself, data never leaves your infrastructure.</p>
+          <h3>Does it work offline?</h3>
+          <p>ContextEngine retrieval and indexing are fully local and need no network. Agent turns need a reachable backend — the local Docker backend works in offline environments too, as long as its model endpoint is reachable.</p>
+          <h3>Which IDEs are supported?</h3>
+          <p>Built for the IntelliJ Platform, targeting IDEA, PyCharm, WebStorm, GoLand, CLion, PhpStorm and Rider. Compatibility is checked by JetBrains Plugin Verifier; IDEA and PyCharm are verified on real installs, with the rest in progress.</p>
+          <h3>Will it change code without asking?</h3>
+          <p>No. File writes and terminal commands all pass approval cards, and Ask mode forbids mutations at the capability layer. Per-tool permission rules (deny wins) let you tighten or relax defaults.</p>
+          <h3>Can terminal-command changes be rolled back automatically?</h3>
+          <p>No — and we deliberately don't claim otherwise: the side effects of arbitrary commands can't be safely inferred. File-tool edits have complete rollback paths; for terminal commands, rely on approval review and version control.</p>
+          <h3>Where do model keys live?</h3>
+          <p>Centrally on the backend by default — zero credentials on the IDE side. With BYOK, keys go into JetBrains Password Safe and can be cleared at any time.</p>
+        </section>
+
+        <div class="callout good" style="margin-top:56px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          <div><b>Done reading?</b> Head back to the <a href="index.html">home page</a> for the product overview, or jump into the <a href="#quickstart">quick start</a>. For anything the manual doesn't cover, open a <a href="https://github.com/lixiang12345/CodeAgent-idea-plugin/issues" rel="noopener">GitHub issue</a>.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <a class="brand" href="index.html" aria-label="CodeAgent home">
+          <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <defs><linearGradient id="lg-foot" x1="2" y1="2" x2="30" y2="30" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#0b8f5c"/><stop offset=".5" stop-color="#0da96e"/><stop offset="1" stop-color="#12839b"/>
+            </linearGradient></defs>
+            <rect x="1.5" y="1.5" width="29" height="29" rx="8.5" stroke="url(#lg-foot)" stroke-width="2.4"/>
+            <path d="M10.5 11 L17 16 L10.5 21" stroke="url(#lg-foot)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M18.5 21.5 H23.5" stroke="url(#lg-foot)" stroke-width="2.6" stroke-linecap="round"/>
+          </svg>
+          CodeAgent
+        </a>
+        <p class="fnote">The IDE-native AI coding agent: local context, approval-gated changes, and a self-deployable agent backend.</p>
+      </div>
+      <div>
+        <h4>Product</h4>
+        <ul>
+          <li><a href="index.html#modes">Three modes</a></li>
+          <li><a href="index.html#features">Features</a></li>
+          <li><a href="index.html#architecture">Architecture</a></li>
+          <li><a href="index.html#security">Security &amp; trust</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Docs</h4>
+        <ul>
+          <li><a href="product.html">Product deep dive</a></li>
+          <li><a href="manual.html">User manual</a></li>
+          <li><a href="manual.html#quickstart">Quick start</a></li>
+          <li><a href="manual.html#troubleshooting">Troubleshooting</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Resources</h4>
+        <ul>
+          <li><a href="https://github.com/lixiang12345/CodeAgent-idea-plugin" rel="noopener">GitHub repository</a></li>
+          <li><a href="https://github.com/lixiang12345/CodeAgent-idea-plugin/blob/main/CHANGELOG.md" rel="noopener">Changelog</a></li>
+          <li><a href="https://github.com/lixiang12345/CodeAgent-idea-plugin/blob/main/LICENSE" rel="noopener">License</a></li>
+          <li><a href="https://github.com/lixiang12345/CodeAgent-idea-plugin/blob/main/THIRD_PARTY_NOTICES.md" rel="noopener">Third-party notices</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 CodeAgent · Built on the IntelliJ Platform</span>
+      <span>ContextEngine is distributed with the plugin under the MIT license</span>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/js/site.js" defer></script>
+</body>
+</html>

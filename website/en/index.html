@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CodeAgent — The native AI coding agent for JetBrains IDEs</title>
+<meta name="description" content="CodeAgent is an IDE-native AI coding agent for IntelliJ IDEA and other JetBrains IDEs: a local ContextEngine indexes your whole repository, a self-deployable backend drives the agent loop, and every file change or command runs through your approval.">
+<link rel="icon" type="image/svg+xml" href="../assets/img/favicon.svg">
+<script>(function(){try{var t=localStorage.getItem("ca-theme");if(t==="dark"||(!t&&matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.setAttribute("data-theme","dark");}catch(e){}})();</script>
+<link rel="stylesheet" href="../assets/css/site.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="nav" aria-label="Site navigation">
+  <div class="nav-inner">
+    <a class="brand" href="index.html" aria-label="CodeAgent home">
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <defs><linearGradient id="lg-nav" x1="2" y1="2" x2="30" y2="30" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#0b8f5c"/><stop offset=".5" stop-color="#0da96e"/><stop offset="1" stop-color="#12839b"/>
+        </linearGradient></defs>
+        <rect x="1.5" y="1.5" width="29" height="29" rx="8.5" stroke="url(#lg-nav)" stroke-width="2.4"/>
+        <path d="M10.5 11 L17 16 L10.5 21" stroke="url(#lg-nav)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M18.5 21.5 H23.5" stroke="url(#lg-nav)" stroke-width="2.6" stroke-linecap="round"/>
+      </svg>
+      CodeAgent <span class="ver">v0.7.30</span>
+    </a>
+    <button class="nav-toggle" aria-expanded="false" aria-label="Open menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="#features">Features</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#security">Security</a>
+      <a href="product.html">Product</a>
+      <a href="manual.html">Manual</a>
+      <a class="lang-switch" href="../index.html" data-lang-link hreflang="zh-CN" lang="zh-CN">中文</a>
+      <button class="theme-toggle" type="button" aria-label="Toggle theme">
+        <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>
+        <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+      <a class="nav-cta" href="manual.html#quickstart">Get started</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ===== Hero ===== -->
+  <section class="hero">
+    <div class="container">
+      <div class="hero-center">
+        <span class="hero-badge"><span class="dot" aria-hidden="true"></span>Built for the JetBrains Platform · IDE-native · Approval-gated</span>
+        <h1>An AI agent that writes real code,<br><span class="grad">right inside your IDE</span></h1>
+        <p class="sub">CodeAgent integrates deeply with the IntelliJ Platform: a local ContextEngine indexes your entire repository while a self-deployable agent backend drives the multi-turn tool loop — retrieval, edits, terminal, diff and rollback, every step under your control.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="manual.html#quickstart">
+            Get started
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+          <a class="btn btn-ghost" href="product.html">Product deep dive</a>
+        </div>
+        <div class="hero-meta">
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Open-source ContextEngine retrieval</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Files and commands need your approval</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Model credentials never touch the IDE</span>
+        </div>
+      </div>
+      <div class="hero-shot reveal">
+        <figure class="window" style="margin:0">
+          <div class="window-bar" aria-hidden="true">
+            <span class="wdot"></span><span class="wdot"></span><span class="wdot"></span>
+            <span class="wtitle">IntelliJ IDEA — CodeAgent</span>
+          </div>
+          <img src="../assets/img/overview.png" width="1576" height="680" alt="CodeAgent running in IntelliJ IDEA: the Settings workspace on the left, and the panel executing an Agent task with a full tool timeline on the right" fetchpriority="high">
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Stats ===== -->
+  <section class="section tight" aria-label="Product at a glance">
+    <div class="container">
+      <div class="stats reveal">
+        <div class="stat"><div class="num">3</div><div class="lbl">Collaboration modes: Agent / Chat / Ask</div></div>
+        <div class="stat"><div class="num">5</div><div class="lbl">Local retrieval types, zero models required</div></div>
+        <div class="stat"><div class="num">7+</div><div class="lbl">JetBrains IDEs targeted</div></div>
+        <div class="stat"><div class="num">0</div><div class="lbl">Model credentials stored on the IDE side</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Modes ===== -->
+  <section class="section" id="modes">
+    <div class="container">
+      <div class="section-head center reveal">
+        <div class="eyebrow">Modes</div>
+        <h2>One panel, three ways to collaborate</h2>
+        <p class="lede">From read-only analysis to fully hands-on coding — you decide the trust level, and switch any time.</p>
+      </div>
+      <div class="grid cols-3">
+        <article class="card mode-card reveal">
+          <span class="tag t-agent">AGENT</span>
+          <h3>Agent mode</h3>
+          <ul>
+            <li>Plans autonomously and runs multi-turn tool loops</li>
+            <li>Reads and writes files, runs the terminal, opens editors</li>
+            <li>Every change goes through approval cards; cancel any time</li>
+            <li>A live task list tracks execution progress</li>
+          </ul>
+        </article>
+        <article class="card mode-card reveal">
+          <span class="tag t-chat">CHAT</span>
+          <h3>Chat mode</h3>
+          <ul>
+            <li>Repository-aware conversations about your code</li>
+            <li>Automatically retrieves relevant files and symbols</li>
+            <li>Great for design discussions, walkthroughs and reviews</li>
+            <li>Shares threads and history with Agent mode</li>
+          </ul>
+        </article>
+        <article class="card mode-card reveal">
+          <span class="tag t-ask">ASK</span>
+          <h3>Ask mode</h3>
+          <ul>
+            <li>Strictly read-only — never produces changes</li>
+            <li>Quickly understand unfamiliar code and call chains</li>
+            <li>Safe to point at production repositories</li>
+            <li>Escalate to Chat or Agent whenever you're ready</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Feature rows ===== -->
+  <section class="section alt" id="features">
+    <div class="container">
+      <div class="section-head reveal">
+        <div class="eyebrow">Features</div>
+        <h2>See the process. Control the outcome.</h2>
+        <p class="lede">CodeAgent is not a black box: everything the agent does streams into the panel as tool cards, and consequential actions wait for your approval before they run.</p>
+      </div>
+
+      <div class="feature-row reveal">
+        <div class="feature-copy">
+          <h3>An agent loop you can watch, step by step</h3>
+          <p>The backend drives a bounded multi-turn tool loop and streams the whole process back to the panel — retrieval, file reads, search, edits, file creation, terminal runs.</p>
+          <ul>
+            <li><strong>Token-level streaming</strong>, with tool calls assembled live as they arrive</li>
+            <li><strong>A tool timeline</strong> covering ContextEngine retrieval, grep, edits, terminal, Mermaid diagrams and more</li>
+            <li><strong>Task lists persist per thread</strong>, so progress is always visible</li>
+            <li>Messages typed during a run join a <strong>per-session FIFO queue</strong>, dispatched in order</li>
+          </ul>
+        </div>
+        <div class="feature-media">
+          <button class="shot" type="button" data-lightbox="Agent workspace: tool timeline and task list">
+            <img src="../assets/img/agent-workspace.png" width="640" height="900" loading="lazy" alt="Agent workspace screenshot: completed tool cards for retrieval, reading, search, editing, test creation and a terminal run, with a task list showing 2 of 4 done">
+          </button>
+        </div>
+      </div>
+
+      <div class="feature-row flip reveal">
+        <div class="feature-copy">
+          <h3>Changes ask first. Commands need a nod.</h3>
+          <p>File writes and terminal commands go through an approval flow by default, with approval cards inline in the conversation — read them, then let them run. Ask mode stays read-only by construction.</p>
+          <ul>
+            <li>File changes and command executions raise <strong>inline approval cards</strong> you can approve or skip</li>
+            <li><strong>Per-tool permission rules</strong>, with deny rules taking precedence</li>
+            <li>Runs can be <strong>cancelled</strong> at any point; failed turns support retry</li>
+            <li>Runs waiting for approval are clearly labelled — nothing executes quietly</li>
+          </ul>
+        </div>
+        <div class="feature-media">
+          <button class="shot crop" type="button" data-lightbox="Tool approval: an edit waiting for user approval">
+            <img src="../assets/img/approval.png" width="420" height="900" loading="lazy" alt="Approval screenshot: an edit operation waiting for user approval, with the panel showing a waiting-for-approval state and a skip option">
+          </button>
+        </div>
+      </div>
+
+      <div class="feature-row reveal">
+        <div class="feature-copy">
+          <h3>Native diff review, checkpoint-level rollback</h3>
+          <p>Agent Edits collects every file change from a run and reuses IntelliJ's native Diff component for review. Undo edits one by one, or keep / discard everything in one click.</p>
+          <ul>
+            <li><strong>IntelliJ-native Diff</strong> — the same experience as manual code review</li>
+            <li><strong>Checkpoint snapshots</strong> restore files to their pre-run state</li>
+            <li>Per-file <strong>Diff / Undo</strong>, plus Keep all and Discard all</li>
+            <li>Every edit made by file tools has a guarded rollback path</li>
+          </ul>
+        </div>
+        <div class="feature-media">
+          <button class="shot" type="button" data-lightbox="Agent Edits: changed files and checkpoints">
+            <img src="../assets/img/agent-edits.png" width="420" height="320" loading="lazy" alt="Agent Edits screenshot: edited and newly created files with Diff and Undo buttons, and a restorable checkpoint below">
+          </button>
+        </div>
+      </div>
+
+      <div class="feature-row flip reveal">
+        <div class="feature-copy">
+          <h3>Threads, tasks and long-conversation navigation</h3>
+          <p>Conversations are organized into per-project threads with pinning, unread counts and Markdown import/export. Long sessions navigate request by request — new activity never drags you away from what you're reading.</p>
+          <ul>
+            <li>Thread <strong>pinning, confirmed deletion and unread reply counts</strong>, all persisted</li>
+            <li>Active runs, pending approvals and failures are <strong>visible right in the list</strong></li>
+            <li><strong>Request-level navigation plus jump-to-latest</strong> — read history and track progress at once</li>
+            <li>Conversations and task lists support <strong>Markdown import / export</strong></li>
+          </ul>
+        </div>
+        <div class="feature-media">
+          <button class="shot" type="button" data-lightbox="Threads drawer: managing multiple threads with status indicators">
+            <img src="../assets/img/threads.png" width="420" height="470" loading="lazy" alt="Threads drawer screenshot: several conversation threads with pinned state, activity indicators and unread counts">
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Capabilities ===== -->
+  <section class="section" id="capabilities">
+    <div class="container">
+      <div class="section-head reveal">
+        <div class="eyebrow">Capabilities</div>
+        <h2>A complete, engineering-grade capability surface</h2>
+        <p class="lede">From context retrieval to extension mechanisms, every layer the agent needs is built as a real, configurable, auditable capability.</p>
+      </div>
+      <div class="grid cols-4">
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div>
+          <h3>ContextEngine retrieval</h3>
+          <p>Lexical, symbol, path, code-graph and Git-lineage retrieval run fully locally with no model required; semantic retrieval is an explicit opt-in.</p>
+        </article>
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4a2 2 0 0 0-2-2H6.5A2.5 2.5 0 0 0 4 4.5z"/><path d="M20 17v5H6.5a2.5 2.5 0 0 1 0-5"/></svg></div>
+          <h3>Rules &amp; Skills</h3>
+          <p>Repository rules stay always-on; skills are selected explicitly per task. The JVM validates, the backend composes them into prompts.</p>
+        </article>
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7V4a2 2 0 0 1 4 0v3"/><path d="M12 22v-6"/><path d="M5 7h14l-1 7a6 6 0 0 1-12 0z"/></svg></div>
+          <h3>MCP &amp; ACP</h3>
+          <p>Extend the tool surface with MCP servers — OAuth metadata discovery and dynamic client registration included, compatible with common config formats.</p>
+        </article>
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3 8l9 5 9-5z"/><path d="m3 13 9 5 9-5"/></svg></div>
+          <h3>Declarative plugins</h3>
+          <p>Plugins are bounded JSON manifests, not executable code: version, integrity and granted capabilities are validated before activation.</p>
+        </article>
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 8a4 4 0 1 0-4 4h9l2 2-2 2h-3l-1.5-1.5L13 16h-3"/><circle cx="8" cy="8" r="1"/></svg></div>
+          <h3>BYOK</h3>
+          <p>Bring your own Anthropic, OpenAI or AWS Bedrock keys — stored in JetBrains Password Safe, removable at any time.</p>
+        </article>
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 7 5 5-5 5"/><path d="M13 17h6"/></svg></div>
+          <h3>Managed processes</h3>
+          <p>Long-running commands live in project-scoped process sessions: launch, read, write, wait, kill — output capped, mutations approval-gated.</p>
+        </article>
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.6"/><circle cx="6" cy="18" r="2.6"/><circle cx="18" cy="12" r="2.6"/><path d="M6 8.6v6.8M8.4 7 15.5 11M8.4 17 15.5 13"/></svg></div>
+          <h3>Git &amp; Image Canvas</h3>
+          <p>The Git page reads the real index and working tree with explicit commit confirmation; Image Canvas previews project images and attaches them to chats.</p>
+        </article>
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.5 19a4.5 4.5 0 1 0-1.03-8.88A6 6 0 1 0 6 16.5"/><path d="M12 13v8m0-8-3 3m3-3 3 3"/></svg></div>
+          <h3>Cloud collaboration</h3>
+          <p>Read-only session share links, operator notifications and subscription quotas — shown honestly as unavailable when the backend isn't configured.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Architecture ===== -->
+  <section class="section alt" id="architecture">
+    <div class="container">
+      <div class="section-head reveal">
+        <div class="eyebrow">Architecture</div>
+        <h2>Three layers, clean boundaries</h2>
+        <p class="lede">The IDE plugin is a capability gateway, a local sidecar owns the retrieval index, and a deployable backend centralizes prompts and model credentials — each layer does exactly its own job.</p>
+      </div>
+      <div class="arch reveal">
+        <div class="arch-col">
+          <div class="arch-title"><span class="dot" style="background:var(--cyan)"></span>Local sidecar</div>
+          <div class="arch-node"><b>ContextEngine retrieval</b><span>Five model-free retrieval types · incremental multi-root indexing</span></div>
+          <div class="arch-node"><b>SQLite index</b><span>Source code and index data stay on your machine</span></div>
+          <div class="arch-node"><b>File watcher</b><span>Adds, changes and deletions sync into the index automatically</span></div>
+        </div>
+        <div class="arch-link" aria-hidden="true"><span class="wire"></span><span>Loopback gRPC<br>authenticated</span></div>
+        <div class="arch-col">
+          <div class="arch-title"><span class="dot" style="background:var(--green)"></span>JetBrains IDE plugin</div>
+          <div class="arch-node"><b>JCEF panel</b><span>Svelte UI · Swing fallback when JCEF is unavailable</span></div>
+          <div class="arch-node"><b>JVM capability gateway</b><span>Project access · approvals · editor · terminal · diff/rollback</span></div>
+          <div class="arch-node"><b>Password Safe</b><span>Secure storage for OIDC tokens and BYOK keys</span></div>
+        </div>
+        <div class="arch-link" aria-hidden="true"><span class="wire"></span><span>HTTPS<br>SSE streaming</span></div>
+        <div class="arch-col">
+          <div class="arch-title"><span class="dot" style="background:var(--indigo)"></span>Agent backend (deployable)</div>
+          <div class="arch-node"><b>Prompt &amp; tool orchestration</b><span>Bounded multi-turn tool loop · streamed back live</span></div>
+          <div class="arch-node"><b>Model credentials &amp; routing</b><span>Unified gateway or a fixed multi-provider allowlist</span></div>
+          <div class="arch-node"><b>Account services</b><span>OIDC · subscription quotas · sharing · notifications</span></div>
+        </div>
+      </div>
+      <div class="arch-note reveal">
+        <span><span class="dot" style="background:var(--cyan)"></span>Index and source stay local</span>
+        <span><span class="dot" style="background:var(--green)"></span>Only selected context is sent per run</span>
+        <span><span class="dot" style="background:var(--indigo)"></span>Model credentials live only on the backend</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Security ===== -->
+  <section class="section" id="security">
+    <div class="container">
+      <div class="section-head reveal">
+        <div class="eyebrow">Security &amp; Trust</div>
+        <h2>A trust model built for production repositories</h2>
+        <p class="lede">The more capable the agent, the more the boundaries matter. CodeAgent writes "under control" into the architecture — not into the tagline.</p>
+      </div>
+      <div class="grid cols-2">
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
+          <h3>Credentials stay in their domain</h3>
+          <p>OIDC access and refresh tokens live in JetBrains Password Safe — plugin settings keep only expiry metadata. Model and integration credentials remain on the deployed backend; the IDE holds none.</p>
+        </article>
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c2.5 2 5.5 3 8 3v6c0 4.5-3.5 8-8 9-4.5-1-8-4.5-8-9V6c2.5 0 5.5-1 8-3z"/><path d="m9 12 2 2 4-4"/></svg></div>
+          <h3>A clear data boundary</h3>
+          <p>ContextEngine's index is fully local. Only the repository context, rules, skills and messages selected for the current run are sent — to the backend you configured. What goes where is always explicit.</p>
+        </article>
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></div>
+          <h3>Changes are controlled and reversible</h3>
+          <p>File edits carry per-edit rollback paths and checkpoints restore pre-run state. We don't claim automatic rollback of terminal side effects — promising only what we can guarantee is a product principle.</p>
+        </article>
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.1V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14l-3-3"/></svg></div>
+          <h3>Honest status reporting</h3>
+          <p>Settings shows real health checks and real model/tool discovery — a configured URL is not treated as an online backend. Unconfigured cloud capabilities say "unavailable", never "success".</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== IDEs ===== -->
+  <section class="section tight" id="ides" aria-label="Compatible JetBrains IDEs">
+    <div class="container">
+      <div class="section-head center reveal" style="margin-bottom:34px">
+        <div class="eyebrow">JetBrains Platform</div>
+        <h2>One install, the whole JetBrains family</h2>
+      </div>
+      <div class="hero-meta reveal" style="margin-top:0;font-size:15px;gap:12px 14px">
+        <span style="border:1px solid var(--line);border-radius:99px;padding:8px 18px;background:var(--bg-card)">IntelliJ IDEA</span>
+        <span style="border:1px solid var(--line);border-radius:99px;padding:8px 18px;background:var(--bg-card)">PyCharm</span>
+        <span style="border:1px solid var(--line);border-radius:99px;padding:8px 18px;background:var(--bg-card)">WebStorm</span>
+        <span style="border:1px solid var(--line);border-radius:99px;padding:8px 18px;background:var(--bg-card)">GoLand</span>
+        <span style="border:1px solid var(--line);border-radius:99px;padding:8px 18px;background:var(--bg-card)">CLion</span>
+        <span style="border:1px solid var(--line);border-radius:99px;padding:8px 18px;background:var(--bg-card)">PhpStorm</span>
+        <span style="border:1px solid var(--line);border-radius:99px;padding:8px 18px;background:var(--bg-card)">Rider</span>
+      </div>
+      <p class="reveal" style="text-align:center;color:var(--text-3);font-size:13.5px;margin-top:22px">Built on the IntelliJ Platform with compatibility continuously checked by JetBrains Plugin Verifier. IntelliJ IDEA and PyCharm are verified on real installs; verification of the remaining products is in progress.</p>
+    </div>
+  </section>
+
+  <!-- ===== CTA ===== -->
+  <section class="section">
+    <div class="container">
+      <div class="cta-panel reveal">
+        <div class="eyebrow" style="color:var(--green)">Get Started</div>
+        <h2>Five minutes to an agent in your IDE</h2>
+        <p>One Docker command for the backend, install the plugin ZIP, press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd> — CodeAgent takes it from there.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="manual.html#quickstart">
+            Read the quick start
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/lixiang12345/CodeAgent-idea-plugin" rel="noopener">GitHub repository</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ===== Footer ===== -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <a class="brand" href="index.html" aria-label="CodeAgent home">
+          <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <defs><linearGradient id="lg-foot" x1="2" y1="2" x2="30" y2="30" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#0b8f5c"/><stop offset=".5" stop-color="#0da96e"/><stop offset="1" stop-color="#12839b"/>
+            </linearGradient></defs>
+            <rect x="1.5" y="1.5" width="29" height="29" rx="8.5" stroke="url(#lg-foot)" stroke-width="2.4"/>
+            <path d="M10.5 11 L17 16 L10.5 21" stroke="url(#lg-foot)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M18.5 21.5 H23.5" stroke="url(#lg-foot)" stroke-width="2.6" stroke-linecap="round"/>
+          </svg>
+          CodeAgent
+        </a>
+        <p class="fnote">The IDE-native AI coding agent: local context, approval-gated changes, and a self-deployable agent backend.</p>
+      </div>
+      <div>
+        <h4>Product</h4>
+        <ul>
+          <li><a href="index.html#modes">Three modes</a></li>
+          <li><a href="index.html#features">Features</a></li>
+          <li><a href="index.html#architecture">Architecture</a></li>
+          <li><a href="index.html#security">Security &amp; trust</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Docs</h4>
+        <ul>
+          <li><a href="product.html">Product deep dive</a></li>
+          <li><a href="manual.html">User manual</a></li>
+          <li><a href="manual.html#quickstart">Quick start</a></li>
+          <li><a href="manual.html#troubleshooting">Troubleshooting</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Resources</h4>
+        <ul>
+          <li><a href="https://github.com/lixiang12345/CodeAgent-idea-plugin" rel="noopener">GitHub repository</a></li>
+          <li><a href="https://github.com/lixiang12345/CodeAgent-idea-plugin/blob/main/CHANGELOG.md" rel="noopener">Changelog</a></li>
+          <li><a href="https://github.com/lixiang12345/CodeAgent-idea-plugin/blob/main/LICENSE" rel="noopener">License</a></li>
+          <li><a href="https://github.com/lixiang12345/CodeAgent-idea-plugin/blob/main/THIRD_PARTY_NOTICES.md" rel="noopener">Third-party notices</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 CodeAgent · Built on the IntelliJ Platform</span>
+      <span>ContextEngine is distributed with the plugin under the MIT license</span>
+    </div>
+  </div>
+</footer>
+
+<dialog class="lightbox" id="lightbox" aria-label="Screenshot preview">
+  <div class="lb-bar">
+    <span class="lb-title"></span>
+    <button class="lb-close" type="button">Close Esc</button>
+  </div>
+  <img src="" alt="">
+</dialog>
+
+<script src="../assets/js/site.js" defer></script>
+</body>
+</html>
