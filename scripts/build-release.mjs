@@ -176,6 +176,7 @@ async function main() {
     "test",
     "buildPlugin",
     "verifyPluginStructure",
+    "--no-build-cache",
     "--stacktrace",
   ]);
   run(process.execPath, ["scripts/verify-ides.mjs"]);
