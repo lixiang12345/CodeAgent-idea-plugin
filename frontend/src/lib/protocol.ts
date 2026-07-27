@@ -524,6 +524,21 @@ export interface WorkspaceSkill {
   source?: string;
 }
 
+export interface ProductCapabilities {
+  userTier: "unknown" | "community" | "professional" | "enterprise";
+  fullFeatured: boolean;
+  enableAgentMode: boolean;
+  enableAgentAutoMode: boolean;
+  enableAgentTabs: boolean;
+  enableCustomCommands: boolean;
+  enableSkills: boolean;
+  enableMessageQueue: boolean;
+  enableChatHistoryRecovery: boolean;
+  enableFigmaMcp: boolean;
+  enableContextWindowUsage: boolean;
+  enableContextUsageModal: boolean;
+}
+
 export interface AppSnapshot {
   projectName: string;
   mode: Mode;
@@ -589,6 +604,9 @@ export interface AppSnapshot {
     guidelines?: string;
     maxSelectedSkills: number;
   };
+  /** Authenticated initialization flags. Tier is descriptive; individual
+   * capabilities remain authoritative because enterprise deployments differ. */
+  capabilities?: ProductCapabilities;
 }
 
 export interface CommandEnvelope {
@@ -1897,6 +1915,20 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
   }
   const snapshot: AppSnapshot = {
     projectName: "sample-project",
+    capabilities: {
+      userTier: "professional",
+      fullFeatured: true,
+      enableAgentMode: true,
+      enableAgentAutoMode: true,
+      enableAgentTabs: true,
+      enableCustomCommands: true,
+      enableSkills: true,
+      enableMessageQueue: true,
+      enableChatHistoryRecovery: true,
+      enableFigmaMcp: true,
+      enableContextWindowUsage: true,
+      enableContextUsageModal: true,
+    },
     mode: "agent",
     runState: "idle",
     agentRun: emptyAgentRunTelemetry(),

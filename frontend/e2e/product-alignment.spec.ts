@@ -77,10 +77,75 @@ test.beforeEach(async ({ page }) => {
 test("main Agent workspace stays dense and bounded", async ({ page }) => {
   await expect(page.getByText("Implement login flow with JWT", { exact: true })).toBeVisible();
   await expect(page.getByText("JWT login is implemented and the focused tests pass.", { exact: false })).toBeVisible();
-  await expect(page.getByPlaceholder("Type a message or command...")).toBeVisible();
+  await expect(page.getByPlaceholder("Instruct CodeAgent, @ for context, / for commands")).toBeVisible();
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
   await expectViewportIntegrity(page);
   await captureShell(page, "main-agent-workspace.png");
+});
+
+test("main workspace reserves saturated color for compact semantic signals", async ({ page }) => {
+  const threadSurfaces = await page.evaluate(() => {
+    function rgba(value: string): [number, number, number, number] | null {
+      const match = value.match(/^rgba?\((\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)(?:,\s*(\d+(?:\.\d+)?))?\)$/);
+      return match
+        ? [Number(match[1]), Number(match[2]), Number(match[3]), match[4] === undefined ? 1 : Number(match[4])]
+        : null;
+    }
+
+    function resolvedBackground(selector: string): { selector: string; rgb: number[] } {
+      let node = document.querySelector<HTMLElement>(selector);
+      if (!node) throw new Error(`Missing surface ${selector}`);
+      let resolved: [number, number, number, number] = [0, 0, 0, 0];
+      while (node) {
+        const current = rgba(getComputedStyle(node).backgroundColor);
+        if (current && current[3] > 0) {
+          const remaining = 1 - resolved[3];
+          resolved = [
+            resolved[0] + current[0] * current[3] * remaining,
+            resolved[1] + current[1] * current[3] * remaining,
+            resolved[2] + current[2] * current[3] * remaining,
+            resolved[3] + current[3] * remaining,
+          ];
+          if (resolved[3] >= 0.999) break;
+        }
+        node = node.parentElement as HTMLElement | null;
+      }
+      return { selector, rgb: resolved.slice(0, 3).map((channel) => Math.round(channel)) };
+    }
+
+    return [
+      ".agent-header",
+      ".subagents-strip",
+      ".user-message-content",
+      ".composer-announcement",
+      ".composer",
+      ".mode-button",
+      ".auto-toggle.active",
+    ].map(resolvedBackground);
+  });
+
+  for (const surface of threadSurfaces) {
+    expect(Math.max(...surface.rgb) - Math.min(...surface.rgb), `${surface.selector} uses ${surface.rgb.join(",")}`).toBeLessThanOrEqual(12);
+  }
+
+  await page.getByRole("tab", { name: /Tasks/ }).click();
+  const runningTaskBackground = await page.locator(".task-workspace-row.running").evaluate((element) => {
+    const value = getComputedStyle(element).backgroundColor;
+    const match = value.match(/^rgba?\((\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)/);
+    return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : [];
+  });
+  expect(runningTaskBackground).toHaveLength(3);
+  expect(Math.max(...runningTaskBackground) - Math.min(...runningTaskBackground)).toBeLessThanOrEqual(28);
+  await expectViewportIntegrity(page);
+});
+
+test("a new Agent draft resets both the content and header title", async ({ page }) => {
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
+  await expect(page.locator(".agent-title")).toHaveText("New Agent");
+  await expect(page.getByRole("heading", { name: "New Agent Thread", exact: true })).toBeVisible();
+  await expect(page.locator(".subagents-strip")).toHaveCount(0);
+  await expect(page.locator(".suggested-question")).toHaveCount(0);
+  await expectViewportIntegrity(page);
 });
 
 test("empty threads mirror the original mode-specific panel card", async ({ page }, testInfo) => {
@@ -96,7 +161,7 @@ test("empty threads mirror the original mode-specific panel card", async ({ page
   await expect(page.getByText("Start a new task", { exact: true })).toBeHidden();
   await expect(page.getByText("Explain this project", { exact: true })).toBeHidden();
 
-  const composer = page.getByPlaceholder("Type a message or command...");
+  const composer = page.getByPlaceholder("Instruct CodeAgent, @ for context, / for commands");
   await expect(composer).toBeVisible();
   const layout = await page.evaluate(() => {
     const card = document.querySelector(".empty-thread-card")?.getBoundingClientRect();
@@ -124,7 +189,7 @@ test("empty threads mirror the original mode-specific panel card", async ({ page
 });
 
 test("first-use coachmarks progress, persist, dismiss, and restart", async ({ page }) => {
-  const composer = page.getByPlaceholder("Type a message or command...");
+  const composer = page.getByPlaceholder("Instruct CodeAgent, @ for context, / for commands");
   await expect(page.getByRole("dialog", { name: "Refine a draft before sending" })).toBeHidden();
 
   await composer.fill("Plan a focused implementation and verification pass");
@@ -154,7 +219,7 @@ test("first-use coachmarks progress, persist, dismiss, and restart", async ({ pa
   coachmark = page.getByRole("dialog", { name: "Ground the Agent in repository rules" });
   await expect(coachmark).toBeVisible();
   await expect(coachmark.getByText("Step 3 of 3", { exact: true })).toBeVisible();
-  await expect(page.getByTitle("Repository guidelines", { exact: true })).toHaveClass(/coachmark-target/);
+  await expect(page.getByTitle("Settings", { exact: true })).toHaveClass(/coachmark-target/);
   await coachmark.getByRole("button", { name: "Open Rules", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Rules & Guidelines", exact: true })).toBeVisible();
   await expect(page.getByRole("dialog", { name: "Ground the Agent in repository rules" })).toBeHidden();
@@ -163,7 +228,7 @@ test("first-use coachmarks progress, persist, dismiss, and restart", async ({ pa
   await page.reload();
   await expect(page.locator(".shell")).toBeVisible();
   await page.waitForFunction(() => window.CodeAgentDevelopment?.getSnapshot()?.context.state === "ready");
-  await page.getByPlaceholder("Type a message or command...").fill("A second draft should not restart onboarding");
+  await page.getByPlaceholder("Instruct CodeAgent, @ for context, / for commands").fill("A second draft should not restart onboarding");
   await expect(page.locator(".product-coachmark")).toBeHidden();
 
   await page.getByTitle("Settings", { exact: true }).click();
@@ -181,7 +246,7 @@ test("first-use coachmarks progress, persist, dismiss, and restart", async ({ pa
   await page.reload();
   await expect(page.locator(".shell")).toBeVisible();
   await page.waitForFunction(() => window.CodeAgentDevelopment?.getSnapshot()?.context.state === "ready");
-  await page.getByPlaceholder("Type a message or command...").fill("Dismissed onboarding stays dismissed");
+  await page.getByPlaceholder("Instruct CodeAgent, @ for context, / for commands").fill("Dismissed onboarding stays dismissed");
   await expect(page.locator(".product-coachmark")).toBeHidden();
   await expectViewportIntegrity(page);
   await expectNoSidewaysScroll(page, "coachmark workflow");
@@ -353,7 +418,7 @@ test("Context Window Usage exposes live telemetry in a bounded modal", async ({ 
   await expect(dialog).toBeHidden();
   await expect(contextButton).toBeFocused();
 
-  const composer = page.getByPlaceholder("Type a message or command...");
+  const composer = page.getByPlaceholder("Instruct CodeAgent, @ for context, / for commands");
   const messageCount = await page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.messages.length);
   await composer.fill("Do not submit behind the context modal");
   await contextButton.click();
@@ -443,7 +508,7 @@ test("messages can be edited, rewound, and resent while the composer adapts", as
     });
   });
 
-  const composer = page.getByPlaceholder("Type a message or command...");
+  const composer = page.getByPlaceholder("Instruct CodeAgent, @ for context, / for commands");
   const compactHeight = await composer.evaluate((element) => element.getBoundingClientRect().height);
   await composer.fill("First line\nSecond line\nThird line\nFourth line");
   await expect.poll(() => composer.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(compactHeight);
@@ -465,7 +530,7 @@ test("messages can be edited, rewound, and resent while the composer adapts", as
   if (testInfo.project.name === "tool-window-420") await captureShell(page, "message-edit-resend.png");
   await page.getByRole("button", { name: "Apply & Resend", exact: true }).click();
 
-  await expect(page.getByText("Inspect and replace the authentication boundary.", { exact: true })).toBeVisible();
+  await expect(page.locator(".user-message-content").filter({ hasText: /^Inspect and replace the authentication boundary\.$/ })).toBeVisible();
   await expect(page.getByText("The authentication boundary currently accepts a bearer token.", { exact: true })).toBeHidden();
   await expect(page.getByText("Then verify the old integration path.", { exact: true })).toBeHidden();
   await expect(page.getByText("The old integration path was verified.", { exact: true })).toBeHidden();
@@ -509,7 +574,7 @@ test("Message Queue supports pause, edit, priority send, stop, and resume", asyn
   });
 
   const panel = page.locator(".message-queue-panel");
-  const composer = page.getByPlaceholder("Type a message or command...");
+  const composer = page.getByPlaceholder("Instruct CodeAgent, @ for context, / for commands");
   await expect(panel).toBeVisible();
   await expect(panel.getByText("2 Queued", { exact: true })).toBeVisible();
   await expect(page.locator(".conversation").getByText("Run the focused queue tests.", { exact: true })).toHaveCount(0);
@@ -627,8 +692,7 @@ test("Threads groups history and task lists continue in a fresh chat", async ({ 
   if (testInfo.project.name === "tool-window-420") await captureShell(page, "threads-advanced-management.png");
 
   await page.getByRole("button", { name: "Close", exact: true }).click();
-  await page.getByTitle("More options").click();
-  await page.getByRole("button", { name: "Agent Tasklist" }).click();
+  await page.getByRole("tab", { name: /Tasks/ }).click();
   await page.getByRole("button", { name: "Continue in New Chat", exact: true }).click();
   const continued = await page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot());
   expect(continued?.threads).toHaveLength(fixture.sourceThreadCount - 2);
@@ -645,13 +709,22 @@ test("Threads groups history and task lists continue in a fresh chat", async ({ 
   await expectViewportIntegrity(page);
 });
 
-test("Agent Edits and task workspace preserve review-first controls", async ({ page }, testInfo) => {
+test("Thread, Tasks, and Edits are keyboard-accessible primary workspaces", async ({ page }, testInfo) => {
   requireReferenceViewport(testInfo);
-  await page.getByTitle("More options").click();
-  await page.getByRole("button", { name: "Agent Edits" }).click();
-  await expect(page.getByText("Agent Edits", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Keep all" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Discard all" })).toBeVisible();
+  const threadTab = page.getByRole("tab", { name: "Thread", exact: true });
+  const tasksTab = page.getByRole("tab", { name: /Tasks/ });
+  const editsTab = page.getByRole("tab", { name: /Edits/ });
+  const composer = page.locator(".composer");
+
+  await expect(threadTab).toHaveAttribute("aria-selected", "true");
+  await expect(composer).toBeVisible();
+  await expect(page.locator(".change-summary, .edits-bar")).toHaveCount(0);
+
+  await editsTab.click();
+  await expect(editsTab).toHaveAttribute("aria-selected", "true");
+  await expect(composer).toBeHidden();
+  await expect(page.getByRole("button", { name: "Keep All" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Discard All" })).toBeVisible();
 
   // Checkpoints expose a per-checkpoint file breakdown, mirroring the original
   // c-checkpoint-collapsible anatomy. The Agent Edits view lists checkpoints on
@@ -667,13 +740,50 @@ test("Agent Edits and task workspace preserve review-first controls", async ({ p
   await expectViewportIntegrity(page);
   await captureShell(page, "agent-edits.png");
 
-  await page.getByRole("button", { name: "Back", exact: true }).click();
-  await page.getByTitle("More options").click();
-  await page.getByRole("button", { name: "Agent Tasklist" }).click();
-  await expect(page.getByText("Active Tasklist", { exact: true })).toBeVisible();
+  await editsTab.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(tasksTab).toBeFocused();
+  await expect(tasksTab).toHaveAttribute("aria-selected", "true");
+  await expect(composer).toBeHidden();
   await expect(page.getByText("Add invalid-credential regression coverage", { exact: true })).toBeVisible();
   await expectViewportIntegrity(page);
   await captureShell(page, "active-tasklist.png");
+
+  await page.keyboard.press("Home");
+  await expect(threadTab).toBeFocused();
+  await expect(composer).toBeVisible();
+});
+
+test("authenticated capability switches control the interface independently of user tier", async ({ page }) => {
+  await page.evaluate(() => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment || !snapshot.capabilities) throw new Error("Development capabilities are unavailable");
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      capabilities: {
+        ...snapshot.capabilities,
+        userTier: "enterprise",
+        enableAgentMode: false,
+        enableAgentAutoMode: false,
+        enableAgentTabs: false,
+        enableCustomCommands: false,
+        enableSkills: false,
+        enableMessageQueue: false,
+        enableContextWindowUsage: false,
+        enableContextUsageModal: false,
+      },
+    });
+  });
+
+  await expect(page.getByRole("tab", { name: "Thread", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /Tasks|Edits/ })).toHaveCount(0);
+  await expect(page.getByTitle("Slash commands")).toHaveCount(0);
+  await expect(page.getByTitle("Skills")).toHaveCount(0);
+  await expect(page.getByTitle(/Auto (ON|OFF)/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Context Window Usage" })).toHaveCount(0);
+  await expect(page.locator(".message-queue-panel, .composer-announcement")).toHaveCount(0);
+  await expect(page.getByPlaceholder("Instruct CodeAgent, @ for context")).toBeVisible();
+  await expectViewportIntegrity(page);
 });
 
 test("Settings exposes connected and conditional capabilities", async ({ page }, testInfo) => {
@@ -1241,7 +1351,8 @@ test("server notifications render, act, and dismiss without claiming an unavaila
       sharing: { state: "unavailable", reason: "Shareable links are not configured on this deployment" },
     });
   });
-  const shareButton = page.getByRole("button", { name: "Share this conversation" });
+  await page.getByTitle("More options").click();
+  const shareButton = page.locator(".workspace-menu").getByRole("button", { name: "Share this conversation" });
   await expect(shareButton).toBeDisabled();
   await expect(shareButton).toHaveAttribute("title", "Shareable links are not configured on this deployment");
 });
@@ -1400,8 +1511,7 @@ test("subtasks render under their parent and delete with it", async ({ page }) =
     });
   });
 
-  await page.getByTitle("More options").click();
-  await page.getByRole("button", { name: "Agent Tasklist" }).click();
+  await page.getByRole("tab", { name: /Tasks/ }).click();
 
   const rows = page.locator(".task-workspace-row");
   await expect(rows).toHaveCount(4);
@@ -1534,11 +1644,11 @@ test("overlays return focus to the control that opened them", async ({ page }) =
   await page.getByRole("button", { name: "Close", exact: true }).first().click();
   await expect(threadsButton).toBeFocused();
 
-  const options = page.getByTitle("Thread options").first();
+  const options = page.getByTitle("More options").first();
   await options.click();
-  await expect(page.locator(".thread-opt-menu")).toBeVisible();
+  await expect(page.locator(".workspace-menu")).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.locator(".thread-opt-menu")).toHaveCount(0);
+  await expect(page.locator(".workspace-menu")).toHaveCount(0);
   await expect(options).toBeFocused();
   await expectViewportIntegrity(page);
 });
@@ -1558,7 +1668,8 @@ test("disabled controls say why they are unavailable", async ({ page }) => {
   await expect(modelButton).toBeDisabled();
   await expect(modelButton).toHaveAttribute("title", "Sign in to load models");
 
-  const shareButton = page.getByRole("button", { name: "Share this conversation" });
+  await page.getByTitle("More options").click();
+  const shareButton = page.locator(".workspace-menu").getByRole("button", { name: "Share this conversation" });
   await expect(shareButton).toBeDisabled();
   await expect(shareButton).toHaveAttribute("title", "Shareable links are not configured on this deployment");
 
@@ -1660,39 +1771,45 @@ test("hostile names never make an overlay page scroll sideways", async ({ page }
     });
   }, UNBROKEN);
 
-  // Every overlay reachable from the tool-window header.
-  for (const overlay of ["Agent Tasklist", "Durable Jobs", "Agent Edits", "Git Changes", "Context Canvas", "Tools catalog", "Settings"]) {
+  // Primary Agent surfaces stay contained without routing through an overflow menu.
+  await page.getByRole("tab", { name: /Tasks/ }).click();
+  await expectViewportIntegrity(page);
+  await expectNoSidewaysScroll(page, "Tasks");
+  const taskActions = page.locator(".task-import-actions");
+  const actionNames = ["Export", "Import", "Continue in New Chat", "Clear Completed", "Clear All"];
+  for (const actionName of actionNames) {
+    await expect(taskActions.getByRole("button", { name: actionName, exact: true })).toBeVisible();
+  }
+  const actionBounds = await taskActions.locator("button").evaluateAll((buttons) => buttons.map((button) => {
+    const rect = button.getBoundingClientRect();
+    return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+  }));
+  const shellBounds = await page.locator(".shell").boundingBox();
+  expect(shellBounds).not.toBeNull();
+  for (const bounds of actionBounds) {
+    expect(bounds.left).toBeGreaterThanOrEqual(shellBounds!.x - 1);
+    expect(bounds.right).toBeLessThanOrEqual(shellBounds!.x + shellBounds!.width + 1);
+    expect(bounds.top).toBeGreaterThanOrEqual(shellBounds!.y - 1);
+    expect(bounds.bottom).toBeLessThanOrEqual(shellBounds!.y + shellBounds!.height + 1);
+  }
+  const exportButton = taskActions.getByRole("button", { name: "Export", exact: true });
+  const importButton = taskActions.getByRole("button", { name: "Import", exact: true });
+  await exportButton.focus();
+  await expect(exportButton).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(importButton).toBeFocused();
+
+  await page.getByRole("tab", { name: /Edits/ }).click();
+  await expectViewportIntegrity(page);
+  await expectNoSidewaysScroll(page, "Edits");
+  await page.getByRole("tab", { name: "Thread", exact: true }).click();
+
+  // Secondary workspaces remain reachable from the compact overflow menu.
+  for (const overlay of ["Durable Jobs", "Git Changes", "Context Canvas", "Tools catalog", "Settings"]) {
     await page.getByTitle("More options").click();
     await page.locator(".workspace-menu").getByRole("button", { name: overlay, exact: true }).click();
     await expectViewportIntegrity(page);
     await expectNoSidewaysScroll(page, overlay);
-    if (overlay === "Agent Tasklist") {
-      const taskActions = page.locator(".task-import-actions");
-      const actionNames = ["Export", "Import", "Continue in New Chat", "Clear Completed", "Clear All"];
-      for (const actionName of actionNames) {
-        await expect(taskActions.getByRole("button", { name: actionName, exact: true })).toBeVisible();
-      }
-
-      const actionBounds = await taskActions.locator("button").evaluateAll((buttons) => buttons.map((button) => {
-        const rect = button.getBoundingClientRect();
-        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
-      }));
-      const shellBounds = await page.locator(".shell").boundingBox();
-      expect(shellBounds).not.toBeNull();
-      for (const bounds of actionBounds) {
-        expect(bounds.left).toBeGreaterThanOrEqual(shellBounds!.x - 1);
-        expect(bounds.right).toBeLessThanOrEqual(shellBounds!.x + shellBounds!.width + 1);
-        expect(bounds.top).toBeGreaterThanOrEqual(shellBounds!.y - 1);
-        expect(bounds.bottom).toBeLessThanOrEqual(shellBounds!.y + shellBounds!.height + 1);
-      }
-
-      const exportButton = taskActions.getByRole("button", { name: "Export", exact: true });
-      const importButton = taskActions.getByRole("button", { name: "Import", exact: true });
-      await exportButton.focus();
-      await expect(exportButton).toBeFocused();
-      await page.keyboard.press("Tab");
-      await expect(importButton).toBeFocused();
-    }
     await page.getByRole("button", { name: "Back" }).first().click();
     await expect(page.getByTitle("More options")).toBeFocused();
   }

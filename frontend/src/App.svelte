@@ -32,6 +32,7 @@
     type Mode,
     type ProjectFile,
     type ProductJob,
+    type ProductCapabilities,
     type SettingsSaved,
     type TaskItem,
     type ToolRun,
@@ -101,8 +102,23 @@
   let messageFeedback: Record<string, "up" | "down"> = {};
   let editingQueuedMessageId: string | null = null;
   let resumeQueueAfterQueuedEdit = false;
-  type WorkspaceView = "chat" | "settings" | "mermaid" | "git" | "tasks" | "jobs" | "images" | "tools" | "icons" | "edits" | "feedback";
+  type PrimaryWorkspaceView = "chat" | "tasks" | "edits";
+  type WorkspaceView = PrimaryWorkspaceView | "settings" | "mermaid" | "git" | "jobs" | "images" | "tools" | "icons" | "feedback";
   let currentView: WorkspaceView = "chat";
+  const DEFAULT_PRODUCT_CAPABILITIES: ProductCapabilities = {
+    userTier: "unknown",
+    fullFeatured: true,
+    enableAgentMode: true,
+    enableAgentAutoMode: true,
+    enableAgentTabs: true,
+    enableCustomCommands: true,
+    enableSkills: true,
+    enableMessageQueue: true,
+    enableChatHistoryRecovery: true,
+    enableFigmaMcp: true,
+    enableContextWindowUsage: true,
+    enableContextUsageModal: true,
+  };
   let settingsSection = "Home";
   let settingsNavigationOpen = false;
   let threadDrawerOpen = false;
@@ -198,6 +214,9 @@
   let threadSearch = "";
   let moreMenuOpen = false;
   let threadOptOpen = false;
+  let newThreadDraftMode: Mode | null = null;
+  let newThreadDraftTitle: string | null = null;
+  let agentHeaderTitle = "New Agent";
   let taskFilter: "all" | "pending" | "running" | "done" = "all";
   let newTaskName = "";
   let newSubtaskName: Record<string, string> = {};
@@ -330,6 +349,13 @@
 
   $: reconcileToastTimers(notice, error, autoDismissNotifications);
   $: requestCount = snapshot ? conversationRequestCount(snapshot, pendingUserMessages) : 0;
+  $: if (snapshot && isPrimaryWorkspaceView(currentView) && !primaryWorkspaceViews(snapshot).includes(currentView)) {
+    currentView = "chat";
+  }
+  $: agentHeaderTitle = newThreadDraftTitle
+    ?? (newThreadDraftMode
+      ? `New ${modeLabel(newThreadDraftMode)}`
+      : activeThread()?.title ?? `New ${modeLabel(snapshot?.mode ?? "agent")}`);
   $: coachmarkVisible = coachmarkStep !== null
     && currentView === "chat"
     && !threadDrawerOpen
@@ -765,6 +791,42 @@
     });
   }
 
+  function isPrimaryWorkspaceView(view: WorkspaceView): view is PrimaryWorkspaceView {
+    return view === "chat" || view === "tasks" || view === "edits";
+  }
+
+  function productCapabilities(currentSnapshot: AppSnapshot | null = snapshot): ProductCapabilities {
+    return currentSnapshot?.capabilities ?? DEFAULT_PRODUCT_CAPABILITIES;
+  }
+
+  function primaryWorkspaceViews(currentSnapshot: AppSnapshot | null = snapshot): PrimaryWorkspaceView[] {
+    return productCapabilities(currentSnapshot).enableAgentTabs && productCapabilities(currentSnapshot).enableAgentMode
+      ? ["chat", "tasks", "edits"]
+      : ["chat"];
+  }
+
+  function openPrimaryWorkspace(view: PrimaryWorkspaceView) {
+    currentView = view;
+    closeMenus();
+    if (view === "edits") sendCommand("listCheckpoints");
+  }
+
+  function handlePrimaryWorkspaceKeydown(event: KeyboardEvent) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return;
+    event.preventDefault();
+    const tabs = primaryWorkspaceViews();
+    const currentIndex = tabs.indexOf(currentView as PrimaryWorkspaceView);
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? tabs.length - 1
+        : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    openPrimaryWorkspace(tabs[nextIndex]);
+    void tick().then(() => {
+      document.querySelector<HTMLElement>(`[data-primary-workspace-tab="${tabs[nextIndex]}"]`)?.focus();
+    });
+  }
+
   function closeMenus() {
     moreMenuOpen = false;
     threadOptOpen = false;
@@ -805,7 +867,7 @@
       return;
     }
     const busy = isBusy(snapshot);
-    const willQueue = !immediate && (busy || snapshot.messageQueue.length > 0);
+    const willQueue = productCapabilities().enableMessageQueue && !immediate && (busy || snapshot.messageQueue.length > 0);
     const clientMessageId = crypto.randomUUID();
     if (!busy && !willQueue) {
       const optimisticMessage: ChatMessage = {
@@ -816,6 +878,10 @@
         timelineSequence: nextConversationTimelineSequence(snapshot),
       };
       pendingUserMessages = [...pendingUserMessages, optimisticMessage];
+    }
+    if (newThreadDraftMode || newThreadDraftTitle) {
+      newThreadDraftTitle = text.slice(0, 64);
+      newThreadDraftMode = null;
     }
     prompt = "";
     closeMenus();
@@ -2023,12 +2089,17 @@
   }
 
   function startNewThread(mode?: Mode) {
-    sendCommand("newThread", { mode: mode ?? snapshot?.mode ?? "agent" });
+    const nextMode = mode ?? snapshot?.mode ?? "agent";
+    newThreadDraftMode = nextMode;
+    newThreadDraftTitle = null;
+    sendCommand("newThread", { mode: nextMode });
     threadDrawerOpen = false;
     closeMenus();
   }
 
   function selectThread(threadId: string) {
+    newThreadDraftMode = null;
+    newThreadDraftTitle = null;
     sendCommand("selectThread", { threadId });
     // The drawer closes onto the thread the user just chose, so focus follows
     // the composer rather than returning to the drawer trigger.
@@ -2066,7 +2137,9 @@
   }
 
   function beginRename() {
-    renameTitle = activeThread()?.title ?? "";
+    renameTitle = agentHeaderTitle;
+    newThreadDraftMode = null;
+    newThreadDraftTitle = null;
     renaming = true;
     closeMenus();
   }
@@ -2984,8 +3057,6 @@
         phase: currentSnapshot.agentRun.phase,
       });
     }
-    if (currentSnapshot.tasks.length > 0) items.push({ kind: "tasks" });
-
     const requestByRunId = new Map<string, number>();
     let requestIndex = -1;
     items.forEach((item) => {
@@ -3045,32 +3116,49 @@
   <main
     class="shell"
     class:settings-active={currentView === "settings"}
-    class:canvas-active={currentView === "mermaid" || currentView === "jobs" || currentView === "images" || currentView === "tools" || currentView === "icons" || currentView === "edits" || currentView === "feedback"}
+    class:canvas-active={currentView === "mermaid" || currentView === "jobs" || currentView === "images" || currentView === "tools" || currentView === "icons" || currentView === "feedback"}
     style={`--chat-zoom:${chatZoom / 100}`}
   >
-    <header class="app-header tw-head">
-      <div class="app-title">
-        <span class="app-logo"><Icon name="plugin-icon" size={18} /></span>
-        <strong>CodeAgent</strong>
-      </div>
-      <div class="header-actions">
-        {#if currentView === "chat"}
-          <button class="icon-button" title={`Threads (${SHORTCUT_HINTS.threads})`} aria-label="Threads" onclick={openThreadDrawer}><Icon name="menu" size={15} /></button>
-          <button class="icon-button" title={`New Thread (${SHORTCUT_HINTS.newThread})`} aria-label="New Thread" onclick={() => startNewThread()}><Icon name="plus" size={16} /></button>
-          <button class="icon-button" title="Share / copy thread" aria-label="Share" onclick={copyThread}><Icon name="share-2" size={14} /></button>
+    {#if isPrimaryWorkspaceView(currentView)}
+      <header class="agent-header">
+        <button class="icon-button" title={`Threads (${SHORTCUT_HINTS.threads})`} aria-label="Threads" onclick={openThreadDrawer}><Icon name="menu" size={18} /></button>
+        {#if renaming}
+          <form class="rename-form agent-title-editor" onsubmit={(event) => { event.preventDefault(); commitRename(); }}>
+            <input bind:value={renameTitle} maxlength="48" aria-label="Rename thread" />
+            <button type="submit" class="btn sm primary">Save</button>
+            <button type="button" class="btn sm" onclick={() => renaming = false}>Cancel</button>
+          </form>
+        {:else}
+          <strong class="agent-title" title="Double-click to rename" ondblclick={beginRename}>{agentHeaderTitle}</strong>
+        {/if}
+        <div class="agent-header-actions">
+          <button class="icon-button" title={`New Thread (${SHORTCUT_HINTS.newThread})`} aria-label="New Thread" onclick={() => startNewThread()}><Icon name="plus" size={18} /></button>
+          <button class="icon-button" class:coachmark-target={coachmarkVisible && coachmarkStep === "rules"} title="Settings" aria-label="Settings" onclick={() => openSettings()}><Icon name="settings-2" size={16} /></button>
           <div class="more-control">
-            <button class="icon-button" class:active={moreMenuOpen} class:coachmark-target={coachmarkVisible && coachmarkStep === "tasks"} title="More options" aria-label="More options" onclick={() => { if (!moreMenuOpen) captureOverlayTrigger(); moreMenuOpen = !moreMenuOpen; threadOptOpen = false; }}><Icon name="ellipsis" size={16} /></button>
+            <button class="icon-button" class:active={moreMenuOpen} class:coachmark-target={coachmarkVisible && coachmarkStep === "tasks"} title="More options" aria-label="More options" onclick={() => { if (!moreMenuOpen) captureOverlayTrigger(); moreMenuOpen = !moreMenuOpen; threadOptOpen = false; }}><Icon name="ellipsis" size={17} /></button>
             {#if moreMenuOpen}
               <div class="workspace-menu menu">
-                <button onclick={() => { beginRename(); }}><Icon name="square-pen" size={14} /><span>Rename</span></button>
+                <button onclick={() => { beginRename(); closeMenus(); }}><Icon name="square-pen" size={14} /><span>Rename thread</span></button>
+                <button onclick={() => { copyThread(); closeMenus(); }}><Icon name="clipboard" size={14} /><span>Copy conversation as Markdown</span></button>
+                <button
+                  class:active={snapshot.sharing.state === "shared"}
+                  disabled={snapshot.sharing.state !== "unshared" && snapshot.sharing.state !== "shared"}
+                  title={snapshot.sharing.state === "unavailable"
+                    ? (snapshot.sharing.reason ?? "Shareable links are not configured on this deployment")
+                    : snapshot.sharing.state === "working"
+                      ? "Working"
+                      : snapshot.sharing.state === "shared"
+                        ? "Copy a new share link (replaces the current one)"
+                        : "Create and copy a share link"}
+                  aria-label="Share this conversation"
+                  onclick={() => { shareActiveThread(); closeMenus(); }}
+                ><Icon name="share-2" size={14} /><span>{snapshot.sharing.state === "shared" ? "Copy new share link" : "Share link to session"}</span></button>
                 <button onclick={() => { exportThread(); closeMenus(); }}><Icon name="upload" size={14} /><span>Export conversation</span></button>
                 <button onclick={() => { sendCommand("importThread"); closeMenus(); }}><Icon name="download" size={14} /><span>Import conversation</span></button>
                 <button onclick={() => { const thread = activeThread(); if (thread) toggleThreadPinned(thread.id, thread.pinned); closeMenus(); }}><Icon name="pin" size={14} /><span>Pin / Unpin</span></button>
-                <button class="danger" onclick={() => { const id = activeThread()?.id; if (id) requestThreadDelete(id); }}><Icon name="trash" size={14} /><span>{confirmingThreadDeleteId === activeThread()?.id ? "Confirm delete" : "Delete"}</span></button>
+                <button class="danger" onclick={() => { const id = activeThread()?.id; if (id) requestThreadDelete(id); }}><Icon name="trash" size={14} /><span>{confirmingThreadDeleteId === activeThread()?.id ? "Confirm delete" : "Delete thread"}</span></button>
                 <div class="menu-sep"></div>
-                <button onclick={() => openWorkspaceView("tasks")}><Icon name="list-checks" size={14} /><span>Agent Tasklist</span></button>
                 <button onclick={() => openWorkspaceView("jobs")}><Icon name="bot" size={14} /><span>Durable Jobs</span></button>
-                <button onclick={() => openWorkspaceView("edits")}><Icon name="file-diff" size={14} /><span>Agent Edits</span></button>
                 <button onclick={() => openWorkspaceView("git")}><Icon name="git-branch" size={14} /><span>Git Changes</span></button>
                 <button onclick={() => openWorkspaceView("images")}><Icon name="layers-2" size={14} /><span>Context Canvas</span></button>
                 <button onclick={() => openWorkspaceView("tools")}><Icon name="wrench" size={14} /><span>Tools catalog</span></button>
@@ -3081,109 +3169,40 @@
               </div>
             {/if}
           </div>
-        {:else}
-          <button class="icon-button" title="Back to chat" aria-label="Back to chat" onclick={closeWorkspaceView}><Icon name="x" size={16} /></button>
+        </div>
+      </header>
+      <div class="agent-workspace-tabs" class:single-tab={primaryWorkspaceViews(snapshot).length === 1} role="tablist" aria-label="Agent workspace" tabindex="-1" onkeydown={handlePrimaryWorkspaceKeydown}>
+        <button type="button" role="tab" data-primary-workspace-tab="chat" aria-selected={currentView === "chat"} tabindex={currentView === "chat" ? 0 : -1} class:active={currentView === "chat"} onclick={() => openPrimaryWorkspace("chat")}>
+          <Icon name={snapshot.mode === "agent" ? "wand-sparkles" : snapshot.mode === "ask" ? "search" : "message-square"} size={15} />
+          <span>Thread</span>
+        </button>
+        {#if productCapabilities(snapshot).enableAgentTabs && productCapabilities(snapshot).enableAgentMode}
+          <button type="button" role="tab" data-primary-workspace-tab="tasks" aria-selected={currentView === "tasks"} tabindex={currentView === "tasks" ? 0 : -1} class:active={currentView === "tasks"} onclick={() => openPrimaryWorkspace("tasks")}>
+            <Icon name="list-checks" size={15} />
+            <span>Tasks</span>
+            {#if snapshot.tasks.length > 0}<i>{snapshot.tasks.filter((task) => task.state === "completed").length}/{snapshot.tasks.length}</i>{/if}
+          </button>
+          <button type="button" role="tab" data-primary-workspace-tab="edits" aria-selected={currentView === "edits"} tabindex={currentView === "edits" ? 0 : -1} class:active={currentView === "edits"} onclick={() => openPrimaryWorkspace("edits")}>
+            <Icon name="file-diff" size={15} />
+            <span>Edits</span>
+            {#if changeTools().length > 0}<i class="edits-count">{changeTools().length}</i>{/if}
+          </button>
         {/if}
       </div>
-    </header>
+    {:else}
+      <header class="app-header tw-head">
+        <div class="app-title">
+          <span class="app-logo"><Icon name="plugin-icon" size={18} /></span>
+          <strong>CodeAgent</strong>
+        </div>
+        <div class="header-actions">
+          <button class="icon-button" title="Back to chat" aria-label="Back to chat" onclick={closeWorkspaceView}><Icon name="x" size={16} /></button>
+        </div>
+      </header>
+    {/if}
 
     {#if currentView === "chat"}
       <section class="chat-view">
-        <header class="thread-header ch">
-          <button class="icon-button compact" title={`Threads (${SHORTCUT_HINTS.threads})`} aria-label="Threads" onclick={openThreadDrawer}><Icon name="menu" size={14} /></button>
-          {#if renaming}
-            <form class="rename-form" onsubmit={(event) => { event.preventDefault(); commitRename(); }}>
-              <input bind:value={renameTitle} maxlength="48" aria-label="Rename thread" />
-              <button type="submit" class="btn sm primary">Save</button>
-              <button type="button" class="btn sm" onclick={() => renaming = false}>Cancel</button>
-            </form>
-          {:else}
-            <strong class="thread-title" title="Double-click to rename" ondblclick={beginRename}>{activeThread()?.title ?? "New thread"}</strong>
-          {/if}
-          <div class="ch-actions">
-            <div class="chat-zoom-controls" role="group" aria-label="Chat zoom">
-              <button class="icon-button compact" title="Decrease chat zoom (Cmd/Ctrl -)" aria-label="Decrease chat zoom" disabled={chatZoom <= CHAT_ZOOM_MIN} onclick={() => adjustChatZoom(-CHAT_ZOOM_STEP)}><Icon name="minus" size={13} /></button>
-              <button class="chat-zoom-value" title="Reset chat zoom (Cmd/Ctrl 0)" aria-label={`Reset chat zoom, currently ${chatZoom}%`} onclick={resetChatZoom}>{chatZoom}%</button>
-              <button class="icon-button compact" title="Increase chat zoom (Cmd/Ctrl +)" aria-label="Increase chat zoom" disabled={chatZoom >= CHAT_ZOOM_MAX} onclick={() => adjustChatZoom(CHAT_ZOOM_STEP)}><Icon name="plus" size={13} /></button>
-            </div>
-            <button
-              class="icon-button compact"
-              class:active={snapshot.sharing.state === "shared"}
-              disabled={snapshot.sharing.state !== "unshared" && snapshot.sharing.state !== "shared"}
-              title={snapshot.sharing.state === "unavailable"
-                ? (snapshot.sharing.reason ?? "Shareable links are not configured on this deployment")
-                : snapshot.sharing.state === "working"
-                  ? "Working"
-                  : snapshot.sharing.state === "shared"
-                    ? "Copy a new share link (replaces the current one)"
-                    : "Create and copy a share link"}
-              aria-label="Share this conversation"
-              onclick={shareActiveThread}
-            ><Icon name="share-2" size={13} /></button>
-            <div class="more-control">
-              <button class="icon-button compact" class:active={threadOptOpen} title="Thread options" onclick={() => { if (!threadOptOpen) captureOverlayTrigger(); threadOptOpen = !threadOptOpen; moreMenuOpen = false; }}><Icon name="ellipsis" size={14} /></button>
-              {#if threadOptOpen}
-                <div class="workspace-menu menu thread-opt-menu">
-                  <button onclick={() => beginRename()}><Icon name="square-pen" size={13} /><span>Rename thread</span></button>
-                  <button onclick={() => { const thread = activeThread(); if (thread) toggleThreadPinned(thread.id, thread.pinned); closeMenus(); }}><Icon name="pin" size={13} /><span>Pin / Unpin</span></button>
-                  <button onclick={() => { copyThread(); closeMenus(); }}><Icon name="clipboard" size={13} /><span>Copy conversation as Markdown</span></button>
-                  {#if snapshot.sharing.state === "unavailable"}
-                    <button disabled title={snapshot.sharing.reason ?? "Shareable links are not configured on this deployment"}><Icon name="share-2" size={13} /><span>Share link unavailable</span></button>
-                  {:else if snapshot.sharing.state === "shared"}
-                    <div class="thread-share-state">
-                      <span><Icon name="share-2" size={13} /><strong>Shared</strong></span>
-                      <small>{snapshot.sharing.viewCount ?? 0} views · {shareExpiryLabel(snapshot.sharing.expiresAt)}</small>
-                      {#if snapshot.sharing.url}
-                        <code title={snapshot.sharing.url}>{snapshot.sharing.url}</code>
-                      {:else}
-                        <!-- Only sha256(token) is stored, so an existing link can never be read back. -->
-                        <small>Link <code>{snapshot.sharing.tokenPrefix}…</code> cannot be shown again; copying issues a new one.</small>
-                      {/if}
-                    </div>
-                    <button onclick={() => { shareActiveThread(); closeMenus(); }}><Icon name="share-2" size={13} /><span>Copy new link (replaces current)</span></button>
-                    <button class="danger" onclick={unshareActiveThread}><Icon name="trash-2" size={13} /><span>{confirmingUnshare ? "Confirm stop sharing" : "Stop sharing"}</span></button>
-                  {:else}
-                    <button disabled={snapshot.sharing.state === "working"} title={snapshot.sharing.state === "working" ? "Working" : "Create and copy a share link"} onclick={() => { shareActiveThread(); closeMenus(); }}><Icon name="share-2" size={13} /><span>{snapshot.sharing.state === "working" ? "Working…" : "Share link to session"}</span></button>
-                  {/if}
-                  <button onclick={() => { exportThread(); closeMenus(); }}><Icon name="upload" size={13} /><span>Export conversation</span></button>
-                  <button onclick={() => { sendCommand("importThread"); closeMenus(); }}><Icon name="file-input" size={13} /><span>Import conversation</span></button>
-                  <button aria-label="Continue in new local chat" onclick={() => continueInNewChat(false)}><Icon name="git-branch" size={13} /><span>Continue in New Chat</span></button>
-                  <button aria-label="Continue in new cloud chat" onclick={() => continueInNewChat(true)}><Icon name="orbit" size={13} /><span>Continue in New Chat</span></button>
-                  <div class="menu-sep"></div>
-                  <button onclick={() => requestDeleteOldThreads()}><Icon name="trash-2" size={13} /><span>{confirmingDeleteOldThreads ? "Confirm delete old threads" : "Delete Old Threads…"}</span></button>
-                  <button onclick={() => exportRemoteAgentsHistory()}><Icon name="cloud-download" size={13} /><span>Export Remote Agents History</span></button>
-                  <div class="menu-sep"></div>
-                  <button onclick={() => recoverFromBackend()}><Icon name="cloud" size={13} /><span>Recover from Backend</span></button>
-                  <button onclick={() => copySessionId()}><Icon name="copy" size={13} /><span>Copy Session ID</span></button>
-                  <button onclick={() => { openWorkspaceView("feedback"); closeMenus(); }}><Icon name="flag" size={13} /><span>Report an Issue</span></button>
-                  <button onclick={() => exportLogs()}><Icon name="file-text" size={13} /><span>Export Logs</span></button>
-                  <div class="menu-sep"></div>
-                  <button class="danger" onclick={() => { const id = activeThread()?.id; if (id) requestThreadDelete(id); }}><Icon name="trash-2" size={13} /><span>{confirmingThreadDeleteId === activeThread()?.id ? "Confirm delete" : "Delete thread"}</span></button>
-                </div>
-              {/if}
-            </div>
-            <button class="icon-button compact" title="Settings" onclick={() => openSettings()}><Icon name="settings-2" size={14} /></button>
-          </div>
-        </header>
-
-        <div class="repository-strip multi-repo">
-          <button class="chip" title="Open Git workspace" onclick={() => openWorkspaceView("git")}><Icon name="git-branch" size={12} /><span>{snapshot.projectName}</span></button>
-          <button class="chip accent" class:coachmark-target={coachmarkVisible && coachmarkStep === "rules"} title="Repository guidelines" onclick={() => openSettings("Rules & Guidelines")}><Icon name="book-open" size={12} /><span>Guidelines</span></button>
-          <span class="repository-spacer"></span>
-          <button class="chip index-state {contextIndexState(snapshot)}" title={`${contextIndexTitle(snapshot)} · Click to check sync now`} disabled={contextIndexState(snapshot) === "indexing" || contextIndexState(snapshot) === "checking"} onclick={refreshContextIndex}>
-            <Icon name={snapshot.context.watching ? "refresh-cw" : "database"} size={12} /><span>{contextIndexLabel(snapshot)}</span>
-          </button>
-        </div>
-
-        {#if !announceBannerDismissed && snapshot.messageQueue.length === 0}
-          <div class="announce-banner" role="status">
-            <Icon name="megaphone" size={13} />
-            <span>Message Queue is available as a Public Beta — enable it in Settings → Beta.</span>
-            <button class="announce-open" onclick={() => openSettings("Beta")}>Open Beta</button>
-            <button class="announce-dismiss" title="Dismiss" aria-label="Dismiss announcement" onclick={() => announceBannerDismissed = true}><Icon name="x" size={12} /></button>
-          </div>
-        {/if}
-
         {#if recoveryBanner.visible}
           <div class="recovery-banner" role="status" aria-live="polite">
             <Icon name={recoveryBanner.done ? "circle-check" : "cloud"} size={13} />
@@ -3254,7 +3273,7 @@
           bind:this={conversationElement}
           onscroll={updateConversationFollow}
         >
-          {#if activeSubagents(snapshot).length > 0}
+          {#if activeSubagents(snapshot).length > 0 && (snapshot.messages.length > 0 || pendingUserMessages.length > 0)}
             <div class="subagents-strip">
               <div class="subagents-strip-title">Running subagents</div>
               {#each activeSubagents(snapshot) as job (job.id)}
@@ -3301,7 +3320,7 @@
                         ? "Get quick answers about your code."
                         : "Ask questions and plan with codebase awareness."}
                   </p>
-                  {#if !dismissedSuggestedQuestions}
+                  {#if snapshot.mode !== "agent" && !dismissedSuggestedQuestions}
                     <div class="suggested-questions">
                       {#each SUGGESTED_QUESTIONS as question}
                         <button
@@ -3399,7 +3418,7 @@
                           <button class="tool-header" onclick={() => toggleTool(tool.id)} aria-expanded={toolsExpanded.has(tool.id)}>
                             <span class="tool-icon"><Icon name={toolIcon(tool)} size={14} /></span>
                             <span class="tool-copy"><strong>{toolTitle(tool)}</strong><small>{tool.summary}</small></span>
-                            <span class="tool-state-copy"><span class="tool-status">{#if tool.status === "running"}<Icon name="circle-dashed" size={10} />{/if}{statusLabel(tool.status)}</span>{#if showTimestamps && toolTimeline(tool)}<time>{toolTimeline(tool)}</time>{/if}</span>
+                            <span class="tool-state-copy"><span class="tool-status" aria-label={statusLabel(tool.status)} title={statusLabel(tool.status)}>{#if tool.status === "running"}<Icon name="circle-dashed" size={10} />{:else}<i class="tool-status-dot" aria-hidden="true"></i>{/if}</span>{#if showTimestamps && toolTimeline(tool)}<time>{toolTimeline(tool)}</time>{/if}</span>
                             {#if toolsExpanded.has(tool.id)}<Icon name="chevron-down" size={14} />{:else}<Icon name="chevron-right" size={14} />{/if}
                           </button>
                           {#if toolsExpanded.has(tool.id)}
@@ -3576,12 +3595,12 @@
         {/if}
 
         <footer class="composer-wrap cw">
-          {#if changeTools().length > 0}
-            <div class="change-summary edits-bar">
-              <span><Icon name="file-diff" size={13} />{changeTools().length} {changeTools().length === 1 ? "file" : "files"} changed</span>
-              <button onclick={() => sendCommand("reviewChanges", { toolIds: changeTools().map((tool) => tool.id) })}>Review</button>
-              <button onclick={() => sendCommand("keepChanges", { toolIds: changeTools().map((tool) => tool.id) })}>Keep All</button>
-              <button class="discard" onclick={() => sendCommand("discardChanges", { toolIds: changeTools().map((tool) => tool.id) })}>Discard All</button>
+          {#if productCapabilities(snapshot).enableMessageQueue && !announceBannerDismissed && snapshot.messageQueue.length === 0}
+            <div class="announce-banner composer-announcement" role="status">
+              <Icon name="info" size={13} />
+              <span>Message Queue is available as a Public Beta — enable it in Settings → Beta.</span>
+              <button class="announce-open" onclick={() => openSettings("Beta")}>Open Beta</button>
+              <button class="announce-dismiss" title="Dismiss" aria-label="Dismiss announcement" onclick={() => announceBannerDismissed = true}><Icon name="x" size={12} /></button>
             </div>
           {/if}
           <div class="context-chips chips">
@@ -3602,16 +3621,18 @@
             {/if}
             <button class="chip" onclick={() => sendCommand("pickContext")}><Icon name="plus" size={12} /> context</button>
           </div>
-          <MessageQueuePanel
-            messages={snapshot.messageQueue}
-            paused={snapshot.messageQueuePaused}
-            editingMessageId={editingQueuedMessageId}
-            onpausechange={(paused) => sendCommand("setMessageQueuePaused", { paused })}
-            onedit={beginQueuedMessageEdit}
-            onsendnow={sendQueuedMessageNow}
-            ondelete={deleteQueuedMessage}
-            oncancel={cancelQueuedMessageEdit}
-          />
+          {#if productCapabilities(snapshot).enableMessageQueue}
+            <MessageQueuePanel
+              messages={snapshot.messageQueue}
+              paused={snapshot.messageQueuePaused}
+              editingMessageId={editingQueuedMessageId}
+              onpausechange={(paused) => sendCommand("setMessageQueuePaused", { paused })}
+              onedit={beginQueuedMessageEdit}
+              onsendnow={sendQueuedMessageNow}
+              ondelete={deleteQueuedMessage}
+              oncancel={cancelQueuedMessageEdit}
+            />
+          {/if}
           <div
             class="composer comp"
             class:busy={isBusy(snapshot)}
@@ -3631,7 +3652,7 @@
                 <button class="icon-button compact" title="Dismiss" aria-label="Dismiss composer notice" onclick={() => composerNotice = null}><Icon name="x" size={11} /></button>
               </div>
             {/if}
-            {#if slashOpen}
+            {#if productCapabilities(snapshot).enableCustomCommands && slashOpen}
               <div class="composer-popup slash-menu">
                 <header><strong>Slash commands</strong><button class="icon-button compact" title="Close" onclick={() => slashOpen = false}><Icon name="x" size={12} /></button></header>
                 {#each filteredSlash() as item}
@@ -3684,11 +3705,15 @@
             <textarea
               bind:this={composerTextarea}
               bind:value={prompt}
-              placeholder={editingQueuedMessageId ? "Edit queued message..." : "Type a message or command..."}
+              placeholder={editingQueuedMessageId
+                ? "Edit queued message..."
+                : productCapabilities(snapshot).enableCustomCommands
+                  ? "Instruct CodeAgent, @ for context, / for commands"
+                  : "Instruct CodeAgent, @ for context"}
               oninput={() => {
                 resizeComposer();
                 mentions = activeMentions(prompt, mentions);
-                if (prompt.startsWith("/")) {
+                if (productCapabilities(snapshot).enableCustomCommands && prompt.startsWith("/")) {
                   slashOpen = true;
                   atOpen = false;
                   return;
@@ -3716,7 +3741,8 @@
               }}
             ></textarea>
             <div class="composer-toolbar abar">
-              <div class="mode-control">
+              {#if productCapabilities(snapshot).enableAgentMode}
+                <div class="mode-control">
                 <button class="mode-button dd-btn" title={`Switch mode (${SHORTCUT_HINTS.cycleMode})`} onclick={() => { if (!modeMenuOpen) captureOverlayTrigger(); modeMenuOpen = !modeMenuOpen; agentMenuOpen = false; modelMenuOpen = false; skillsOpen = false; slashOpen = false; atOpen = false; }}>
                   <span class="tag {snapshot.mode}">{modeLabel(snapshot.mode)}</span>
                   <Icon name="chevron-down" size={12} />
@@ -3741,22 +3767,23 @@
                     </button>
                   </div>
                 {/if}
-              </div>
-              <div class="agent-control" title={`Agent profile: ${activeAgentProfile(snapshot).name}`}>
-                <button
-                  type="button"
-                  class="agent-select"
-                  class:active={agentMenuOpen}
-                  disabled={isBusy(snapshot)}
-                  aria-label="Agent profile selection"
-                  aria-haspopup="listbox"
-                  aria-expanded={agentMenuOpen}
-                  onclick={toggleAgentMenu}
-                >
-                  <Icon name="bot" size={12} />
-                  <span>{activeAgentProfile(snapshot).name}</span>
-                </button>
-              </div>
+                </div>
+                <div class="agent-control" title={`Agent profile: ${activeAgentProfile(snapshot).name}`}>
+                  <button
+                    type="button"
+                    class="agent-select"
+                    class:active={agentMenuOpen}
+                    disabled={isBusy(snapshot)}
+                    aria-label="Agent profile selection"
+                    aria-haspopup="listbox"
+                    aria-expanded={agentMenuOpen}
+                    onclick={toggleAgentMenu}
+                  >
+                    <Icon name="bot" size={12} />
+                    <span>{activeAgentProfile(snapshot).name}</span>
+                  </button>
+                </div>
+              {/if}
               <div class="model-control" title={modelTitle(snapshot.models)}>
                 <button
                   type="button"
@@ -3773,41 +3800,43 @@
                   <span>{modelLabel(snapshot.models)}</span>
                 </button>
               </div>
-              <button
-                bind:this={contextUsageButton}
-                type="button"
-                class="context-usage-button"
-                class:active={contextUsageOpen}
-                title={contextUsageButtonTitle(snapshot)}
-                aria-label="Context Window Usage"
-                aria-haspopup="dialog"
-                aria-expanded={contextUsageOpen}
-                data-usage-percent={modelContextUsage(snapshot)?.percent ?? 0}
-                onclick={openContextUsage}
-              >
-                <svg width="20" height="20" viewBox="0 0 20 20" class="context-usage-ring" aria-hidden="true">
-                  <circle cx="10" cy="10" r={CONTEXT_USAGE_RADIUS} fill="none" stroke="currentColor" stroke-width="3"></circle>
-                  {#if modelContextUsage(snapshot)}
-                    <circle
-                      class="context-usage-ring-fill {contextUsageTone(snapshot)}"
-                      cx="10"
-                      cy="10"
-                      r={CONTEXT_USAGE_RADIUS}
-                      fill="none"
-                      stroke-width="3"
-                      stroke-dasharray={CONTEXT_USAGE_CIRCUMFERENCE}
-                      stroke-dashoffset={contextUsageStrokeOffset(snapshot)}
-                      stroke-linecap="round"
-                    ></circle>
-                  {/if}
-                </svg>
-              </button>
+              {#if productCapabilities(snapshot).enableContextWindowUsage && productCapabilities(snapshot).enableContextUsageModal}
+                <button
+                  bind:this={contextUsageButton}
+                  type="button"
+                  class="context-usage-button"
+                  class:active={contextUsageOpen}
+                  title={contextUsageButtonTitle(snapshot)}
+                  aria-label="Context Window Usage"
+                  aria-haspopup="dialog"
+                  aria-expanded={contextUsageOpen}
+                  data-usage-percent={modelContextUsage(snapshot)?.percent ?? 0}
+                  onclick={openContextUsage}
+                >
+                  <svg width="20" height="20" viewBox="0 0 20 20" class="context-usage-ring" aria-hidden="true">
+                    <circle cx="10" cy="10" r={CONTEXT_USAGE_RADIUS} fill="none" stroke="currentColor" stroke-width="3"></circle>
+                    {#if modelContextUsage(snapshot)}
+                      <circle
+                        class="context-usage-ring-fill {contextUsageTone(snapshot)}"
+                        cx="10"
+                        cy="10"
+                        r={CONTEXT_USAGE_RADIUS}
+                        fill="none"
+                        stroke-width="3"
+                        stroke-dasharray={CONTEXT_USAGE_CIRCUMFERENCE}
+                        stroke-dashoffset={contextUsageStrokeOffset(snapshot)}
+                        stroke-linecap="round"
+                      ></circle>
+                    {/if}
+                  </svg>
+                </button>
+              {/if}
               <button title="Context Canvas" onclick={() => openWorkspaceView("images")}><Icon name="layers-2" size={14} /></button>
               <button title="@ mention" onclick={seedMention}><Icon name="at-sign" size={14} /></button>
-              <button title="Slash commands" onclick={seedSlash}><Icon name="square-terminal" size={14} /></button>
+              {#if productCapabilities(snapshot).enableCustomCommands}<button title="Slash commands" onclick={seedSlash}><Icon name="square-terminal" size={14} /></button>{/if}
               <button title="Attach file/image" onclick={() => sendCommand("pickContext")}><Icon name="file-input" size={14} /></button>
               <button class:coachmark-target={coachmarkVisible && coachmarkStep === "enhance"} title={enhancing ? "Enhancing…" : `Enhance prompt (${SHORTCUT_HINTS.enhance})`} aria-label="Enhance prompt" disabled={!prompt.trim() || enhancing || isBusy(snapshot)} onclick={enhancePrompt}><Icon name="sparkles" size={14} /></button>
-              <div class="skill-control">
+              {#if productCapabilities(snapshot).enableSkills}<div class="skill-control">
                 <button class:active={skillsOpen} title="Skills" onclick={() => { if (!skillsOpen) captureOverlayTrigger(); skillsOpen = !skillsOpen; modeMenuOpen = false; agentMenuOpen = false; modelMenuOpen = false; }}>
                   <Icon name="wand-sparkles" size={14} />
                   {#if selectedSkillCount() > 0}<i>{selectedSkillCount()}</i>{/if}
@@ -3828,13 +3857,13 @@
                     {/each}
                   </div>
                 {/if}
-              </div>
+              </div>{/if}
               <span class="toolbar-spacer sp"></span>
-              <button class="auto-toggle" class:active={autoApproveReadOnly} title={autoApproveReadOnly ? "Auto ON — read-only tools run without approval" : "Auto OFF — require approval for most commands"} onclick={toggleAutoRun}><span class="auto-label">Auto </span>{autoApproveReadOnly ? "ON" : "OFF"}</button>
+              {#if productCapabilities(snapshot).enableAgentAutoMode}<button class="auto-toggle" class:active={autoApproveReadOnly} title={autoApproveReadOnly ? "Auto ON — read-only tools run without approval" : "Auto OFF — require approval for most commands"} onclick={toggleAutoRun}><span class="auto-label">Auto </span>{autoApproveReadOnly ? "ON" : "OFF"}</button>{/if}
               {#if editingQueuedMessageId}
                 <button class="send-button apply" title="Apply queued edit" aria-label="Apply queued edit" disabled={!prompt.trim()} onclick={applyQueuedMessageEdit}><Icon name="check" size={14} /></button>
               {:else if isBusy(snapshot)}
-                <button class="send-button queue-send" title="Queue message" disabled={!prompt.trim()} onclick={() => submit()}><Icon name="send-horizontal" size={13} /></button>
+                {#if productCapabilities(snapshot).enableMessageQueue}<button class="send-button queue-send" title="Queue message" disabled={!prompt.trim()} onclick={() => submit()}><Icon name="send-horizontal" size={13} /></button>{/if}
                 <button class="send-button stop" title={`Stop (${SHORTCUT_HINTS.stop})`} aria-label="Stop" onclick={cancelRun}><Icon name="square" size={13} /></button>
               {:else}
                 <button class="send-button" title="Send" disabled={!prompt.trim()} onclick={() => submit()}><Icon name="send-horizontal" size={15} /></button>
@@ -4538,12 +4567,9 @@
         </div>
       </section>
     {:else if currentView === "tasks"}
-      <section class="workspace-view">
-        <header class="canvas-header ov-h">
-          <button class="icon-button compact" title="Back" onclick={closeWorkspaceView}><Icon name="chevron-left" size={15} /></button>
-          <Icon name="list-checks" size={14} />
-          <strong>Active Tasklist</strong>
-          <span class="workspace-count">{snapshot.tasks.filter((task) => task.state === "completed").length}/{snapshot.tasks.length}</span>
+      <section class="workspace-view primary-workspace task-primary-workspace" aria-label="Tasks workspace">
+        <header class="primary-workspace-toolbar">
+          <span>{snapshot.tasks.filter((task) => task.state === "completed").length} of {snapshot.tasks.length} tasks complete</span>
           <button class="btn sm" onclick={() => { newTaskName = newTaskName || "New task"; addTask(); }}>Add</button>
           <button class="btn sm primary" disabled={isBusy(snapshot) || snapshot.tasks.every((task) => task.state === "completed" || task.state === "cancelled")} onclick={() => sendCommand("runAllTasks")}>Run All</button>
         </header>
@@ -4775,14 +4801,11 @@
         </div>
       </section>
     {:else if currentView === "edits"}
-      <section class="workspace-view">
-        <header class="canvas-header ov-h">
-          <button class="icon-button compact" title="Back" onclick={closeWorkspaceView}><Icon name="chevron-left" size={15} /></button>
-          <Icon name="file-diff" size={14} />
-          <strong>Agent Edits</strong>
-          <button class="btn sm" disabled={changeTools().length === 0} onclick={() => sendCommand("createCheckpoint", { label: "Agent checkpoint" })}>Checkpoint</button>
-          <button class="btn sm" disabled={changeTools().length === 0} onclick={() => sendCommand("keepChanges", { toolIds: changeTools().map((tool) => tool.id) })}>Keep all</button>
-          <button class="btn sm danger" disabled={changeTools().length === 0} onclick={() => sendCommand("discardChanges", { toolIds: changeTools().map((tool) => tool.id) })}>Discard all</button>
+      <section class="workspace-view primary-workspace edits-primary-workspace" aria-label="Edits workspace">
+        <header class="primary-workspace-toolbar edits-toolbar">
+          <span>{changeTools().length} {changeTools().length === 1 ? "file" : "files"} changed</span>
+          <button class="btn sm discard-all" disabled={changeTools().length === 0} onclick={() => sendCommand("discardChanges", { toolIds: changeTools().map((tool) => tool.id) })}>Discard All</button>
+          <button class="btn sm keep-all" disabled={changeTools().length === 0} onclick={() => sendCommand("keepChanges", { toolIds: changeTools().map((tool) => tool.id) })}>Keep All</button>
         </header>
         <div class="workspace-body">
           {#if changeTools().length === 0 && checkpoints.length === 0}
@@ -4802,7 +4825,7 @@
             {/if}
             {#if checkpoints.length > 0}
               <section class="workspace-section" style="margin-top:12px">
-                <header><strong>Checkpoints</strong><button class="btn sm" onclick={() => sendCommand("listCheckpoints")}>Refresh</button></header>
+                <header><strong>Checkpoints</strong><button class="btn sm" disabled={changeTools().length === 0} onclick={() => sendCommand("createCheckpoint", { label: "Agent checkpoint" })}>Create checkpoint</button><button class="btn sm" onclick={() => sendCommand("listCheckpoints")}>Refresh</button></header>
                 <div class="workspace-list">
                   {#each checkpoints as checkpoint}
                     <div class="workspace-file checkpoint-row">

@@ -2057,6 +2057,736 @@ button { color: inherit; }
   }
 }
 
+/* The authenticated Augment workspace is one header plus three primary
+   surfaces. Thread owns the composer; Tasks and Edits replace it. */
+.agent-header {
+  height: 44px;
+  flex: 0 0 44px;
+  min-width: 0;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--panel);
+}
+
+.agent-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--bright);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-title-editor {
+  min-width: 0;
+  flex: 1;
+}
+
+.agent-header-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.agent-workspace-tabs {
+  height: 47px;
+  flex: 0 0 47px;
+  padding: 0 8px 7px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--panel);
+}
+
+.agent-workspace-tabs.single-tab {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.agent-workspace-tabs > button {
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 6px;
+  color: color-mix(in srgb, var(--text) 82%, var(--muted));
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.agent-workspace-tabs > button:hover {
+  color: var(--bright);
+  background: var(--workspace-surface-hover);
+}
+
+.agent-workspace-tabs > button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.agent-workspace-tabs > button.active {
+  color: var(--bright);
+  background: color-mix(in srgb, var(--panel-3) 90%, var(--bright) 4%);
+}
+
+.agent-workspace-tabs > button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-workspace-tabs > button > i {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel-3) 82%, transparent);
+  font: normal 9px var(--mono);
+}
+
+.agent-workspace-tabs > button > i.edits-count {
+  color: var(--workspace-state-success);
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+}
+
+.chat-view > .thread-header,
+.chat-view > .repository-strip,
+.chat-view > .announce-banner:not(.composer-announcement) {
+  display: none;
+}
+
+.composer-announcement {
+  min-height: 32px;
+  margin: 0 0 7px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  color: color-mix(in srgb, var(--text) 86%, var(--muted));
+  background: color-mix(in srgb, var(--panel-2) 84%, transparent);
+  font-size: calc(10.5px * var(--chat-zoom));
+}
+
+.composer-announcement .announce-open {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.primary-workspace {
+  background: var(--panel);
+}
+
+.primary-workspace-toolbar {
+  min-height: 41px;
+  flex: 0 0 41px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.primary-workspace-toolbar > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--workspace-font-support);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edits-toolbar .discard-all {
+  border-color: var(--line-strong);
+  color: var(--text);
+  background: var(--panel-3);
+}
+
+.edits-toolbar .keep-all {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line-strong));
+  color: color-mix(in srgb, var(--accent) 62%, var(--bright));
+  background: color-mix(in srgb, var(--accent) 13%, var(--panel));
+}
+
+.edits-toolbar button:disabled {
+  opacity: .38;
+}
+
+.edits-primary-workspace .workspace-file > button:not(.checkpoint-toggle) {
+  height: 25px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--text);
+  background: var(--panel-3);
+  font-size: var(--workspace-font-label);
+  cursor: pointer;
+}
+
+.edits-primary-workspace .workspace-file > button:not(.checkpoint-toggle):hover {
+  color: var(--bright);
+  background: var(--workspace-surface-hover);
+}
+
+.edits-primary-workspace .workspace-file > button:not(.checkpoint-toggle):disabled {
+  opacity: .38;
+  cursor: default;
+}
+
+/* Augment 0.482.3 clean-room workspace palette. The original interface uses
+   the Radix slate scale for structural surfaces and confines saturated color
+   to primary actions or compact semantic signals. These variables stay
+   separate from the IDE bridge so custom/light themes still get an explicit
+   light counterpart instead of inheriting dark literals. */
+:root {
+  --augment-ws-canvas: #111113;
+  --augment-ws-panel: #18191b;
+  --augment-ws-surface: #212225;
+  --augment-ws-hover: #272a2d;
+  --augment-ws-border: #2e3135;
+  --augment-ws-border-strong: #43484e;
+  --augment-ws-icon: #696e77;
+  --augment-ws-muted: #777b84;
+  --augment-ws-text: #b0b4ba;
+  --augment-ws-bright: #edeef0;
+  --augment-ws-alpha-2: #d8f4f609;
+  --augment-ws-alpha-3: #ddeaf814;
+  --augment-ws-alpha-4: #d3edf81d;
+}
+
+:root.theme-light {
+  --augment-ws-canvas: #fcfcfd;
+  --augment-ws-panel: #f9f9fb;
+  --augment-ws-surface: #f0f0f3;
+  --augment-ws-hover: #e8e8ec;
+  --augment-ws-border: #e0e1e6;
+  --augment-ws-border-strong: #b9bbc6;
+  --augment-ws-icon: #8b8d98;
+  --augment-ws-muted: #80838d;
+  --augment-ws-text: #60646c;
+  --augment-ws-bright: #1c2024;
+  --augment-ws-alpha-2: #00005506;
+  --augment-ws-alpha-3: #0000330f;
+  --augment-ws-alpha-4: #00002d17;
+}
+
+.shell:not(.settings-active):not(.canvas-active),
+.chat-view,
+.primary-workspace {
+  color: var(--augment-ws-text);
+  background: var(--augment-ws-panel);
+}
+
+.agent-header,
+.agent-workspace-tabs,
+.primary-workspace-toolbar,
+.composer-wrap,
+.cw {
+  background: var(--augment-ws-panel);
+}
+
+.agent-header {
+  height: 48px;
+  flex-basis: 48px;
+  padding-inline: 12px;
+  gap: 8px;
+}
+
+.agent-title {
+  color: var(--augment-ws-bright);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.agent-header .icon-button {
+  color: var(--augment-ws-text);
+}
+
+.agent-header .icon-button:hover,
+.agent-header .icon-button:focus-visible,
+.agent-header .icon-button.active {
+  color: var(--augment-ws-bright);
+  background: var(--augment-ws-alpha-3);
+}
+
+.agent-workspace-tabs {
+  height: 50px;
+  flex-basis: 50px;
+  padding: 0 12px 8px;
+  gap: 0;
+  border-bottom-color: var(--augment-ws-border);
+}
+
+.agent-workspace-tabs > button {
+  height: 34px;
+  gap: 6px;
+  border-radius: 4px;
+  color: var(--augment-ws-text);
+  font-size: 12px;
+}
+
+.agent-workspace-tabs > button:hover {
+  color: var(--augment-ws-bright);
+  background: var(--augment-ws-alpha-2);
+}
+
+.agent-workspace-tabs > button.active {
+  color: var(--augment-ws-bright);
+  background: var(--augment-ws-alpha-3);
+}
+
+.agent-workspace-tabs > button > i {
+  color: var(--augment-ws-text);
+  background: var(--augment-ws-alpha-4);
+}
+
+.agent-workspace-tabs > button > i.edits-count {
+  color: var(--workspace-state-success);
+  background: color-mix(in srgb, var(--green) 13%, transparent);
+}
+
+.conversation,
+.workspace-view.primary-workspace,
+.workspace-body {
+  background: var(--augment-ws-panel);
+  scrollbar-color: var(--augment-ws-border-strong) transparent;
+}
+
+.subagents-strip {
+  padding: 7px 12px;
+  border-bottom-color: var(--augment-ws-border);
+  background: var(--augment-ws-surface);
+}
+
+.subagents-strip-title,
+.subagent-elapsed {
+  color: var(--augment-ws-muted);
+}
+
+.subagent-row {
+  color: var(--augment-ws-text);
+}
+
+.subagents-strip .chip,
+.composer-wrap .chip,
+.composer .chip {
+  color: var(--augment-ws-text);
+  border-color: var(--augment-ws-border-strong);
+  background: var(--augment-ws-alpha-3);
+}
+
+.run-telemetry {
+  border-bottom-color: var(--augment-ws-border);
+  color: var(--augment-ws-muted);
+  background: var(--augment-ws-panel);
+}
+
+.run-telemetry span:first-child,
+.run-telemetry .run-phase,
+.run-telemetry .run-phase.streaming,
+.run-telemetry .run-phase.tools {
+  color: var(--augment-ws-text);
+  background: var(--augment-ws-alpha-3);
+}
+
+.run-telemetry .run-phase.retrying,
+.run-telemetry i,
+.run-telemetry i.retrying {
+  color: var(--workspace-state-warning);
+  background: transparent;
+}
+
+.run-telemetry i.verified {
+  color: var(--workspace-state-success);
+  background: transparent;
+}
+
+.context-compaction-strip {
+  border-bottom-color: var(--augment-ws-border);
+  color: var(--augment-ws-text);
+  background: var(--augment-ws-panel);
+}
+
+.context-compaction-strip strong,
+.context-compaction-strip small {
+  color: var(--augment-ws-text);
+}
+
+.context-compaction-track {
+  background: var(--augment-ws-border);
+}
+
+.panel-banner,
+.approval,
+.composer-notice {
+  border-color: var(--augment-ws-border-strong);
+  color: var(--augment-ws-text);
+  background: var(--augment-ws-surface);
+}
+
+.panel-banner.info,
+.panel-banner.warning,
+.panel-banner.error,
+.composer-notice,
+.composer-notice.error {
+  border-left-color: var(--augment-ws-border-strong);
+}
+
+.panel-banner.info > svg,
+.composer-notice > svg {
+  color: var(--workspace-state-info);
+}
+
+.panel-banner.warning > svg,
+.composer-notice.error > svg,
+.approval-note > svg {
+  color: var(--workspace-state-warning);
+}
+
+.panel-banner.error > svg {
+  color: var(--workspace-state-danger);
+}
+
+.empty-thread {
+  padding: 48px 24px 24px;
+}
+
+.empty-thread-card {
+  max-width: 320px;
+  padding: 24px;
+  gap: 20px;
+  border-color: var(--augment-ws-border);
+  border-radius: 6px;
+  background: var(--augment-ws-alpha-2);
+}
+
+.empty-thread-card h1 {
+  color: var(--augment-ws-bright);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 28px;
+}
+
+.empty-thread-card p {
+  color: var(--augment-ws-text);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.chat-view .user-message-content {
+  border-color: var(--augment-ws-border);
+  color: var(--augment-ws-bright);
+  background: var(--augment-ws-surface);
+}
+
+.tool-pass-header,
+.turn-summary {
+  border-color: var(--augment-ws-border);
+}
+
+.tool-pass-title,
+.tool-pass-title svg,
+.tool-pass-copy small,
+.turn-summary-item,
+.turn-summary-item svg {
+  color: var(--augment-ws-muted);
+}
+
+.tool-pass-title strong,
+.turn-summary-item b,
+.chat-view .tool-copy strong {
+  color: var(--augment-ws-text);
+}
+
+.tool-header:hover {
+  background: var(--augment-ws-alpha-3);
+}
+
+.chat-view .tool-copy small {
+  color: var(--augment-ws-muted);
+}
+
+.chat-view .tool-status {
+  width: 12px;
+  height: 12px;
+  justify-content: center;
+}
+
+.tool-status-dot {
+  width: 6px;
+  height: 6px;
+  display: block;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.tool-detail {
+  border-color: var(--augment-ws-border);
+  background: var(--augment-ws-canvas);
+}
+
+.approval {
+  border-top-color: var(--augment-ws-border);
+}
+
+.approval button,
+.approval button.approve {
+  border-color: var(--augment-ws-border-strong);
+  color: var(--augment-ws-text);
+  background: var(--augment-ws-alpha-3);
+  animation: none;
+}
+
+.approval button.approve {
+  color: var(--workspace-state-success);
+}
+
+.composer-announcement {
+  border-color: var(--augment-ws-border-strong);
+  color: var(--augment-ws-text);
+  background: transparent;
+}
+
+.composer-announcement .announce-open {
+  border-color: var(--augment-ws-border-strong);
+  color: var(--augment-ws-text);
+  background: var(--augment-ws-alpha-3);
+}
+
+.composer,
+.comp {
+  min-height: 96px;
+  border-color: var(--augment-ws-border-strong);
+  border-radius: 6px;
+  color: var(--augment-ws-text);
+  background: var(--augment-ws-panel);
+  box-shadow: none;
+}
+
+.composer:focus-within,
+.comp:focus-within {
+  border-color: var(--augment-ws-border-strong);
+  box-shadow: 0 0 0 1px var(--augment-ws-alpha-4);
+}
+
+.chat-view .composer textarea {
+  color: var(--augment-ws-bright);
+  font-size: calc(12px * var(--chat-zoom));
+  line-height: 20px;
+}
+
+.composer textarea::placeholder {
+  color: var(--augment-ws-icon);
+}
+
+.composer-toolbar > button,
+.skill-control > button,
+.composer-toolbar .model-select,
+.composer-toolbar .agent-select {
+  color: var(--augment-ws-muted);
+}
+
+.composer-toolbar > button:hover,
+.skill-control > button:hover,
+.skill-control > button.active,
+.composer-toolbar .model-select:hover,
+.composer-toolbar .model-select.active,
+.composer-toolbar .agent-select:hover,
+.composer-toolbar .agent-select.active {
+  color: var(--augment-ws-bright);
+  background: var(--augment-ws-alpha-3);
+}
+
+.composer-toolbar .mode-button,
+.dd-btn {
+  border-color: var(--augment-ws-border-strong);
+  color: var(--augment-ws-text);
+  background: var(--augment-ws-alpha-3);
+}
+
+.auto-toggle,
+.auto-toggle.active {
+  color: var(--augment-ws-muted);
+  background: transparent;
+}
+
+.auto-toggle.active {
+  color: var(--augment-ws-text);
+  background: var(--augment-ws-alpha-3);
+}
+
+.send-button,
+.composer-toolbar > .send-button {
+  width: 28px;
+  height: 28px;
+  flex-basis: 28px;
+  border-radius: 4px;
+}
+
+.send-button:disabled {
+  color: var(--augment-ws-icon);
+  background: var(--augment-ws-surface);
+}
+
+.mode-menu,
+.model-menu,
+.drop,
+.composer-popup,
+.composer-popup.agent-menu,
+.skills-popover {
+  border-color: var(--augment-ws-border-strong);
+  color: var(--augment-ws-text);
+  background: var(--augment-ws-surface);
+}
+
+.mode-menu button,
+.model-menu > button,
+.composer-popup > button,
+.composer-popup.agent-menu > button {
+  color: var(--augment-ws-text);
+}
+
+.mode-menu button:hover,
+.mode-menu button.active,
+.model-menu > button:hover,
+.model-menu > button.active,
+.composer-popup > button:hover,
+.composer-popup.agent-menu > button:hover,
+.composer-popup.agent-menu > button.active,
+.skills-popover label:hover {
+  background: var(--augment-ws-alpha-3);
+}
+
+.tag.agent,
+.tag.chat,
+.tag.ask,
+.agent-profile-mark,
+.model-vendor-mark,
+.model-vendor-mark.openai,
+.model-vendor-mark.anthropic,
+.model-vendor-mark.xai {
+  border-color: var(--augment-ws-border-strong);
+  color: var(--augment-ws-text);
+  background: var(--augment-ws-alpha-3);
+}
+
+.primary-workspace-toolbar {
+  border-bottom-color: var(--augment-ws-border);
+}
+
+.primary-workspace-toolbar > span,
+.workspace-file small,
+.task-workspace-row small {
+  color: var(--augment-ws-muted);
+}
+
+.workspace-actions .segmented-control,
+.task-add input,
+.task-workspace-list,
+.workspace-list,
+.workspace-section {
+  border-color: var(--augment-ws-border);
+  background: var(--augment-ws-panel);
+}
+
+.segmented-control button.active,
+.task-workspace-row.running {
+  color: var(--augment-ws-bright);
+  background: var(--augment-ws-alpha-3);
+}
+
+.task-workspace-row + .task-workspace-row,
+.workspace-file + .workspace-file {
+  border-color: var(--augment-ws-border);
+}
+
+.task-workspace-row strong,
+.workspace-file strong,
+.workspace-empty strong {
+  color: var(--augment-ws-text);
+}
+
+.task-workspace-row.completed strong {
+  color: var(--augment-ws-muted);
+}
+
+.task-import-actions button.danger,
+.task-workspace-row button.danger {
+  color: var(--augment-ws-muted);
+}
+
+.task-import-actions button.danger:hover,
+.task-import-actions button.danger:focus-visible,
+.task-workspace-row button.danger:hover,
+.task-workspace-row button.danger:focus-visible {
+  color: var(--workspace-state-danger);
+}
+
+.workspace-section button,
+.workspace-actions > button,
+.task-import-actions button,
+.task-add button,
+.workspace-empty button,
+.edits-primary-workspace .workspace-file > button:not(.checkpoint-toggle),
+.edits-toolbar .discard-all {
+  border-color: var(--augment-ws-border-strong);
+  color: var(--augment-ws-text);
+  background: var(--augment-ws-alpha-3);
+}
+
+.edits-toolbar .keep-all {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--augment-ws-border-strong));
+  color: color-mix(in srgb, var(--accent) 62%, var(--augment-ws-bright));
+  background: color-mix(in srgb, var(--accent) 14%, var(--augment-ws-panel));
+}
+
+.workspace-section button.primary,
+.workspace-actions > button.primary,
+.task-add button.primary,
+.workspace-empty button.primary {
+  border-color: var(--accent);
+  color: white;
+  background: var(--accent);
+}
+
+.task-add button.primary:disabled {
+  border-color: var(--augment-ws-border-strong);
+  color: var(--augment-ws-icon);
+  background: var(--augment-ws-alpha-3);
+}
+
+.workspace-count {
+  color: var(--augment-ws-text);
+  background: var(--augment-ws-alpha-4);
+}
+
+@container (min-width: 560px) {
+  .empty-thread-card { max-width: none; }
+}
+
+@container (max-width: 370px) {
+  .agent-header { padding-inline: 5px; }
+  .agent-workspace-tabs { padding-inline: 5px; gap: 3px; }
+  .agent-workspace-tabs > button { gap: 5px; padding-inline: 5px; }
+  .agent-workspace-tabs > button > i { min-width: 17px; padding-inline: 3px; }
+  .primary-workspace-toolbar { padding-inline: 7px; }
+}
+
 /* Authoritative reduced-motion overrides. Placed last so they win by source
    order over every base rule they target, regardless of where those rules sit. */
 @media (prefers-reduced-motion: reduce) {
