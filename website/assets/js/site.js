@@ -81,14 +81,18 @@
     var btn = block.querySelector(".copy-btn");
     var pre = block.querySelector("pre");
     if (!btn || !pre) return;
+    var label = btn.querySelector("span");
+    if (!label) return;
+    var originalLabel = label.textContent;
+    var zh = (document.documentElement.lang || "").indexOf("zh") === 0;
     btn.addEventListener("click", function () {
       var text = pre.innerText.replace(/\n+$/, "");
       function done(ok) {
         btn.classList.toggle("done", ok);
-        btn.querySelector("span").textContent = ok ? "已复制" : "复制失败";
+        label.textContent = ok ? (zh ? "已复制" : "Copied") : (zh ? "复制失败" : "Copy failed");
         setTimeout(function () {
           btn.classList.remove("done");
-          btn.querySelector("span").textContent = "复制";
+          label.textContent = originalLabel;
         }, 1600);
       }
       if (navigator.clipboard && navigator.clipboard.writeText) {
