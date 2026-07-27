@@ -199,9 +199,14 @@ their parent, reordering may reposition a parent but never reparents a subtask,
 and deleting a parent deletes its children. The hierarchy round-trips through
 the conversation store, the cloud sync contract, and the public shared view.
 
+The onboarding coach-marks are delivered as a contextual three-step tour for
+prompt enhancement, Agent Tasklist, and repository Rules & Guidelines. It
+starts only after the first ready draft, persists completion or dismissal, can
+be restarted from settings, respects reduced motion, and yields to composer
+menus and notices instead of intercepting their interaction.
+
 Still open, local and feasible: inline input completion, which needs the
-rich-text composer surface described above; onboarding coach-marks, which need a
-product decision on trigger points; Monaco-based rules editing; and IDE
+rich-text composer surface described above; Monaco-based rules editing; and IDE
 Run-tool-window hosting for agent-launched commands. There is no no-folder gate
 because an IDEA tool window only exists inside an open project, and
 `read-terminal` is not implemented because the extracted artifacts carry its

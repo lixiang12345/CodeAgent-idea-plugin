@@ -105,6 +105,8 @@ button { color: inherit; }
 .at-menu button small { overflow: hidden; color: var(--muted); font: 8px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .at-menu-empty { margin: 0; padding: 8px 9px; color: var(--muted); font-size: 9px; }
 .chip.amber { color: #d5bb7d; border-color: #5f5338; background: rgba(213,187,125,.1); }
+.coachmark-target { outline: 2px solid color-mix(in srgb, var(--focus-ring) 82%, transparent); outline-offset: 2px; animation: coachmark-target-pulse 1.8s ease-in-out infinite; }
+@keyframes coachmark-target-pulse { 50% { outline-color: color-mix(in srgb, var(--focus-ring) 42%, transparent); } }
 .subagents-strip { padding: 6px 8px; border-bottom: 1px solid var(--border); background: #1f2430; }
 .subagents-strip-title { margin-bottom: 4px; font-size: 11px; color: var(--dim); }
 .subagent-row { display: flex; align-items: center; gap: 6px; font-size: 11px; padding: 4px 0; color: #9ab; }
@@ -623,6 +625,12 @@ button { color: inherit; }
 .toggle-row > span { display: flex; flex-direction: column; }
 .toggle-row small { color: var(--muted); }
 .settings-form footer { display: flex; justify-content: flex-end; }
+.preference-action-row { margin-top: 9px; display: flex; align-items: center; gap: 10px; }
+.preference-action-row > span { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.preference-action-row strong { color: var(--text); font-size: 9px; font-weight: 550; }
+.preference-action-row small { color: var(--muted); font-size: 8px; line-height: 1.35; }
+.preference-action-row > button { flex: 0 0 auto; min-height: 26px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 3px; color: var(--text); background: var(--panel-3); font-size: 8px; cursor: pointer; }
+.preference-action-row > button:hover, .preference-action-row > button:focus-visible { color: var(--bright); border-color: var(--focus-ring); }
 .settings-save-footer { min-height: 26px; align-items: center; gap: 8px; }
 .settings-save-footer > span { min-width: 0; flex: 1; display: inline-flex; align-items: center; gap: 5px; color: #d0a05b; font: 8px var(--mono); }
 .settings-save-footer > span.saved { color: #7cbd8d; }
@@ -2054,4 +2062,6 @@ button { color: inherit; }
   .context-home .progress.indexing span {
     animation: none;
   }
+
+  .coachmark-target { animation: none; }
 }

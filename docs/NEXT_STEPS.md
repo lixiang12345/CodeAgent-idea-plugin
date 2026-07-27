@@ -146,20 +146,15 @@ Remaining, ranked:
    ghost suggestion inside the input. Adopting a rich-text surface would also
    let the wire shape match the original's `rich_text_json_repr` plus
    `mentioned_items`; weigh that against the dependency before scheduling.
-2. **Onboarding coach-marks.** The pre-chat gate views landed for the states
-   that apply here — signed out, account error, indexing, and not indexed.
-   There is no open-folder state because an IDEA tool window only exists inside
-   an open project. Coach-marks still need a product decision on which features
-   they introduce and when they first appear.
-3. **Rules editor richness.** The rules editor is still a plain textarea.
+2. **Rules editor richness.** The rules editor is still a plain textarea.
    Embedding Monaco in JCEF costs bundle size and needs an offline-safe build,
    so weigh it against reusing the IDEA editor: opening
    `.codeagent/guidelines.md` in a real editor tab already works and inherits
    the IDE's own Markdown support, theme, and keymap. Decide before scheduling.
-4. **Process hosting.** Running agent-launched commands through an IDE Run
+3. **Process hosting.** Running agent-launched commands through an IDE Run
    configuration so they appear in the Run/Terminal tool window; this adds
    plugin dependencies and needs a deliberate compatibility decision.
-5. **`read-terminal`.** `keep_stdin_open` and multi-question `ask_user` landed.
+4. **`read-terminal`.** `keep_stdin_open` and multi-question `ask_user` landed.
    `read-terminal` did not: the extracted 0.482.3 artifacts contain the name
    only, in a tool-type enum in the sidecar bundle and in the webview protocol
    map. No input schema, description, or implementation survives in what was
@@ -167,9 +162,16 @@ Remaining, ranked:
    evidence. Reading the IDE's own terminal is also a different capability from
    the managed processes CodeAgent runs, and would need its own approval story.
    Leaving it unimplemented rather than inventing a contract.
-6. **Needs a backend contract:** async sub-agent lifecycle
+5. **Needs a backend contract:** async sub-agent lifecycle
    (spawn/check/message/await with parent reporting), semantic commit-history
    retrieval, and completion recency payloads.
+
+Onboarding coach-marks are now delivered. A three-step non-modal tour introduces
+prompt enhancement, Agent Tasklist, and repository Rules & Guidelines after the
+first ready composer draft becomes non-empty. Completion or dismissal persists,
+the tour can be restarted from User Experience settings, and it temporarily
+hides while composer menus, mentions, paste/drop notices, drawers, or other
+interactive overlays are active so guidance never blocks the underlying action.
 
 Four surfaces previously listed here as cloud-only now have a backend contract.
 `backend/src/cloud-surfaces.mjs` plus the product API implement shareable

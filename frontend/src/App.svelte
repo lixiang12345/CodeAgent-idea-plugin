@@ -1,6 +1,7 @@
 <script lang="ts">
   import { afterUpdate, onMount, tick } from "svelte";
   import Icon from "./lib/Icon.svelte";
+  import Coachmark from "./lib/Coachmark.svelte";
   import ConfigurationSettings from "./lib/ConfigurationSettings.svelte";
   import ContextUsageModal from "./lib/ContextUsageModal.svelte";
   import MarkdownMessage from "./lib/MarkdownMessage.svelte";
@@ -230,6 +231,12 @@
   let slashOpen = false;
   let atOpen = false;
   let dismissedSuggestedQuestions = false;
+  type CoachmarkStep = "enhance" | "tasks" | "rules";
+  let coachmarkStep: CoachmarkStep | null = null;
+  let coachmarkCompleted = false;
+  let coachmarkDismissed = false;
+  let coachmarkPreferenceHydrated = false;
+  let coachmarkVisible = false;
   let iconFilter = "";
   let toolFilter = "";
   let feedbackText = "";
@@ -323,6 +330,36 @@
 
   $: reconcileToastTimers(notice, error, autoDismissNotifications);
   $: requestCount = snapshot ? conversationRequestCount(snapshot, pendingUserMessages) : 0;
+  $: coachmarkVisible = coachmarkStep !== null
+    && currentView === "chat"
+    && !threadDrawerOpen
+    && !contextUsageOpen
+    && !moreMenuOpen
+    && !threadOptOpen
+    && !modeMenuOpen
+    && !agentMenuOpen
+    && !modelMenuOpen
+    && !skillsOpen
+    && !generationMenuOpen
+    && !slashOpen
+    && !atOpen
+    && mentions.length === 0
+    && composerNotice === null
+    && !dropActive
+    && editingQueuedMessageId === null;
+  $: if (
+    snapshot
+    && coachmarkPreferenceHydrated
+    && coachmarkStep === null
+    && !coachmarkCompleted
+    && !coachmarkDismissed
+    && currentView === "chat"
+    && prompt.trim().length > 0
+    && !preChatGate(snapshot)
+    && !isBusy(snapshot)
+  ) {
+    coachmarkStep = "enhance";
+  }
 
   function handleEvent(event: EventEnvelope) {
     if (event.type === "snapshot") {
@@ -1318,8 +1355,11 @@
         if (typeof prefs.notificationSoundsEnabled === "boolean") notificationSoundsEnabled = prefs.notificationSoundsEnabled;
         if (typeof prefs.notificationSoundsOnlyWhenUnfocused === "boolean") notificationSoundsOnlyWhenUnfocused = prefs.notificationSoundsOnlyWhenUnfocused;
         if (typeof prefs.dismissedSuggestedQuestions === "boolean") dismissedSuggestedQuestions = prefs.dismissedSuggestedQuestions;
+        coachmarkCompleted = prefs.onboardingCoachmarks === "completed";
+        coachmarkDismissed = prefs.onboardingCoachmarks === "dismissed";
       } catch {}
     }
+    coachmarkPreferenceHydrated = true;
   }
 
   function testBackend() {
@@ -1353,6 +1393,7 @@
       notificationSoundsEnabled,
       notificationSoundsOnlyWhenUnfocused,
       dismissedSuggestedQuestions,
+      onboardingCoachmarks: coachmarkCompleted ? "completed" : coachmarkDismissed ? "dismissed" : "available",
     };
     localStorage.setItem("codeagent-preferences", JSON.stringify(prefs));
   }
@@ -2676,6 +2717,63 @@
     "Explain the project structure",
   ];
 
+  const COACHMARK_STEPS: CoachmarkStep[] = ["enhance", "tasks", "rules"];
+  const COACHMARK_CONTENT: Record<CoachmarkStep, { title: string; description: string; actionLabel: string }> = {
+    enhance: {
+      title: "Refine a draft before sending",
+      description: `Use Enhance prompt or ${SHORTCUT_HINTS.enhance} to add useful implementation detail while preserving your intent.`,
+      actionLabel: "Next",
+    },
+    tasks: {
+      title: "Keep multi-step work visible",
+      description: "Agent Tasklist lives under More options and keeps ordered work, subtasks, run state, and handoff progress in one place.",
+      actionLabel: "Next",
+    },
+    rules: {
+      title: "Ground the Agent in repository rules",
+      description: "Rules & Guidelines stores project-specific Markdown guidance in the repository and makes it available to every run.",
+      actionLabel: "Open Rules",
+    },
+  };
+
+  function coachmarkIndex() {
+    return coachmarkStep ? COACHMARK_STEPS.indexOf(coachmarkStep) : -1;
+  }
+
+  function advanceCoachmark() {
+    const index = coachmarkIndex();
+    if (index < 0) return;
+    if (index < COACHMARK_STEPS.length - 1) {
+      coachmarkStep = COACHMARK_STEPS[index + 1];
+      return;
+    }
+    coachmarkCompleted = true;
+    coachmarkDismissed = false;
+    coachmarkStep = null;
+    persistFrontendPreferences();
+    openSettings("Rules & Guidelines");
+  }
+
+  function goBackCoachmark() {
+    const index = coachmarkIndex();
+    if (index > 0) coachmarkStep = COACHMARK_STEPS[index - 1];
+  }
+
+  function dismissCoachmarks() {
+    coachmarkStep = null;
+    coachmarkDismissed = true;
+    coachmarkCompleted = false;
+    persistFrontendPreferences();
+  }
+
+  function restartCoachmarks() {
+    coachmarkCompleted = false;
+    coachmarkDismissed = false;
+    coachmarkStep = "enhance";
+    persistFrontendPreferences();
+    closeWorkspaceView();
+  }
+
   function applySuggestedQuestion(question: string) {
     prompt = question;
     void tick().then(() => {
@@ -2748,11 +2846,17 @@
 
   function handleGlobalEscape(event: KeyboardEvent) {
     const settingsDrawerWasOpen = currentView === "settings" && settingsNavigationOpen;
+    const coachmarkWasOpen = coachmarkVisible;
     const overlayWasOpen = threadDrawerOpen || moreMenuOpen || threadOptOpen || modeMenuOpen || agentMenuOpen
       || modelMenuOpen || skillsOpen || generationMenuOpen || slashOpen || atOpen || threadMenuOpenId !== null
-      || confirmingThreadDeleteId !== null || confirmingThreadGroupDelete !== null || settingsDrawerWasOpen;
+      || confirmingThreadDeleteId !== null || confirmingThreadGroupDelete !== null || settingsDrawerWasOpen || coachmarkWasOpen;
     closeThreadDrawer();
     closeMenus();
+    if (coachmarkWasOpen) {
+      dismissCoachmarks();
+      event.preventDefault();
+      return;
+    }
     if (settingsDrawerWasOpen) {
       settingsNavigationOpen = false;
       event.preventDefault();
@@ -2955,7 +3059,7 @@
           <button class="icon-button" title={`New Thread (${SHORTCUT_HINTS.newThread})`} aria-label="New Thread" onclick={() => startNewThread()}><Icon name="plus" size={16} /></button>
           <button class="icon-button" title="Share / copy thread" aria-label="Share" onclick={copyThread}><Icon name="share-2" size={14} /></button>
           <div class="more-control">
-            <button class="icon-button" class:active={moreMenuOpen} title="More options" aria-label="More options" onclick={() => { if (!moreMenuOpen) captureOverlayTrigger(); moreMenuOpen = !moreMenuOpen; threadOptOpen = false; }}><Icon name="ellipsis" size={16} /></button>
+            <button class="icon-button" class:active={moreMenuOpen} class:coachmark-target={coachmarkVisible && coachmarkStep === "tasks"} title="More options" aria-label="More options" onclick={() => { if (!moreMenuOpen) captureOverlayTrigger(); moreMenuOpen = !moreMenuOpen; threadOptOpen = false; }}><Icon name="ellipsis" size={16} /></button>
             {#if moreMenuOpen}
               <div class="workspace-menu menu">
                 <button onclick={() => { beginRename(); }}><Icon name="square-pen" size={14} /><span>Rename</span></button>
@@ -3064,7 +3168,7 @@
 
         <div class="repository-strip multi-repo">
           <button class="chip" title="Open Git workspace" onclick={() => openWorkspaceView("git")}><Icon name="git-branch" size={12} /><span>{snapshot.projectName}</span></button>
-          <button class="chip accent" title="Repository guidelines" onclick={() => openSettings("Rules & Guidelines")}><Icon name="book-open" size={12} /><span>Guidelines</span></button>
+          <button class="chip accent" class:coachmark-target={coachmarkVisible && coachmarkStep === "rules"} title="Repository guidelines" onclick={() => openSettings("Rules & Guidelines")}><Icon name="book-open" size={12} /><span>Guidelines</span></button>
           <span class="repository-spacer"></span>
           <button class="chip index-state {contextIndexState(snapshot)}" title={`${contextIndexTitle(snapshot)} · Click to check sync now`} disabled={contextIndexState(snapshot) === "indexing" || contextIndexState(snapshot) === "checking"} onclick={refreshContextIndex}>
             <Icon name={snapshot.context.watching ? "refresh-cw" : "database"} size={12} /><span>{contextIndexLabel(snapshot)}</span>
@@ -3697,7 +3801,7 @@
               <button title="@ mention" onclick={seedMention}><Icon name="at-sign" size={14} /></button>
               <button title="Slash commands" onclick={seedSlash}><Icon name="square-terminal" size={14} /></button>
               <button title="Attach file/image" onclick={() => sendCommand("pickContext")}><Icon name="file-input" size={14} /></button>
-              <button title={enhancing ? "Enhancing…" : `Enhance prompt (${SHORTCUT_HINTS.enhance})`} aria-label="Enhance prompt" disabled={!prompt.trim() || enhancing || isBusy(snapshot)} onclick={enhancePrompt}><Icon name="sparkles" size={14} /></button>
+              <button class:coachmark-target={coachmarkVisible && coachmarkStep === "enhance"} title={enhancing ? "Enhancing…" : `Enhance prompt (${SHORTCUT_HINTS.enhance})`} aria-label="Enhance prompt" disabled={!prompt.trim() || enhancing || isBusy(snapshot)} onclick={enhancePrompt}><Icon name="sparkles" size={14} /></button>
               <div class="skill-control">
                 <button class:active={skillsOpen} title="Skills" onclick={() => { if (!skillsOpen) captureOverlayTrigger(); skillsOpen = !skillsOpen; modeMenuOpen = false; agentMenuOpen = false; modelMenuOpen = false; }}>
                   <Icon name="wand-sparkles" size={14} />
@@ -4270,6 +4374,13 @@
                 </div>
                 <footer><button class="primary" onclick={saveUserExperience}>Save preferences</button></footer>
               </section>
+              <section class="settings-form settings-block">
+                <header><strong>Onboarding</strong><Icon name="sparkles" size={14} /></header>
+                <div class="preference-action-row">
+                  <span><strong>Quick product tour</strong><small>Review prompt enhancement, Agent Tasklist, and repository rules.</small></span>
+                  <button type="button" onclick={restartCoachmarks}>Restart tour</button>
+                </div>
+              </section>
             {:else if ["MCP Servers", "ACP Agents", "Commands", "Hooks", "Agents", "Plugins", "Marketplaces"].includes(settingsSection)}
               <ConfigurationSettings
                 section={settingsSection}
@@ -4763,6 +4874,21 @@
     {/if}
     {#if currentView !== "chat" && notice}
       <div class="global-banner notice-banner"><Icon name="circle-check" size={13} /><span>{notice}</span><button title="Dismiss" onclick={() => notice = ""}><Icon name="x" size={13} /></button></div>
+    {/if}
+
+    {#if coachmarkStep && coachmarkVisible}
+      {@const coachmark = COACHMARK_CONTENT[coachmarkStep]}
+      <Coachmark
+        step={COACHMARK_STEPS.indexOf(coachmarkStep) + 1}
+        total={COACHMARK_STEPS.length}
+        title={coachmark.title}
+        description={coachmark.description}
+        actionLabel={coachmark.actionLabel}
+        canGoBack={COACHMARK_STEPS.indexOf(coachmarkStep) > 0}
+        onaction={advanceCoachmark}
+        onback={goBackCoachmark}
+        ondismiss={dismissCoachmarks}
+      />
     {/if}
 
     {#if contextUsageOpen}

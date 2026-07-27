@@ -123,6 +123,70 @@ test("empty threads mirror the original mode-specific panel card", async ({ page
   await expectViewportIntegrity(page);
 });
 
+test("first-use coachmarks progress, persist, dismiss, and restart", async ({ page }) => {
+  const composer = page.getByPlaceholder("Type a message or command...");
+  await expect(page.getByRole("dialog", { name: "Refine a draft before sending" })).toBeHidden();
+
+  await composer.fill("Plan a focused implementation and verification pass");
+  let coachmark = page.getByRole("dialog", { name: "Refine a draft before sending" });
+  await expect(coachmark).toBeVisible();
+  await expect(coachmark.getByText("Step 1 of 3", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Enhance prompt", exact: true })).toHaveClass(/coachmark-target/);
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect.poll(() => coachmark.evaluate((element) => getComputedStyle(element).animationName)).toBe("none");
+  await expect.poll(() => page.getByRole("button", { name: "Enhance prompt", exact: true }).evaluate((element) => getComputedStyle(element).animationName)).toBe("none");
+
+  const next = coachmark.getByRole("button", { name: "Next", exact: true });
+  await next.focus();
+  await expect(next).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  coachmark = page.getByRole("dialog", { name: "Keep multi-step work visible" });
+  await expect(coachmark).toBeVisible();
+  await expect(coachmark.getByText("Step 2 of 3", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "More options", exact: true })).toHaveClass(/coachmark-target/);
+  await coachmark.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Refine a draft before sending" })).toBeVisible();
+  await page.getByRole("dialog", { name: "Refine a draft before sending" }).getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("dialog", { name: "Keep multi-step work visible" }).getByRole("button", { name: "Next", exact: true }).click();
+
+  coachmark = page.getByRole("dialog", { name: "Ground the Agent in repository rules" });
+  await expect(coachmark).toBeVisible();
+  await expect(coachmark.getByText("Step 3 of 3", { exact: true })).toBeVisible();
+  await expect(page.getByTitle("Repository guidelines", { exact: true })).toHaveClass(/coachmark-target/);
+  await coachmark.getByRole("button", { name: "Open Rules", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Rules & Guidelines", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Ground the Agent in repository rules" })).toBeHidden();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("codeagent-preferences") ?? "{}").onboardingCoachmarks)).toBe("completed");
+
+  await page.reload();
+  await expect(page.locator(".shell")).toBeVisible();
+  await page.waitForFunction(() => window.CodeAgentDevelopment?.getSnapshot()?.context.state === "ready");
+  await page.getByPlaceholder("Type a message or command...").fill("A second draft should not restart onboarding");
+  await expect(page.locator(".product-coachmark")).toBeHidden();
+
+  await page.getByTitle("Settings", { exact: true }).click();
+  const navigationToggle = page.getByRole("button", { name: "All settings", exact: true });
+  if (await navigationToggle.isVisible()) await navigationToggle.click();
+  await page.getByRole("button", { name: "User Experience", exact: true }).click();
+  await page.getByRole("button", { name: "Restart tour", exact: true }).click();
+  coachmark = page.getByRole("dialog", { name: "Refine a draft before sending" });
+  await expect(coachmark).toBeVisible();
+  await coachmark.getByRole("button", { name: "Dismiss quick tour", exact: true }).focus();
+  await page.keyboard.press("Escape");
+  await expect(coachmark).toBeHidden();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("codeagent-preferences") ?? "{}").onboardingCoachmarks)).toBe("dismissed");
+
+  await page.reload();
+  await expect(page.locator(".shell")).toBeVisible();
+  await page.waitForFunction(() => window.CodeAgentDevelopment?.getSnapshot()?.context.state === "ready");
+  await page.getByPlaceholder("Type a message or command...").fill("Dismissed onboarding stays dismissed");
+  await expect(page.locator(".product-coachmark")).toBeHidden();
+  await expectViewportIntegrity(page);
+  await expectNoSidewaysScroll(page, "coachmark workflow");
+});
+
 test("Services groups cloud capabilities and distinguishes discovery states", async ({ page }, testInfo) => {
   await page.evaluate(() => {
     const snapshot = window.CodeAgentDevelopment?.getSnapshot();
