@@ -42,3 +42,7 @@ a separate, provider-scoped operation requiring an isolated tenant, minimum
 permissions, and explicit mutation approval. The CI and release workflows run
 the non-strict gate and upload its report so missing credentials remain visible
 without making a build depend on private test tenants.
+
+Use `INTEGRATION_ACCEPTANCE_MATRIX.md` for the canonical least-privilege
+credentials, disposable fixtures, approval steps, negative cases, redaction
+rules, evidence template, and credential-readiness order for live acceptance.
