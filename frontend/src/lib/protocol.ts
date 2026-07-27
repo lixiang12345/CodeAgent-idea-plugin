@@ -1574,6 +1574,7 @@ function handleDevelopmentCommand(command: CommandEnvelope): void {
     || command.type === "openGitDiff"
     || command.type === "openImage"
     || command.type === "openMermaidEditor"
+    || command.type === "openWorkspaceGuidelines"
     || command.type === "openTerminal"
     || command.type === "reviewChanges"
     || command.type === "stageGit"

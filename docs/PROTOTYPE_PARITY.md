@@ -59,7 +59,7 @@ This table is the release gate. `Partial` means the visible surface exists but a
 | Agent edits | Implemented | Native Diff, undo, keep/discard, Agent Edits overlay, and local checkpoints with restore and an expandable per-checkpoint changed-file breakdown with per-file added/removed line counts |
 | Tasks | Implemented | Persistent per-thread tasks, one level of subtasks with parent-relative numbering and descriptions, filtering, add/delete/state, clear, Markdown import/export, run-one/run-all, and Agent task tools accepting `parent_task_id` and `after_task_id` |
 | Git | Implemented | Real branch/index/worktree status, stage/unstage, native Diff, local message draft, confirmation, and commit |
-| Rules editor | Implemented | Repository Markdown, editable `.codeagent/guidelines.md` included in Agent context after `AGENTS.md`, refresh, confirmed workspace-rule deletion with metadata cleanup, persisted description and trigger metadata, client-side filename/content validation, unsaved-change protection, save, and manual per-thread selection work |
+| Rules editor | Implemented | Repository Markdown, editable `.codeagent/guidelines.md` included in Agent context after `AGENTS.md`, refresh, confirmed workspace-rule deletion with metadata cleanup, persisted description and trigger metadata, client-side filename/content validation, unsaved-change protection, save, native IDEA-editor handoff for the canonical guidelines file, and manual per-thread selection work |
 | Image Canvas | Implemented | Project-contained directory selection, bounded raster gallery, settings, refresh, open, mention, and empty/error states |
 | Mermaid | Implemented | Strict rendering, diagram/code, zoom, fit, error states, and opening source in an IDEA editor tab work |
 | Settings | Implemented | Project Home exposes real index metrics plus distinct status-refresh/rebuild operations; Services groups backend capabilities by provider with explicit loading/ready/error/unavailable discovery, Ready/Partial/Unavailable summaries, per-capability risk/reason detail, and retry; backend health, account, subscription usage, ContextEngine, Rules, Skills, inline Password Safe-backed API key management for OpenAI/Anthropic/Bedrock, persisted chat zoom/timestamps/run telemetry/native notifications, Commands, Hooks, Agent profiles, declarative plugin lifecycle, MCP lifecycle controls, per-thread memory summary inspection/clearing, feature/Beta capability reports, and a redacted live runtime audit are real |
@@ -206,9 +206,10 @@ be restarted from settings, respects reduced motion, and yields to composer
 menus and notices instead of intercepting their interaction.
 
 Still open, local and feasible: inline input completion, which needs the
-rich-text composer surface described above; Monaco-based rules editing; and IDE
-Run-tool-window hosting for agent-launched commands. There is no no-folder gate
-because an IDEA tool window only exists inside an open project, and
+rich-text composer surface described above, and IDE Run-tool-window hosting for
+agent-launched commands. Monaco-based rules editing is intentionally closed in
+favor of a native IDEA editor handoff for `.codeagent/guidelines.md`. There is
+no no-folder gate because an IDEA tool window only exists inside an open project, and
 `read-terminal` is not implemented because the extracted artifacts carry its
 name without a schema.
 Cloud-dependent surfaces (shareable session links, subscription banners,

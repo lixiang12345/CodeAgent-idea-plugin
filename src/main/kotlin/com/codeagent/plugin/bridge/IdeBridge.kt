@@ -1,5 +1,6 @@
 package com.codeagent.plugin.bridge
 
+import com.codeagent.plugin.actions.openWorkspaceGuidelines
 import com.codeagent.plugin.agent.AgentMessage
 import com.codeagent.plugin.agent.AgentOrchestrator
 import com.codeagent.plugin.agent.AgentRunListener
@@ -1025,6 +1026,7 @@ class IdeBridge(
                     FileEditorManager.getInstance(project).openFile(file, true)
                 }
             }
+            "openWorkspaceGuidelines" -> openWorkspaceGuidelines(project)
             "copyThread" -> {
                 CopyPasteManager.getInstance().setContents(StringSelection(threadMarkdown(conversations.active())))
                 emit("notice", mapOf("message" to "Thread copied as Markdown"))

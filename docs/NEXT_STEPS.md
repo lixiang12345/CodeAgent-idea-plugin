@@ -146,11 +146,12 @@ Remaining, ranked:
    ghost suggestion inside the input. Adopting a rich-text surface would also
    let the wire shape match the original's `rich_text_json_repr` plus
    `mentioned_items`; weigh that against the dependency before scheduling.
-2. **Rules editor richness.** The rules editor is still a plain textarea.
-   Embedding Monaco in JCEF costs bundle size and needs an offline-safe build,
-   so weigh it against reusing the IDEA editor: opening
-   `.codeagent/guidelines.md` in a real editor tab already works and inherits
-   the IDE's own Markdown support, theme, and keymap. Decide before scheduling.
+2. **Rules editor richness — closed without Monaco.** Embedding Monaco in JCEF
+   would add bundle and worker complexity for one surface. The Rules &
+   Guidelines page now opens its canonical `.codeagent/guidelines.md` in a
+   native IDEA editor tab, inheriting Markdown support, theme, keymap, and
+   search/replace. The lightweight JCEF textarea remains available for bounded
+   edits, validation, save/reset, and unsaved-change protection.
 3. **Process hosting.** Running agent-launched commands through an IDE Run
    configuration so they appear in the Run/Terminal tool window; this adds
    plugin dependencies and needs a deliberate compatibility decision.

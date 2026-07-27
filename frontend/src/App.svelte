@@ -4266,6 +4266,12 @@
                   <header><div><strong>Workspace Guidelines</strong><small>.codeagent/guidelines.md</small></div><span class:warning={guidelinesDraft.length > 16_000}>{guidelinesDraft.length.toLocaleString()} / 16,000</span></header>
                   <textarea bind:value={guidelinesDraft} aria-label="Workspace guidelines" maxlength="16000" placeholder="Add Markdown guidance for Agent runs in this project..." spellcheck="true"></textarea>
                   <footer>
+                    <button
+                      type="button"
+                      title={guidelinesDraft !== guidelinesBaseline ? "Save or reset changes before opening the persisted file" : "Open .codeagent/guidelines.md in the IDE editor"}
+                      disabled={guidelinesDraft !== guidelinesBaseline || guidelinesSaving}
+                      onclick={() => sendCommand("openWorkspaceGuidelines")}
+                    ><Icon name="external-link" size={12} />Open in editor</button>
                     <button type="button" disabled={guidelinesDraft === guidelinesBaseline || guidelinesSaving} onclick={() => guidelinesDraft = guidelinesBaseline}>Reset</button>
                     <button type="button" class="primary" disabled={guidelinesDraft === guidelinesBaseline || guidelinesDraft.length > 16_000 || guidelinesSaving} onclick={saveWorkspaceGuidelines}>{guidelinesSaving ? "Saving..." : "Save guidelines"}</button>
                   </footer>

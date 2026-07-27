@@ -716,10 +716,10 @@ test("Settings exposes connected and conditional capabilities", async ({ page },
   await captureShell(page, "api-keys-settings.png");
 });
 
-test("Rules editor validates Markdown and protects unsaved changes", async ({ page }, testInfo) => {
-  requireReferenceViewport(testInfo);
+test("Rules editor validates Markdown and protects unsaved changes", async ({ page }) => {
   await page.getByTitle("Settings").click();
-  await page.getByRole("button", { name: "All settings" }).click();
+  const allSettings = page.getByRole("button", { name: "All settings" });
+  if (await allSettings.isVisible()) await allSettings.click();
   await page.getByRole("button", { name: "Rules & Guidelines", exact: true }).click();
   await page.getByRole("button", { name: "New Rule", exact: true }).click();
   const fileName = page.getByLabel("File name");
@@ -743,10 +743,15 @@ test("Rules editor validates Markdown and protects unsaved changes", async ({ pa
   await testingRule.getByTitle("Confirm delete rule").click();
   await expect(testingRule).toBeHidden();
   const guidelines = page.getByRole("textbox", { name: "Workspace guidelines" });
+  const openGuidelines = page.getByRole("button", { name: "Open in editor", exact: true });
   await expect(guidelines).toHaveValue(/focused changes/);
+  await expect(openGuidelines).toBeEnabled();
+  await openGuidelines.click();
   await guidelines.fill("# Workspace review\n\nRequire focused verification before finalizing changes.");
+  await expect(openGuidelines).toBeDisabled();
   await page.getByRole("button", { name: "Reset", exact: true }).click();
   await expect(guidelines).toHaveValue(/focused changes/);
+  await expect(openGuidelines).toBeEnabled();
   await guidelines.fill("# Workspace review\n\nRequire focused verification before finalizing changes.");
   await page.getByRole("button", { name: "Save guidelines", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.CodeAgentDevelopment?.getSnapshot()?.customization.guidelines)).toContain("Require focused verification");
