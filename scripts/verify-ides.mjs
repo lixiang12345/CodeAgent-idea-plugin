@@ -17,6 +17,10 @@ const verifierProductNames = {
   PS: "PhpStorm",
   RD: "Rider",
 };
+const verifierTargets = Object.entries(verifierProductNames).map(([productCode, productName]) => ({
+  productCode,
+  productName,
+}));
 const explicitPaths = process.env.CODEAGENT_VERIFIER_IDE_PATHS
   ?.split(/[;,]/)
   .map((value) => value.trim())
@@ -138,57 +142,103 @@ function reportEntries() {
     .filter(Boolean);
 }
 
-let idePaths;
-try {
-  idePaths = discoverPaths();
-} catch (error) {
-  console.error(`IDE discovery failed: ${error instanceof Error ? error.message : error}`);
-  process.exit(1);
+function compareBuildNumbers(left, right) {
+  const leftParts = String(left ?? "").match(/\d+/g)?.map(Number) ?? [];
+  const rightParts = String(right ?? "").match(/\d+/g)?.map(Number) ?? [];
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
 }
-const gradleArguments = ["verifyPlugin"];
-if (idePaths.length > 0) {
-  gradleArguments.push(`-PcodeagentVerifierIdePaths=${idePaths.join(",")}`);
+
+export function buildProductMatrix(products, installedProducts) {
+  const installedCodes = new Set(installedProducts.map((product) => product.productCode).filter(Boolean));
+  return verifierTargets.map((target) => {
+    const latest = products
+      .filter((product) => product.productCode === target.productCode)
+      .sort((left, right) => compareBuildNumbers(left.buildNumber, right.buildNumber))
+      .at(-1);
+    const verificationState = latest?.verifierStatus === "compatible"
+      ? "verified-compatible"
+      : latest?.verifierStatus === "incompatible"
+        ? "verified-incompatible"
+        : latest
+          ? "report-unknown"
+          : "unverified";
+    return {
+      ...target,
+      installationState: installedCodes.has(target.productCode) ? "installed" : "not-installed",
+      verificationState,
+      buildNumber: latest?.buildNumber ?? null,
+      verifierReport: latest?.verifierReport ?? null,
+      experimentalApiUsages: latest?.experimentalApiUsages ?? null,
+    };
+  });
 }
-const verification = spawnSync("./gradlew", gradleArguments, {
-  cwd: repositoryRoot,
-  stdio: "inherit",
-});
-if (verification.error) throw verification.error;
 
-const discoveredProducts = idePaths.map((idePath) => {
-  const info = readProductInfo(idePath);
-  const verifierReport = reportPath(info.productCode, info.buildNumber);
-  return {
-    path: idePath,
-    productName: info.productName ?? path.basename(idePath, ".app"),
-    productCode: info.productCode,
-    buildNumber: info.buildNumber,
-    result: verifierReport ? "report-generated" : "report-not-found",
-    verifierReport,
-    ...summarizeReport(verifierReport),
-  };
-});
+function main() {
+  let idePaths;
+  try {
+    idePaths = discoverPaths();
+  } catch (error) {
+    console.error(`IDE discovery failed: ${error instanceof Error ? error.message : error}`);
+    process.exit(1);
+  }
+  const gradleArguments = ["verifyPlugin"];
+  if (idePaths.length > 0) {
+    gradleArguments.push(`-PcodeagentVerifierIdePaths=${idePaths.join(",")}`);
+  }
+  const verification = spawnSync("./gradlew", gradleArguments, {
+    cwd: repositoryRoot,
+    stdio: "inherit",
+  });
+  if (verification.error) throw verification.error;
 
-const productsByKey = new Map(discoveredProducts.map((product) => [`${product.productCode}:${product.buildNumber}`, product]));
-for (const report of reportEntries()) {
-  const key = `${report.productCode}:${report.buildNumber}`;
-  productsByKey.set(key, { ...productsByKey.get(key), ...report });
+  const discoveredProducts = idePaths.map((idePath) => {
+    const info = readProductInfo(idePath);
+    const verifierReport = reportPath(info.productCode, info.buildNumber);
+    return {
+      path: idePath,
+      productName: info.productName ?? path.basename(idePath, ".app"),
+      productCode: info.productCode,
+      buildNumber: info.buildNumber,
+      result: verifierReport ? "report-generated" : "report-not-found",
+      verifierReport,
+      ...summarizeReport(verifierReport),
+    };
+  });
+
+  const productsByKey = new Map(discoveredProducts.map((product) => [`${product.productCode}:${product.buildNumber}`, product]));
+  for (const report of reportEntries()) {
+    const key = `${report.productCode}:${report.buildNumber}`;
+    productsByKey.set(key, { ...productsByKey.get(key), ...report });
+  }
+  const products = [...productsByKey.values()];
+  const productMatrix = buildProductMatrix(products, discoveredProducts);
+  const incompatibleProducts = products.filter((product) => product.verifierStatus === "incompatible");
+  const unverifiedProducts = productMatrix.filter((product) => product.verificationState === "unverified");
+
+  const outputPath = path.join(repositoryRoot, "build/reports/jetbrains-verifier.json");
+  mkdirSync(path.dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, `${JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    command: `./gradlew ${gradleArguments.join(" ")}`,
+    verificationExitCode: verification.status ?? 1,
+    discoveredProducts: products,
+    productMatrix,
+    compatibilityGate: incompatibleProducts.length === 0 && verification.status === 0 ? "pass" : "fail",
+    incompatibleProducts: incompatibleProducts.map((product) => `${product.productCode}-${product.buildNumber}`),
+    unverifiedProducts: unverifiedProducts.map((product) => product.productCode),
+    note: unverifiedProducts.length > 0
+      ? "Products without a generated verifier report remain explicitly unverified."
+      : undefined,
+  }, null, 2)}\n`);
+  console.log(`Verifier evidence: ${outputPath}`);
+  process.exitCode = incompatibleProducts.length > 0 || verification.status !== 0 ? 1 : 0;
 }
-const products = [...productsByKey.values()];
-const incompatibleProducts = products.filter((product) => product.verifierStatus === "incompatible");
 
-const outputPath = path.join(repositoryRoot, "build/reports/jetbrains-verifier.json");
-mkdirSync(path.dirname(outputPath), { recursive: true });
-writeFileSync(outputPath, `${JSON.stringify({
-  generatedAt: new Date().toISOString(),
-  command: `./gradlew ${gradleArguments.join(" ")}`,
-  verificationExitCode: verification.status ?? 1,
-  discoveredProducts: products,
-  compatibilityGate: incompatibleProducts.length === 0 && verification.status === 0 ? "pass" : "fail",
-  incompatibleProducts: incompatibleProducts.map((product) => `${product.productCode}-${product.buildNumber}`),
-  note: products.length === 0
-    ? "No additional supported JetBrains IDE installation was discovered."
-    : undefined,
-}, null, 2)}\n`);
-console.log(`Verifier evidence: ${outputPath}`);
-process.exitCode = incompatibleProducts.length > 0 || verification.status !== 0 ? 1 : 0;
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  main();
+}
