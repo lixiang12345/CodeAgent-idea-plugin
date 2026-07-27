@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Restricted exported support bundles to allowlisted JetBrains text diagnostics and redacted credentials, authenticated URLs, user-home paths, and environment assignments before archive creation.
+
 ## 0.7.30 - 2026-07-26
 
 - Added current-version release-candidate reconstruction with Changelog validation and a machine-readable artifact manifest.
