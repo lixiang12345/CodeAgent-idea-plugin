@@ -3248,7 +3248,12 @@
           </div>
         {/if}
 
-        <div class="conversation" bind:this={conversationElement} onscroll={updateConversationFollow}>
+        <div
+          class="conversation"
+          class:with-navigation={requestCount > 1 || !followConversation || isBusy(snapshot)}
+          bind:this={conversationElement}
+          onscroll={updateConversationFollow}
+        >
           {#if activeSubagents(snapshot).length > 0}
             <div class="subagents-strip">
               <div class="subagents-strip-title">Running subagents</div>

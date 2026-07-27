@@ -177,6 +177,7 @@ button { color: inherit; }
 .empty-thread-card p { margin: 0; color: var(--ds-color-neutral-11); font-size: 12px; line-height: 1.45; }
 @keyframes empty-thread-enter { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
 .message-list { padding: 10px 10px 20px; }
+.conversation.with-navigation .message-list { padding-bottom: 64px; }
 .user-message:not(.queued-message) { width: 100%; max-width: none; margin: 2px 0 14px; padding: 0; display: flex; flex-direction: column; align-items: flex-end; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .user-message:not(.queued-message) > time { margin: 0 3px 4px 0; color: #737b85; font: calc(8.5px * var(--chat-zoom)) var(--mono); }
 .chat-view .user-message-content { max-width: 92%; padding: 7px 9px; border: 1px solid #3a3d43; border-radius: 6px; color: #dfe2e6; background: #292b2f; font-size: calc(12px * var(--chat-zoom)); line-height: 1.48; white-space: pre-wrap; overflow-wrap: anywhere; }

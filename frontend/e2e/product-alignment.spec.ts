@@ -812,14 +812,24 @@ test("mutating tool approval remains explicit", async ({ page }, testInfo) => {
   const approval = page.getByRole("status").filter({ hasText: "Waiting for user input" });
   await expect(approval).toBeVisible();
   await expect(approval.getByRole("button", { name: "Skip" })).toBeVisible();
-  await expect(approval.getByRole("button", { name: "Approve" })).toBeVisible();
+  const approve = approval.getByRole("button", { name: "Approve" });
+  await expect(approve).toBeVisible();
+  const navigation = page.locator(".conversation > .conversation-navigation");
+  await expect(navigation).toBeVisible();
+  await page.locator(".conversation").evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  const overlap = await Promise.all([approve.boundingBox(), navigation.boundingBox()]).then(([button, nav]) => {
+    if (!button || !nav) return true;
+    return button.x < nav.x + nav.width && button.x + button.width > nav.x
+      && button.y < nav.y + nav.height && button.y + button.height > nav.y;
+  });
+  expect(overlap, "sticky request navigation must not cover the pointer approval target").toBe(false);
   await expectViewportIntegrity(page);
   await captureShell(page, "tool-approval.png");
   await page.getByRole("button", { name: "Generation status" }).click();
   await expect(page.getByRole("button", { name: "Stop generation" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
   await page.getByRole("button", { name: "Generation status" }).click();
-  await approval.getByRole("button", { name: "Approve" }).click();
+  await approve.click();
   await expect(page.getByText("Waiting for user input")).toBeHidden();
 });
 
