@@ -748,7 +748,9 @@ button { color: inherit; }
 .segmented-control { min-width: 0; flex: 1; height: 27px; padding: 2px; display: flex; border: 1px solid var(--line); border-radius: 4px; background: #181a1d; }
 .segmented-control button { min-width: 0; flex: 1; padding: 0 4px; border: 0; border-radius: 3px; color: var(--muted); background: transparent; font-size: 7.5px; cursor: pointer; }
 .segmented-control button.active { color: var(--text); background: #30343a; }
-.task-import-actions { min-height: 31px; margin-bottom: 6px; display: flex; gap: 4px; overflow-x: auto; }
+/* A fixed set of five actions, so it wraps rather than scrolling: scrolling hid
+   Clear All at 420 px and both clear actions at 360 px, with no scroll affordance. */
+.task-import-actions { min-height: 31px; margin-bottom: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
 .task-import-actions button { flex: 0 0 auto; border-color: var(--line); background: transparent; }
 .task-import-actions button.danger, .task-workspace-row button.danger { color: #d9969b; }
 .task-add { min-height: 35px; margin-bottom: 7px; display: flex; gap: 5px; }

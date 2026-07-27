@@ -34,6 +34,23 @@ async function expectViewportIntegrity(page: Page): Promise<void> {
   expect(metrics.shell!.bottom).toBeLessThanOrEqual(metrics.viewportHeight + 1);
 }
 
+/**
+ * An unbroken token must never make a surface scroll sideways. Code blocks, markdown
+ * tables and the chip strips opt into their own horizontal scroller; nothing else may.
+ * Boxes that clip with `overflow: hidden` are truncating on purpose, not scrolling.
+ */
+async function expectNoSidewaysScroll(page: Page, context = ""): Promise<void> {
+  const sideways = await page.evaluate(() => {
+    const allowed = ".code-scroll, .markdown-body pre, .markdown-body table, .context-chips, .chips";
+    return [...document.querySelectorAll<HTMLElement>("body *")]
+      .filter((node) => node.scrollWidth > node.clientWidth + 1 && node.clientWidth > 0)
+      .filter((node) => ["auto", "scroll"].includes(getComputedStyle(node).overflowX))
+      .filter((node) => !node.matches(allowed))
+      .map((node) => `${node.tagName.toLowerCase()}.${node.classList.value} ${node.scrollWidth}>${node.clientWidth}`);
+  });
+  expect(sideways, `sideways scroll in ${context || "the panel"}`).toEqual([]);
+}
+
 async function captureShell(page: Page, name: string, maxDiffPixelRatio?: number): Promise<void> {
   await expect(page.locator(".shell")).toHaveScreenshot(
     name,
@@ -1526,19 +1543,82 @@ test("dense transcripts, long tokens, and stacked approvals never break the view
   await expect(page.locator(".approval").first()).toBeVisible();
   await expectViewportIntegrity(page);
 
-  // An unbroken token must never make the panel scroll sideways. Code blocks, markdown
-  // tables and the chip strip opt into their own horizontal scroller; nothing else may.
-  // Boxes that clip with `overflow: hidden` are truncating on purpose, not scrolling.
-  const sideways = await page.evaluate(() => {
-    const allowed = ".code-scroll, .markdown-body pre, .markdown-body table, .context-chips, .chips";
-    return [...document.querySelectorAll<HTMLElement>("body *")]
-      .filter((node) => node.scrollWidth > node.clientWidth + 1 && node.clientWidth > 0)
-      .filter((node) => ["auto", "scroll"].includes(getComputedStyle(node).overflowX))
-      .filter((node) => !node.matches(allowed))
-      .map((node) => `${node.tagName.toLowerCase()}.${node.classList.value} ${node.scrollWidth}>${node.clientWidth}`);
-  });
-  expect(sideways).toEqual([]);
+  await expectNoSidewaysScroll(page);
 
   await page.locator(".conversation").evaluate((element) => { element.scrollTop = element.scrollHeight; });
   await expectViewportIntegrity(page);
+});
+
+test("hostile names never make an overlay page scroll sideways", async ({ page }) => {
+  const UNBROKEN = "Augment".repeat(40);
+  await page.evaluate((unbroken) => {
+    const snapshot = window.CodeAgentDevelopment?.getSnapshot();
+    if (!snapshot || !window.CodeAgentDevelopment) throw new Error("Development snapshot is unavailable");
+    const now = Date.now();
+    window.CodeAgentDevelopment.setSnapshot({
+      ...snapshot,
+      threads: snapshot.threads.map((thread, index) => ({
+        ...thread,
+        title: index === 0 ? thread.title : `${unbroken}-${index}`,
+        summary: unbroken,
+      })),
+      tasks: Array.from({ length: 3 }, (_, index) => ({
+        id: `task-${index}`,
+        name: `${unbroken}-${index}`,
+        state: "not_started" as const,
+        description: unbroken,
+      })),
+      tools: Array.from({ length: 3 }, (_, index) => ({
+        id: `tool-${index}`,
+        name: "save_file",
+        summary: `src/${unbroken}/${index}.ts`,
+        status: "completed" as const,
+        detail: `Wrote ${unbroken}`,
+        changePath: `src/${unbroken}/${index}.ts`,
+        canRevert: true,
+        createdAt: now + index,
+      })),
+    });
+  }, UNBROKEN);
+
+  // Every overlay reachable from the tool-window header.
+  for (const overlay of ["Agent Tasklist", "Durable Jobs", "Agent Edits", "Git Changes", "Context Canvas", "Tools catalog", "Settings"]) {
+    await page.getByTitle("More options").click();
+    await page.locator(".workspace-menu").getByRole("button", { name: overlay, exact: true }).click();
+    await expectViewportIntegrity(page);
+    await expectNoSidewaysScroll(page, overlay);
+    if (overlay === "Agent Tasklist") {
+      const taskActions = page.locator(".task-import-actions");
+      const actionNames = ["Export", "Import", "Continue in New Chat", "Clear Completed", "Clear All"];
+      for (const actionName of actionNames) {
+        await expect(taskActions.getByRole("button", { name: actionName, exact: true })).toBeVisible();
+      }
+
+      const actionBounds = await taskActions.locator("button").evaluateAll((buttons) => buttons.map((button) => {
+        const rect = button.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+      }));
+      const shellBounds = await page.locator(".shell").boundingBox();
+      expect(shellBounds).not.toBeNull();
+      for (const bounds of actionBounds) {
+        expect(bounds.left).toBeGreaterThanOrEqual(shellBounds!.x - 1);
+        expect(bounds.right).toBeLessThanOrEqual(shellBounds!.x + shellBounds!.width + 1);
+        expect(bounds.top).toBeGreaterThanOrEqual(shellBounds!.y - 1);
+        expect(bounds.bottom).toBeLessThanOrEqual(shellBounds!.y + shellBounds!.height + 1);
+      }
+
+      const exportButton = taskActions.getByRole("button", { name: "Export", exact: true });
+      const importButton = taskActions.getByRole("button", { name: "Import", exact: true });
+      await exportButton.focus();
+      await expect(exportButton).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(importButton).toBeFocused();
+    }
+    await page.getByRole("button", { name: "Back" }).first().click();
+    await expect(page.getByTitle("More options")).toBeFocused();
+  }
+
+  await page.getByTitle("Threads").first().click();
+  await expectViewportIntegrity(page);
+  await expectNoSidewaysScroll(page, "Threads drawer");
 });

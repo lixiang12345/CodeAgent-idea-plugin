@@ -106,6 +106,7 @@
   let settingsNavigationOpen = false;
   let threadDrawerOpen = false;
   let overlayTrigger: HTMLElement | null = null;
+  let workspaceReturnToMoreOptions = false;
   let contextUsageOpen = false;
   let contextUsageButton: HTMLButtonElement | null = null;
   let modeMenuOpen = false;
@@ -708,6 +709,22 @@
     if (!target) return;
     void tick().then(() => {
       if (target.isConnected) target.focus();
+    });
+  }
+
+  function captureWorkspaceReturnFocus() {
+    if (currentView !== "chat") return;
+    const active = document.activeElement;
+    workspaceReturnToMoreOptions = active instanceof HTMLElement && active.closest(".workspace-menu") !== null;
+  }
+
+  function closeWorkspaceView() {
+    currentView = "chat";
+    const returnToMoreOptions = workspaceReturnToMoreOptions;
+    workspaceReturnToMoreOptions = false;
+    if (!returnToMoreOptions) return;
+    void tick().then(() => {
+      document.querySelector<HTMLElement>('button[aria-label="More options"]')?.focus();
     });
   }
 
@@ -1980,6 +1997,7 @@
   }
 
   function openSettings(section = "Home") {
+    captureWorkspaceReturnFocus();
     settingsSection = section;
     settingsNavigationOpen = false;
     currentView = "settings";
@@ -1994,6 +2012,7 @@
   }
 
   function openWorkspaceView(view: WorkspaceView) {
+    captureWorkspaceReturnFocus();
     currentView = view;
     closeMenus();
     if (view === "git") {
@@ -2959,7 +2978,7 @@
             {/if}
           </div>
         {:else}
-          <button class="icon-button" title="Back to chat" aria-label="Back to chat" onclick={() => currentView = "chat"}><Icon name="x" size={16} /></button>
+          <button class="icon-button" title="Back to chat" aria-label="Back to chat" onclick={closeWorkspaceView}><Icon name="x" size={16} /></button>
         {/if}
       </div>
     </header>
@@ -3718,7 +3737,7 @@
     {:else if currentView === "settings"}
       <section class="settings-view">
         <header class="settings-header ov-h">
-          <button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><Icon name="chevron-left" size={15} /></button>
+          <button class="icon-button compact" title="Back" onclick={closeWorkspaceView}><Icon name="chevron-left" size={15} /></button>
           <strong>Settings</strong>
           <span></span>
           <button class="audit-button" class:active={settingsSection === "Audit"} title="Open runtime audit" onclick={() => chooseSettingsSection("Audit")}><Icon name="scan-search" size={12} />Audit</button>
@@ -4341,7 +4360,7 @@
     {:else if currentView === "git"}
       <section class="workspace-view">
         <header class="canvas-header ov-h">
-          <button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><Icon name="chevron-left" size={15} /></button>
+          <button class="icon-button compact" title="Back" onclick={closeWorkspaceView}><Icon name="chevron-left" size={15} /></button>
           <Icon name="git-branch" size={14} />
           <strong>Git Changes</strong>
           <button class="btn sm" disabled={gitLoading || gitSnapshot.unstaged.length === 0} onclick={() => sendCommand("stageGit", { paths: gitPaths(gitSnapshot.unstaged) })}>Stage All</button>
@@ -4399,7 +4418,7 @@
     {:else if currentView === "tasks"}
       <section class="workspace-view">
         <header class="canvas-header ov-h">
-          <button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><Icon name="chevron-left" size={15} /></button>
+          <button class="icon-button compact" title="Back" onclick={closeWorkspaceView}><Icon name="chevron-left" size={15} /></button>
           <Icon name="list-checks" size={14} />
           <strong>Active Tasklist</strong>
           <span class="workspace-count">{snapshot.tasks.filter((task) => task.state === "completed").length}/{snapshot.tasks.length}</span>
@@ -4461,7 +4480,7 @@
     {:else if currentView === "jobs"}
       <section class="workspace-view">
         <header class="canvas-header ov-h">
-          <button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><Icon name="chevron-left" size={15} /></button>
+          <button class="icon-button compact" title="Back" onclick={closeWorkspaceView}><Icon name="chevron-left" size={15} /></button>
           <Icon name="bot" size={14} />
           <strong>Durable Jobs</strong>
           <span class="workspace-count">{snapshot.jobs.items.filter((job) => job.status === "queued" || job.status === "running").length} active</span>
@@ -4538,7 +4557,7 @@
     {:else if currentView === "images"}
       <section class="workspace-view image-workspace">
         <header class="canvas-header ov-h">
-          <button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><Icon name="chevron-left" size={15} /></button>
+          <button class="icon-button compact" title="Back" onclick={closeWorkspaceView}><Icon name="chevron-left" size={15} /></button>
           <Icon name="layers-2" size={14} />
           <strong>Context Canvas</strong>
           <button class="icon-button compact" title="Refresh images" onclick={() => sendCommand("refreshImageCanvas")}><Icon name="refresh-ccw" size={13} /></button>
@@ -4587,7 +4606,7 @@
     {:else if currentView === "tools"}
       <section class="workspace-view">
         <header class="canvas-header ov-h">
-          <button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><Icon name="chevron-left" size={15} /></button>
+          <button class="icon-button compact" title="Back" onclick={closeWorkspaceView}><Icon name="chevron-left" size={15} /></button>
           <Icon name="wrench" size={14} />
           <strong>Insert Tool Call</strong>
         </header>
@@ -4617,7 +4636,7 @@
     {:else if currentView === "icons"}
       <section class="workspace-view">
         <header class="canvas-header ov-h">
-          <button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><Icon name="chevron-left" size={15} /></button>
+          <button class="icon-button compact" title="Back" onclick={closeWorkspaceView}><Icon name="chevron-left" size={15} /></button>
           <Icon name="sparkles" size={14} />
           <strong>Icon Registry Viewer</strong>
         </header>
@@ -4636,7 +4655,7 @@
     {:else if currentView === "edits"}
       <section class="workspace-view">
         <header class="canvas-header ov-h">
-          <button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><Icon name="chevron-left" size={15} /></button>
+          <button class="icon-button compact" title="Back" onclick={closeWorkspaceView}><Icon name="chevron-left" size={15} /></button>
           <Icon name="file-diff" size={14} />
           <strong>Agent Edits</strong>
           <button class="btn sm" disabled={changeTools().length === 0} onclick={() => sendCommand("createCheckpoint", { label: "Agent checkpoint" })}>Checkpoint</button>
@@ -4699,7 +4718,7 @@
     {:else if currentView === "feedback"}
       <section class="workspace-view">
         <header class="canvas-header ov-h">
-          <button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><Icon name="chevron-left" size={15} /></button>
+          <button class="icon-button compact" title="Back" onclick={closeWorkspaceView}><Icon name="chevron-left" size={15} /></button>
           <Icon name="flag" size={14} />
           <strong>Report Issue / Feedback</strong>
         </header>
@@ -4717,7 +4736,7 @@
     {:else if currentView === "mermaid"}
       <section class="mermaid-view">
         <header class="canvas-header ov-h">
-          <button class="icon-button compact" title="Back" onclick={() => currentView = "chat"}><Icon name="chevron-left" size={15} /></button>
+          <button class="icon-button compact" title="Back" onclick={closeWorkspaceView}><Icon name="chevron-left" size={15} /></button>
           <strong>{mermaidTitle}</strong>
           <div class="canvas-tabs">
             <button class:active={mermaidMode === "diagram"} onclick={() => mermaidMode = "diagram"}>Diagram</button>
