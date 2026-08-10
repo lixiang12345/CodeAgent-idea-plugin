@@ -38,6 +38,9 @@ type Simulator struct {
 	// project root from each chat request's workspace_folders (used to bind
 	// ContextEngine to the right project per conversation).
 	OnWorkspace func(conversationID, hostRoot string)
+	// OnWorkspaceWrite is called when a successful fresh tool result matches a
+	// workspace-mutating tool call from chat history.
+	OnWorkspaceWrite func(conversationID, hostRoot string)
 }
 
 func New(st *state.Store, gatewayURL, gatewayModel string) *Simulator {
@@ -100,13 +103,18 @@ func (s *Simulator) Stream(ctx context.Context, w io.Writer, flow Flow, req map[
 	// Bind this conversation to its host project so ContextEngine indexes and
 	// retrieves the right workspace (each chat request carries workspace_folders;
 	// conversations in different open projects stay isolated).
-	if s.OnWorkspace != nil {
-		for _, wf := range cfg.WorkspaceFolders {
-			if root, _ := wf["folder_root"].(string); root != "" {
+	workspaceRoot := ""
+	for _, wf := range cfg.WorkspaceFolders {
+		if root, _ := wf["folder_root"].(string); root != "" {
+			workspaceRoot = root
+			if s.OnWorkspace != nil {
 				s.OnWorkspace(cfg.ConversationID, root)
-				break
 			}
+			break
 		}
+	}
+	if s.OnWorkspaceWrite != nil && completedWorkspaceWrite(cfg) {
+		s.OnWorkspaceWrite(cfg.ConversationID, workspaceRoot)
 	}
 
 	ms := func() int64 { return time.Now().UnixMilli() }
@@ -393,6 +401,24 @@ func parseRequest(req map[string]any) requestConfig {
 	cfg.UserMessage = extractMessage(req)
 
 	return cfg
+}
+
+func completedWorkspaceWrite(cfg requestConfig) bool {
+	writeCalls := make(map[string]bool)
+	for _, exchange := range cfg.ChatHistory {
+		for _, call := range parseExchange(exchange).ToolCalls {
+			switch call.Name {
+			case "str-replace-editor", "save-file", "remove-files", "apply_patch":
+				writeCalls[call.ID] = true
+			}
+		}
+	}
+	for _, result := range cfg.FreshToolResults {
+		if !bo(result["is_error"]) && writeCalls[str(result["tool_call_id"])] {
+			return true
+		}
+	}
+	return false
 }
 
 // ── system prompt builder ──────────────────────────────────────────────

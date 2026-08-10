@@ -90,6 +90,35 @@ func TestBuildMessagesFromIDEPreservesEmptyToolResult(t *testing.T) {
 	}
 }
 
+func TestCompletedWorkspaceWriteMatchesFreshResultByToolUseID(t *testing.T) {
+	t.Parallel()
+
+	history := []map[string]any{{
+		"response_nodes": []any{
+			toolUseNode("edit-1", "str-replace-editor"),
+			toolUseNode("view-1", "view"),
+		},
+	}}
+	tests := []struct {
+		name    string
+		results []map[string]any
+		want    bool
+	}{
+		{name: "successful edit", results: []map[string]any{{"tool_call_id": "edit-1", "is_error": false}}, want: true},
+		{name: "failed edit", results: []map[string]any{{"tool_call_id": "edit-1", "is_error": true}}, want: false},
+		{name: "read only tool", results: []map[string]any{{"tool_call_id": "view-1", "is_error": false}}, want: false},
+		{name: "unmatched result", results: []map[string]any{{"tool_call_id": "other", "is_error": false}}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := requestConfig{ChatHistory: history, FreshToolResults: tt.results}
+			if got := completedWorkspaceWrite(cfg); got != tt.want {
+				t.Fatalf("completedWorkspaceWrite() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildMessagesFromIDEMatchesMultipleToolResultsByID(t *testing.T) {
 	t.Parallel()
 

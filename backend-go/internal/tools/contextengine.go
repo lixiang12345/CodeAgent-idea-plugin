@@ -592,3 +592,23 @@ func (c *ContextEngineClient) EnsureWorkspace(hostRoot string) error {
 	c.setActive(hostRoot)
 	return c.ensureIndexed()
 }
+
+// RefreshWorkspace schedules a new incremental index after a write.
+// EnsureWorkspace skips a workspace whose latest job already succeeded, which
+// is correct during activation but would otherwise leave changed files stale.
+func (c *ContextEngineClient) RefreshWorkspace(hostRoot string) error {
+	c.operationMu.Lock()
+	defer c.operationMu.Unlock()
+	if hostRoot != "" {
+		c.setActive(hostRoot)
+	}
+	c.mu.Lock()
+	// A write can land while the previous job is still queued or running. Queue
+	// another incremental pass in that case so the completed index cannot miss
+	// the new file contents.
+	c.jobID = ""
+	c.jobStatus = ""
+	c.checkedAt = time.Time{}
+	c.mu.Unlock()
+	return c.ensureIndexed()
+}

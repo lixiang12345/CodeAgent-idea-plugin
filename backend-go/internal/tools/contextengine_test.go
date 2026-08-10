@@ -376,3 +376,44 @@ func TestEnsureIndexedDisambiguatesSameBasename(t *testing.T) {
 		t.Fatalf("resolved workspace = id %q name %q, want team-b-app/%q", workspaceID, activeName, createdName)
 	}
 }
+
+func TestRefreshWorkspaceStartsNewJobWhenCachedJobIsQueued(t *testing.T) {
+	t.Parallel()
+
+	var indexRequests int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/workspaces/workspace-a/index-jobs":
+			indexRequests++
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"job":{"id":"refresh-job","status":"pending"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := &ContextEngineClient{URL: srv.URL, HTTP: srv.Client()}
+	c.mu.Lock()
+	c.activeName = "project-a"
+	c.activeLocalRoot = "/host/project-a"
+	c.workspaceID = "workspace-a"
+	c.jobID = "completed-job"
+	c.jobStatus = "queued"
+	c.checkedAt = time.Now().Add(-3 * time.Second)
+	c.mu.Unlock()
+
+	if err := c.RefreshWorkspace("/host/project-a"); err != nil {
+		t.Fatal(err)
+	}
+	if indexRequests != 1 {
+		t.Fatalf("index requests = %d, want a fresh incremental job", indexRequests)
+	}
+	c.mu.Lock()
+	jobID, jobStatus := c.jobID, c.jobStatus
+	c.mu.Unlock()
+	if jobID != "refresh-job" || jobStatus != "pending" {
+		t.Fatalf("job = %q/%q, want refresh-job/pending", jobID, jobStatus)
+	}
+}

@@ -114,6 +114,27 @@ func (e *Executor) ensureContextEngineWorkspace(hostRoot string) {
 	}
 }
 
+func (e *Executor) refreshContextEngineWorkspace(hostRoot string) {
+	if e.ContextEngine == nil || e.ContextEngine.URL == "" {
+		return
+	}
+	if err := e.ContextEngine.RefreshWorkspace(hostRoot); err != nil {
+		log.Printf("tools: contextengine refresh workspace %q: %v", hostRoot, err)
+	}
+}
+
+// RefreshConversationWorkspace updates ContextEngine after the sidecar reports
+// a successful local edit. The continuation may omit workspace folders, so the
+// conversation binding is used as a fallback.
+func (e *Executor) RefreshConversationWorkspace(conversationID, hostRoot string) {
+	if hostRoot == "" {
+		hostRoot = e.workspaceForConversation(conversationID)
+	}
+	if hostRoot != "" {
+		go e.refreshContextEngineWorkspace(hostRoot)
+	}
+}
+
 // workspaceForConversation returns the host project root recorded for a
 // conversation, falling back to the last active workspace.
 func (e *Executor) workspaceForConversation(conversationID string) string {
@@ -199,7 +220,7 @@ func (e *Executor) Execute(req *ToolCallRequest) *ToolCallResponse {
 	if isWriteOp(req.Name) && e.ContextEngine != nil {
 		defer func() {
 			if root := e.workspaceForConversation(req.ConversationID); root != "" {
-				go e.ensureContextEngineWorkspace(root)
+				go e.refreshContextEngineWorkspace(root)
 			}
 		}()
 	}

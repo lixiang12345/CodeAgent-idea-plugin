@@ -56,6 +56,7 @@ func New(tenantURL, gatewayURL, gatewayModel string) *Server {
 	// Bind each conversation to its host project so ContextEngine indexes and
 	// retrieves the right workspace (chat requests carry workspace_folders).
 	s.Chat.OnWorkspace = te.SetConversationWorkspace
+	s.Chat.OnWorkspaceWrite = te.RefreshConversationWorkspace
 	for _, m := range surface.Routes {
 		if m.Path != "-" {
 			s.pathIndex[m.Path] = m.Name
