@@ -1,6 +1,27 @@
 package surface
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
+
+func TestBuildModelListPreservesConfiguredJSONOrder(t *testing.T) {
+	t.Setenv("CUSTOM_MODELS", `{"gpt-5.6-sol":{"displayName":"GPT"},"claude-sonnet":{"displayName":"Claude"},"gemini-pro":{"displayName":"Gemini"}}`)
+
+	models, defaultModel := buildModelList()
+	if defaultModel != "gpt-5.6-sol" {
+		t.Fatalf("default model = %q, want first configured model", defaultModel)
+	}
+
+	got := make([]string, 0, len(models))
+	for _, model := range models {
+		got = append(got, asString(model.(map[string]any)["name"]))
+	}
+	want := []string{"gpt-5.6-sol", "claude-sonnet", "gemini-pro"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("model order = %v, want %v", got, want)
+	}
+}
 
 func TestFeatureFlagsAdvertiseOnlyBackedCoreWorkflows(t *testing.T) {
 	models, _ := buildModelList()

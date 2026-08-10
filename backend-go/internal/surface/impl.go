@@ -236,17 +236,17 @@ func buildModelList() ([]any, string) {
 		}, "augment-local-code-1"
 	}
 
-	// Try JSON object first.
-	var obj map[string]any
-	if err := json.Unmarshal([]byte(custom), &obj); err == nil {
-		models := make([]any, 0, len(obj))
-		var first string
-		for k, v := range obj {
-			if first == "" {
-				first = k
-			}
-			models = append(models, map[string]any{"name": k, "internalName": k, "isDefault": k == first})
-			_ = v // displayName belongs in feature flags, not in proto name
+	// Preserve object key order because the first configured model is the
+	// default. Decoding into a map would make the IDE's default model drift
+	// nondeterministically between requests.
+	if keys, ok := orderedJSONObjectKeys(custom); ok {
+		models := make([]any, 0, len(keys))
+		first := ""
+		if len(keys) > 0 {
+			first = keys[0]
+		}
+		for _, key := range keys {
+			models = append(models, map[string]any{"name": key, "internalName": key, "isDefault": key == first})
 		}
 		return models, first
 	}
@@ -269,6 +269,40 @@ func buildModelList() ([]any, string) {
 		first = "augment-local-code-1"
 	}
 	return models, first
+}
+
+func orderedJSONObjectKeys(raw string) ([]string, bool) {
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('{') {
+		return nil, false
+	}
+
+	var keys []string
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return nil, false
+		}
+		name, ok := key.(string)
+		if !ok {
+			return nil, false
+		}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return nil, false
+		}
+		keys = append(keys, name)
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') {
+		return nil, false
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, false
+	}
+	return keys, true
 }
 
 // fullFeatureFlags returns every flag needed for the IDE to show all panels,
