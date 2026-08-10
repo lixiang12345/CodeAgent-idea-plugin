@@ -8,10 +8,13 @@ import (
 	"encoding/json"
 	"log"
 	"os"
-	"strings"
+	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
+
+const defaultSaveInterval = 5 * time.Second
 
 // Conversation is the tenant-side conversation record.
 type Conversation struct {
@@ -26,13 +29,13 @@ type Conversation struct {
 
 // Exchange is one user→assistant turn.
 type Exchange struct {
-	RequestID     string     `json:"request_id"`
-	RequestMsg    string     `json:"request_message"`
-	ResponseText  string     `json:"response_text"`
-	ToolCalls     []ToolCall `json:"tool_calls,omitempty"`
-	TurnID        string     `json:"turn_id,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	IsToolTurn    bool       `json:"is_tool_turn,omitempty"`
+	RequestID    string     `json:"request_id"`
+	RequestMsg   string     `json:"request_message"`
+	ResponseText string     `json:"response_text"`
+	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
+	TurnID       string     `json:"turn_id,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	IsToolTurn   bool       `json:"is_tool_turn,omitempty"`
 }
 
 // ToolCall records one tool invocation from the model.
@@ -52,6 +55,7 @@ type snapshot struct {
 // Store is the thread-safe in-memory state with periodic snapshot persistence.
 type Store struct {
 	mu            sync.Mutex
+	persistMu     sync.Mutex
 	conversations map[string]*Conversation
 	exchanges     map[string][]*Exchange // conversation_id -> ordered
 	creditsUsed   float64
@@ -60,6 +64,10 @@ type Store struct {
 
 	snapshotPath string
 	dirty        bool
+	saveInterval time.Duration
+	stopOnce     sync.Once
+	stopCh       chan struct{}
+	doneCh       chan struct{}
 }
 
 // New creates a Store.  If snapshotPath is non-empty, the store attempts to
@@ -71,40 +79,43 @@ func New() *Store {
 
 // NewWithSnapshot creates a Store with file-backed persistence.
 func NewWithSnapshot(snapshotPath string) *Store {
+	return newWithSnapshot(snapshotPath, defaultSaveInterval)
+}
+
+func newWithSnapshot(snapshotPath string, saveInterval time.Duration) *Store {
+	if saveInterval <= 0 {
+		saveInterval = defaultSaveInterval
+	}
 	s := &Store{
 		conversations: make(map[string]*Conversation),
 		exchanges:     make(map[string][]*Exchange),
 		now:           time.Now,
 		snapshotPath:  snapshotPath,
+		saveInterval:  saveInterval,
 	}
-	if snapshotPath != "" {
-		ready := false
-		if idx := strings.LastIndex(snapshotPath, "/"); idx > 0 {
-			if err := os.MkdirAll(snapshotPath[:idx], 0o755); err == nil {
-				ready = true
-			}
-		}
-		if ready {
-			if err := s.load(); err != nil && !os.IsNotExist(err) {
-				log.Printf("state: load %s: %v", snapshotPath, err)
-			}
-			go s.autoSaveLoop()
-		}
+	if snapshotPath == "" {
+		return s
 	}
+	if err := os.MkdirAll(filepath.Dir(snapshotPath), 0o755); err != nil {
+		log.Printf("state: create snapshot directory for %s: %v", snapshotPath, err)
+		return s
+	}
+	if err := s.load(); err != nil && !os.IsNotExist(err) {
+		log.Printf("state: load %s: %v", snapshotPath, err)
+	}
+	s.stopCh = make(chan struct{})
+	s.doneCh = make(chan struct{})
+	go s.autoSaveLoop()
 	return s
 }
 
 // Close flushes any pending writes to disk.  Call before shutdown.
 func (s *Store) Close() error {
-	s.mu.Lock()
-	path := s.snapshotPath
-	dirty := s.dirty
-	s.dirty = false
-	s.mu.Unlock()
-	if !dirty || path == "" {
-		return nil
+	if s.stopCh != nil {
+		s.stopOnce.Do(func() { close(s.stopCh) })
+		<-s.doneCh
 	}
-	return s.writeSnapshot(path)
+	return s.flush()
 }
 
 // ── persistence ────────────────────────────────────────────────────────
@@ -134,29 +145,78 @@ func (s *Store) load() error {
 	return nil
 }
 
-func (s *Store) writeSnapshot(path string) error {
-	s.mu.Lock()
+func (s *Store) snapshotLocked() snapshot {
 	snap := snapshot{
-		Conversations: s.conversations,
-		Exchanges:     s.exchanges,
+		Conversations: make(map[string]*Conversation, len(s.conversations)),
+		Exchanges:     make(map[string][]*Exchange, len(s.exchanges)),
 		CreditsUsed:   s.creditsUsed,
 	}
+	for id, conversation := range s.conversations {
+		snap.Conversations[id] = cloneConversation(conversation)
+	}
+	for id, exchanges := range s.exchanges {
+		copied := make([]*Exchange, len(exchanges))
+		for i, exchange := range exchanges {
+			copied[i] = cloneExchange(exchange)
+		}
+		snap.Exchanges[id] = copied
+	}
+	return snap
+}
+
+func (s *Store) flush() error {
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
+
+	s.mu.Lock()
+	path := s.snapshotPath
+	if path == "" || !s.dirty {
+		s.mu.Unlock()
+		return nil
+	}
+	snap := s.snapshotLocked()
+	s.dirty = false
 	s.mu.Unlock()
 
+	if err := writeSnapshot(path, snap); err != nil {
+		s.mu.Lock()
+		s.dirty = true
+		s.mu.Unlock()
+		return err
+	}
+	return nil
+}
+
+func writeSnapshot(path string, snap snapshot) error {
 	tmp := path + ".tmp"
-	f, err := os.Create(tmp)
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
+	removeTmp := true
+	defer func() {
+		if removeTmp {
+			_ = os.Remove(tmp)
+		}
+	}()
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(snap); err != nil {
-		f.Close()
-		os.Remove(tmp)
+		_ = f.Close()
 		return err
 	}
-	f.Close()
-	return os.Rename(tmp, path)
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	removeTmp = false
+	return nil
 }
 
 // markDirty must only be called while s.mu is already held.
@@ -165,19 +225,17 @@ func (s *Store) markDirty() {
 }
 
 func (s *Store) autoSaveLoop() {
-	tk := time.NewTicker(5 * time.Second)
+	defer close(s.doneCh)
+	tk := time.NewTicker(s.saveInterval)
 	defer tk.Stop()
-	for range tk.C {
-		s.mu.Lock()
-		dirty := s.dirty
-		s.dirty = false
-		path := s.snapshotPath
-		s.mu.Unlock()
-		if !dirty {
-			continue
-		}
-		if err := s.writeSnapshot(path); err != nil {
-			log.Printf("state: snapshot write: %v", err)
+	for {
+		select {
+		case <-tk.C:
+			if err := s.flush(); err != nil {
+				log.Printf("state: snapshot write: %v", err)
+			}
+		case <-s.stopCh:
+			return
 		}
 	}
 }
@@ -190,13 +248,14 @@ func (s *Store) CreateConversation(id, workspaceID, title string, pinned bool) *
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if c, ok := s.conversations[id]; ok {
-		return c
+		return cloneConversation(c)
 	}
+	now := s.now()
 	c := &Conversation{ID: id, WorkspaceID: workspaceID, Title: title, IsPinned: pinned,
-		CreatedAt: s.now(), UpdatedAt: s.now()}
+		CreatedAt: now, UpdatedAt: now}
 	s.conversations[id] = c
 	s.markDirty()
-	return c
+	return cloneConversation(c)
 }
 
 // GetConversation returns a conversation by ID.
@@ -204,7 +263,7 @@ func (s *Store) GetConversation(id string) (*Conversation, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, ok := s.conversations[id]
-	return c, ok
+	return cloneConversation(c), ok
 }
 
 // UpdateConversation mutates title/pinned of an existing conversation.
@@ -212,8 +271,9 @@ func (s *Store) UpdateConversation(id, title string, pinned *bool) *Conversation
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, ok := s.conversations[id]
+	now := s.now()
 	if !ok {
-		c = &Conversation{ID: id, CreatedAt: s.now()}
+		c = &Conversation{ID: id, CreatedAt: now}
 		s.conversations[id] = c
 	}
 	if title != "" {
@@ -222,9 +282,9 @@ func (s *Store) UpdateConversation(id, title string, pinned *bool) *Conversation
 	if pinned != nil {
 		c.IsPinned = *pinned
 	}
-	c.UpdatedAt = s.now()
+	c.UpdatedAt = now
 	s.markDirty()
-	return c
+	return cloneConversation(c)
 }
 
 // ListConversations returns conversations newest-first.
@@ -239,21 +299,31 @@ func (s *Store) ListConversations(workspaceID string) []*Conversation {
 		cp := *c
 		out = append(out, &cp)
 	}
-	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-		out[i], out[j] = out[j], out[i]
-	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
+			return out[i].UpdatedAt.After(out[j].UpdatedAt)
+		}
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.After(out[j].CreatedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
 	return out
 }
 
 // AppendExchange records a turn and bumps conversation activity.
 func (s *Store) AppendExchange(conversationID string, ex *Exchange) {
+	if ex == nil {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ex.CreatedAt = s.now()
-	s.exchanges[conversationID] = append(s.exchanges[conversationID], ex)
+	copied := cloneExchange(ex)
+	copied.CreatedAt = s.now()
+	s.exchanges[conversationID] = append(s.exchanges[conversationID], copied)
 	if c, ok := s.conversations[conversationID]; ok {
-		c.LastExchangeAt = ex.CreatedAt
-		c.UpdatedAt = ex.CreatedAt
+		c.LastExchangeAt = copied.CreatedAt
+		c.UpdatedAt = copied.CreatedAt
 	}
 	s.markDirty()
 }
@@ -264,13 +334,9 @@ func (s *Store) ListExchanges(conversationID string, limit int) []*Exchange {
 	defer s.mu.Unlock()
 	all := s.exchanges[conversationID]
 	if limit <= 0 || len(all) <= limit {
-		out := make([]*Exchange, len(all))
-		copy(out, all)
-		return out
+		return cloneExchanges(all)
 	}
-	out := make([]*Exchange, limit)
-	copy(out, all[len(all)-limit:])
-	return out
+	return cloneExchanges(all[len(all)-limit:])
 }
 
 // AddCreditUsage increments the credit ledger.
@@ -292,9 +358,13 @@ func (s *Store) CreditsUsed() float64 {
 func (s *Store) RecordEvent(kind string, evt map[string]any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	evt["_kind"] = kind
-	evt["_ts"] = s.now().UTC().Format(time.RFC3339)
-	s.events = append(s.events, evt)
+	copied := make(map[string]any, len(evt)+2)
+	for key, value := range evt {
+		copied[key] = value
+	}
+	copied["_kind"] = kind
+	copied["_ts"] = s.now().UTC().Format(time.RFC3339)
+	s.events = append(s.events, copied)
 	if len(s.events) > 2000 {
 		s.events = s.events[len(s.events)-2000:]
 	}
@@ -305,4 +375,29 @@ func (s *Store) EventCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.events)
+}
+
+func cloneConversation(conversation *Conversation) *Conversation {
+	if conversation == nil {
+		return nil
+	}
+	copied := *conversation
+	return &copied
+}
+
+func cloneExchange(exchange *Exchange) *Exchange {
+	if exchange == nil {
+		return nil
+	}
+	copied := *exchange
+	copied.ToolCalls = append([]ToolCall(nil), exchange.ToolCalls...)
+	return &copied
+}
+
+func cloneExchanges(exchanges []*Exchange) []*Exchange {
+	copied := make([]*Exchange, len(exchanges))
+	for i, exchange := range exchanges {
+		copied[i] = cloneExchange(exchange)
+	}
+	return copied
 }
