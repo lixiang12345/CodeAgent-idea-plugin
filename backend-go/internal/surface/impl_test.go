@@ -41,3 +41,15 @@ func TestFeatureFlagsAdvertiseOnlyBackedCoreWorkflows(t *testing.T) {
 		}
 	}
 }
+
+func TestImplementedHandlersAreReachableFromGeneratedRoutes(t *testing.T) {
+	routeNames := make(map[string]struct{}, len(Routes))
+	for _, route := range Routes {
+		routeNames[route.Name] = struct{}{}
+	}
+	for name := range Implemented {
+		if _, ok := routeNames[name]; !ok {
+			t.Errorf("implemented handler %q has no generated RPC route", name)
+		}
+	}
+}

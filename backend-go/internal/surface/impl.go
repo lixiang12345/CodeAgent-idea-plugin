@@ -106,7 +106,6 @@ var Implemented = map[string]func(*Responder, map[string]any) (any, error){
 	"UpdatePoseidonTenantSettings":       emptyOK,
 	"PinPoseidonSession":                 emptyOK,
 	"UnpinPoseidonSession":               emptyOK,
-	"CloudAgentsListAgents":              emptyOK,
 	"CloudAgentsGetMessages":             emptyOK,
 	"CloudAgentsBatchGetMessageCounts":   emptyOK,
 	"CloudExpertsListExperts":            emptyOK,
