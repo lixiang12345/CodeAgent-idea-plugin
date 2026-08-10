@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -29,15 +30,46 @@ func truncate(s string, n int) string {
 type ContextEngineClient struct {
 	URL       string
 	Key       string
-	Workspace string // logical name (also the desired workspace name)
-	LocalRoot string
+	Workspace string // fallback workspace name (when no active workspace is known)
+	LocalRoot string // fallback local_root (when no active workspace is known)
+	HostBase  string // host mount base mapped to /host in the container
 	HTTP      *http.Client
 
-	mu          sync.Mutex
-	workspaceID string // server-assigned UUID for Workspace (stable across restarts)
-	jobID       string
-	jobStatus   string // "", "pending", "running", "succeeded", "failed"
-	checkedAt   time.Time
+	mu             sync.Mutex
+	activeName     string // workspace name of the currently active project
+	activeLocalRoot string // container-local root of the active project
+	workspaceID    string // server-assigned UUID for Workspace
+	jobID          string
+	jobStatus      string // "", "pending", "running", "succeeded", "failed"
+	checkedAt      time.Time
+}
+
+// SetActive points the client at a specific host project root (e.g.
+// /Users/jiming/SomeProject). It derives the ContextEngine workspace name from
+// the last path segment and maps the host path into the container mount
+// (/Users/jiming → /host) so the indexer can read it.
+func (c *ContextEngineClient) SetActive(hostRoot string) {
+	if hostRoot == "" {
+		return
+	}
+	name := filepath.Base(strings.TrimRight(hostRoot, "/"))
+	if name == "" || name == "." || name == "/" {
+		return
+	}
+	localRoot := hostRoot
+	if c.HostBase != "" && strings.HasPrefix(hostRoot, c.HostBase) {
+		localRoot = "/host" + strings.TrimPrefix(hostRoot, c.HostBase)
+	}
+	c.mu.Lock()
+	c.activeName = name
+	c.activeLocalRoot = localRoot
+	// New workspace: reset the resolved id / job state so we re-ensure.
+	c.workspaceID = ""
+	c.jobID = ""
+	c.jobStatus = ""
+	c.checkedAt = time.Time{}
+	c.mu.Unlock()
+	log.Printf("contextengine: active workspace set name=%s root=%s", name, localRoot)
 }
 
 // NewContextEngineClient builds a client from environment variables.
@@ -56,6 +88,7 @@ func NewContextEngineClient() *ContextEngineClient {
 		Key:       os.Getenv("CONTEXTENGINE_API_KEY"),
 		Workspace: ws,
 		LocalRoot: os.Getenv("CONTEXTENGINE_LOCAL_ROOT"),
+		HostBase:  os.Getenv("CONTEXTENGINE_HOST_BASE"),
 		HTTP:      &http.Client{Timeout: 45 * time.Second},
 	}
 }
@@ -96,14 +129,29 @@ func (c *ContextEngineClient) do(method, path string, body any) (*http.Response,
 	return resp, buf, nil
 }
 
-// EnsureIndexed makes sure the workspace exists and an index job has been
-// kicked off. It is idempotent: a succeeded/complete workspace is left alone.
+// EnsureIndexed makes sure the active workspace exists and an index job has
+// been kicked off. It is idempotent: a succeeded/complete workspace is left
+// alone. The workspace name/root come from SetActive (the open project); the
+// fallback fields (Workspace/LocalRoot) are used only before any project is
+// known.
 func (c *ContextEngineClient) EnsureIndexed() error {
 	if c.URL == "" {
 		return fmt.Errorf("ContextEngine URL not configured")
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	name := c.activeName
+	root := c.activeLocalRoot
+	if name == "" {
+		name = c.Workspace
+	}
+	if root == "" {
+		root = c.LocalRoot
+	}
+	if name == "" {
+		return fmt.Errorf("contextengine: no workspace name (set CONTEXTENGINE_WORKSPACE or an active workspace)")
+	}
 
 	// 1) Resolve the workspace id: list workspaces and find one whose name
 	// matches, otherwise create it (id is server-assigned UUID).
@@ -123,20 +171,20 @@ func (c *ContextEngineClient) EnsureIndexed() error {
 		}
 		_ = json.Unmarshal(body, &list)
 		for _, ws := range list.Workspaces {
-			if ws.Name == c.Workspace {
+			if ws.Name == name {
 				c.workspaceID = ws.ID
 				break
 			}
 		}
 	}
 	if c.workspaceID == "" {
-		if c.LocalRoot == "" {
-			return fmt.Errorf("contextengine: workspace missing and CONTEXTENGINE_LOCAL_ROOT unset")
+		if root == "" {
+			return fmt.Errorf("contextengine: workspace %q missing and no local root known", name)
 		}
 		create := map[string]any{
-			"name":        c.Workspace,
+			"name":        name,
 			"source_mode": "local",
-			"local_root":  c.LocalRoot,
+			"local_root":  root,
 		}
 		resp2, body2, err := c.do("POST", "/v1/workspaces", create)
 		if err != nil {
@@ -157,7 +205,7 @@ func (c *ContextEngineClient) EnsureIndexed() error {
 		}
 	}
 	if c.workspaceID == "" {
-		return fmt.Errorf("contextengine: could not resolve or create workspace %q", c.Workspace)
+		return fmt.Errorf("contextengine: could not resolve or create workspace %q", name)
 	}
 
 	// 2) Check for a recent, non-terminal job before scheduling a new one.

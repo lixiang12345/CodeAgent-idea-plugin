@@ -44,3 +44,34 @@ func TestCodebaseRetrievalProxy(t *testing.T) {
 	}
 	t.Fatalf("codebase-retrieval never returned a real evidence pack within 120s; last resp: %s", msg)
 }
+
+func TestSetActiveMapping(t *testing.T) {
+	c := NewContextEngineClient()
+	c.HostBase = "/Users/jiming"
+	c.SetActive("/Users/jiming/FooProject")
+	c.mu.Lock()
+	name, root := c.activeName, c.activeLocalRoot
+	c.mu.Unlock()
+	if name != "FooProject" {
+		t.Errorf("name = %q, want FooProject", name)
+	}
+	if root != "/host/FooProject" {
+		t.Errorf("root = %q, want /host/FooProject", root)
+	}
+	// Nested project under home
+	c.SetActive("/Users/jiming/work/Bar")
+	c.mu.Lock()
+	name, root = c.activeName, c.activeLocalRoot
+	c.mu.Unlock()
+	if name != "Bar" || root != "/host/work/Bar" {
+		t.Errorf("got name=%q root=%q, want Bar /host/work/Bar", name, root)
+	}
+	// Non-home path stays absolute
+	c.SetActive("/opt/svc")
+	c.mu.Lock()
+	root = c.activeLocalRoot
+	c.mu.Unlock()
+	if root != "/opt/svc" {
+		t.Errorf("root = %q, want /opt/svc", root)
+	}
+}

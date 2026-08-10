@@ -33,10 +33,14 @@ services:
       STATE_FILE: "${STATE_FILE:-/app/state/augment-local.json}"
       # ContextEngine 检索后端（codebase-retrieval 工具代理到这里）。
       # CONTEXTENGINE_URL=http://contextengine:8787  (容器内)；宿主机调试用 http://127.0.0.1:8790
+      # WORKSPACE / LOCAL_ROOT 通常由后端从 chat 请求动态设置（SetActive），
+      # 仅在无活动工作区时作为 fallback；不写死具体工程。
       CONTEXTENGINE_URL: "${CONTEXTENGINE_URL:-http://contextengine:8787}"
       CONTEXTENGINE_API_KEY: "${CONTEXTENGINE_HTTP_API_KEY:-}"
-      CONTEXTENGINE_WORKSPACE: "${CONTEXTENGINE_WORKSPACE:-local}"
-      CONTEXTENGINE_LOCAL_ROOT: "${CONTEXTENGINE_LOCAL_ROOT:-/host/CodeAgent-idea-plugin}"
+      CONTEXTENGINE_WORKSPACE: "${CONTEXTENGINE_WORKSPACE:-}"
+      CONTEXTENGINE_LOCAL_ROOT: "${CONTEXTENGINE_LOCAL_ROOT:-}"
+      # 宿主机挂载根（对应容器 /host）：用于把 host 工程路径映射成容器内路径
+      CONTEXTENGINE_HOST_BASE: "${CONTEXTENGINE_HOST_BASE:-/Users/jiming}"
     volumes:
       - augment-state:/app/state
     restart: unless-stopped

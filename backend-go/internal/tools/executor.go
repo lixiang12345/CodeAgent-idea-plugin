@@ -84,6 +84,15 @@ func (e *Executor) EnsureContextEngineIndexed() {
 	}
 }
 
+// SetActiveWorkspace tells ContextEngine which host project is currently open.
+// It is called from chat-stream handling (which carries workspace_folders).
+func (e *Executor) SetActiveWorkspace(hostRoot string) {
+	if e.ContextEngine == nil {
+		return
+	}
+	e.ContextEngine.SetActive(hostRoot)
+}
+
 // ProcessManager tracks launched background processes.
 type ProcessManager struct {
 	mu       sync.Mutex
