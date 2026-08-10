@@ -1,5 +1,7 @@
 import fs from "node:fs";
 
+import { splitCompleteLines } from "./sidecar-patch-helpers.mjs";
+
 const file = process.argv[2];
 if (!file) {
   throw new Error("usage: node patch-sidecar.mjs <sidecar/index.cjs>");
@@ -65,6 +67,27 @@ replaceOnce(
   "project overview endpoint",
   'fetch("http://127.0.0.1:8787/generate-project-overview",',
   'fetch((process.env.AUGMENT_TENANT_URL||"http://127.0.0.1:8787").replace(/\\/+$/g,"")+"/generate-project-overview",',
+);
+
+replaceOnce(
+  "ripgrep streaming line splitter",
+  "Nt();var Nk=class extends ii",
+  `Nt();${splitCompleteLines.toString()};var Nk=class extends ii`,
+);
+replaceOnce(
+  "ripgrep pending line state",
+  'let s=!1,l="",c="",u;',
+  'let s=!1,l="",c="",u,ripgrepPending="";',
+);
+replaceOnce(
+  "ripgrep complete line processing",
+  'const m=g.toString(),b=this.processRipgrepOutput(m,e),A=Bi().flags.grepSearchToolOutputCharsLimit??5e3;',
+  'const m=g.toString(),E=splitCompleteLines(ripgrepPending,m);ripgrepPending=E.pending;const b=this.processRipgrepOutput(E.complete,e),A=Bi().flags.grepSearchToolOutputCharsLimit??5e3;',
+);
+replaceOnce(
+  "ripgrep final line flush",
+  'u.on("close",g=>{s||(g===0||g===1?h(l):f(',
+  'u.on("close",g=>{if(!s&&ripgrepPending){l+=this.processRipgrepOutput(ripgrepPending,e),ripgrepPending=""}s||(g===0||g===1?h(l):f(',
 );
 
 function replaceAllExact(name, before, after, expectedCount) {

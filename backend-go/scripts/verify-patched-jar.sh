@@ -62,6 +62,18 @@ fi
 if grep -Fq 'workspace_folder parameter was provided but is not supported in this environment' "$SIDECAR_FILE"; then
   fail "sidecar still exposes the misleading default-workspace retrieval warning"
 fi
+if ! grep -Fq 'function splitCompleteLines(' "$SIDECAR_FILE"; then
+  fail "sidecar does not buffer streamed ripgrep JSON records"
+fi
+if ! grep -Fq 'splitCompleteLines(ripgrepPending,m)' "$SIDECAR_FILE"; then
+  fail "sidecar does not process ripgrep output at complete-line boundaries"
+fi
+if ! grep -Fq 'processRipgrepOutput(ripgrepPending,e)' "$SIDECAR_FILE"; then
+  fail "sidecar does not flush the final ripgrep JSON record"
+fi
+if grep -Fq 'const m=g.toString(),b=this.processRipgrepOutput(m,e)' "$SIDECAR_FILE"; then
+  fail "sidecar still parses each ripgrep stdout chunk as complete JSON"
+fi
 if ! grep -Fq 'stats:{totalThreads:r,trackedFiles:i}' "$SIDECAR_FILE"; then
   fail "sidecar Home workspace stats do not combine thread and ContextEngine file counts"
 fi
@@ -85,6 +97,24 @@ if grep -Fq 'type:x.getSharedWebviewState,id:P0' "$STORE_FILE"; then
 fi
 if ! grep -Fq 'settingsSaga:function*(){yield*F(Mz,function*(){})}' "$STORE_FILE"; then
   fail "settings shared-state compatibility patch missing"
+fi
+if grep -Fq 'ONLY use retrieval tools' "$STORE_FILE"; then
+  fail "Quick Ask still excludes safe file-viewing tools"
+fi
+if grep -Fq 'retrieval tools extensively' "$STORE_FILE"; then
+  fail "Quick Ask still encourages unbounded retrieval calls"
+fi
+if ! grep -Fq 'available read-only tools' "$STORE_FILE"; then
+  fail "Quick Ask does not enforce read-only tool usage"
+fi
+if ! grep -Fq 'view-range-untruncated' "$STORE_FILE"; then
+  fail "Quick Ask does not direct known files to file viewing"
+fi
+if ! grep -Fq 'Never reconstruct a file through repeated grep-search calls' "$STORE_FILE"; then
+  fail "Quick Ask does not prevent repeated Grep file reconstruction"
+fi
+if ! grep -Fq 'Stop using tools as soon as you have enough evidence' "$STORE_FILE"; then
+  fail "Quick Ask has no explicit retrieval stopping condition"
 fi
 
 echo "JAR verification passed: version=$PLUGIN_VERSION class_major=$MAJOR"
