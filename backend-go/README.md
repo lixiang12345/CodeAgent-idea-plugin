@@ -1,7 +1,9 @@
-# augment-local — 接管 Augment 插件的自托管后端
+# augment-local — Augment 插件的本地云端替代层
 
-原版 Augment IntelliJ 插件直连本后端的 Docker 部署，接管其全部云端接口。
-不依赖 Augment 官方云服务：登录、discovery、REST、connect/gRPC、chat 全部落在本机。
+原版 Augment IntelliJ 插件直连本后端的 Docker 部署，接管其云端核心接口。
+不依赖 Augment 官方云服务：登录、discovery、REST、Connect JSON 和 chat 全部落在本机；这不等于 214 个 RPC 的完整业务等价实现。插件自带 Node Sidecar 仍负责 IDE 文件、编辑器、终端和本地工具。
+
+完整兼容性矩阵和剩余风险见仓库根目录 [`docs/compatibility.md`](../docs/compatibility.md)。
 
 ```
 JetBrains IDE (原版插件 0.482.3)
@@ -22,7 +24,7 @@ JetBrains IDE (原版插件 0.482.3)
 - 插件的唯一云端地址覆盖点是 `AugmentOAuthService.getServiceUrlWithPropOverride()`
   → `System.getProperty("augmentcode.oauth.url")`。把登录流指向本地 IdP 即可拿到
   带 `tenantUrl` claim 的 JWT；插件随后把**所有**云端调用打到该 tenantUrl。
-- 云端面 = 单一 connect/gRPC 服务 `public_api.Augment`（214 个 RPC），经
+- 云端面 = 单一 connect/gRPC 服务 `public_api.Augment`（descriptor 有 214 个 RPC），经
   grpc-gateway 注解暴露 REST `/api-client/*`（`re/descriptors/services_api_proxy_public_api.proto.txt`）。
   本后端同端口同时接受 REST(HTTP/1.1)、connect+json、connect+proto、gRPC(h2c)、grpc-web。
 - `client_discovery.proto` 的 22 个 `ClientServiceType` 全部指向本地 :8787。
@@ -62,12 +64,12 @@ go test ./...                          # 单元测试（oidc + tenant 协议面�
 | `client-discovery` 22 服务表 → :8787 | ✅ |
 | `/api-client/get-models`、`get-credit-info`、`subscription-info`、`subscription-banner` | ✅ |
 | `/api-client/chat-stream` ChatStream 模拟流（THINKING→TOOL_USE→text→END_TURN），NDJSON/SSE/connect+proto 三格式 | ✅ |
-| `/api-client/chat`（unary）、`prompt-enhancer` | ✅ |
+| `/api-client/chat`（unary） | ✅ |
 | 会话/历史：`chat/conversation/*`、`chat/exchanges/list`、`count`、`save-chat`（内存态） | ✅ |
-| 工具面：`agents/list-remote-tools`(空)、`agents/check-tool-safety`(safe)、`agents/codebase-retrieval`(空) | ✅ |
+| 工具面：`agents/list-remote-tools`(空)、`agents/check-tool-safety`(safe)、`agents/codebase-retrieval`（ContextEngine + 本地 fallback） | ✅ |
 | 录账：`record-request-events`、`record-session-events`、`report-client-metrics` | ✅ |
 | gRPC：`grpc.health.v1.Health` SERVING；`public_api.Augment/Chat`（hand-encode protobuf） | ✅ |
-| 其余全部 RPC | `501 / Unimplemented`（显式、带方法名） |
+| 未接管 RPC | `501 / Unimplemented`（显式、带方法名）；基础 ACK 不代表完整业务语义 |
 
 `MODEL_GATEWAY_URL` 指向 OpenAI 兼容 `/chat/completions` 时，chat-stream 的最终
 文本由真实模型生成（其余节点骨架保持模拟）。
@@ -82,4 +84,6 @@ go test ./...                          # 单元测试（oidc + tenant 协议面�
   `Help ▸ Debug Log Settings` 抓 `com.augmentcode.intellij.auth` 日志为准，本后端
   对未知路径统一回 `404` 并记日志，便于补表。
 - **gRPC-proto 非 Chat 方法**：刻意不生成全量 protobuf marshaler（JSON REST 为主面），
-  gRPC-proto 只实现了 Health 与 Chat；其余返回 `Unimplemented`。
+  gRPC-proto 只实现了 Health 与 Chat；其余返回 `Unimplemented`。descriptor 的 9 个 server-streaming RPC 只有 `ChatStream` 走真实流式路径。
+- **Sidecar 是必要组件**：Go 没有 IntelliJ 的 workspace、文件读写、编辑器、终端或 JVM bridge；移除 Sidecar 后聊天工具调用和 Home/索引 UI 无法工作。
+- **会话自动停止**：ContextEngine 空结果会返回明确的“没有找到上下文”文本；真正的模型空 choices/error envelope 会返回 `STOP_REASON_ERROR`，详见根目录兼容性报告。

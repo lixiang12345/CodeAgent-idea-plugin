@@ -1,6 +1,8 @@
 # CodeAgent-idea-plugin
 
-自托管 Augment IDE 后端 + ContextEngine 代码检索，让 IntelliJ 里的 Augment 插件在本地完整工作——包括真实模型对话、代码检索（`codebase-retrieval`）、Home 首页 Codebase 概览与索引进度。
+自托管 Augment IDE 云端替代层 + ContextEngine 代码检索，让 IntelliJ 里的 Augment 插件在本地运行核心工作流——包括真实模型对话、代码检索（`codebase-retrieval`）、Home 首页 Codebase 概览与索引进度。它不是 214 个 RPC 的完整云端复刻，Node Sidecar 仍是必要组件。
+
+完整支持边界、RPC 统计、会话停止原因和剩余风险见 [`docs/compatibility.md`](docs/compatibility.md)。
 
 ## 架构
 
@@ -19,7 +21,8 @@ contextengine (Node, :8790) ◄────── ContextEngine 检索 (PostgreS
 
 | 组件 | 角色 |
 |---|---|
-| `augment-local` | Go 后端：OIDC、tenant surface、聊天流、工具调度、状态持久化 |
+| `augment-local` | Go 后端：OIDC、tenant surface、聊天流、工具调度、状态持久化；替代云端核心面 |
+| `sidecar` | 插件自带 Node 运行时：IDE 文件/编辑器/终端、Rules、Skills、Hooks、MCP 和本地工具；不可移除 |
 | `contextengine` | 代码检索：BM25 + 符号 + pgvector + graph，Augment 兼容 `codebase-retrieval` |
 | `postgres` | pgvector 数据库（ContextEngine 存储） |
 | 插件 jar（补丁版） | `releases/intellij-augment-0.482.3-beta.jar` |
@@ -76,6 +79,8 @@ cp releases/intellij-augment-0.482.3-beta.jar \
 - agent 调用 `codebase-retrieval` 返回 ContextEngine 真实检索结果
 - Home 首页 Codebase 区块显示：语言条形图 + LLM 生成的项目概览
 
+当前支持的是“本地核心工作流接管”，不是完整云端能力替换。Cloud Agents、handoff、第三方集成、BYOK、远端 MCP、Smart Paste、Prompt Enhancer、file intake 和完整 protobuf/gRPC streaming 均已关闭或明确返回 501；请按兼容性报告验收。
+
 ## 动态工作区
 
 ContextEngine 不再写死工程路径。每次聊天请求携带的 `workspace_folders` 会把当前打开的工程映射到容器索引：
@@ -96,4 +101,5 @@ ContextEngine 不再写死工程路径。每次聊天请求携带的 `workspace_
 
 - **Home 首页 Codebase 为空**：确认 jar 已安装（releases 版）、ContextEngine healthy（`curl :8790/health`）、已打开工程并触发过聊天
 - **codebase-retrieval 返回“正在索引”**：首次索引需数秒~数分钟，稍后重试
-- **模型无回复**：检查 `MODEL_GATEWAY_URL/API_KEY`，`curl :8787/api-client/chat-stream` 直测
+- **模型无回复**：检查 `MODEL_GATEWAY_URL/API_KEY`，`curl :8787/api-client/chat-stream` 直测。网关空 choices 或 error envelope 会显示为 `STOP_REASON_ERROR`，不会伪装成成功结束。
+- **旧日志仍显示 501、remote_tool_id 或超时**：先 `docker compose up -d --build --force-recreate augment-local`，再只看重建后的时间窗口；旧容器可能仍将端口暴露在所有网卡。

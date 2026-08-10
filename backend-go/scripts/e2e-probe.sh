@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# e2e-probe.sh — drive the full takeover surface and assert every layer works.
+# e2e-probe.sh — drive the supported core takeover surface and assert every layer works.
 #
 # Usage:  ./scripts/e2e-probe.sh [OIDC_URL] [TENANT_URL]
 # Defaults: http://127.0.0.1:8445  http://127.0.0.1:8787
@@ -8,7 +8,9 @@
 set -u
 OIDC="${1:-http://127.0.0.1:8445}"
 TENANT="${2:-http://127.0.0.1:8787}"
-REQUIRE_MODEL_SUCCESS="${REQUIRE_MODEL_SUCCESS:-0}"
+# A passing probe must prove the configured model path by default. Set this to
+# 0 only for an explicitly offline protocol smoke test.
+REQUIRE_MODEL_SUCCESS="${REQUIRE_MODEL_SUCCESS:-1}"
 CONVERSATION_ID="e2e-$(date +%s)-$$"
 PASS=0; FAIL=0
 
@@ -77,7 +79,7 @@ N=$(echo "$DISC" | python3 -c "import sys,json;print(len(json.load(sys.stdin)['t
 [[ "$N" == "22" ]] && ok "client-discovery 22 services" || bad "client-discovery ($N)"
 
 CODE501=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$TENANT/api-client/checkpoint-blobs" -d '{}')
-[[ "$CODE501" == "501" ]] && ok "unimplemented -> 501" || bad "unimplemented status=$CODE501"
+[[ "$CODE501" == "501" ]] && ok "unsupported checkpoint blobs fail closed (501)" || bad "unsupported checkpoint blobs status=$CODE501"
 
 echo "== chat-stream (SSE simulator) =="
 CHAT=$(curl -sf -N -X POST "$TENANT/api-client/chat-stream" \
@@ -107,7 +109,7 @@ echo "== connect+json protocol =="
 CC=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$TENANT/augment.public_api.Augment/GetCreditInfo" -H 'Content-Type: application/connect+json' -d '{}')
 [[ "$CC" == "200" ]] && ok "connect+json GetCreditInfo" || bad "connect+json status=$CC"
 CU=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$TENANT/augment.public_api.Augment/Edit" -H 'Content-Type: application/connect+json' -d '{}')
-[[ "$CU" == "501" ]] && ok "connect+json unimplemented 501" || bad "connect+json unimplemented=$CU"
+[[ "$CU" == "501" ]] && ok "unsupported Edit fails closed (501)" || bad "unsupported Edit=$CU"
 
 echo "== gRPC (h2c) =="
 if command -v grpcurl >/dev/null 2>&1; then
