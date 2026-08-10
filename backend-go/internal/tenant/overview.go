@@ -5,6 +5,7 @@ package tenant
 // the IDE webview's Home → Codebase summary pipeline.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,12 +13,18 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // overviewRequest is the body the sidecar forwards from the webview.
 type overviewRequest struct {
-	WorkspaceID  string `json:"workspace_id"`
+	WorkspaceID   string `json:"workspace_id"`
+	WorkspaceName string `json:"workspace_name"`
 	WorkspaceRoot string `json:"workspace_root"`
+	// Structure is a text summary of the workspace scanned by the sidecar
+	// (host-side); when present the backend uses the model gateway to turn it
+	// into a rich project overview.
+	Structure string `json:"structure"`
 }
 
 // langExt maps file extensions to a display language name.
@@ -80,13 +87,74 @@ func (s *Server) handleGenerateProjectOverview(w http.ResponseWriter, r *http.Re
 		s.writeJSON(w, 400, map[string]any{"error": "invalid request: " + err.Error()})
 		return
 	}
-	root := req.WorkspaceRoot
-	if root == "" {
-		// Fall back to a reasonable default when the sidecar didn't pass a root.
-		root = "/workspace"
+	var text string
+	if req.Structure != "" {
+		text = s.generateOverviewLLM(req.WorkspaceName, req.Structure)
 	}
-	text := buildOverview(root)
+	if text == "" {
+		// Fallback: container-side scan (only works when the root is mounted
+		// into the container).
+		root := req.WorkspaceRoot
+		if root == "" {
+			root = "/workspace"
+		}
+		text = buildOverview(root)
+	}
 	s.writeJSON(w, 200, map[string]any{"text": text})
+}
+
+// generateOverviewLLM turns a sidecar-scanned structure summary into a rich
+// Markdown project overview using the configured model gateway (OpenAI
+// compatible /v1/chat/completions). Returns "" on any failure so the caller
+// can fall back.
+func (s *Server) generateOverviewLLM(workspaceName, structure string) string {
+	url := os.Getenv("MODEL_GATEWAY_URL")
+	key := os.Getenv("MODEL_GATEWAY_API_KEY")
+	model := os.Getenv("MODEL_GATEWAY_MODEL")
+	if url == "" || key == "" || strings.TrimSpace(structure) == "" {
+		return ""
+	}
+	u := strings.TrimSuffix(url, "/v1")
+	u = strings.TrimSuffix(u, "/")
+	if !strings.Contains(u, "/chat/completions") {
+		u += "/v1/chat/completions"
+	}
+	name := workspaceName
+	if name == "" {
+		name = "this project"
+	}
+	prompt := fmt.Sprintf(
+		"You are analyzing a software project for its developer. Given this project structure scan, write a concise, well-structured Markdown project overview a developer would find genuinely useful. Cover what the project is/does (infer from file names and manifests), tech stack, main directories/modules, and how to build or run it if visible. Use short headings and bullet lists. Keep it under 250 words. Do not invent facts beyond what the scan shows.\n\nProject name: %s\n\nStructure scan:\n%s", name, structure)
+	body, _ := json.Marshal(map[string]any{
+		"model":       model,
+		"messages":    []any{map[string]any{"role": "user", "content": prompt}},
+		"temperature": 0.3,
+	})
+	req, err := http.NewRequest(http.MethodPost, u, bytes.NewReader(body))
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+key)
+	resp, err := (&http.Client{Timeout: 90 * time.Second}).Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return ""
+	}
+	if len(out.Choices) > 0 && strings.TrimSpace(out.Choices[0].Message.Content) != "" {
+		return out.Choices[0].Message.Content
+	}
+	return ""
 }
 
 // buildOverview scans root and renders a summary.
