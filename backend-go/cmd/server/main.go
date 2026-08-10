@@ -67,6 +67,13 @@ func main() {
 		idp.IssueToken(w)
 	}
 
+	// Kick off ContextEngine indexing at startup so the codebase is indexed
+	// before the agent first queries it (idempotent; best-effort).
+	go func() {
+		time.Sleep(3 * time.Second) // let ContextEngine/postgres come up
+		ten.ToolExecutor.EnsureContextEngineIndexed()
+	}()
+
 	srv := func(addr string, h http.Handler) *http.Server {
 		return &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 10 * time.Second}
 	}
@@ -94,6 +101,9 @@ func main() {
 	defer stop()
 	<-ctx.Done()
 	log.Println("shutting down…")
+	if err := ten.Store.Close(); err != nil {
+		log.Printf("store close: %v", err)
+	}
 	shut, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srvOIDC.Shutdown(shut)

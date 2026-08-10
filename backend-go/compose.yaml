@@ -14,11 +14,13 @@ services:
       USER_EMAIL: "${USER_EMAIL:-local@augment.local}"
       USER_PLAN: "${USER_PLAN:-professional}"
       # 模型网关 — 指向 OpenAI 兼容 /v1/chat/completions 时走真实模型。
-      # 密钥不在此文件硬编码：通过同级 backend-go/.env（gitignored）或 shell 环境提供。
-      #   MODEL_GATEWAY_URL=${MODEL_GATEWAY_URL:-https://true-sota.com}
+      # 密钥与网关地址不在此文件硬编码：通过同级 backend-go/.env（gitignored）提供。
+      #   MODEL_GATEWAY_URL=<base-url>       — 例如 https://gateway.example.com/v1
       #   MODEL_GATEWAY_API_KEY=<required>   — 未设置时后端进入模拟器模式
-      MODEL_GATEWAY_URL: "${MODEL_GATEWAY_URL:-https://true-sota.com}"
+      MODEL_GATEWAY_URL: "${MODEL_GATEWAY_URL:-}"
       MODEL_GATEWAY_API_KEY: "${MODEL_GATEWAY_API_KEY:-}"
+      # 推理强度（传给 OpenAI 兼容网关的 reasoning_effort 字段）
+      MODEL_GATEWAY_REASONING_EFFORT: "${MODEL_GATEWAY_REASONING_EFFORT:-high}"
       # 自定义模型名 — 传给网关的 model 字段
       MODEL_GATEWAY_MODEL: "${MODEL_GATEWAY_MODEL:-gpt-5.6-sol}"
       # 自定义模型 ID / Base URL — 如果设置了，会覆盖 GetModels 返回的模型列表
@@ -27,9 +29,84 @@ services:
       CUSTOM_MODELS: "${CUSTOM_MODELS:-}"
       # JWT_PRIVATE_KEY: deterministic key so tokens survive restarts.
       # JWT_PRIVATE_KEY: "${JWT_PRIVATE_KEY:-}"
+      # STATE_FILE: path to JSON snapshot for persistent state (default /app/state/augment-local.json)
+      STATE_FILE: "${STATE_FILE:-/app/state/augment-local.json}"
+      # ContextEngine 检索后端（codebase-retrieval 工具代理到这里）。
+      # CONTEXTENGINE_URL=http://contextengine:8787  (容器内)；宿主机调试用 http://127.0.0.1:8790
+      CONTEXTENGINE_URL: "${CONTEXTENGINE_URL:-http://contextengine:8787}"
+      CONTEXTENGINE_API_KEY: "${CONTEXTENGINE_HTTP_API_KEY:-}"
+      CONTEXTENGINE_WORKSPACE: "${CONTEXTENGINE_WORKSPACE:-local}"
+      CONTEXTENGINE_LOCAL_ROOT: "${CONTEXTENGINE_LOCAL_ROOT:-/host/CodeAgent-idea-plugin}"
+    volumes:
+      - augment-state:/app/state
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/healthz"]
       interval: 10s
       timeout: 3s
       retries: 5
+    depends_on:
+      contextengine:
+        condition: service_healthy
+
+  # ContextEngine — PostgreSQL 多信号代码检索（BM25 + 符号 + pgvector + graph）。
+  # 源码 clone 到 ~/ContextEngine-plugin；挂载宿主机主目录到 /host 以索引任意项目。
+  contextengine:
+    build:
+      context: ../../ContextEngine-plugin
+      target: runtime
+    image: contextengine-plugin:local
+    container_name: contextengine
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      CONTEXTENGINE_DATABASE_URL: postgresql://contextengine:contextengine@postgres:5432/contextengine
+      CONTEXTENGINE_HTTP_HOST: 0.0.0.0
+      CONTEXTENGINE_HTTP_PORT: 8787
+      CONTEXTENGINE_HTTP_API_KEY: "${CONTEXTENGINE_HTTP_API_KEY:-}"
+      # 本地 workspace 索引所需：允许 local 根 + 指定 executor
+      CONTEXTENGINE_HTTP_ALLOW_LOCAL_WORKSPACES: "1"
+      CONTEXTENGINE_LOCAL_ROOT_ALLOWLIST: "${CONTEXTENGINE_LOCAL_ROOT_ALLOWLIST:-/host}"
+      CONTEXTENGINE_INDEX_JOB_EXECUTOR_ID: "${CONTEXTENGINE_INDEX_JOB_EXECUTOR_ID:-local-executor}"
+      # 可选：语义检索 embedding（留空则纯 BM25 词法检索）
+      CONTEXTENGINE_EMBEDDING_API_KEY: "${CONTEXTENGINE_EMBEDDING_API_KEY:-}"
+      CONTEXTENGINE_EMBEDDING_BASE_URL: "${CONTEXTENGINE_EMBEDDING_BASE_URL:-}"
+      CONTEXTENGINE_EMBEDDING_MODEL: "${CONTEXTENGINE_EMBEDDING_MODEL:-}"
+      CONTEXTENGINE_EMBEDDING_DIMENSIONS: "${CONTEXTENGINE_EMBEDDING_DIMENSIONS:-}"
+    ports:
+      - "127.0.0.1:8790:8787"
+    volumes:
+      - "/Users/jiming:/host:ro" # 宿主机主目录 → 容器 /host（只读索引）
+      - contextengine-runtime:/app/.contextengine-http
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: contextengine-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: contextengine
+      POSTGRES_PASSWORD: contextengine
+      POSTGRES_DB: contextengine
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - contextengine-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U contextengine -d contextengine"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  augment-state:
+  contextengine-runtime:
+  contextengine-postgres:

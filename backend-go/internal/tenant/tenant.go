@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"augment-local/internal/chat"
@@ -32,7 +33,11 @@ type Server struct {
 }
 
 func New(tenantURL, gatewayURL, gatewayModel string) *Server {
-	st := state.New()
+	snapshotPath := os.Getenv("STATE_FILE")
+	if snapshotPath == "" {
+		snapshotPath = "/app/state/augment-local.json"
+	}
+	st := state.NewWithSnapshot(snapshotPath)
 	te := tools.New("")
 	s := &Server{
 		TenantURL:    tenantURL,
@@ -68,6 +73,10 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("/token", s.TokenHandler)
 		mux.HandleFunc("/oauth/token", s.TokenHandler)
 	}
+
+	// Codebase overview for the webview Home → Codebase summary pipeline.
+	// The sidecar forwards generate-project-overview here with the workspace root.
+	mux.HandleFunc("/generate-project-overview", s.handleGenerateProjectOverview)
 
 	// All /api-client/* REST routes dispatch through one handler.
 	mux.HandleFunc("/api-client/", s.handleAPIClient)

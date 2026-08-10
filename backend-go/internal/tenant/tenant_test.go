@@ -10,7 +10,7 @@ import (
 )
 
 func testServer() *httptest.Server {
-	return httptest.NewServer(New("http://127.0.0.1:8787", "").Handler())
+	return httptest.NewServer(New("http://127.0.0.1:8787", "", "").Handler())
 }
 
 func post(t *testing.T, url, body string) *http.Response {

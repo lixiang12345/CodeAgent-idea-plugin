@@ -1,0 +1,270 @@
+package tools
+
+// ContextEngine integration: the `codebase-retrieval` tool is proxied to the
+// self-hosted ContextEngine HTTP service (PostgreSQL BM25 + symbols + pgvector).
+// Workspace lifecycle is idempotent: ensure the workspace exists, trigger an
+// incremental index job, and report readiness so the agent doesn't query an
+// unindexed codebase.
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"time"
+)
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
+// ContextEngineClient talks to the ContextEngine HTTP API.
+type ContextEngineClient struct {
+	URL       string
+	Key       string
+	Workspace string // logical name (also the desired workspace name)
+	LocalRoot string
+	HTTP      *http.Client
+
+	mu          sync.Mutex
+	workspaceID string // server-assigned UUID for Workspace (stable across restarts)
+	jobID       string
+	jobStatus   string // "", "pending", "running", "succeeded", "failed"
+	checkedAt   time.Time
+}
+
+// NewContextEngineClient builds a client from environment variables.
+// CONTEXTENGINE_URL default: http://contextengine:8787 (docker network).
+func NewContextEngineClient() *ContextEngineClient {
+	url := os.Getenv("CONTEXTENGINE_URL")
+	if url == "" {
+		url = "http://contextengine:8787"
+	}
+	ws := os.Getenv("CONTEXTENGINE_WORKSPACE")
+	if ws == "" {
+		ws = "local"
+	}
+	return &ContextEngineClient{
+		URL:       strings.TrimRight(url, "/"),
+		Key:       os.Getenv("CONTEXTENGINE_API_KEY"),
+		Workspace: ws,
+		LocalRoot: os.Getenv("CONTEXTENGINE_LOCAL_ROOT"),
+		HTTP:      &http.Client{Timeout: 45 * time.Second},
+	}
+}
+
+func (c *ContextEngineClient) do(method, path string, body any) (*http.Response, []byte, error) {
+	var rdr *bytes.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return nil, nil, err
+		}
+		rdr = bytes.NewReader(b)
+	} else {
+		rdr = bytes.NewReader(nil)
+	}
+	req, err := http.NewRequest(method, c.URL+path, rdr)
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.Key != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Key)
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close()
+	buf := make([]byte, 0, 4096)
+	tmp := make([]byte, 4096)
+	for {
+		n, err := resp.Body.Read(tmp)
+		buf = append(buf, tmp[:n]...)
+		if err != nil {
+			break
+		}
+	}
+	return resp, buf, nil
+}
+
+// EnsureIndexed makes sure the workspace exists and an index job has been
+// kicked off. It is idempotent: a succeeded/complete workspace is left alone.
+func (c *ContextEngineClient) EnsureIndexed() error {
+	if c.URL == "" {
+		return fmt.Errorf("ContextEngine URL not configured")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// 1) Resolve the workspace id: list workspaces and find one whose name
+	// matches, otherwise create it (id is server-assigned UUID).
+	if c.workspaceID == "" {
+		resp, body, err := c.do("GET", "/v1/workspaces", nil)
+		if err != nil {
+			return fmt.Errorf("contextengine list workspaces: %w", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("contextengine list workspaces: status %d: %s", resp.StatusCode, truncate(string(body), 200))
+		}
+		var list struct {
+			Workspaces []struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"workspaces"`
+		}
+		_ = json.Unmarshal(body, &list)
+		for _, ws := range list.Workspaces {
+			if ws.Name == c.Workspace {
+				c.workspaceID = ws.ID
+				break
+			}
+		}
+	}
+	if c.workspaceID == "" {
+		if c.LocalRoot == "" {
+			return fmt.Errorf("contextengine: workspace missing and CONTEXTENGINE_LOCAL_ROOT unset")
+		}
+		create := map[string]any{
+			"name":        c.Workspace,
+			"source_mode": "local",
+			"local_root":  c.LocalRoot,
+		}
+		resp2, body2, err := c.do("POST", "/v1/workspaces", create)
+		if err != nil {
+			return fmt.Errorf("contextengine create workspace: %w", err)
+		}
+		if resp2.StatusCode != http.StatusCreated && resp2.StatusCode != http.StatusConflict {
+			return fmt.Errorf("contextengine create workspace: status %d: %s", resp2.StatusCode, truncate(string(body2), 200))
+		}
+		if resp2.StatusCode == http.StatusCreated {
+			var created struct {
+				Workspace struct {
+					ID string `json:"id"`
+				} `json:"workspace"`
+			}
+			if err := json.Unmarshal(body2, &created); err == nil && created.Workspace.ID != "" {
+				c.workspaceID = created.Workspace.ID
+			}
+		}
+	}
+	if c.workspaceID == "" {
+		return fmt.Errorf("contextengine: could not resolve or create workspace %q", c.Workspace)
+	}
+
+	// 2) Check for a recent, non-terminal job before scheduling a new one.
+	if c.jobStatus == "succeeded" {
+		return nil
+	}
+	inFlight := c.jobStatus == "queued" || c.jobStatus == "pending" || c.jobStatus == "running"
+	if c.jobID != "" && inFlight && time.Since(c.checkedAt) < time.Minute {
+		return nil
+	}
+
+	// 3) Trigger an incremental index job.
+	resp3, body3, err := c.do("POST", "/v1/workspaces/"+c.workspaceID+"/index-jobs", map[string]any{"mode": "incremental"})
+	if err != nil {
+		return fmt.Errorf("contextengine index-jobs: %w", err)
+	}
+	if resp3.StatusCode != http.StatusAccepted && resp3.StatusCode != http.StatusOK {
+		return fmt.Errorf("contextengine index-jobs: status %d: %s", resp3.StatusCode, truncate(string(body3), 200))
+	}
+	var job struct {
+		Job struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"job"`
+	}
+	_ = json.Unmarshal(body3, &job)
+	if job.Job.ID != "" {
+		c.jobID = job.Job.ID
+		c.jobStatus = job.Job.Status
+	}
+	c.checkedAt = time.Now()
+	log.Printf("contextengine: index job %s status=%s", c.jobID, c.jobStatus)
+	return nil
+}
+
+// IndexReady reports whether the codebase has finished indexing. It consults
+// the latest job status, refreshing it if it's stale.
+func (c *ContextEngineClient) IndexReady() (bool, error) {
+	c.mu.Lock()
+	jobID := c.jobID
+	status := c.jobStatus
+	staleness := time.Since(c.checkedAt)
+	c.mu.Unlock()
+
+	if jobID == "" {
+		return false, nil
+	}
+	if status == "succeeded" {
+		return true, nil
+	}
+	if status == "failed" {
+		return false, fmt.Errorf("contextengine index job %s failed", jobID)
+	}
+	inFlight := status == "queued" || status == "pending" || status == "running"
+	// Terminal-but-unknown statuses or very recent checks: avoid hammering.
+	if staleness < 2*time.Second {
+		return false, nil
+	}
+	if !inFlight && status != "" && staleness < time.Minute {
+		return false, nil
+	}
+
+	// Refresh from the job endpoint.
+	resp, body, err := c.do("GET", "/v1/index-jobs/"+jobID, nil)
+	if err != nil {
+		return false, err
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("contextengine job status: %d", resp.StatusCode)
+	}
+	var out struct {
+		Job struct {
+			Status string `json:"status"`
+		} `json:"job"`
+	}
+	_ = json.Unmarshal(body, &out)
+	c.mu.Lock()
+	c.jobStatus = out.Job.Status
+	c.checkedAt = time.Now()
+	c.mu.Unlock()
+	return out.Job.Status == "succeeded", nil
+}
+
+// Retrieve packs task context from ContextEngine and returns the packed_text.
+// It is the HTTP twin of the MCP `codebase-retrieval` tool.
+func (c *ContextEngineClient) Retrieve(query string) (string, error) {
+	body := map[string]any{
+		"information_request": query,
+		"top_k":               14,
+		"subqueries":          true,
+		"include_rules":       true,
+	}
+	resp, raw, err := c.do("POST", "/v1/workspaces/"+c.workspaceID+"/context", body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("contextengine context: status %d: %s", resp.StatusCode, truncate(string(raw), 200))
+	}
+	var out struct {
+		PackedText string `json:"packed_text"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", err
+	}
+	return out.PackedText, nil
+}

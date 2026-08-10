@@ -128,6 +128,48 @@ func (s *Simulator) Stream(ctx context.Context, w io.Writer, flow Flow, req map[
 	// ── tool definitions → gateway format ─────────────────────────────
 	toolDefs := toolDefsFromProto(req["tool_definitions"])
 
+	// ── workspace-questions gate ──────────────────────────────────────
+	// The IDE webview sends a hidden chat request asking the model to
+	// generate workspace onboarding questions.  We answer locally instead
+	// of forwarding to the model gateway, partly to save a round-trip
+	// and mostly to avoid leaking a gateway diagnostic message like
+	//   [local bridge] Connected; configure MODEL_BASE_URL for model responses.
+	// into the workspace-questions popup.
+	if isWorkspaceQuestionsRequest(cfg.UserMessage) {
+		nid := int32(1)
+		_ = emitNode(node{ID: nid, Type: "THINKING",
+			Content: "Generating workspace onboarding questions …",
+			Timestamp: ms(),
+		})
+		nid++
+
+		for _, q := range defaultWorkspaceQuestions(cfg) {
+			_ = emitText(emit, q)
+		}
+		_ = emitNode(node{ID: nid, Type: "MAIN_TEXT_FINISHED", Timestamp: ms()})
+		_ = emit(map[string]any{"stop_reason": "END_TURN"})
+		return nil
+	}
+
+	// ── conversation-title gate ────────────────────────────────────────
+	// The IDE webview sends a hidden chat request to generate a short
+	// conversation title ("Please provide a clear and concise summary of our
+	// conversation so far. The summary must be less than 6 words long…").
+	// We handle it as a lightweight unary call, return the title, and — most
+	// importantly — do NOT persist it as a normal chat exchange, otherwise the
+	// title prompt leaks into the UI as a visible message after the webview
+	// restores history.
+	if isTitleRequest(cfg.UserMessage) {
+		title := s.generateTitle(ctx, cfg)
+		if title == "" {
+			title = "New Chat"
+		}
+		_ = emitText(emit, title)
+		_ = emitNode(node{ID: 1, Type: "MAIN_TEXT_FINISHED", Timestamp: ms()})
+		_ = emit(map[string]any{"stop_reason": "END_TURN"})
+		return nil
+	}
+
 	// ── agent loop ────────────────────────────────────────────────────
 	var finalText strings.Builder
 	nodeID := int32(1)
@@ -612,11 +654,15 @@ func (s *Simulator) callModel(ctx context.Context, model string, messages []map[
 }
 
 func (s *Simulator) callOpenAI(ctx context.Context, baseURL, model string, messages, toolDefs []map[string]any, emit func(map[string]any) error) (*modelResponse, error) {
+	reasoning := os.Getenv("MODEL_GATEWAY_REASONING_EFFORT")
+	if reasoning == "" {
+		reasoning = "high"
+	}
 	body := map[string]any{
 		"model":            model,
 		"messages":         messages,
 		"temperature":      0.7,
-		"reasoning_effort": "high",
+		"reasoning_effort": reasoning,
 		"stream":           true,
 	}
 	if len(toolDefs) > 0 {
@@ -1313,6 +1359,69 @@ func (s *Simulator) legacyAnthropic(ctx context.Context, baseURL, question, mode
 		}
 	}
 	return "", fmt.Errorf("no text")
+}
+
+// ── conversation-title detection ──────────────────────────────────────
+
+// isTitleRequest detects the hidden chat request the IDE webview sends to
+// generate a short conversation title.
+func isTitleRequest(userMsg string) bool {
+	return strings.Contains(userMsg, "Please provide a clear and concise summary of our conversation") ||
+		strings.Contains(userMsg, "less than 6 words")
+}
+
+// generateTitle produces a short title for a conversation.  It prefers the
+// model gateway when available (unary call), falling back to a deterministic
+// title based on the first user message.
+func (s *Simulator) generateTitle(ctx context.Context, cfg requestConfig) string {
+	if s.GatewayURL != "" && cfg.UserMessage != "" {
+		prompt := "Give this coding conversation a short title of at most 6 words. Reply with only the title, no punctuation, no quotes."
+		if txt, err := s.legacyOpenAI(ctx, s.GatewayURL, prompt, s.GatewayModel); err == nil && strings.TrimSpace(txt) != "" {
+			return truncate(strings.TrimSpace(txt), 60)
+		}
+		if txt, err := s.legacyAnthropic(ctx, s.GatewayURL, prompt, s.GatewayModel); err == nil && strings.TrimSpace(txt) != "" {
+			return truncate(strings.TrimSpace(txt), 60)
+		}
+	}
+	return "New Chat"
+}
+
+// ── workspace-questions detection ─────────────────────────────────────
+
+// isWorkspaceQuestionsRequest detects the hidden chat request the IDE webview
+// sends to generate onboarding workspace questions.  The exact prompt is
+// defined in the plugin's webview JS bundle and is expected to stay stable
+// across plugin versions.
+func isWorkspaceQuestionsRequest(userMsg string) bool {
+	return strings.Contains(userMsg, "Give me the five most important questions") &&
+		strings.Contains(userMsg, "separated by a newline")
+}
+
+// defaultWorkspaceQuestions returns a short set of onboarding questions.
+// When the model gateway can't be reached (or we want to avoid calling it),
+// these provide a reasonable fallback.
+func defaultWorkspaceQuestions(cfg requestConfig) []string {
+	qs := []string{
+		"Summarise this project",
+		"Explain the architecture of this codebase",
+		"What are the key technologies used here?",
+		"Find potential bugs in recently changed files",
+		"How do I build and run this project?",
+	}
+	// Prepend a workspace-aware question when we know the root folder.
+	if len(cfg.WorkspaceFolders) > 0 {
+		if root, _ := cfg.WorkspaceFolders[0]["folder_root"].(string); root != "" {
+			// Derive a short project name from the last path segment.
+			proj := root
+			if idx := strings.LastIndex(root, "/"); idx >= 0 && idx < len(root)-1 {
+				proj = root[idx+1:]
+			}
+			qs = append([]string{
+				fmt.Sprintf("What is \"%s\" and how does it work?", proj),
+			}, qs...)
+		}
+	}
+	return qs
 }
 
 // NodeJSON for unary Chat.
