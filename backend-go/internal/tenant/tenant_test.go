@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -620,6 +622,44 @@ func TestConnectJSONUnaryAndUnimplemented(t *testing.T) {
 	defer resp2.Body.Close()
 	if resp2.StatusCode != 501 {
 		t.Fatalf("unimplemented status = %d, want 501", resp2.StatusCode)
+	}
+}
+
+func TestSubagentCodebaseRetrievalJSONAliasInheritsParentWorkspace(t *testing.T) {
+	t.Setenv("STATE_FILE", t.TempDir()+"/state.json")
+	workspace := t.TempDir()
+	sentinel := filepath.Join(workspace, "subagent-context.txt")
+	if err := os.WriteFile(sentinel, []byte("subagent-context-sentinel"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := New("http://127.0.0.1:8787", "", "augment-local-code-1")
+	server.ToolExecutor.ContextEngine.URL = ""
+	server.ToolExecutor.SetConversationWorkspace("parent-conversation", workspace)
+	srv := httptest.NewServer(server.Handler())
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/augmentcode/api-client/agent-codebase-retrieval", strings.NewReader(`{"informationRequest":"subagent-context-sentinel","conversationId":"child-conversation","parentConversationId":"parent-conversation","chatHistory":[]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/connect+json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("subagent retrieval status = %d, body = %s", resp.StatusCode, body)
+	}
+	var got struct {
+		FormattedRetrieval string `json:"formatted_retrieval"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got.FormattedRetrieval, "subagent-context-sentinel") {
+		t.Fatalf("subagent retrieval did not inherit parent workspace: %q", got.FormattedRetrieval)
 	}
 }
 

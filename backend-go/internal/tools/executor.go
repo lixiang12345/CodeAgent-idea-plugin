@@ -144,6 +144,22 @@ func (e *Executor) workspaceForConversation(conversationID string) string {
 	return root
 }
 
+// workspaceForRequest resolves subagent conversations through their parent
+// or root conversation when the sidecar has not separately registered the
+// child ID. Subagents must search the same project as the conversation that
+// spawned them, rather than falling back to the last globally active project.
+func (e *Executor) workspaceForRequest(req *ToolCallRequest) string {
+	if req == nil {
+		return ""
+	}
+	for _, id := range []string{req.ConversationID, req.ParentConvID, req.RootConvID} {
+		if root := e.workspaceForConversation(id); root != "" {
+			return root
+		}
+	}
+	return ""
+}
+
 // EnsureContextEngineIndexed kicks off ContextEngine indexing at startup
 // (idempotent). Call it in the background when the backend boots so the
 // codebase is ready before the agent first queries it.
@@ -206,7 +222,7 @@ func (e *Executor) Execute(req *ToolCallRequest) *ToolCallResponse {
 
 	log.Printf("tools: executing %s (req=%s conv=%s)", req.Name, req.RequestID, req.ConversationID)
 
-	retrievalRoot := e.workspaceForConversation(req.ConversationID)
+	retrievalRoot := e.workspaceForRequest(req)
 	if req.Name == "codebase-retrieval" && retrievalRoot != "" && e.ContextEngine != nil {
 		// Update the UI-visible active workspace immediately. RetrieveFor repeats
 		// this switch while holding the operation lock before touching the server.
@@ -219,7 +235,7 @@ func (e *Executor) Execute(req *ToolCallRequest) *ToolCallResponse {
 	// agent-initiated writes).
 	if isWriteOp(req.Name) && e.ContextEngine != nil {
 		defer func() {
-			if root := e.workspaceForConversation(req.ConversationID); root != "" {
+			if root := e.workspaceForRequest(req); root != "" {
 				go e.refreshContextEngineWorkspace(root)
 			}
 		}()

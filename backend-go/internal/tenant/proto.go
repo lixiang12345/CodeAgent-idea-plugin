@@ -25,6 +25,15 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request, svc, method s
 	// public_api.Augment.
 	method = strings.TrimSuffix(strings.TrimPrefix(method, "/"), "/")
 	ct := r.Header.Get("Content-Type")
+	// The sidecar's subagent retrieval client uses this host-facing alias,
+	// while the public REST client uses /agents/codebase-retrieval. Keep both
+	// paths on the same local ContextEngine implementation.
+	if svc == "augmentcode" && method == "api-client/agent-codebase-retrieval" {
+		if strings.HasPrefix(ct, "application/connect+json") || strings.HasPrefix(ct, "application/json") || ct == "" {
+			s.handleAgentCodebaseRetrievalJSON(w, r)
+			return
+		}
+	}
 	switch {
 	case strings.HasPrefix(ct, "application/connect+json"):
 		s.handleConnectJSON(w, r, method)
@@ -40,6 +49,43 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request, svc, method s
 		// gateway too.
 		s.handleConnectJSON(w, r, method)
 	}
+}
+
+func (s *Server) handleAgentCodebaseRetrievalJSON(w http.ResponseWriter, r *http.Request) {
+	req := decodeBody(r)
+	// The host RPC uses proto JSON lowerCamelCase fields. Normalize them to
+	// the snake_case shape consumed by the existing retrieval responder.
+	normalized := map[string]any{
+		"information_request":    firstValue(req, "informationRequest", "information_request"),
+		"conversation_id":        firstValue(req, "conversationId", "conversation_id"),
+		"parent_conversation_id": firstValue(req, "parentConversationId", "parent_conversation_id"),
+		"root_conversation_id":   firstValue(req, "rootConversationId", "root_conversation_id"),
+		"dialog":                 firstValue(req, "chatHistory", "dialog"),
+	}
+	if value := firstValue(req, "maxOutputLength", "max_output_length"); value != nil {
+		normalized["max_output_length"] = value
+	}
+	resp, handled, err := s.Responder.Handle("CodebaseRetrieval", normalized)
+	if err != nil {
+		connectError(w, "internal", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !handled {
+		connectError(w, "unimplemented", "surface not implemented: CodebaseRetrieval", http.StatusNotImplemented)
+		return
+	}
+	w.Header().Set("Content-Type", "application/connect+json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func firstValue(values map[string]any, names ...string) any {
+	for _, name := range names {
+		if value, ok := values[name]; ok {
+			return value
+		}
+	}
+	return nil
 }
 
 // handleConnectJSON serves connect+json: unary responses as a single JSON

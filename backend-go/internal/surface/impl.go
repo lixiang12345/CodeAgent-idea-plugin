@@ -964,6 +964,8 @@ func (r *Responder) codebaseRetrieval(req map[string]any) (any, error) {
 		Name:           "codebase-retrieval",
 		Input:          input,
 		ConversationID: asString(req["conversation_id"]),
+		ParentConvID:   asString(req["parent_conversation_id"]),
+		RootConvID:     asString(req["root_conversation_id"]),
 	})
 	resp["codebase_retrieval_elapsed_ms"] = int(time.Since(started).Milliseconds())
 	if result == nil {
