@@ -9,8 +9,15 @@ function replaceOnce(file, name, before, after) {
   const source = fs.readFileSync(file, "utf8");
   const beforeCount = source.split(before).length - 1;
   const afterCount = source.split(after).length - 1;
-  if (beforeCount === 0 && afterCount === 1) {
-    return;
+  if (afterCount === 1) {
+    // Insertions naturally contain their original prefix, so an already
+    // patched anchor contributes to both counts.  Remove that one patched
+    // occurrence before deciding whether an original anchor remains.
+    const remainingSource = source.replace(after, "");
+    const remainingBeforeCount = remainingSource.split(before).length - 1;
+    if (remainingBeforeCount === 0) {
+      return;
+    }
   }
   if (beforeCount !== 1 || afterCount !== 0) {
     throw new Error(`${name}: expected one original or patched anchor, found ${beforeCount}/${afterCount}`);
@@ -74,6 +81,20 @@ replaceOnceFromAny(
 );
 
 replaceOnce(
+  mainPanelFile,
+  "built-in tools context usage field",
+  'key:"toolDefinitions",label:"Built-in Tools",color:"var(--ds-color-plum-9)",field:"toolDefinitionsTokens"',
+  'key:"toolDefinitions",label:"Built-in Tools",color:"var(--ds-color-plum-9)",field:"systemToolTokens"',
+);
+
+replaceOnce(
+  mainPanelFile,
+  "aggregate context usage category",
+  'field:"mcpToolTokens"}]',
+  'field:"mcpToolTokens"},{key:"aggregateContext",label:"Input Context",color:"var(--ds-color-accent-a11)",field:"aggregateContextTokens"}]',
+);
+
+replaceOnce(
   storeFile,
   "shared webview state request",
   'settingsSaga:function*(){yield*F(Mz,function*(){yield*A(At({type:x.getSharedWebviewState,id:P0,data:{}}))})}',
@@ -85,4 +106,11 @@ replaceOnce(
   "bounded Quick Ask retrieval",
   originalQuickAskPrompt,
   boundedQuickAskPrompt,
+);
+
+replaceOnce(
+  storeFile,
+  "aggregate context usage fallback",
+  'totalUsedTokens:V,',
+  'totalUsedTokens:V,aggregateContextTokens:d?0:Math.max(0,V-l.systemToolTokens-l.mcpToolTokens),',
 );

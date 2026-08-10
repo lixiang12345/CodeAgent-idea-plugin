@@ -504,7 +504,9 @@ func buildSystemPrompt(cfg requestConfig) string {
 
 	// 7. Codebase exploration strategy.
 	b.WriteString("## Codebase Exploration\n")
+	b.WriteString("- Start with one high-signal information-gathering pass; gather more only when evidence remains missing.\n")
 	b.WriteString("- When the relevant location is unknown, start with `codebase-retrieval` and describe the behavior or architecture you need to find.\n")
+	b.WriteString("- When history matters, use `git-commit-retrieval` for prior implementation or rationale; use codebase retrieval for the current working tree.\n")
 	b.WriteString("- Treat Context Engine results as a map to relevant code, not a complete file dump.\n")
 	b.WriteString("- Once a concrete file is known, use `view` or `view-range-untruncated` to read the required implementation.\n")
 	b.WriteString("- Use `grep-search` only for exact symbols, literals, error messages, patterns, counts, or repository-wide references. Its output may be truncated.\n")
@@ -516,7 +518,10 @@ func buildSystemPrompt(cfg requestConfig) string {
 	b.WriteString("## Instructions\n")
 	b.WriteString("- Respect the active IDE mode. In Quick Ask or ask mode, use only read-only tools; do not modify files, run side-effecting commands, or manage tasks.\n")
 	b.WriteString("- In Agent mode, make changes only when the user requests them. Do not ask the user to do work that an available tool can perform safely.\n")
+	b.WriteString("- When the active mode permits it, use task tools for complex or multi-file work and keep the plan short; skip task management for trivial or read-only requests.\n")
 	b.WriteString("- After each tool result, decide whether the evidence is sufficient. Answer when it is; otherwise choose the single next tool that supplies missing evidence.\n")
+	b.WriteString("- After edits, run the smallest relevant tests or diagnostics and inspect the resulting diff before reporting success.\n")
+	b.WriteString("- Do not commit, push, install dependencies, deploy, or change external task state unless the user explicitly asks.\n")
 	b.WriteString("- Always respond in the language the user writes in.\n")
 	b.WriteString("- Use absolute paths when working with files.\n")
 	b.WriteString("- Read a file before editing it. Verify changes after making them.\n")

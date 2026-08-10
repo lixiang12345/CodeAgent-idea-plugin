@@ -56,6 +56,23 @@ func TestBuildSystemPromptRespectsReadOnlyAskMode(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptSetsEvidenceAndChangeBoundaries(t *testing.T) {
+	t.Parallel()
+
+	prompt := buildSystemPrompt(requestConfig{})
+	for _, expected := range []string{
+		"Start with one high-signal information-gathering pass",
+		"use `git-commit-retrieval` for prior implementation or rationale",
+		"use task tools for complex or multi-file work",
+		"After edits, run the smallest relevant tests or diagnostics",
+		"Do not commit, push, install dependencies, deploy, or change external task state unless the user explicitly asks",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Errorf("system prompt missing %q:\n%s", expected, prompt)
+		}
+	}
+}
+
 func TestBuildMessagesFromIDEAssociatesToolResultFromNextExchange(t *testing.T) {
 	t.Parallel()
 

@@ -71,7 +71,22 @@ cp releases/intellij-augment-0.482.3-beta.jar \
 
 JAR 内部版本是 `0.482.3.999-local`，高于对应 Marketplace stable，避免 IDE 在重启后自动覆盖本地补丁。
 
-> 原始未打补丁 jar 可随时从插件市场重新安装回滚。补丁内容：`SettingsService` 两个 bridge（workspace 列表 + 语言统计）、sidecar `generate-project-overview` handler、Home 文件/会话统计、webview 摘要链路、线程数失败重试、onboarding 空问题过滤，以及 Java 21/日志/轮询加固。当前 bridge 源码和验证流程见 `re/patches/intellij-augment-0.482.3/`。
+当前发布包 SHA-256：
+
+```text
+b98071ba6424a6b252aa39cf99c9ec801b3603bad467232eab88d62a55f2f965  releases/intellij-augment-0.482.3-beta.jar
+```
+
+安装前后可用下面的命令确认拿到的是同一个包，并执行 JAR 内部补丁验收：
+
+```bash
+shasum -a 256 releases/intellij-augment-0.482.3-beta.jar
+backend-go/scripts/verify-patched-jar.sh releases/intellij-augment-0.482.3-beta.jar
+```
+
+该版本修复了聊天上下文占用弹窗的横条渲染：当后端只有总输入 token、没有七项细分时，剩余输入会显示为 `Input Context`；`Built-in Tools` 使用客户端已有的 `systemToolTokens`。详细分项存在时不会重复计算。
+
+> 原始未打补丁 jar 可随时从插件市场重新安装回滚。补丁内容：`SettingsService` 两个 bridge（workspace 列表 + 语言统计）、sidecar `generate-project-overview` handler、Home 文件/会话统计、webview 摘要与上下文占用链路、线程数失败重试、onboarding 空问题过滤，以及 Java 21/日志/轮询加固。当前 bridge 源码和验证流程见 `re/patches/intellij-augment-0.482.3/`。
 
 ### 5. 连接 IDE
 

@@ -92,6 +92,18 @@ fi
 if grep -Fq 'a.update(i=>i?.threadCount===d' "$MAIN_PANEL_FILE"; then
   fail "chat webview still sends unsupported update-shared-webview-state messages to IntelliJ"
 fi
+if grep -Fq 'key:"toolDefinitions",label:"Built-in Tools",color:"var(--ds-color-plum-9)",field:"toolDefinitionsTokens"' "$MAIN_PANEL_FILE"; then
+  fail "context usage still reads built-in tool tokens from the empty backend-only field"
+fi
+if ! grep -Fq 'key:"toolDefinitions",label:"Built-in Tools",color:"var(--ds-color-plum-9)",field:"systemToolTokens"' "$MAIN_PANEL_FILE"; then
+  fail "context usage does not display the client-estimated built-in tool tokens"
+fi
+if ! grep -Fq 'key:"aggregateContext",label:"Input Context",color:"var(--ds-color-accent-a11)",field:"aggregateContextTokens"' "$MAIN_PANEL_FILE"; then
+  fail "context usage bar has no aggregate input fallback category"
+fi
+if ! grep -Fq 'totalUsedTokens:V,aggregateContextTokens:d?0:Math.max(0,V-l.systemToolTokens-l.mcpToolTokens),' "$STORE_FILE"; then
+  fail "context usage does not map aggregate-only input tokens to a non-duplicating visible segment"
+fi
 if grep -Fq 'type:x.getSharedWebviewState,id:P0' "$STORE_FILE"; then
   fail "settings webview still requests unsupported shared state from IntelliJ"
 fi
