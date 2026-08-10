@@ -321,17 +321,17 @@ func fullFeatureFlags(models []any) map[string]any {
 		"enableChatMermaidDiagrams":       true,
 		"enableDeepLinkChatWithPrompt":    true,
 		"enableNewThreadsList":            true,
-		"enableBulkDeleteThreads":         true,
+		"enableBulkDeleteThreads":         false,
 		"enableExchangeStorage":           true,
 		"enableSummaryTitles":             true,
 		"intellijShowSummary":             true,
 
 		// ---- workspace & sync ---------------------------------------------------
-		"enableWorkspaceManagerUi":                   true,
-		"enableWorkspaceManagerUiLaunch":             true,
-		"enableWorkspaceConversationSync":            true,
-		"enableWorkspaceConversationChatHistorySync": true,
-		"enableCommitIndexing":                       true,
+		"enableWorkspaceManagerUi":                   false,
+		"enableWorkspaceManagerUiLaunch":             false,
+		"enableWorkspaceConversationSync":            false,
+		"enableWorkspaceConversationChatHistorySync": false,
+		"enableCommitIndexing":                       false,
 		"enableGitIndexing":                          false, // no git needed local
 		"coldStartGitShaIndexEnabled":                false,
 
