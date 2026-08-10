@@ -8,6 +8,7 @@ package tools
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -35,13 +36,24 @@ type ContextEngineClient struct {
 	HostBase  string // host mount base mapped to /host in the container
 	HTTP      *http.Client
 
-	mu             sync.Mutex
-	activeName     string // workspace name of the currently active project
+	operationMu     sync.Mutex
+	mu              sync.Mutex
+	activeName      string // workspace name of the currently active project
 	activeLocalRoot string // container-local root of the active project
-	workspaceID    string // server-assigned UUID for Workspace
-	jobID          string
-	jobStatus      string // "", "pending", "running", "succeeded", "failed"
-	checkedAt      time.Time
+	workspaceID     string // server-assigned UUID for Workspace
+	jobID           string
+	jobStatus       string // "", "pending", "running", "succeeded", "failed"
+	checkedAt       time.Time
+	workspaceStates map[string]contextEngineWorkspaceState
+}
+
+type contextEngineWorkspaceState struct {
+	name        string
+	localRoot   string
+	workspaceID string
+	jobID       string
+	jobStatus   string
+	checkedAt   time.Time
 }
 
 // SetActive points the client at a specific host project root (e.g.
@@ -49,6 +61,12 @@ type ContextEngineClient struct {
 // the last path segment and maps the host path into the container mount
 // (/Users/jiming → /host) so the indexer can read it.
 func (c *ContextEngineClient) SetActive(hostRoot string) {
+	c.operationMu.Lock()
+	defer c.operationMu.Unlock()
+	c.setActive(hostRoot)
+}
+
+func (c *ContextEngineClient) setActive(hostRoot string) {
 	if hostRoot == "" {
 		return
 	}
@@ -57,19 +75,50 @@ func (c *ContextEngineClient) SetActive(hostRoot string) {
 		return
 	}
 	localRoot := hostRoot
-	if c.HostBase != "" && strings.HasPrefix(hostRoot, c.HostBase) {
-		localRoot = "/host" + strings.TrimPrefix(hostRoot, c.HostBase)
+	if c.HostBase != "" {
+		if relative, err := filepath.Rel(filepath.Clean(c.HostBase), filepath.Clean(hostRoot)); err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			localRoot = filepath.Join("/host", relative)
+		}
 	}
 	c.mu.Lock()
+	if c.activeLocalRoot == localRoot {
+		c.mu.Unlock()
+		return
+	}
+	c.saveActiveStateLocked()
 	c.activeName = name
 	c.activeLocalRoot = localRoot
-	// New workspace: reset the resolved id / job state so we re-ensure.
-	c.workspaceID = ""
-	c.jobID = ""
-	c.jobStatus = ""
-	c.checkedAt = time.Time{}
+	if cached, ok := c.workspaceStates[localRoot]; ok {
+		c.activeName = cached.name
+		c.workspaceID = cached.workspaceID
+		c.jobID = cached.jobID
+		c.jobStatus = cached.jobStatus
+		c.checkedAt = cached.checkedAt
+	} else {
+		c.workspaceID = ""
+		c.jobID = ""
+		c.jobStatus = ""
+		c.checkedAt = time.Time{}
+	}
 	c.mu.Unlock()
 	log.Printf("contextengine: active workspace set name=%s root=%s", name, localRoot)
+}
+
+func (c *ContextEngineClient) saveActiveStateLocked() {
+	if c.activeLocalRoot == "" {
+		return
+	}
+	if c.workspaceStates == nil {
+		c.workspaceStates = make(map[string]contextEngineWorkspaceState)
+	}
+	c.workspaceStates[c.activeLocalRoot] = contextEngineWorkspaceState{
+		name:        c.activeName,
+		localRoot:   c.activeLocalRoot,
+		workspaceID: c.workspaceID,
+		jobID:       c.jobID,
+		jobStatus:   c.jobStatus,
+		checkedAt:   c.checkedAt,
+	}
 }
 
 // NewContextEngineClient builds a client from environment variables.
@@ -135,6 +184,12 @@ func (c *ContextEngineClient) do(method, path string, body any) (*http.Response,
 // fallback fields (Workspace/LocalRoot) are used only before any project is
 // known.
 func (c *ContextEngineClient) EnsureIndexed() error {
+	c.operationMu.Lock()
+	defer c.operationMu.Unlock()
+	return c.ensureIndexed()
+}
+
+func (c *ContextEngineClient) ensureIndexed() error {
 	if c.URL == "" {
 		return fmt.Errorf("ContextEngine URL not configured")
 	}
@@ -165,15 +220,43 @@ func (c *ContextEngineClient) EnsureIndexed() error {
 		}
 		var list struct {
 			Workspaces []struct {
-				ID   string `json:"id"`
-				Name string `json:"name"`
+				ID        string `json:"id"`
+				Name      string `json:"name"`
+				LocalRoot string `json:"local_root"`
 			} `json:"workspaces"`
 		}
 		_ = json.Unmarshal(body, &list)
+		// Prefer the source root over the display name. Two repositories can
+		// legitimately share a basename (for example two checkouts named app).
 		for _, ws := range list.Workspaces {
-			if ws.Name == name {
+			if root != "" && ws.LocalRoot == root {
 				c.workspaceID = ws.ID
+				name = ws.Name
+				c.activeName = ws.Name
 				break
+			}
+		}
+		nameConflict := false
+		for _, ws := range list.Workspaces {
+			if c.workspaceID != "" {
+				break
+			}
+			if ws.Name == name {
+				if root == "" || ws.LocalRoot == "" || ws.LocalRoot == root {
+					c.workspaceID = ws.ID
+					break
+				}
+				nameConflict = true
+			}
+		}
+		if c.workspaceID == "" && nameConflict {
+			name = disambiguatedWorkspaceName(name, root)
+			c.activeName = name
+			for _, ws := range list.Workspaces {
+				if ws.Name == name && (ws.LocalRoot == "" || ws.LocalRoot == root) {
+					c.workspaceID = ws.ID
+					break
+				}
 			}
 		}
 	}
@@ -241,9 +324,20 @@ func (c *ContextEngineClient) EnsureIndexed() error {
 	return nil
 }
 
+func disambiguatedWorkspaceName(name, root string) string {
+	sum := sha256.Sum256([]byte(filepath.Clean(root)))
+	return fmt.Sprintf("%s-%x", name, sum[:4])
+}
+
 // IndexReady reports whether the codebase has finished indexing. It consults
 // the latest job status, refreshing it if it's stale.
 func (c *ContextEngineClient) IndexReady() (bool, error) {
+	c.operationMu.Lock()
+	defer c.operationMu.Unlock()
+	return c.indexReady()
+}
+
+func (c *ContextEngineClient) indexReady() (bool, error) {
 	c.mu.Lock()
 	jobID := c.jobID
 	status := c.jobStatus
@@ -296,15 +390,28 @@ func (c *ContextEngineClient) IndexReady() (bool, error) {
 // elapses, so callers can wait out the initial indexing instead of returning
 // "still indexing" immediately.
 func (c *ContextEngineClient) WaitIndexReady(maxWait time.Duration) bool {
+	c.operationMu.Lock()
+	defer c.operationMu.Unlock()
+	return c.waitIndexReady(maxWait)
+}
+
+func (c *ContextEngineClient) waitIndexReady(maxWait time.Duration) bool {
 	deadline := time.Now().Add(maxWait)
-	for time.Now().Before(deadline) {
-		ready, err := c.IndexReady()
+	for {
+		ready, err := c.indexReady()
 		if err == nil && ready {
 			return true
 		}
-		time.Sleep(2 * time.Second)
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return false
+		}
+		delay := 2 * time.Second
+		if remaining < delay {
+			delay = remaining
+		}
+		time.Sleep(delay)
 	}
-	return false
 }
 
 // Status returns the indexing status of the currently active workspace:
@@ -313,6 +420,7 @@ func (c *ContextEngineClient) WaitIndexReady(maxWait time.Duration) bool {
 func (c *ContextEngineClient) Status() map[string]any {
 	c.mu.Lock()
 	wid := c.workspaceID
+	jobID := c.jobID
 	name := c.activeName
 	if name == "" {
 		name = c.Workspace
@@ -370,14 +478,14 @@ func (c *ContextEngineClient) Status() map[string]any {
 		}
 		// Not indexed yet — surface the in-flight job progress so the UI can
 		// render a real percentage (filesDone/filesTotal).
-		if p := c.jobProgress(); p != nil {
+		if p := c.jobProgressFor(jobID); p != nil {
 			out["progress"] = p
 		}
 		return out
 	}
 	// Active workspace not present in the overview yet (job just kicked off,
 	// stats not materialized). Fall back to the live job if one is running.
-	if p := c.jobProgress(); p != nil {
+	if p := c.jobProgressFor(jobID); p != nil {
 		out["progress"] = p
 	}
 	return out
@@ -389,6 +497,10 @@ func (c *ContextEngineClient) jobProgress() map[string]any {
 	c.mu.Lock()
 	jobID := c.jobID
 	c.mu.Unlock()
+	return c.jobProgressFor(jobID)
+}
+
+func (c *ContextEngineClient) jobProgressFor(jobID string) map[string]any {
 	if jobID == "" {
 		return nil
 	}
@@ -420,13 +532,25 @@ func (c *ContextEngineClient) jobProgress() map[string]any {
 // Retrieve packs task context from ContextEngine and returns the packed_text.
 // It is the HTTP twin of the MCP `codebase-retrieval` tool.
 func (c *ContextEngineClient) Retrieve(query string) (string, error) {
+	c.operationMu.Lock()
+	defer c.operationMu.Unlock()
+	return c.retrieve(query)
+}
+
+func (c *ContextEngineClient) retrieve(query string) (string, error) {
+	c.mu.Lock()
+	workspaceID := c.workspaceID
+	c.mu.Unlock()
+	if workspaceID == "" {
+		return "", fmt.Errorf("contextengine: no resolved workspace")
+	}
 	body := map[string]any{
 		"information_request": query,
 		"top_k":               14,
 		"subqueries":          true,
 		"include_rules":       true,
 	}
-	resp, raw, err := c.do("POST", "/v1/workspaces/"+c.workspaceID+"/context", body)
+	resp, raw, err := c.do("POST", "/v1/workspaces/"+workspaceID+"/context", body)
 	if err != nil {
 		return "", err
 	}
@@ -440,4 +564,31 @@ func (c *ContextEngineClient) Retrieve(query string) (string, error) {
 		return "", err
 	}
 	return out.PackedText, nil
+}
+
+// RetrieveFor performs the full workspace switch, index readiness check and
+// context query as one operation. Serializing this sequence prevents another
+// project from replacing workspaceID between EnsureIndexed and Retrieve.
+func (c *ContextEngineClient) RetrieveFor(hostRoot, query string, maxWait time.Duration) (string, error) {
+	c.operationMu.Lock()
+	defer c.operationMu.Unlock()
+	if hostRoot != "" {
+		c.setActive(hostRoot)
+	}
+	if err := c.ensureIndexed(); err != nil {
+		return "", err
+	}
+	if !c.waitIndexReady(maxWait) {
+		return "", fmt.Errorf("contextengine: active workspace index is not ready")
+	}
+	return c.retrieve(query)
+}
+
+// EnsureWorkspace indexes the specified project without allowing a concurrent
+// activation to redirect the index job to a different workspace.
+func (c *ContextEngineClient) EnsureWorkspace(hostRoot string) error {
+	c.operationMu.Lock()
+	defer c.operationMu.Unlock()
+	c.setActive(hostRoot)
+	return c.ensureIndexed()
 }

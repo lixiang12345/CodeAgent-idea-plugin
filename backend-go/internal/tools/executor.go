@@ -25,15 +25,15 @@ import (
 // Note: the input field may arrive as a raw JSON object or as a JSON-encoded string
 // depending on how the sidecar serializes the protobuf Struct type.
 type ToolCallRequest struct {
-	Name             string          `json:"name"`
-	RequestID        string          `json:"request_id"`
-	ToolUseID        string          `json:"tool_use_id"`
-	Input            json.RawMessage `json:"input"`
-	ConversationID   string          `json:"conversation_id"`
-	ParentConvID     string          `json:"parent_conversation_id,omitempty"`
-	RootConvID       string          `json:"root_conversation_id,omitempty"`
-	TurnID           string          `json:"turn_id,omitempty"`
-	History          []any           `json:"history,omitempty"`
+	Name           string          `json:"name"`
+	RequestID      string          `json:"request_id"`
+	ToolUseID      string          `json:"tool_use_id"`
+	Input          json.RawMessage `json:"input"`
+	ConversationID string          `json:"conversation_id"`
+	ParentConvID   string          `json:"parent_conversation_id,omitempty"`
+	RootConvID     string          `json:"root_conversation_id,omitempty"`
+	TurnID         string          `json:"turn_id,omitempty"`
+	History        []any           `json:"history,omitempty"`
 }
 
 // parseInput normalizes the input field which may be a raw JSON object or a
@@ -66,9 +66,9 @@ type ToolCallResponse struct {
 
 // Executor runs tools server-side against the real filesystem.
 type Executor struct {
-	mu       sync.Mutex
-	procMgr  *ProcessManager
-	workspaceDir string // fallback workspace root
+	mu            sync.Mutex
+	procMgr       *ProcessManager
+	workspaceDir  string               // fallback workspace root
 	ContextEngine *ContextEngineClient // optional retrieval backend for codebase-retrieval
 
 	// convWorkspace maps conversation_id → host project root so that with
@@ -102,7 +102,16 @@ func (e *Executor) SetConversationWorkspace(conversationID, hostRoot string) {
 	e.convWorkspace[conversationID] = hostRoot
 	e.mu.Unlock()
 	e.SetActiveWorkspace(hostRoot)
-	go e.EnsureContextEngineIndexed()
+	go e.ensureContextEngineWorkspace(hostRoot)
+}
+
+func (e *Executor) ensureContextEngineWorkspace(hostRoot string) {
+	if e.ContextEngine == nil || e.ContextEngine.URL == "" {
+		return
+	}
+	if err := e.ContextEngine.EnsureWorkspace(hostRoot); err != nil {
+		log.Printf("tools: contextengine ensure workspace %q: %v", hostRoot, err)
+	}
 }
 
 // workspaceForConversation returns the host project root recorded for a
@@ -137,8 +146,8 @@ func (e *Executor) SetActiveWorkspace(hostRoot string) {
 
 // ProcessManager tracks launched background processes.
 type ProcessManager struct {
-	mu       sync.Mutex
-	procs    map[string]*TrackedProcess
+	mu    sync.Mutex
+	procs map[string]*TrackedProcess
 }
 
 type TrackedProcess struct {
@@ -176,12 +185,11 @@ func (e *Executor) Execute(req *ToolCallRequest) *ToolCallResponse {
 
 	log.Printf("tools: executing %s (req=%s conv=%s)", req.Name, req.RequestID, req.ConversationID)
 
-	// For codebase-retrieval, point ContextEngine at this conversation's own
-	// project (so multiple open projects don't collide).
-	if req.Name == "codebase-retrieval" && e.ContextEngine != nil {
-		if root := e.workspaceForConversation(req.ConversationID); root != "" {
-			e.ContextEngine.SetActive(root)
-		}
+	retrievalRoot := e.workspaceForConversation(req.ConversationID)
+	if req.Name == "codebase-retrieval" && retrievalRoot != "" && e.ContextEngine != nil {
+		// Update the UI-visible active workspace immediately. RetrieveFor repeats
+		// this switch while holding the operation lock before touching the server.
+		e.ContextEngine.SetActive(retrievalRoot)
 	}
 
 	// After a write operation, bump ContextEngine's incremental index for this
@@ -191,8 +199,7 @@ func (e *Executor) Execute(req *ToolCallRequest) *ToolCallResponse {
 	if isWriteOp(req.Name) && e.ContextEngine != nil {
 		defer func() {
 			if root := e.workspaceForConversation(req.ConversationID); root != "" {
-				e.ContextEngine.SetActive(root)
-				go e.EnsureContextEngineIndexed()
+				go e.ensureContextEngineWorkspace(root)
 			}
 		}()
 	}
@@ -260,7 +267,7 @@ func (e *Executor) Execute(req *ToolCallRequest) *ToolCallResponse {
 
 	// ── codebase retrieval ─────────────────────────────────────────
 	case "codebase-retrieval":
-		return e.codebaseRetrieval(ws, input)
+		return e.codebaseRetrieval(ws, retrievalRoot, input)
 	case "git-commit-retrieval":
 		return e.gitCommitRetrieval(ws, input)
 
@@ -289,7 +296,7 @@ func (e *Executor) view(ws string, input map[string]any) *ToolCallResponse {
 	for i, line := range lines {
 		fmt.Fprintf(&b, "%6d\t%s\n", i+1, line)
 	}
-	return okResp(b.String())
+	return okResp("%s", b.String())
 }
 
 func (e *Executor) viewRangeUntruncated(ws string, input map[string]any) *ToolCallResponse {
@@ -314,7 +321,7 @@ func (e *Executor) viewRangeUntruncated(ws string, input map[string]any) *ToolCa
 	for i := start - 1; i < end; i++ {
 		fmt.Fprintf(&b, "%6d\t%s\n", i+1, lines[i])
 	}
-	return okResp(b.String())
+	return okResp("%s", b.String())
 }
 
 func (e *Executor) searchUntruncated(ws string, input map[string]any) *ToolCallResponse {
@@ -361,7 +368,7 @@ func (e *Executor) searchUntruncated(ws string, input map[string]any) *ToolCallR
 	if b.Len() == 0 {
 		return okResp("no matches found")
 	}
-	return okResp(b.String())
+	return okResp("%s", b.String())
 }
 
 // ── search ─────────────────────────────────────────────────────────
@@ -430,7 +437,7 @@ func (e *Executor) grepSearch(ws string, input map[string]any) *ToolCallResponse
 		}
 		return nil
 	})
-	return okResp(strings.Join(results, "\n"))
+	return okResp("%s", strings.Join(results, "\n"))
 }
 
 // ── file editing ───────────────────────────────────────────────────
@@ -506,7 +513,7 @@ func (e *Executor) removeFiles(ws string, input map[string]any) *ToolCallRespons
 			results = append(results, fmt.Sprintf("deleted: %s", path))
 		}
 	}
-	return okResp(strings.Join(results, "\n"))
+	return okResp("%s", strings.Join(results, "\n"))
 }
 
 // ── terminal / process ─────────────────────────────────────────────
@@ -538,7 +545,7 @@ func (e *Executor) readProcess(input map[string]any) *ToolCallResponse {
 	if err != nil {
 		return errResp("read process: %v", err)
 	}
-	return okResp(out)
+	return okResp("%s", out)
 }
 
 func (e *Executor) writeProcess(input map[string]any) *ToolCallResponse {
@@ -574,7 +581,7 @@ func (e *Executor) listProcesses() *ToolCallResponse {
 	if b.Len() == 0 {
 		return okResp("no running processes")
 	}
-	return okResp(b.String())
+	return okResp("%s", b.String())
 }
 
 func (e *Executor) readTerminal(input map[string]any) *ToolCallResponse {
@@ -612,7 +619,7 @@ func (e *Executor) webFetch(input map[string]any) *ToolCallResponse {
 	if err != nil {
 		return errResp("web-fetch read failed: %v", err)
 	}
-	return okResp(string(body))
+	return okResp("%s", string(body))
 }
 
 func (e *Executor) openBrowser(input map[string]any) *ToolCallResponse {
@@ -630,8 +637,8 @@ func (e *Executor) openBrowser(input map[string]any) *ToolCallResponse {
 // ── task management ────────────────────────────────────────────────
 
 var taskStore = struct {
-	mu    sync.Mutex
-	tasks []map[string]any
+	mu      sync.Mutex
+	tasks   []map[string]any
 	counter int
 }{tasks: make([]map[string]any, 0)}
 
@@ -642,7 +649,7 @@ func (e *Executor) viewTasklist() *ToolCallResponse {
 		return okResp("no tasks")
 	}
 	data, _ := json.MarshalIndent(taskStore.tasks, "", "  ")
-	return okResp(string(data))
+	return okResp("%s", string(data))
 }
 
 func (e *Executor) addTasks(input map[string]any) *ToolCallResponse {
@@ -700,7 +707,7 @@ func (e *Executor) updateTasks(input map[string]any) *ToolCallResponse {
 			results = append(results, fmt.Sprintf("task %s not found", id))
 		}
 	}
-	return okResp(strings.Join(results, "\n"))
+	return okResp("%s", strings.Join(results, "\n"))
 }
 
 func (e *Executor) reorganizeTasklist(input map[string]any) *ToolCallResponse {
@@ -733,7 +740,7 @@ func (e *Executor) diagnostics(ws string, input map[string]any) *ToolCallRespons
 	if len(results) == 0 {
 		return okResp("no diagnostics found")
 	}
-	return okResp(strings.Join(results, "\n"))
+	return okResp("%s", strings.Join(results, "\n"))
 }
 
 // ── memory ─────────────────────────────────────────────────────────
@@ -764,7 +771,7 @@ func (e *Executor) memorize(input map[string]any) *ToolCallResponse {
 
 // ── codebase retrieval ─────────────────────────────────────────────
 
-func (e *Executor) codebaseRetrieval(ws string, input map[string]any) *ToolCallResponse {
+func (e *Executor) codebaseRetrieval(ws, hostRoot string, input map[string]any) *ToolCallResponse {
 	query := str(input["information_request"])
 	if query == "" {
 		query = str(input["query"])
@@ -777,14 +784,10 @@ func (e *Executor) codebaseRetrieval(ws string, input map[string]any) *ToolCallR
 	// (wait out the initial indexing up to 30s), then proxy the retrieval so
 	// the agent gets a real evidence pack.
 	if ce := e.ContextEngine; ce != nil && ce.URL != "" {
-		if err := ce.EnsureIndexed(); err != nil {
-			log.Printf("tools: codebase-retrieval: contextengine ensure: %v", err)
-		} else if ce.WaitIndexReady(30 * time.Second) {
-			if packed, rerr := ce.Retrieve(query); rerr == nil && strings.TrimSpace(packed) != "" {
-				return okResp("%s", packed)
-			} else if rerr != nil {
-				log.Printf("tools: codebase-retrieval: contextengine retrieve: %v", rerr)
-			}
+		if packed, err := ce.RetrieveFor(hostRoot, query, 30*time.Second); err == nil && strings.TrimSpace(packed) != "" {
+			return okResp("%s", packed)
+		} else if err != nil {
+			log.Printf("tools: codebase-retrieval: contextengine retrieve: %v", err)
 		}
 	}
 
@@ -871,7 +874,7 @@ func (e *Executor) gitCommitRetrieval(ws string, input map[string]any) *ToolCall
 	if len(out) == 0 {
 		return okResp("no commits found")
 	}
-	return okResp(string(out))
+	return okResp("%s", string(out))
 }
 
 // ── ProcessManager ─────────────────────────────────────────────────

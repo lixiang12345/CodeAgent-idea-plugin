@@ -41,6 +41,8 @@ type Responder struct {
 var Implemented = map[string]func(*Responder, map[string]any) (any, error){
 	"GetModels":                  (*Responder).getModels,
 	"GetCreditInfo":              (*Responder).getCreditInfo,
+	"Completion":                 (*Responder).completion,
+	"ResolveCompletionsRpc":      (*Responder).resolveCompletions,
 	"ChatInputCompletion":        (*Responder).chatInputCompletion,
 	"ResolveChatInputCompletion": emptyOK,
 	"ListRemoteTools":            (*Responder).listRemoteTools,
@@ -915,17 +917,7 @@ func (r *Responder) codebaseRetrieval(req map[string]any) (any, error) {
 	}
 	// Proxy to ContextEngine so the agent gets real retrieval results.
 	ce := r.ToolExecutor.ContextEngine
-	if err := ce.EnsureIndexed(); err != nil {
-		log.Printf("surface: codebase-retrieval ensure: %v", err)
-		return resp, nil
-	}
-	// Wait out the initial indexing (up to 30s) so the agent gets real
-	// results instead of a "still indexing" placeholder.
-	if !ce.WaitIndexReady(30 * time.Second) {
-		resp["formatted_retrieval"] = "The codebase is still being indexed by the context engine. Please wait and try again."
-		return resp, nil
-	}
-	if packed, rerr := ce.Retrieve(q); rerr == nil && packed != "" {
+	if packed, rerr := ce.RetrieveFor("", q, 30*time.Second); rerr == nil && packed != "" {
 		resp["formatted_retrieval"] = packed
 		return resp, nil
 	} else if rerr != nil {

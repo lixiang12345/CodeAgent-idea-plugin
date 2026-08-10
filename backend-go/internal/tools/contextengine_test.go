@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -109,6 +111,54 @@ func TestStatusFiltersByActiveWorkspace(t *testing.T) {
 	}
 }
 
+func TestStatusKeepsWorkspaceAndJobSnapshotTogether(t *testing.T) {
+	t.Parallel()
+
+	overviewStarted := make(chan struct{})
+	releaseOverview := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/observability/overview":
+			close(overviewStarted)
+			<-releaseOverview
+			_, _ = w.Write([]byte(`{"workspaces":[{"workspace":{"id":"workspace-a"},"indexed":false,"stats":null}]}`))
+		case "/v1/index-jobs/job-a":
+			_, _ = w.Write([]byte(`{"job":{"id":"job-a","status":"running","progress":{"phase":"scan-a","files_total":10,"files_done":4}}}`))
+		case "/v1/index-jobs/job-b":
+			t.Error("status mixed workspace-a with job-b")
+			_, _ = w.Write([]byte(`{"job":{"id":"job-b","status":"running","progress":{"phase":"scan-b"}}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := &ContextEngineClient{URL: srv.URL, HTTP: srv.Client()}
+	c.mu.Lock()
+	c.activeName = "project-a"
+	c.activeLocalRoot = "/host/project-a"
+	c.workspaceID = "workspace-a"
+	c.jobID = "job-a"
+	c.mu.Unlock()
+
+	result := make(chan map[string]any, 1)
+	go func() { result <- c.Status() }()
+	<-overviewStarted
+	c.SetActive("/host/project-b")
+	c.mu.Lock()
+	c.workspaceID = "workspace-b"
+	c.jobID = "job-b"
+	c.mu.Unlock()
+	close(releaseOverview)
+
+	status := <-result
+	progress, ok := status["progress"].(map[string]any)
+	if !ok || progress["phase"] != "scan-a" {
+		t.Fatalf("status progress = %#v, want workspace-a/job-a snapshot", status["progress"])
+	}
+}
+
 // TestCodebaseRetrievalProxy verifies the codebase-retrieval tool proxies to
 // ContextEngine when configured (needs the compose stack running).
 func TestCodebaseRetrievalProxy(t *testing.T) {
@@ -176,10 +226,23 @@ func TestSetActiveMapping(t *testing.T) {
 	if root != "/opt/svc" {
 		t.Errorf("root = %q, want /opt/svc", root)
 	}
+	// A lexical prefix is not a path boundary: /Users/jim must not match
+	// /Users/jiming, otherwise a project can be mapped to a bogus /hosting root.
+	c.HostBase = "/Users/jim"
+	c.SetActive("/Users/jiming/Baz")
+	c.mu.Lock()
+	root = c.activeLocalRoot
+	c.mu.Unlock()
+	if root != "/Users/jiming/Baz" {
+		t.Errorf("boundary mapping root = %q, want unchanged /Users/jiming/Baz", root)
+	}
 }
 
 func TestPerConversationWorkspace(t *testing.T) {
 	e := New("")
+	// This unit test verifies conversation routing only. Disable background HTTP
+	// indexing so asynchronous network failures cannot change the active project.
+	e.ContextEngine.URL = ""
 	// Two conversations bound to two different projects.
 	e.SetConversationWorkspace("convA", "/Users/jiming/CodeAgent-idea-plugin")
 	e.SetConversationWorkspace("convB", "/Users/jiming/codeagentcli")
@@ -204,5 +267,112 @@ func TestPerConversationWorkspace(t *testing.T) {
 	e.mu.Unlock()
 	if activeB != "codeagentcli" {
 		t.Errorf("after convB retrieval active = %q, want codeagentcli", activeB)
+	}
+}
+
+func TestRetrieveForKeepsConcurrentWorkspacesIsolated(t *testing.T) {
+	t.Parallel()
+
+	var requestMu sync.Mutex
+	var contextPaths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/workspaces":
+			_, _ = w.Write([]byte(`{"workspaces":[
+				{"id":"workspace-a","name":"project-a","source_mode":"local","local_root":"/host/project-a"},
+				{"id":"workspace-b","name":"project-b","source_mode":"local","local_root":"/host/project-b"}
+			]}`))
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/index-jobs"):
+			workspaceID := strings.Split(r.URL.Path, "/")[3]
+			_, _ = w.Write([]byte(`{"job":{"id":"job-` + workspaceID + `","status":"succeeded"}}`))
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/context"):
+			workspaceID := strings.Split(r.URL.Path, "/")[3]
+			requestMu.Lock()
+			contextPaths = append(contextPaths, r.URL.Path)
+			requestMu.Unlock()
+			_, _ = w.Write([]byte(`{"packed_text":"sentinel-` + workspaceID + `"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := &ContextEngineClient{URL: srv.URL, HTTP: srv.Client()}
+	for iteration := 0; iteration < 20; iteration++ {
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Add(2)
+		results := make([]string, 2)
+		errs := make([]error, 2)
+		go func() {
+			defer wg.Done()
+			<-start
+			results[0], errs[0] = c.RetrieveFor("/host/project-a", "alpha", time.Second)
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			results[1], errs[1] = c.RetrieveFor("/host/project-b", "beta", time.Second)
+		}()
+		close(start)
+		wg.Wait()
+		if errs[0] != nil || errs[1] != nil {
+			t.Fatalf("iteration %d errors = %v, %v", iteration, errs[0], errs[1])
+		}
+		if results[0] != "sentinel-workspace-a" || results[1] != "sentinel-workspace-b" {
+			t.Fatalf("iteration %d results = %q, %q", iteration, results[0], results[1])
+		}
+	}
+
+	requestMu.Lock()
+	defer requestMu.Unlock()
+	if len(contextPaths) != 40 {
+		t.Fatalf("context requests = %d, want 40", len(contextPaths))
+	}
+}
+
+func TestEnsureIndexedDisambiguatesSameBasename(t *testing.T) {
+	t.Parallel()
+
+	var createdName string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/workspaces":
+			_, _ = w.Write([]byte(`{"workspaces":[{"id":"other-app","name":"app","source_mode":"local","local_root":"/host/team-a/app"}]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/workspaces":
+			var body struct {
+				Name string `json:"name"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode create request: %v", err)
+			}
+			createdName = body.Name
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"workspace":{"id":"team-b-app"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/workspaces/team-b-app/index-jobs":
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"job":{"id":"team-b-job","status":"succeeded"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := &ContextEngineClient{URL: srv.URL, HTTP: srv.Client()}
+	c.SetActive("/host/team-b/app")
+	if err := c.EnsureIndexed(); err != nil {
+		t.Fatal(err)
+	}
+	if createdName == "" || createdName == "app" || !strings.HasPrefix(createdName, "app-") {
+		t.Fatalf("created workspace name = %q, want deterministic disambiguated app-*", createdName)
+	}
+	c.mu.Lock()
+	workspaceID := c.workspaceID
+	activeName := c.activeName
+	c.mu.Unlock()
+	if workspaceID != "team-b-app" || activeName != createdName {
+		t.Fatalf("resolved workspace = id %q name %q, want team-b-app/%q", workspaceID, activeName, createdName)
 	}
 }
