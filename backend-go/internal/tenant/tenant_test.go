@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -20,6 +21,15 @@ func TestEncodeChatResponseStopReasonError(t *testing.T) {
 
 func testServer() *httptest.Server {
 	return httptest.NewServer(New("http://127.0.0.1:8787", "", "augment-local-code-1").Handler())
+}
+
+func successfulModelGateway(t *testing.T) *httptest.Server {
+	t.Helper()
+	t.Setenv("MODEL_GATEWAY_REASONING_EFFORT", "high")
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hello from model\"}}]}\n\ndata: [DONE]\n\n"))
+	}))
 }
 
 func post(t *testing.T, url, body string) *http.Response {
@@ -71,6 +81,155 @@ func TestGetModelsREST(t *testing.T) {
 	}
 }
 
+func TestListRemoteToolsDoesNotDuplicateSidecarTools(t *testing.T) {
+	srv := testServer()
+	defer srv.Close()
+
+	resp := post(t, srv.URL+"/api-client/agents/list-remote-tools", `{}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var got struct {
+		Tools []any `json:"tools"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Tools) != 0 {
+		t.Fatalf("remote tools = %d, want 0; IDE-local tools belong to the sidecar", len(got.Tools))
+	}
+}
+
+func TestChatInputCompletionUsesLowReasoningGatewayCall(t *testing.T) {
+	t.Setenv("MODEL_GATEWAY_API_KEY", "test-key")
+
+	var calls atomic.Int32
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+			t.Errorf("authorization = %q", got)
+		}
+		var body struct {
+			Model           string           `json:"model"`
+			ReasoningEffort string           `json:"reasoning_effort"`
+			Stream          bool             `json:"stream"`
+			Messages        []map[string]any `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode gateway request: %v", err)
+		}
+		if body.Model != "completion-model" || body.ReasoningEffort != "low" || body.Stream {
+			t.Errorf("gateway request = %#v", body)
+		}
+		if len(body.Messages) != 2 {
+			t.Errorf("messages = %d, want 2", len(body.Messages))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"补充 ContextEngine 的错误恢复测试"},"finish_reason":"stop"}]}`))
+	}))
+	defer gateway.Close()
+
+	srv := httptest.NewServer(New("http://127.0.0.1:8787", gateway.URL, "completion-model").Handler())
+	defer srv.Close()
+	resp := post(t, srv.URL+"/api-client/chat-input-completion", `{"prompt":"请继续完善","suffix":"。"}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var got struct {
+		CompletionItems []struct {
+			Text         string `json:"text"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"completion_items"`
+		UnknownBlobNames   []string `json:"unknown_blob_names"`
+		CheckpointNotFound bool     `json:"checkpoint_not_found"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("gateway calls = %d, want 1", calls.Load())
+	}
+	if len(got.CompletionItems) != 1 || got.CompletionItems[0].Text != "补充 ContextEngine 的错误恢复测试" {
+		t.Fatalf("completion response = %#v", got)
+	}
+	if got.CompletionItems[0].FinishReason != "stop" {
+		t.Fatalf("finish reason = %q", got.CompletionItems[0].FinishReason)
+	}
+	if got.UnknownBlobNames == nil || got.CheckpointNotFound {
+		t.Fatalf("completion metadata = %#v", got)
+	}
+}
+
+func TestChatInputCompletionGatewayFailureDegradesToEmptySuggestion(t *testing.T) {
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":{"message":"overloaded"}}`))
+	}))
+	defer gateway.Close()
+
+	srv := httptest.NewServer(New("http://127.0.0.1:8787", gateway.URL, "completion-model").Handler())
+	defer srv.Close()
+	resp := post(t, srv.URL+"/api-client/chat-input-completion", `{"prompt":"continue"}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want graceful 200", resp.StatusCode)
+	}
+	var got struct {
+		CompletionItems    []any    `json:"completion_items"`
+		UnknownBlobNames   []string `json:"unknown_blob_names"`
+		CheckpointNotFound bool     `json:"checkpoint_not_found"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.CompletionItems) != 0 {
+		t.Fatalf("completion items = %#v, want empty fallback", got.CompletionItems)
+	}
+	if got.CompletionItems == nil || got.UnknownBlobNames == nil || got.CheckpointNotFound {
+		t.Fatalf("completion fallback = %#v", got)
+	}
+}
+
+func TestResolveChatInputCompletionAccepted(t *testing.T) {
+	srv := testServer()
+	defer srv.Close()
+	resp := post(t, srv.URL+"/api-client/resolve-chat-input-completion", `{"requestId":"request-1","accepted":true}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestRunRemoteToolUsesReleasedPluginContract(t *testing.T) {
+	srv := testServer()
+	defer srv.Close()
+
+	resp := post(t, srv.URL+"/api-client/agents/run-remote-tool", `{"tool_name":"unsupported-cloud-tool","tool_input_json":"{}","tool_id":1}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var got struct {
+		ToolOutput           string `json:"tool_output"`
+		ToolResultMessage    string `json:"tool_result_message"`
+		Status               string `json:"status"`
+		CompressedFullOutput string `json:"compressed_full_output"`
+		FullOutputSize       int64  `json:"full_output_size"`
+		ContentNodes         []any  `json:"content_nodes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ToolOutput == "" || got.Status != "EXECUTION_ERROR" {
+		t.Fatalf("remote tool response = %#v", got)
+	}
+	if got.ContentNodes == nil {
+		t.Fatalf("content_nodes must be an empty array, got %#v", got.ContentNodes)
+	}
+}
+
 func TestUnimplementedIsLoud(t *testing.T) {
 	srv := testServer()
 	defer srv.Close()
@@ -89,12 +248,14 @@ func TestUnimplementedIsLoud(t *testing.T) {
 }
 
 func TestChatStreamNDJSON(t *testing.T) {
-	srv := testServer()
+	gateway := successfulModelGateway(t)
+	defer gateway.Close()
+	srv := httptest.NewServer(New("http://127.0.0.1:8787", gateway.URL, "test-model").Handler())
 	defer srv.Close()
 	resp := post(t, srv.URL+"/api-client/chat-stream", `{"message":"hi","conversation_id":"c1"}`)
 	defer resp.Body.Close()
 	sc := bufio.NewScanner(resp.Body)
-	var sawThinking, sawFinished, sawStop bool
+	var sawThinking, sawFinished, sawText, sawEndTurn, sawError bool
 	lines := 0
 	for sc.Scan() && lines < 50 {
 		line := sc.Text()
@@ -119,16 +280,23 @@ func TestChatStreamNDJSON(t *testing.T) {
 			}
 		}
 		if evt["stop_reason"] == "END_TURN" || evt["stop_reason"] == "STOP_REASON_ERROR" {
-			sawStop = true
+			sawEndTurn = evt["stop_reason"] == "END_TURN"
+			sawError = evt["stop_reason"] == "STOP_REASON_ERROR"
+		}
+		if text, _ := evt["text"].(string); strings.Contains(text, "hello from model") {
+			sawText = true
 		}
 	}
-	if !sawThinking || !sawFinished || !sawStop {
-		t.Errorf("stream missing events: thinking=%v finished=%v stop=%v (lines=%d)", sawThinking, sawFinished, sawStop, lines)
+	if !sawThinking || !sawFinished || !sawText || !sawEndTurn || sawError {
+		t.Errorf("stream events: thinking=%v finished=%v text=%v endTurn=%v error=%v (lines=%d)",
+			sawThinking, sawFinished, sawText, sawEndTurn, sawError, lines)
 	}
 }
 
 func TestChatStreamSSE(t *testing.T) {
-	srv := testServer()
+	gateway := successfulModelGateway(t)
+	defer gateway.Close()
+	srv := httptest.NewServer(New("http://127.0.0.1:8787", gateway.URL, "test-model").Handler())
 	defer srv.Close()
 	req, _ := http.NewRequest("POST", srv.URL+"/api-client/chat-stream", strings.NewReader(`{"message":"hi"}`))
 	req.Header.Set("Accept", "text/event-stream")

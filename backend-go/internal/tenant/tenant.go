@@ -40,9 +40,15 @@ func New(tenantURL, gatewayURL, gatewayModel string) *Server {
 	st := state.NewWithSnapshot(snapshotPath)
 	te := tools.New("")
 	s := &Server{
-		TenantURL:    tenantURL,
-		Store:        st,
-		Responder:    &surface.Responder{Store: st, TenantURL: tenantURL, GatewayURL: gatewayURL, ToolExecutor: te},
+		TenantURL: tenantURL,
+		Store:     st,
+		Responder: &surface.Responder{
+			Store:        st,
+			TenantURL:    tenantURL,
+			GatewayURL:   gatewayURL,
+			GatewayModel: gatewayModel,
+			ToolExecutor: te,
+		},
 		Chat:         chat.New(st, gatewayURL, gatewayModel),
 		ToolExecutor: te,
 		pathIndex:    make(map[string]string),
@@ -69,7 +75,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api-client/client-discovery", discovery.Handler(s.TenantURL))
 	mux.HandleFunc("/client-discovery", discovery.Handler(s.TenantURL))
 
-// /token — the IDE's AugmentAPI.token(tenantURL, tokenRequest) POSTs here
+	// /token — the IDE's AugmentAPI.token(tenantURL, tokenRequest) POSTs here
 	// (NOT to the OIDC provider). This is where the real token exchange happens after
 	// the OAuth callback returns to the IDE with tenant_url in the redirect.
 	if s.TokenHandler != nil {
@@ -98,7 +104,6 @@ func (s *Server) Handler() http.Handler {
 
 	return cors(logRequests(mux))
 }
-
 
 // handleContextEngineActivate points ContextEngine at the project the user
 // just opened and kicks off indexing (async, idempotent). Called by the plugin

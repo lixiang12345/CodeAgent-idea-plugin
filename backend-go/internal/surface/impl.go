@@ -5,9 +5,13 @@
 package surface
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -24,87 +28,94 @@ type Responder struct {
 	// GatewayURL, when set, forwards ChatStream requests to an OpenAI-compatible
 	// upstream and splices its reply into the simulated node sequence.
 	GatewayURL string
+	// GatewayModel is the fallback model for lightweight unary model calls.
+	GatewayModel string
+	// HTTPClient is injectable for gateway tests. A short-timeout client is used
+	// when nil so inline completion never stalls the IDE input loop.
+	HTTPClient *http.Client
 	// ToolExecutor executes remote tool calls on behalf of the IDE.
 	ToolExecutor *tools.Executor
 }
 
 // Implemented is the set of RPC names with a real handler.
 var Implemented = map[string]func(*Responder, map[string]any) (any, error){
-	"GetModels":                        (*Responder).getModels,
-	"GetCreditInfo":                    (*Responder).getCreditInfo,
-	"ListRemoteTools":                  (*Responder).listRemoteTools,
-	"CheckToolSafety":                  (*Responder).checkToolSafety,
-	"RunRemoteTool":                    (*Responder).runRemoteTool,
-	"CodebaseRetrieval":                (*Responder).codebaseRetrieval,
-	"CodebaseRetrievalRaw":             (*Responder).codebaseRetrievalRaw,
-	"ListRemoteAgents":                 (*Responder).listRemoteAgents,
-	"CreateConversation":               (*Responder).createConversation,
-	"GetConversation":                  (*Responder).getConversation,
-	"UpdateConversation":               (*Responder).updateConversation,
-	"ListConversations":                (*Responder).listConversations,
-	"ListChatHistory":                  (*Responder).listChatHistory,
-	"CountChatHistory":                 (*Responder).countChatHistory,
-	"SaveChat":                         (*Responder).saveChat,
-	"GetSubscriptionInfo":              (*Responder).getSubscriptionInfo,
-	"GetSubscriptionBanner":            emptyOK,
-	"ReadNotifications":                emptyOK,
-	"IsUserGithubConfigured":           func(_ *Responder, _ map[string]any) (any, error) { return map[string]any{"is_configured": false}, nil },
+	"GetModels":                  (*Responder).getModels,
+	"GetCreditInfo":              (*Responder).getCreditInfo,
+	"ChatInputCompletion":        (*Responder).chatInputCompletion,
+	"ResolveChatInputCompletion": emptyOK,
+	"ListRemoteTools":            (*Responder).listRemoteTools,
+	"CheckToolSafety":            (*Responder).checkToolSafety,
+	"RunRemoteTool":              (*Responder).runRemoteTool,
+	"CodebaseRetrieval":          (*Responder).codebaseRetrieval,
+	"CodebaseRetrievalRaw":       (*Responder).codebaseRetrievalRaw,
+	"ListRemoteAgents":           (*Responder).listRemoteAgents,
+	"CreateConversation":         (*Responder).createConversation,
+	"GetConversation":            (*Responder).getConversation,
+	"UpdateConversation":         (*Responder).updateConversation,
+	"ListConversations":          (*Responder).listConversations,
+	"ListChatHistory":            (*Responder).listChatHistory,
+	"CountChatHistory":           (*Responder).countChatHistory,
+	"SaveChat":                   (*Responder).saveChat,
+	"GetSubscriptionInfo":        (*Responder).getSubscriptionInfo,
+	"GetSubscriptionBanner":      emptyOK,
+	"ReadNotifications":          emptyOK,
+	"IsUserGithubConfigured":     func(_ *Responder, _ map[string]any) (any, error) { return map[string]any{"is_configured": false}, nil },
 	"ListGithubReposForAuthenticatedUser": func(_ *Responder, _ map[string]any) (any, error) {
 		return map[string]any{"repos": []any{}, "has_next_page": false}, nil
 	},
 	"ListGithubRepoBranches": func(_ *Responder, _ map[string]any) (any, error) {
 		return map[string]any{"branches": []any{}}, nil
 	},
-	"RecordRequestEvents":  recordEvents("request"),
-	"RecordSessionEvents":  recordEvents("session"),
-	"ReportClientMetrics":  emptyOK,
-	"ReportFeatureVector":  emptyOK,
-	"SendChatFeedback":     emptyOK,
-	"SendCompletionFeedback": emptyOK,
-	"GetMcpUserSettings":   emptyOK,
-	"GetMcpTenantSettings": emptyOK,
-	"GetMcpUserConfigs":    emptyOK,
-	"GetMcpTenantConfigs":  emptyOK,
-	"GetMcpConfigById":     emptyOK,
-	"RemoveMcpUserConfig":  emptyOK,
-	"RemoveMcpTenantConfig": emptyOK,
-	"UpsertMcpUserConfig":  emptyOK,
-	"UpsertMcpTenantConfig": emptyOK,
-	"GetTenantToolPermissions": emptyOK,
-	"ListAgentPersonas":    emptyOK,
-	"GetAgentPersona":      emptyOK,
-	"ListAgentCapabilities": emptyOK,
-	"ListCanvases":         emptyOK,
-	"UpsertUserSecret":     emptyOK,
-	"GetUserSecret":        emptyOK,
-	"ListUserSecrets":      emptyOK,
-	"DeleteUserSecret":     emptyOK,
-	"GetUserSecrets":       emptyOK,
-	"GetTenantSecret":      emptyOK,
-	"GetTenantSecrets":     emptyOK,
-	"ListTenantSecrets":    emptyOK,
-	"DeleteTenantSecret":   emptyOK,
-	"UpsertTenantSecret":   emptyOK,
-	"MigrateUserSecretScope": emptyOK,
-	"GetPoseidonUserSettings": emptyOK,
-	"GetPoseidonTenantSettings": emptyOK,
-	"UpdatePoseidonUserSettings": emptyOK,
-	"UpdatePoseidonTenantSettings": emptyOK,
-	"PinPoseidonSession":   emptyOK,
-	"UnpinPoseidonSession": emptyOK,
-	"CloudAgentsListAgents": emptyOK,
-	"CloudAgentsGetMessages": emptyOK,
-	"CloudAgentsBatchGetMessageCounts": emptyOK,
-	"CloudExpertsListExperts": emptyOK,
-	"AgentWorkspaceReportStatus": emptyOK,
+	"RecordRequestEvents":                recordEvents("request"),
+	"RecordSessionEvents":                recordEvents("session"),
+	"ReportClientMetrics":                emptyOK,
+	"ReportFeatureVector":                emptyOK,
+	"SendChatFeedback":                   emptyOK,
+	"SendCompletionFeedback":             emptyOK,
+	"GetMcpUserSettings":                 emptyOK,
+	"GetMcpTenantSettings":               emptyOK,
+	"GetMcpUserConfigs":                  emptyOK,
+	"GetMcpTenantConfigs":                emptyOK,
+	"GetMcpConfigById":                   emptyOK,
+	"RemoveMcpUserConfig":                emptyOK,
+	"RemoveMcpTenantConfig":              emptyOK,
+	"UpsertMcpUserConfig":                emptyOK,
+	"UpsertMcpTenantConfig":              emptyOK,
+	"GetTenantToolPermissions":           emptyOK,
+	"ListAgentPersonas":                  emptyOK,
+	"GetAgentPersona":                    emptyOK,
+	"ListAgentCapabilities":              emptyOK,
+	"ListCanvases":                       emptyOK,
+	"UpsertUserSecret":                   emptyOK,
+	"GetUserSecret":                      emptyOK,
+	"ListUserSecrets":                    emptyOK,
+	"DeleteUserSecret":                   emptyOK,
+	"GetUserSecrets":                     emptyOK,
+	"GetTenantSecret":                    emptyOK,
+	"GetTenantSecrets":                   emptyOK,
+	"ListTenantSecrets":                  emptyOK,
+	"DeleteTenantSecret":                 emptyOK,
+	"UpsertTenantSecret":                 emptyOK,
+	"MigrateUserSecretScope":             emptyOK,
+	"GetPoseidonUserSettings":            emptyOK,
+	"GetPoseidonTenantSettings":          emptyOK,
+	"UpdatePoseidonUserSettings":         emptyOK,
+	"UpdatePoseidonTenantSettings":       emptyOK,
+	"PinPoseidonSession":                 emptyOK,
+	"UnpinPoseidonSession":               emptyOK,
+	"CloudAgentsListAgents":              emptyOK,
+	"CloudAgentsGetMessages":             emptyOK,
+	"CloudAgentsBatchGetMessageCounts":   emptyOK,
+	"CloudExpertsListExperts":            emptyOK,
+	"AgentWorkspaceReportStatus":         emptyOK,
 	"AgentWorkspaceReportLastSequenceId": emptyOK,
-	"AgentWorkspaceGetLastSequenceId": emptyOK,
-	"AgentWorkspacePollUpdate": emptyOK,
-	"AgentWorkspaceReportChatHistory": emptyOK,
-	"AgentWorkspaceReportSetupLogs": emptyOK,
-	"ActionsGetUserState":   emptyOK,
-	"ActionsSetUserState":   emptyOK,
-	"PromptEnhancer":        emptyOK,
+	"AgentWorkspaceGetLastSequenceId":    emptyOK,
+	"AgentWorkspacePollUpdate":           emptyOK,
+	"AgentWorkspaceReportChatHistory":    emptyOK,
+	"AgentWorkspaceReportSetupLogs":      emptyOK,
+	"ActionsGetUserState":                emptyOK,
+	"ActionsSetUserState":                emptyOK,
+	"PromptEnhancer":                     emptyOK,
 	"ListExternalSourceTypes": func(_ *Responder, _ map[string]any) (any, error) {
 		return map[string]any{"types": []any{}}, nil
 	},
@@ -139,10 +150,10 @@ var Implemented = map[string]func(*Responder, map[string]any) (any, error){
 	},
 	"RegisterIndexedCommitBlobset": emptyOK,
 	// ---- connect services (stub — webview may ping) ----------------------------
-	"Memorize":        emptyOK,
-	"MarkNotificationAsRead": emptyOK,
+	"Memorize":                emptyOK,
+	"MarkNotificationAsRead":  emptyOK,
 	"RevokeCurrentUserTokens": emptyOK,
-	"RecordPreferenceSample": emptyOK,
+	"RecordPreferenceSample":  emptyOK,
 	"GetRemoteAgentChatHistory": func(_ *Responder, _ map[string]any) (any, error) {
 		return map[string]any{"messages": []any{}}, nil
 	},
@@ -266,149 +277,149 @@ func buildModelList() ([]any, string) {
 func fullFeatureFlags(models []any) map[string]any {
 	return map[string]any{
 		// ---- core chat & editor -------------------------------------------------
-		"enableChat":                                    true,
-		"enableIntellijChat":                           true,
-		"enableCodeEdits":                              true,
-		"enableCompletions":                             true,
-		"enableChatInputInlineCompletion":            true,
-		"enableChatHistoryRecovery":                   true,
-		"enableChatMermaidDiagrams":                   true,
-		"enableDeepLinkChatWithPrompt":              true,
-		"enableNewThreadsList":                        true,
-		"enableBulkDeleteThreads":                     true,
-		"enableExchangeStorage":                        true,
-		"enableSummaryTitles":                          true,
-		"intellijShowSummary":                          true,
+		"enableChat":                      true,
+		"enableIntellijChat":              true,
+		"enableCodeEdits":                 true,
+		"enableCompletions":               true,
+		"enableChatInputInlineCompletion": true,
+		"enableChatHistoryRecovery":       true,
+		"enableChatMermaidDiagrams":       true,
+		"enableDeepLinkChatWithPrompt":    true,
+		"enableNewThreadsList":            true,
+		"enableBulkDeleteThreads":         true,
+		"enableExchangeStorage":           true,
+		"enableSummaryTitles":             true,
+		"intellijShowSummary":             true,
 
 		// ---- workspace & sync ---------------------------------------------------
-		"enableWorkspaceManagerUi":                    true,
+		"enableWorkspaceManagerUi":                   true,
 		"enableWorkspaceManagerUiLaunch":             true,
-		"enableWorkspaceConversationSync":             true,
+		"enableWorkspaceConversationSync":            true,
 		"enableWorkspaceConversationChatHistorySync": true,
-		"enableCommitIndexing":                         true,
-		"enableGitIndexing":                            false, // no git needed local
-		"coldStartGitShaIndexEnabled":               false,
+		"enableCommitIndexing":                       true,
+		"enableGitIndexing":                          false, // no git needed local
+		"coldStartGitShaIndexEnabled":                false,
 
 		// ---- agent mode & tools ------------------------------------------------
-		"enableAgentAutoMode":                         true,
-		"enableAgentTabs":                              true,
-		"enableAgentGitTracker":                       true,
-		"enableGroupedTools":                           true,
-		"enableParallelTools":                          true,
-		"enableApplyPatchTool":                        true,
-		"enableSwarmMode":                              true,
-		"grepSearchToolEnable":                        true,
-		"ideEnableAskUserTool":                       true,
-		"enableSubagents":                               true,
-		"publicBetaEnableSubagents":                   true,
-		"beachheadEnableSubAgentTool":                true,
-		"enableToolUseStateStorage":                  true,
-		"enableViewedContentTracking":                 true,
-		"agentEditToolSchemaType":                    "json",
-		"agentEditToolShowResultSnippet":            true,
-		"agentEditToolEnableFuzzyMatching":          true,
-		"agentEditToolInstructionsReminder":          false,
-		"agentSaveFileToolInstructionsReminder":     false,
-		"agentReportStreamedChatEveryChunk":         1,
-		"agentMaxIterations":                           100,
-		"agentMaxTotalChangedFilesSizeBytes":       10 * 1024 * 1024,
-		"agentIdleStatusUpdateIntervalMs":           5000,
+		"enableAgentAutoMode":                   true,
+		"enableAgentTabs":                       true,
+		"enableAgentGitTracker":                 true,
+		"enableGroupedTools":                    true,
+		"enableParallelTools":                   true,
+		"enableApplyPatchTool":                  true,
+		"enableSwarmMode":                       true,
+		"grepSearchToolEnable":                  true,
+		"ideEnableAskUserTool":                  true,
+		"enableSubagents":                       true,
+		"publicBetaEnableSubagents":             true,
+		"beachheadEnableSubAgentTool":           true,
+		"enableToolUseStateStorage":             true,
+		"enableViewedContentTracking":           true,
+		"agentEditToolSchemaType":               "json",
+		"agentEditToolShowResultSnippet":        true,
+		"agentEditToolEnableFuzzyMatching":      true,
+		"agentEditToolInstructionsReminder":     false,
+		"agentSaveFileToolInstructionsReminder": false,
+		"agentReportStreamedChatEveryChunk":     1,
+		"agentMaxIterations":                    100,
+		"agentMaxTotalChangedFilesSizeBytes":    10 * 1024 * 1024,
+		"agentIdleStatusUpdateIntervalMs":       5000,
 
 		// ---- rules / skills / commands / hooks ---------------------------------
-		"enableRules":                                   true,
-		"enableHierarchicalRules":                     true,
-		"enableSkills":                                  true,
-		"publicBetaEnableSkills":                      true,
-		"enableCustomCommands":                         true,
-		"publicBetaEnableCustomCommands":             true,
-		"enableHooks":                                   true,
-		"enableGuidelines":                              true,
-		"enableInstructions":                            true,
-		"enableSharedGuidelines":                       true,
-		"intellijEnableUserGuidelines":                true,
-		"intellijEnableWorkspaceGuidelines":           true,
-		"intellijUserGuidelinesInSettings":           true,
+		"enableRules":                       true,
+		"enableHierarchicalRules":           true,
+		"enableSkills":                      true,
+		"publicBetaEnableSkills":            true,
+		"enableCustomCommands":              true,
+		"publicBetaEnableCustomCommands":    true,
+		"enableHooks":                       true,
+		"enableGuidelines":                  true,
+		"enableInstructions":                true,
+		"enableSharedGuidelines":            true,
+		"intellijEnableUserGuidelines":      true,
+		"intellijEnableWorkspaceGuidelines": true,
+		"intellijUserGuidelinesInSettings":  true,
 
 		// ---- model selection ----------------------------------------------------
 		// These fields are TYPE_STRING in the proto but carry JSON payloads:
 		// - model_registry / additional_chat_models → Map<String,String> (Gson)
 		// - model_info_registry → Map<String,ModelInfoRegistryEntry> (Gson)
 		// Built dynamically from CUSTOM_MODELS env var (or the built-in stubs).
-		"enableModelRegistry":                          true,
-		"modelRegistry":                                 modelRegistryJSON(models),
-		"modelInfoRegistry":                            modelInfoRegistryJSON(models),
-		"agentChatModel":                               asString(defaultModel(models)),
-		"cloudAgentDefaultModelOverride":             "",
-		"chatInputCompletionModel":                    asString(defaultModel(models)),
-		"additionalChatModels":                         additionalChatModelsJSON(models),
-		"enableDynamicModelSelector":                  true,
+		"enableModelRegistry":                      true,
+		"modelRegistry":                            modelRegistryJSON(models),
+		"modelInfoRegistry":                        modelInfoRegistryJSON(models),
+		"agentChatModel":                           asString(defaultModel(models)),
+		"cloudAgentDefaultModelOverride":           "",
+		"chatInputCompletionModel":                 asString(defaultModel(models)),
+		"additionalChatModels":                     additionalChatModelsJSON(models),
+		"enableDynamicModelSelector":               true,
 		"enableModelSelectionByEditingChatHeader":  true,
-		"enableModelSelectionWithoutExpandedInput":  true,
+		"enableModelSelectionWithoutExpandedInput": true,
 
 		// ---- settings, analytics, debug -----------------------------------------
-		"enableCreditsInSettings":                     true,
-		"enableCreditBannerInSettings":               true,
-		"enableCreditsConsumedInTurnSummary":        true,
-		"enableSettingsHomePage":                      true,
-		"enablePluginMarketplace":                      true,
-		"enablePluginMarketplaceIde":                  true,
-		"enableDebugFeatures":                          true,
-		"enablePublicBetaPage":                        true,
-		"publicBetaOptInAll":                         true,
-		"enableByok":                                    true,
-		"enableFigmaMcp":                               true,
-		"enableTenantLevelToolPermissions":           true,
+		"enableCreditsInSettings":            true,
+		"enableCreditBannerInSettings":       true,
+		"enableCreditsConsumedInTurnSummary": true,
+		"enableSettingsHomePage":             true,
+		"enablePluginMarketplace":            true,
+		"enablePluginMarketplaceIde":         true,
+		"enableDebugFeatures":                true,
+		"enablePublicBetaPage":               true,
+		"publicBetaOptInAll":                 true,
+		"enableByok":                         true,
+		"enableFigmaMcp":                     true,
+		"enableTenantLevelToolPermissions":   true,
 
 		// ---- context / retrieval / prompt ---------------------------------------
-		"enableContextWindowUsage":                    true,
-		"enableContextUsageModal":                     true,
-		"enableContextCanvas":                          true,
-		"enableConversationRetrieval":                  true,
-		"enableHybridRetrieval":                        true,
-		"enableCodebaseRetrievalRaw":                  true,
-		"enableExternalSourcesInChat":                true,
-		"enablePromptEnhancer":                         true,
-		"enableSmartPaste":                             true,
-		"enableMidStreamRetry":                        true,
-		"retryChatStreamTimeouts":                     true,
-		"enableUntruncatedContentStorage":             true,
+		"enableContextWindowUsage":        true,
+		"enableContextUsageModal":         true,
+		"enableContextCanvas":             true,
+		"enableConversationRetrieval":     true,
+		"enableHybridRetrieval":           true,
+		"enableCodebaseRetrievalRaw":      true,
+		"enableExternalSourcesInChat":     true,
+		"enablePromptEnhancer":            true,
+		"enableSmartPaste":                true,
+		"enableMidStreamRetry":            true,
+		"retryChatStreamTimeouts":         true,
+		"enableUntruncatedContentStorage": true,
 
 		// ---- notifications ------------------------------------------------------
-		"enableNotificationsServiceIntellij":          true,
-		"intellijEnableUpdateVersionNotification":    true,
+		"enableNotificationsServiceIntellij":      true,
+		"intellijEnableUpdateVersionNotification": true,
 
 		// ---- onboarding / announcements -----------------------------------------
-		"enableOnboardingV2":                           true,
+		"enableOnboardingV2": true,
 
 		// ---- IntelliJ-specific --------------------------------------------------
 		"intellijEnableFileIntakeService":            true,
-		"intellijEnableHomespunGitignore":             true,
+		"intellijEnableHomespunGitignore":            true,
 		"intellijEnableWebviewPerformanceMonitoring": false,
-		"intellijPromptEnhancerEnabled":               true,
-		"intellijEnableSentry":                         false,
-		"intellijSidecarEnableSentry":                 false,
+		"intellijPromptEnhancerEnabled":              true,
+		"intellijEnableSentry":                       false,
+		"intellijSidecarEnableSentry":                false,
 		"intellijEnableSegmentAnalyticsReporting":    false,
 
 		// ---- remote / cloud agents (show UI even if stubs) -----------------------
-		"enableIdeHandoffToCloud":                    true,
-		"cliEnableCloudAgents":                        true,
-		"cliEnableHandoffToCloud":                    true,
-		"cliEnableCloudAgentAskUserTool":           true,
-		"cliEnablePersona":                             true,
-		"cliEnablePlanMode":                           true,
-		"cliEnableBashMode":                           true,
-		"cliEnableShowCredits":                        true,
+		"enableIdeHandoffToCloud":        true,
+		"cliEnableCloudAgents":           true,
+		"cliEnableHandoffToCloud":        true,
+		"cliEnableCloudAgentAskUserTool": true,
+		"cliEnablePersona":               true,
+		"cliEnablePlanMode":              true,
+		"cliEnableBashMode":              true,
+		"cliEnableShowCredits":           true,
 
 		// ---- misc quality-of-life ------------------------------------------------
-		"enableViewTextDocument":                      true,
-		"enableHindsight":                               true,
-		"enableCodeReviewSlashCommand":               true,
-		"enableCommitSessionEvents":                   true,
-		"enableLucideIcons":                            true,
-		"enableIntersectionObserverManager":           true,
-		"openFileManagerV2Enabled":                   true,
-		"useAcpCompletions":                            false,
-		"webviewUseAcp":                                false,
+		"enableViewTextDocument":            true,
+		"enableHindsight":                   true,
+		"enableCodeReviewSlashCommand":      true,
+		"enableCommitSessionEvents":         true,
+		"enableLucideIcons":                 true,
+		"enableIntersectionObserverManager": true,
+		"openFileManagerV2Enabled":          true,
+		"useAcpCompletions":                 false,
+		"webviewUseAcp":                     false,
 	}
 }
 
@@ -428,7 +439,131 @@ func (r *Responder) getCreditInfo(_ map[string]any) (any, error) {
 }
 
 func (r *Responder) listRemoteTools(_ map[string]any) (any, error) {
-	return map[string]any{"tools": allRemoteTools()}, nil
+	// This RPC is only for cloud-hosted integrations represented by the
+	// RemoteToolId enum. IDE-local tools (view, edit, terminal, retrieval, etc.)
+	// are registered independently by the sidecar. Returning those tools here
+	// duplicates them and feeds reserved enum values to the JVM client.
+	return map[string]any{"tools": []any{}}, nil
+}
+
+func (r *Responder) chatInputCompletion(req map[string]any) (any, error) {
+	empty := func() map[string]any {
+		return map[string]any{
+			"completion_items":     []any{},
+			"unknown_blob_names":   []any{},
+			"checkpoint_not_found": false,
+		}
+	}
+
+	prompt := boundedRunes(strings.TrimSpace(asString(req["prompt"])), 16*1024, true)
+	if prompt == "" || r.GatewayURL == "" {
+		return empty(), nil
+	}
+	suffix := boundedRunes(asString(req["suffix"]), 4*1024, false)
+	model := strings.TrimSpace(asString(req["model"]))
+	if model == "" {
+		model = r.GatewayModel
+	}
+	if model == "" {
+		return empty(), nil
+	}
+
+	userContent := "Current input:\n" + prompt
+	if suffix != "" {
+		userContent += "\n\nText after the cursor:\n" + suffix
+	}
+	body, err := json.Marshal(map[string]any{
+		"model": model,
+		"messages": []map[string]any{
+			{"role": "system", "content": "Complete the user's IDE chat input. Return only a short natural continuation with no quotes, markdown, or explanation."},
+			{"role": "user", "content": userContent},
+		},
+		"reasoning_effort": "low",
+		"temperature":      0.2,
+		"max_tokens":       96,
+		"stream":           false,
+	})
+	if err != nil {
+		return empty(), nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, openAIChatURL(r.GatewayURL), bytes.NewReader(body))
+	if err != nil {
+		return empty(), nil
+	}
+	request.Header.Set("Content-Type", "application/json")
+	if key := os.Getenv("MODEL_GATEWAY_API_KEY"); key != "" {
+		request.Header.Set("Authorization", "Bearer "+key)
+	}
+	client := r.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 3 * time.Second}
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		log.Printf("surface: chat input completion unavailable: %v", err)
+		return empty(), nil
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		log.Printf("surface: chat input completion gateway status=%d", response.StatusCode)
+		return empty(), nil
+	}
+
+	var out struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(response.Body, 256*1024))
+	if err := decoder.Decode(&out); err != nil || out.Error.Message != "" || len(out.Choices) == 0 {
+		log.Printf("surface: chat input completion gateway returned no usable choice")
+		return empty(), nil
+	}
+	text := boundedRunes(strings.TrimSpace(out.Choices[0].Message.Content), 512, false)
+	if text == "" {
+		return empty(), nil
+	}
+	finishReason := out.Choices[0].FinishReason
+	if finishReason == "" {
+		finishReason = "stop"
+	}
+	return map[string]any{
+		"completion_items": []any{map[string]any{
+			"text":          text,
+			"finish_reason": finishReason,
+		}},
+		"unknown_blob_names":   []any{},
+		"checkpoint_not_found": false,
+	}, nil
+}
+
+func openAIChatURL(baseURL string) string {
+	url := strings.TrimSuffix(strings.TrimSpace(baseURL), "/v1")
+	url = strings.TrimSuffix(url, "/")
+	if !strings.Contains(url, "/chat/completions") {
+		url += "/v1/chat/completions"
+	}
+	return url
+}
+
+func boundedRunes(value string, limit int, keepTail bool) string {
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	if keepTail {
+		return string(runes[len(runes)-limit:])
+	}
+	return string(runes[:limit])
 }
 
 // allRemoteTools returns the complete 26-tool definition set matching the real
@@ -457,13 +592,13 @@ func allRemoteTools() []any {
 		tool("grep-search", "Fast regex and literal search across the entire codebase. Returns matching file paths, line numbers, and surrounding context. Supports full regex syntax, file type filtering, and exclusion patterns. Use this for finding exact symbol references, string literals, error messages, or patterns.", toolSchema{
 			Type: "object",
 			Properties: map[string]toolProp{
-				"query":              {Type: "string", Description: "Regex or literal search pattern"},
-				"include":            {Type: "string", Description: "File glob pattern to include (e.g. '*.go', '**​/*.ts')"},
-				"exclude":            {Type: "string", Description: "File glob pattern to exclude"},
-				"max_results":        {Type: "integer", Description: "Maximum number of results to return (default 100)"},
-				"case_sensitive":     {Type: "boolean", Description: "Whether the search is case-sensitive"},
-				"include_binary":     {Type: "boolean", Description: "Whether to search binary files"},
-				"max_file_size":      {Type: "integer", Description: "Skip files larger than this many bytes"},
+				"query":               {Type: "string", Description: "Regex or literal search pattern"},
+				"include":             {Type: "string", Description: "File glob pattern to include (e.g. '*.go', '**​/*.ts')"},
+				"exclude":             {Type: "string", Description: "File glob pattern to exclude"},
+				"max_results":         {Type: "integer", Description: "Maximum number of results to return (default 100)"},
+				"case_sensitive":      {Type: "boolean", Description: "Whether the search is case-sensitive"},
+				"include_binary":      {Type: "boolean", Description: "Whether to search binary files"},
+				"max_file_size":       {Type: "integer", Description: "Skip files larger than this many bytes"},
 				"search_non_code_too": {Type: "boolean", Description: "Also search non-code files (markdown, txt, config, etc.)"},
 			},
 			Required: []string{"query"},
@@ -489,8 +624,8 @@ func allRemoteTools() []any {
 		tool("search-untruncated", "Search for text patterns in a specific file and return matching lines with surrounding context, untruncated. Combines grep-like search with file viewing.", toolSchema{
 			Type: "object",
 			Properties: map[string]toolProp{
-				"path":         {Type: "string", Description: "Absolute or workspace-relative path to search in"},
-				"query":        {Type: "string", Description: "Regex or literal search pattern"},
+				"path":          {Type: "string", Description: "Absolute or workspace-relative path to search in"},
+				"query":         {Type: "string", Description: "Regex or literal search pattern"},
 				"context_lines": {Type: "integer", Description: "Number of context lines around each match (default 3)"},
 			},
 			Required: []string{"path", "query"},
@@ -662,9 +797,9 @@ func allRemoteTools() []any {
 // ToolDefinition. It matches the snake_case field names the JVM deserializer
 // expects inside input_schema_json.
 type toolSchema struct {
-	Type       string               `json:"type"`
-	Properties map[string]toolProp  `json:"properties"`
-	Required   []string             `json:"required,omitempty"`
+	Type       string              `json:"type"`
+	Properties map[string]toolProp `json:"properties"`
+	Required   []string            `json:"required,omitempty"`
 }
 
 type toolProp struct {
@@ -681,10 +816,10 @@ func tool(name, description string, schema toolSchema, id int) map[string]any {
 	}
 	return map[string]any{
 		"toolDefinition": map[string]any{
-			"name":             name,
-			"description":      description,
+			"name":              name,
+			"description":       description,
 			"input_schema_json": string(schemaBytes),
-			"tool_safety":      1,
+			"tool_safety":       1,
 		},
 		"remoteToolId":       id,
 		"availabilityStatus": 1, // AVAILABLE
@@ -699,13 +834,20 @@ func (r *Responder) checkToolSafety(req map[string]any) (any, error) {
 }
 
 func (r *Responder) runRemoteTool(req map[string]any) (any, error) {
-	name, _ := req["name"].(string)
-	toolUseID, _ := req["tool_use_id"].(string)
-	log.Printf("surface: run-remote-tool name=%s tool_use_id=%s", name, toolUseID)
+	name := asString(req["tool_name"])
+	if name == "" {
+		name = asString(req["name"])
+	}
+	toolID := req["tool_id"]
+	log.Printf("surface: run-remote-tool name=%s tool_id=%v", name, toolID)
 
 	// The input may arrive as a JSON object or a double-encoded JSON string.
 	var input json.RawMessage
-	if v := req["input"]; v != nil {
+	v := req["tool_input_json"]
+	if v == nil {
+		v = req["input"]
+	}
+	if v != nil {
 		switch x := v.(type) {
 		case string:
 			input = json.RawMessage(x)
@@ -721,19 +863,33 @@ func (r *Responder) runRemoteTool(req map[string]any) (any, error) {
 	if r.ToolExecutor != nil {
 		tr := &tools.ToolCallRequest{
 			Name:      name,
-			ToolUseID: toolUseID,
+			RequestID: fmt.Sprint(toolID),
 			Input:     input,
 		}
 		res := r.ToolExecutor.Execute(tr)
+		status := "EXECUTION_SUCCESS"
+		message := ""
+		if res.IsError {
+			status = "EXECUTION_ERROR"
+			message = res.Text
+		}
 		return map[string]any{
-			"text":     res.Text,
-			"is_error": res.IsError,
+			"tool_output":            res.Text,
+			"tool_result_message":    message,
+			"status":                 status,
+			"compressed_full_output": "",
+			"full_output_size":       len([]byte(res.Text)),
+			"content_nodes":          []any{},
 		}, nil
 	}
 
 	return map[string]any{
-		"text":     fmt.Sprintf("tool %s executed remotely", name),
-		"is_error": false,
+		"tool_output":            fmt.Sprintf("tool %s is not available", name),
+		"tool_result_message":    "remote tool executor is not configured",
+		"status":                 "NOT_AVAILABLE",
+		"compressed_full_output": "",
+		"full_output_size":       0,
+		"content_nodes":          []any{},
 	}, nil
 }
 
@@ -745,14 +901,14 @@ func (r *Responder) codebaseRetrieval(req map[string]any) (any, error) {
 		}
 	}
 	resp := map[string]any{
-		"formatted_retrieval":          "",
-		"codebase_retrieval_elapsed_ms": 0,
+		"formatted_retrieval":               "",
+		"codebase_retrieval_elapsed_ms":     0,
 		"conversation_retrieval_elapsed_ms": 0,
-		"codebase_chunks_retrieved":     0,
-		"conversation_chunks_combined":  0,
-		"codebase_truncated":            false,
-		"conversation_truncated":        false,
-		"final_truncated":               false,
+		"codebase_chunks_retrieved":         0,
+		"conversation_chunks_combined":      0,
+		"codebase_truncated":                false,
+		"conversation_truncated":            false,
+		"final_truncated":                   false,
 	}
 	if q == "" || r.ToolExecutor == nil || r.ToolExecutor.ContextEngine == nil {
 		return resp, nil
@@ -849,11 +1005,11 @@ func (r *Responder) listChatHistory(req map[string]any) (any, error) {
 	out := make([]any, 0, len(exs))
 	for _, e := range exs {
 		out = append(out, map[string]any{
-			"request_id":     e.RequestID,
+			"request_id":      e.RequestID,
 			"request_message": e.RequestMsg,
-			"response_text":  e.ResponseText,
-			"turn_id":        e.TurnID,
-			"created_at":     e.CreatedAt.UTC().Format(time.RFC3339),
+			"response_text":   e.ResponseText,
+			"turn_id":         e.TurnID,
+			"created_at":      e.CreatedAt.UTC().Format(time.RFC3339),
 		})
 	}
 	return map[string]any{"chat_history": out}, nil
@@ -872,7 +1028,7 @@ func (r *Responder) saveChat(req map[string]any) (any, error) {
 
 func (r *Responder) getSubscriptionInfo(_ map[string]any) (any, error) {
 	return map[string]any{
-		"active_subscription": map[string]any{"usage_balance_depleted": false},
+		"active_subscription":   map[string]any{"usage_balance_depleted": false},
 		"inactive_subscription": map[string]any{},
 		"feature_gating_info":   map[string]any{},
 	}, nil
@@ -917,13 +1073,13 @@ func modelInfoRegistryJSON(models []any) string {
 			key, _ = mm["name"].(string)
 		}
 		entry := map[string]any{
-			"displayName":  mm["name"],
-			"shortName":    mm["name"],
-			"description":  "",
-			"effortLevels": []string{"low", "medium", "high"},
-			"isDefault":    i == 0,
-			"priority":     i + 1,
-			"modelGroup":   "Custom",
+			"displayName":   mm["name"],
+			"shortName":     mm["name"],
+			"description":   "",
+			"effortLevels":  []string{"low", "medium", "high"},
+			"isDefault":     i == 0,
+			"priority":      i + 1,
+			"modelGroup":    "Custom",
 			"isLegacyModel": false,
 			"costTier":      0,
 			"isRouter":      false,
