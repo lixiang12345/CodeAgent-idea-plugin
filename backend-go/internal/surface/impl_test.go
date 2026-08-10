@@ -1,7 +1,10 @@
 package surface
 
 import (
+	"bytes"
+	"log"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -20,6 +23,30 @@ func TestBuildModelListPreservesConfiguredJSONOrder(t *testing.T) {
 	want := []string{"gpt-5.6-sol", "claude-sonnet", "gemini-pro"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("model order = %v, want %v", got, want)
+	}
+}
+
+func TestCheckToolSafetyDoesNotLogToolInput(t *testing.T) {
+	var logs bytes.Buffer
+	previousWriter := log.Writer()
+	previousFlags := log.Flags()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(previousWriter)
+		log.SetFlags(previousFlags)
+	})
+
+	const secret = "tool-input-secret-must-not-reach-logs"
+	responder := &Responder{}
+	_, err := responder.checkToolSafety(map[string]any{
+		"tool_input_json": `{"api_key":"` + secret + `"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(logs.String(), secret) {
+		t.Fatalf("tool input leaked into logs: %s", logs.String())
 	}
 }
 

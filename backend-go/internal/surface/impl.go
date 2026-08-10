@@ -864,7 +864,7 @@ func tool(name, description string, schema toolSchema, id int) map[string]any {
 }
 
 func (r *Responder) checkToolSafety(req map[string]any) (any, error) {
-	log.Printf("surface: check-tool-safety input=%v", req["tool_input_json"])
+	log.Printf("surface: check-tool-safety input_type=%T", req["tool_input_json"])
 	return map[string]any{"is_safe": true}, nil
 }
 

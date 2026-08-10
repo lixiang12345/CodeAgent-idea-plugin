@@ -8,6 +8,9 @@
 set -u
 OIDC="${1:-http://127.0.0.1:8445}"
 TENANT="${2:-http://127.0.0.1:8787}"
+CONTEXTENGINE_PROBE_URL="${CONTEXTENGINE_PROBE_URL:-http://127.0.0.1:8790}"
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd -P)}"
 # A passing probe must prove the configured model path by default. Set this to
 # 0 only for an explicitly offline protocol smoke test.
 REQUIRE_MODEL_SUCCESS="${REQUIRE_MODEL_SUCCESS:-1}"
@@ -62,6 +65,9 @@ curl -sf "$TENANT/healthz" >/dev/null && ok "healthz" || bad "healthz"
 
 GETMODELS=$(curl -sf -X POST "$TENANT/api-client/get-models" -d '{}')
 echo "$GETMODELS" | jqget "['defaultModel']" | grep -q . && ok "GetModels (defaultModel=$(echo "$GETMODELS" | jqget "['defaultModel']"))" || bad "GetModels"
+MODEL_DEFAULTS=$(for _ in 1 2 3 4 5 6 7 8 9 10; do curl -sf -X POST "$TENANT/api-client/get-models" -d '{}' | jqget "['defaultModel']"; done | sort -u)
+MODEL_DEFAULT_COUNT=$(printf '%s\n' "$MODEL_DEFAULTS" | grep -c .)
+[[ "$MODEL_DEFAULT_COUNT" == "1" ]] && ok "configured default model is stable" || bad "default model changed across requests: $MODEL_DEFAULTS"
 
 REMOTE_TOOLS=$(curl -sf -X POST "$TENANT/api-client/agents/list-remote-tools" -d '{}')
 REMOTE_COUNT=$(echo "$REMOTE_TOOLS" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('tools', [])))")
@@ -82,9 +88,19 @@ CODE501=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$TENANT/api-client/che
 [[ "$CODE501" == "501" ]] && ok "unsupported checkpoint blobs fail closed (501)" || bad "unsupported checkpoint blobs status=$CODE501"
 
 echo "== chat-stream (SSE simulator) =="
+CHAT_PAYLOAD=$(python3 -c '
+import json,sys
+print(json.dumps({
+    "message": "Reply with the single word ready.",
+    "conversation_id": sys.argv[1],
+    "nodes": [{"ide_state_node": {"workspace_folders": [{
+        "folder_root": sys.argv[2], "repository_root": sys.argv[2]
+    }]}}],
+}))
+' "$CONVERSATION_ID" "$WORKSPACE_ROOT")
 CHAT=$(curl -sf -N -X POST "$TENANT/api-client/chat-stream" \
   -H 'Content-Type: application/json' \
-  -d '{"message":"Reply with the single word ready.","conversation_id":"'"$CONVERSATION_ID"'"}')
+  -d "$CHAT_PAYLOAD")
 CHAT_CHECK=$(echo "$CHAT" | python3 -c '
 import json,sys
 events=[json.loads(line) for line in sys.stdin if line.strip()]
@@ -104,6 +120,16 @@ else
 fi
 HIST=$(curl -sf -X POST "$TENANT/api-client/chat/exchanges/list" -d '{"conversation_id":"'"$CONVERSATION_ID"'"}' | python3 -c "import sys,json;print(len(json.load(sys.stdin)['chat_history']))")
 [[ "$HIST" -ge 1 ]] && ok "exchange recorded for unique conversation (history=$HIST)" || bad "history recorded"
+
+echo "== ContextEngine workspace retrieval =="
+curl -sf "$CONTEXTENGINE_PROBE_URL/health" >/dev/null && ok "ContextEngine health" || bad "ContextEngine health"
+RETRIEVAL_PAYLOAD=$(python3 -c 'import json,sys; print(json.dumps({"conversation_id":sys.argv[1],"information_request":"Where is ContextEngine workspace binding implemented?"}))' "$CONVERSATION_ID")
+RETRIEVAL=$(curl -sf -X POST "$TENANT/api-client/agents/codebase-retrieval" -H 'Content-Type: application/json' -d "$RETRIEVAL_PAYLOAD")
+RETRIEVAL_CHECK=$(printf '%s' "$RETRIEVAL" | python3 -c 'import json,sys; text=json.load(sys.stdin).get("formatted_retrieval", ""); print("real" if len(text) > 500 and text.lstrip().startswith("# Task context") and "Retrieved" in text else "invalid")')
+[[ "$RETRIEVAL_CHECK" == "real" ]] && ok "workspace-bound retrieval returned a real evidence pack" || bad "workspace-bound retrieval result=$RETRIEVAL_CHECK"
+INDEX_STATUS=$(curl -sf "$TENANT/contextengine/index-status")
+printf '%s' "$INDEX_STATUS" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("indexed") is True; assert d.get("root"); assert d.get("stats", {}).get("fileCount", 0) > 0' \
+  && ok "active workspace indexed" || bad "active workspace index status"
 
 echo "== connect+json protocol =="
 CC=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$TENANT/augment.public_api.Augment/GetCreditInfo" -H 'Content-Type: application/connect+json' -d '{}')
