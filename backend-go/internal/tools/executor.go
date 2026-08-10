@@ -773,18 +773,13 @@ func (e *Executor) codebaseRetrieval(ws string, input map[string]any) *ToolCallR
 		return errResp("information_request or query is required")
 	}
 
-	// Prefer ContextEngine when configured: ensure the workspace is indexed,
-	// then proxy the retrieval so the agent gets a real evidence pack.
+	// Prefer ContextEngine when configured: ensure the workspace is indexed
+	// (wait out the initial indexing up to 30s), then proxy the retrieval so
+	// the agent gets a real evidence pack.
 	if ce := e.ContextEngine; ce != nil && ce.URL != "" {
 		if err := ce.EnsureIndexed(); err != nil {
 			log.Printf("tools: codebase-retrieval: contextengine ensure: %v", err)
-		} else {
-			ready, err := ce.IndexReady()
-			if err != nil {
-				log.Printf("tools: codebase-retrieval: contextengine ready: %v", err)
-			} else if !ready {
-				return okResp("The codebase is still being indexed by the context engine. Please wait for indexing to finish and try again. Query was: %s", query)
-			}
+		} else if ce.WaitIndexReady(30 * time.Second) {
 			if packed, rerr := ce.Retrieve(query); rerr == nil && strings.TrimSpace(packed) != "" {
 				return okResp("%s", packed)
 			} else if rerr != nil {

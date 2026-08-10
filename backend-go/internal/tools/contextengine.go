@@ -292,6 +292,21 @@ func (c *ContextEngineClient) IndexReady() (bool, error) {
 	return out.Job.Status == "succeeded", nil
 }
 
+// WaitIndexReady polls IndexReady until the workspace is indexed or maxWait
+// elapses, so callers can wait out the initial indexing instead of returning
+// "still indexing" immediately.
+func (c *ContextEngineClient) WaitIndexReady(maxWait time.Duration) bool {
+	deadline := time.Now().Add(maxWait)
+	for time.Now().Before(deadline) {
+		ready, err := c.IndexReady()
+		if err == nil && ready {
+			return true
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return false
+}
+
 // Status returns the indexing status of the currently active workspace:
 // whether it is indexed plus its stats (file count, chunk count, last indexed
 // time). Used by the /contextengine/index-status endpoint.

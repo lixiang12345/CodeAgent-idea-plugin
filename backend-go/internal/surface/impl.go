@@ -763,7 +763,9 @@ func (r *Responder) codebaseRetrieval(req map[string]any) (any, error) {
 		log.Printf("surface: codebase-retrieval ensure: %v", err)
 		return resp, nil
 	}
-	if ready, err := ce.IndexReady(); err == nil && !ready {
+	// Wait out the initial indexing (up to 30s) so the agent gets real
+	// results instead of a "still indexing" placeholder.
+	if !ce.WaitIndexReady(30 * time.Second) {
 		resp["formatted_retrieval"] = "The codebase is still being indexed by the context engine. Please wait and try again."
 		return resp, nil
 	}
