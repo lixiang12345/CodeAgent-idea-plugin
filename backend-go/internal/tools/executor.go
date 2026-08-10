@@ -812,14 +812,23 @@ func (e *Executor) codebaseRetrieval(ws, hostRoot string, input map[string]any) 
 		}
 	}
 
+	fallbackRoot, err := e.retrievalFallbackRoot(ws, hostRoot)
+	if err != nil {
+		return errResp("codebase retrieval fallback: %v", err)
+	}
+
 	// Fallback: grep the codebase for the query terms.
 	re, err := compilePattern(query, false)
 	var results []string
+	var walkErr error
 	if err == nil {
 		count := 0
-		filepath.WalkDir(ws, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || count >= 50 {
-				return nil
+		walkErr = filepath.WalkDir(fallbackRoot, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if count >= 50 {
+				return fs.SkipAll
 			}
 			if d.IsDir() {
 				base := filepath.Base(path)
@@ -828,10 +837,10 @@ func (e *Executor) codebaseRetrieval(ws, hostRoot string, input map[string]any) 
 				}
 				return nil
 			}
-			rel, _ := filepath.Rel(ws, path)
+			rel, _ := filepath.Rel(fallbackRoot, path)
 			data, rerr := os.ReadFile(path)
 			if rerr != nil {
-				return nil
+				return rerr
 			}
 			if re.MatchString(string(data)) {
 				results = append(results, rel)
@@ -843,9 +852,12 @@ func (e *Executor) codebaseRetrieval(ws, hostRoot string, input map[string]any) 
 		// Literal substring search.
 		lower := strings.ToLower(query)
 		count := 0
-		filepath.WalkDir(ws, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || count >= 50 {
-				return nil
+		walkErr = filepath.WalkDir(fallbackRoot, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if count >= 50 {
+				return fs.SkipAll
 			}
 			if d.IsDir() {
 				base := filepath.Base(path)
@@ -854,10 +866,10 @@ func (e *Executor) codebaseRetrieval(ws, hostRoot string, input map[string]any) 
 				}
 				return nil
 			}
-			rel, _ := filepath.Rel(ws, path)
+			rel, _ := filepath.Rel(fallbackRoot, path)
 			data, rerr := os.ReadFile(path)
 			if rerr != nil {
-				return nil
+				return rerr
 			}
 			if strings.Contains(strings.ToLower(string(data)), lower) {
 				results = append(results, rel)
@@ -866,10 +878,52 @@ func (e *Executor) codebaseRetrieval(ws, hostRoot string, input map[string]any) 
 			return nil
 		})
 	}
+	if walkErr != nil {
+		return errResp("codebase retrieval fallback cannot search workspace %q: %v", fallbackRoot, walkErr)
+	}
 	if len(results) == 0 {
 		return okResp("no matching files found for: %s", query)
 	}
 	return okResp("Files matching %q:\n%s", query, strings.Join(results, "\n"))
+}
+
+func (e *Executor) retrievalFallbackRoot(defaultRoot, hostRoot string) (string, error) {
+	root := hostRoot
+	if root == "" {
+		root = defaultRoot
+	}
+	if root == "" {
+		root = "."
+	}
+	if hostRoot != "" && !filepath.IsAbs(root) {
+		return "", fmt.Errorf("workspace %q is not an absolute path", root)
+	}
+
+	root = filepath.Clean(root)
+	var mappedRoot string
+	if hostRoot != "" && e.ContextEngine != nil && e.ContextEngine.HostBase != "" {
+		var ok bool
+		mappedRoot, ok = mapHostWorkspaceRoot(e.ContextEngine.HostBase, root)
+		if !ok {
+			return "", fmt.Errorf("workspace %q is outside the configured host mount", root)
+		}
+	}
+	if info, err := os.Stat(root); err == nil {
+		if !info.IsDir() {
+			return "", fmt.Errorf("workspace %q is not a directory", root)
+		}
+		return root, nil
+	}
+	if mappedRoot != "" {
+		if info, err := os.Stat(mappedRoot); err == nil {
+			if !info.IsDir() {
+				return "", fmt.Errorf("workspace %q is not a directory", mappedRoot)
+			}
+			return mappedRoot, nil
+		}
+	}
+
+	return "", fmt.Errorf("workspace %q is not accessible to the backend", root)
 }
 
 func (e *Executor) gitCommitRetrieval(ws string, input map[string]any) *ToolCallResponse {

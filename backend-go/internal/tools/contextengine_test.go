@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -238,6 +239,23 @@ func TestSetActiveMapping(t *testing.T) {
 	}
 }
 
+func TestMapHostWorkspaceRootChecksPathBoundary(t *testing.T) {
+	mapped, ok := mapHostWorkspaceRoot("/Users/jiming", "/Users/jiming/work/project")
+	if !ok || mapped != "/host/work/project" {
+		t.Fatalf("mapped workspace = %q, %v; want /host/work/project, true", mapped, ok)
+	}
+
+	for _, hostRoot := range []string{
+		"/Users/jimings/project",
+		"/Users/jiming/../outside/project",
+		"relative/project",
+	} {
+		if mapped, ok := mapHostWorkspaceRoot("/Users/jiming", hostRoot); ok {
+			t.Errorf("out-of-base workspace %q mapped to %q", hostRoot, mapped)
+		}
+	}
+}
+
 func TestPerConversationWorkspace(t *testing.T) {
 	e := New("")
 	// This unit test verifies conversation routing only. Disable background HTTP
@@ -267,6 +285,117 @@ func TestPerConversationWorkspace(t *testing.T) {
 	e.mu.Unlock()
 	if activeB != "codeagentcli" {
 		t.Errorf("after convB retrieval active = %q, want codeagentcli", activeB)
+	}
+}
+
+func TestCodebaseRetrievalFallbackUsesConversationWorkspace(t *testing.T) {
+	backendRoot := t.TempDir()
+	conversationRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(backendRoot, "wrong-project.txt"), []byte("fallback-workspace-sentinel"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(conversationRoot, "right-project.txt"), []byte("fallback-workspace-sentinel"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var contextRequests int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/workspaces":
+			_ = json.NewEncoder(w).Encode(map[string]any{"workspaces": []map[string]any{{
+				"id":         "workspace-1",
+				"name":       filepath.Base(conversationRoot),
+				"local_root": conversationRoot,
+			}}})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/workspaces/workspace-1/index-jobs":
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"job":{"id":"job-1","status":"succeeded"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/workspaces/workspace-1/context":
+			contextRequests++
+			_, _ = w.Write([]byte(`{"packed_text":""}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	e := New(backendRoot)
+	e.ContextEngine = &ContextEngineClient{URL: srv.URL, HTTP: srv.Client()}
+	e.convWorkspace = map[string]string{"conversation-1": conversationRoot}
+	input, err := json.Marshal(map[string]any{"information_request": "fallback-workspace-sentinel"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp := e.Execute(&ToolCallRequest{
+		Name:           "codebase-retrieval",
+		ConversationID: "conversation-1",
+		Input:          input,
+	})
+	if resp.IsError {
+		t.Fatalf("fallback returned an error: %s", resp.Text)
+	}
+	if !strings.Contains(resp.Text, "right-project.txt") {
+		t.Fatalf("fallback did not search the conversation workspace: %q", resp.Text)
+	}
+	if strings.Contains(resp.Text, "wrong-project.txt") {
+		t.Fatalf("fallback leaked results from the executor workspace: %q", resp.Text)
+	}
+	if contextRequests != 1 {
+		t.Fatalf("ContextEngine context requests = %d, want 1 before fallback", contextRequests)
+	}
+}
+
+func TestCodebaseRetrievalFallbackRejectsUnavailableConversationWorkspace(t *testing.T) {
+	backendRoot := t.TempDir()
+	e := New(backendRoot)
+	e.ContextEngine.URL = ""
+	e.SetConversationWorkspace("conversation-1", filepath.Join(t.TempDir(), "missing"))
+	input, err := json.Marshal(map[string]any{"information_request": "anything"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp := e.Execute(&ToolCallRequest{
+		Name:           "codebase-retrieval",
+		ConversationID: "conversation-1",
+		Input:          input,
+	})
+	if !resp.IsError {
+		t.Fatalf("unavailable workspace returned a successful fallback: %q", resp.Text)
+	}
+	if !strings.Contains(resp.Text, "workspace") || !strings.Contains(resp.Text, "not accessible") {
+		t.Fatalf("unexpected unavailable-workspace error: %q", resp.Text)
+	}
+}
+
+func TestRetrievalFallbackRejectsExistingPathOutsideHostMount(t *testing.T) {
+	allowedHostBase := t.TempDir()
+	outsidePath := t.TempDir()
+	e := New(t.TempDir())
+	e.ContextEngine.HostBase = allowedHostBase
+
+	if root, err := e.retrievalFallbackRoot(e.workspaceDir, outsidePath); err == nil {
+		t.Fatalf("outside path resolved to %q, want host-mount boundary error", root)
+	}
+}
+
+func TestRetrievalFallbackUsesReadableHostPathInsideMount(t *testing.T) {
+	allowedHostBase := t.TempDir()
+	workspace := filepath.Join(allowedHostBase, "project")
+	if err := os.Mkdir(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	e := New(t.TempDir())
+	e.ContextEngine.HostBase = allowedHostBase
+
+	root, err := e.retrievalFallbackRoot(e.workspaceDir, workspace)
+	if err != nil {
+		t.Fatalf("resolve readable host workspace: %v", err)
+	}
+	if root != workspace {
+		t.Fatalf("fallback root = %q, want readable host path %q", root, workspace)
 	}
 }
 

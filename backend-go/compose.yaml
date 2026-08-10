@@ -45,6 +45,8 @@ services:
       CONTEXTENGINE_HOST_BASE: "${CONTEXTENGINE_HOST_BASE:-${CONTEXTENGINE_HOST_MOUNT:-}}"
     volumes:
       - augment-state:/app/state
+      # ContextEngine 失败时，Go fallback 通过同一只读挂载检索当前 IDE workspace。
+      - "${CONTEXTENGINE_HOST_MOUNT:?Set CONTEXTENGINE_HOST_MOUNT in backend-go/.env (e.g. /Users/<you>)}:/host:ro"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/healthz"]

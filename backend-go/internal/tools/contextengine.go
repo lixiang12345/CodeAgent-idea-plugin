@@ -75,10 +75,8 @@ func (c *ContextEngineClient) setActive(hostRoot string) {
 		return
 	}
 	localRoot := hostRoot
-	if c.HostBase != "" {
-		if relative, err := filepath.Rel(filepath.Clean(c.HostBase), filepath.Clean(hostRoot)); err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			localRoot = filepath.Join("/host", relative)
-		}
+	if mappedRoot, ok := mapHostWorkspaceRoot(c.HostBase, hostRoot); ok {
+		localRoot = mappedRoot
 	}
 	c.mu.Lock()
 	if c.activeLocalRoot == localRoot {
@@ -102,6 +100,23 @@ func (c *ContextEngineClient) setActive(hostRoot string) {
 	}
 	c.mu.Unlock()
 	log.Printf("contextengine: active workspace set name=%s root=%s", name, localRoot)
+}
+
+// mapHostWorkspaceRoot maps a workspace below the configured host mount base
+// to the path shared by the backend and ContextEngine containers. filepath.Rel
+// provides a path-boundary check, so similar lexical prefixes cannot escape
+// the configured mount.
+func mapHostWorkspaceRoot(hostBase, hostRoot string) (string, bool) {
+	if hostBase == "" || hostRoot == "" || !filepath.IsAbs(hostBase) || !filepath.IsAbs(hostRoot) {
+		return "", false
+	}
+	base := filepath.Clean(hostBase)
+	root := filepath.Clean(hostRoot)
+	relative, err := filepath.Rel(base, root)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.Join("/host", relative), true
 }
 
 func (c *ContextEngineClient) saveActiveStateLocked() {
