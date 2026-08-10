@@ -358,6 +358,11 @@ func fullFeatureFlags(models []any) map[string]any {
 		"enableByok":                                    true,
 		"enableFigmaMcp":                               true,
 		"enableTenantLevelToolPermissions":           true,
+		// Disable the repository allowlist so the plugin host never marks the
+		// current project as REPOSITORY_BLOCKED (which otherwise suppresses the
+		// sync-enabled-state / source-folders-sync-status messages and thus the
+		// native "Indexing Codebase" progress UI).
+		"repositoryAllowlistEnabled":                 false,
 
 		// ---- context / retrieval / prompt ---------------------------------------
 		"enableContextWindowUsage":                    true,
