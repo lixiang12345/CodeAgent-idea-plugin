@@ -1,0 +1,885 @@
+name: "services/notification/notification.proto"
+package: "notification"
+dependency: "google/protobuf/timestamp.proto"
+dependency: "services/token_exchange/auth_options.proto"
+message_type {
+  name: "ActionItem"
+  field {
+    name: "title"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "url"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_url"
+  }
+}
+message_type {
+  name: "NotificationFilter"
+  field {
+    name: "user_tier"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".notification.NotificationFilter.UserTierFilter"
+  }
+  field {
+    name: "team_status"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".notification.NotificationFilter.TeamStatusFilter"
+  }
+  field {
+    name: "team_admin"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".notification.NotificationFilter.TeamAdminFilter"
+  }
+  enum_type {
+    name: "UserTierFilter"
+    value {
+      name: "USER_TIER_ALL"
+      number: 0
+    }
+    value {
+      name: "USER_TIER_SELF_SERVE"
+      number: 1
+    }
+    value {
+      name: "USER_TIER_ENTERPRISE"
+      number: 2
+    }
+    value {
+      name: "USER_TIER_CBP_ENTERPRISE"
+      number: 3
+    }
+  }
+  enum_type {
+    name: "TeamStatusFilter"
+    value {
+      name: "TEAM_STATUS_ALL"
+      number: 0
+    }
+    value {
+      name: "TEAM_STATUS_IN_TEAM"
+      number: 1
+    }
+    value {
+      name: "TEAM_STATUS_NOT_IN_TEAM"
+      number: 2
+    }
+  }
+  enum_type {
+    name: "TeamAdminFilter"
+    value {
+      name: "TEAM_ADMIN_ALL"
+      number: 0
+    }
+    value {
+      name: "TEAM_ADMIN_ONLY"
+      number: 1
+    }
+    value {
+      name: "TEAM_NON_ADMIN_ONLY"
+      number: 2
+    }
+  }
+}
+message_type {
+  name: "Notification"
+  field {
+    name: "level"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".notification.NotificationLevel"
+  }
+  field {
+    name: "message"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "action_items"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".notification.ActionItem"
+  }
+  field {
+    name: "created_at"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "received_at"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "notification_name"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "notification_id"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "display_type"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".notification.NotificationDisplayType"
+  }
+}
+message_type {
+  name: "CooldownState"
+  field {
+    name: "stage_index"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "last_sent_at"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+}
+message_type {
+  name: "CreateNotificationRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "opaque_user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "level"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".notification.NotificationLevel"
+  }
+  field {
+    name: "message"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "action_items"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".notification.ActionItem"
+  }
+  field {
+    name: "notification_name"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "display_type"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".notification.NotificationDisplayType"
+  }
+  oneof_decl {
+    name: "_tenant_id"
+  }
+  oneof_decl {
+    name: "_opaque_user_id"
+  }
+}
+message_type {
+  name: "CreateNotificationResponse"
+  field {
+    name: "updated"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "notification_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ReadNotificationsRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "opaque_user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "notification_name"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+  }
+  field {
+    name: "notification_id"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+  }
+  field {
+    name: "read_all_versions"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "read_receipts"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  oneof_decl {
+    name: "filter"
+  }
+  oneof_decl {
+    name: "_tenant_id"
+  }
+  oneof_decl {
+    name: "_opaque_user_id"
+  }
+}
+message_type {
+  name: "ReadNotificationsResponse"
+  field {
+    name: "notifications"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".notification.Notification"
+  }
+}
+message_type {
+  name: "NotificationMarkRequest"
+  field {
+    name: "notification_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+  }
+  field {
+    name: "notification_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+  }
+  field {
+    name: "action_item_title"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "key"
+  }
+  oneof_decl {
+    name: "_action_item_title"
+  }
+}
+message_type {
+  name: "MarkNotificationsAsReadRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "opaque_user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "notifications_to_mark"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".notification.NotificationMarkRequest"
+  }
+  oneof_decl {
+    name: "_tenant_id"
+  }
+  oneof_decl {
+    name: "_opaque_user_id"
+  }
+}
+message_type {
+  name: "NotificationKey"
+  field {
+    name: "notification_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "notification_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "MarkNotificationsAsReadResponse"
+  field {
+    name: "marked_notifications"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".notification.NotificationKey"
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+}
+message_type {
+  name: "DeleteNotificationsRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "opaque_user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "notification_names"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "notification_ids"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  oneof_decl {
+    name: "_tenant_id"
+  }
+  oneof_decl {
+    name: "_opaque_user_id"
+  }
+}
+message_type {
+  name: "DeleteNotificationsResponse"
+  field {
+    name: "deleted_notifications"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".notification.NotificationKey"
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+}
+message_type {
+  name: "ForgetUserRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "opaque_user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_tenant_id"
+  }
+  oneof_decl {
+    name: "_opaque_user_id"
+  }
+}
+message_type {
+  name: "ForgetUserResponse"
+  field {
+    name: "deleted_count"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+}
+message_type {
+  name: "TriggerNotificationRequest"
+  field {
+    name: "notification"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".notification.CreateNotificationRequest"
+  }
+  field {
+    name: "backoff_stages"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_INT64
+  }
+}
+message_type {
+  name: "TriggerNotificationResponse"
+  field {
+    name: "notification_created"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "blocked_by_cooldown"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "current_stage_index"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "next_allowed_at"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "notification_id"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "updated"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  oneof_decl {
+    name: "_current_stage_index"
+  }
+  oneof_decl {
+    name: "_next_allowed_at"
+  }
+  oneof_decl {
+    name: "_notification_id"
+  }
+}
+message_type {
+  name: "CreateSystemNotificationRequest"
+  field {
+    name: "notification"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".notification.Notification"
+  }
+  field {
+    name: "filter"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".notification.NotificationFilter"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_filter"
+  }
+}
+message_type {
+  name: "CreateSystemNotificationResponse"
+  field {
+    name: "updated"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "notification_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "CreateTenantNotificationRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "notification"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".notification.Notification"
+  }
+  field {
+    name: "filter"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".notification.NotificationFilter"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_filter"
+  }
+}
+message_type {
+  name: "CreateTenantNotificationResponse"
+  field {
+    name: "updated"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "notification_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteSystemNotificationsRequest"
+  field {
+    name: "notification_names"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "notification_ids"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteSystemNotificationsResponse"
+  field {
+    name: "deleted_notifications"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".notification.NotificationKey"
+  }
+}
+message_type {
+  name: "DeleteTenantNotificationsRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "notification_names"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "notification_ids"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteTenantNotificationsResponse"
+  field {
+    name: "deleted_notifications"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".notification.NotificationKey"
+  }
+}
+message_type {
+  name: "NotificationWithFilter"
+  field {
+    name: "notification"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".notification.Notification"
+  }
+  field {
+    name: "filter"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".notification.NotificationFilter"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_filter"
+  }
+}
+message_type {
+  name: "ListSystemNotificationsRequest"
+}
+message_type {
+  name: "ListSystemNotificationsResponse"
+  field {
+    name: "notifications"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".notification.NotificationWithFilter"
+  }
+}
+message_type {
+  name: "ListTenantNotificationsRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ListTenantNotificationsResponse"
+  field {
+    name: "notifications"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".notification.NotificationWithFilter"
+  }
+}
+enum_type {
+  name: "NotificationLevel"
+  value {
+    name: "NOTIFICATION_LEVEL_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "NOTIFICATION_LEVEL_INFO"
+    number: 1
+  }
+  value {
+    name: "NOTIFICATION_LEVEL_WARNING"
+    number: 2
+  }
+  value {
+    name: "NOTIFICATION_LEVEL_ERROR"
+    number: 3
+  }
+}
+enum_type {
+  name: "NotificationDisplayType"
+  value {
+    name: "DISPLAY_TYPE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "DISPLAY_TYPE_TOAST"
+    number: 1
+  }
+  value {
+    name: "DISPLAY_TYPE_BANNER"
+    number: 2
+  }
+}
+service {
+  name: "NotificationService"
+  method {
+    name: "CreateNotification"
+    input_type: ".notification.CreateNotificationRequest"
+    output_type: ".notification.CreateNotificationResponse"
+    options {
+      [auth_options.required_token_scopes]: NOTIFICATION_ADMIN
+      [auth_options.required_token_scopes]: NOTIFICATION_RW
+    }
+  }
+  method {
+    name: "ReadNotifications"
+    input_type: ".notification.ReadNotificationsRequest"
+    output_type: ".notification.ReadNotificationsResponse"
+    options {
+      [auth_options.required_token_scopes]: NOTIFICATION_R
+    }
+  }
+  method {
+    name: "MarkNotificationsAsRead"
+    input_type: ".notification.MarkNotificationsAsReadRequest"
+    output_type: ".notification.MarkNotificationsAsReadResponse"
+    options {
+      [auth_options.required_token_scopes]: NOTIFICATION_RW
+    }
+  }
+  method {
+    name: "DeleteNotifications"
+    input_type: ".notification.DeleteNotificationsRequest"
+    output_type: ".notification.DeleteNotificationsResponse"
+    options {
+      [auth_options.required_token_scopes]: NOTIFICATION_ADMIN
+      [auth_options.required_token_scopes]: NOTIFICATION_RW
+    }
+  }
+  method {
+    name: "ForgetUser"
+    input_type: ".notification.ForgetUserRequest"
+    output_type: ".notification.ForgetUserResponse"
+    options {
+      [auth_options.required_token_scopes]: NOTIFICATION_ADMIN
+      [auth_options.required_token_scopes]: NOTIFICATION_RW
+    }
+  }
+  method {
+    name: "TriggerNotification"
+    input_type: ".notification.TriggerNotificationRequest"
+    output_type: ".notification.TriggerNotificationResponse"
+    options {
+      [auth_options.required_token_scopes]: NOTIFICATION_ADMIN
+      [auth_options.required_token_scopes]: NOTIFICATION_RW
+    }
+  }
+  method {
+    name: "CreateSystemNotification"
+    input_type: ".notification.CreateSystemNotificationRequest"
+    output_type: ".notification.CreateSystemNotificationResponse"
+    options {
+      [auth_options.required_token_scopes]: NOTIFICATION_ADMIN
+    }
+  }
+  method {
+    name: "CreateTenantNotification"
+    input_type: ".notification.CreateTenantNotificationRequest"
+    output_type: ".notification.CreateTenantNotificationResponse"
+    options {
+      [auth_options.required_token_scopes]: NOTIFICATION_ADMIN
+    }
+  }
+  method {
+    name: "DeleteSystemNotifications"
+    input_type: ".notification.DeleteSystemNotificationsRequest"
+    output_type: ".notification.DeleteSystemNotificationsResponse"
+    options {
+      [auth_options.required_token_scopes]: NOTIFICATION_ADMIN
+    }
+  }
+  method {
+    name: "DeleteTenantNotifications"
+    input_type: ".notification.DeleteTenantNotificationsRequest"
+    output_type: ".notification.DeleteTenantNotificationsResponse"
+    options {
+      [auth_options.required_token_scopes]: NOTIFICATION_ADMIN
+    }
+  }
+  method {
+    name: "ListSystemNotifications"
+    input_type: ".notification.ListSystemNotificationsRequest"
+    output_type: ".notification.ListSystemNotificationsResponse"
+    options {
+      [auth_options.required_token_scopes]: NOTIFICATION_R
+    }
+  }
+  method {
+    name: "ListTenantNotifications"
+    input_type: ".notification.ListTenantNotificationsRequest"
+    output_type: ".notification.ListTenantNotificationsResponse"
+    options {
+      [auth_options.required_token_scopes]: NOTIFICATION_R
+    }
+  }
+}
+options {
+  go_package: "github.com/augmentcode/augment/services/notification/proto"
+}
+syntax: "proto3"

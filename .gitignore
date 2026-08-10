@@ -28,4 +28,26 @@ backend/.env
 .contextengine/
 .understand-anything/
 .env
+.env.*
+!.env.example
+local-backend/.env*
+!local-backend/.env.example
+release-local/backend/node_modules/
+release-local/backend/.env.local
 omp-session-*.html
+
+# Visible AugmentBridge runtime state and owner-only credentials.
+AugmentBridge/*.env
+AugmentBridge/*.log
+AugmentBridge/*.pid
+AugmentBridge/*.new.*
+AugmentBridge/docker-replaced-launchd
+re/extracted/
+*.log
+
+# Go backend build outputs and stray reverse-engineering artifacts.
+backend-go/server
+com/
+.gradle-lock-patch/
+*.class
+.augment-tool-smoke-test.txt

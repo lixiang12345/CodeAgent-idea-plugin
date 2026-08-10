@@ -1,0 +1,1229 @@
+name: "services/fraud_guard/fraud_guard.proto"
+package: "services.fraud_guard"
+dependency: "services/tenant_watcher/tenant_watcher.proto"
+message_type {
+  name: "ListRequest"
+  field {
+    name: "value"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "list_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".services.fraud_guard.ListName"
+  }
+  field {
+    name: "is_active"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "reason"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ListResponse"
+  field {
+    name: "success"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "ListValuesRequest"
+  field {
+    name: "list_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".services.fraud_guard.ListName"
+  }
+}
+message_type {
+  name: "ListEntry"
+  field {
+    name: "value"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "is_active"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "reason"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "updated_by"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "created_at"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "updated_at"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ListValuesResponse"
+  field {
+    name: "entries"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".services.fraud_guard.ListEntry"
+  }
+}
+message_type {
+  name: "SignupFlowData"
+  field {
+    name: "verisoul_session_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "remote_ip"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "hcaptcha_response"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "run_hcaptcha_check"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "user_agent"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "idp_user_id"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "workos_radar_action"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".services.fraud_guard.WorkOSRadarAction"
+  }
+  reserved_range {
+    start: 2
+    end: 3
+  }
+  reserved_name: "stytch_telemetry_id"
+}
+message_type {
+  name: "PostSignupFlowData"
+  field {
+    name: "opaque_user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "PaymentFlowData"
+  field {
+    name: "payment_amount_usd_cents"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "invoice_payment_attempts"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "invoice_age_days"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "current_payment_blocked"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "current_payment_failed"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 4
+    proto3_optional: true
+  }
+  field {
+    name: "subscription_seats"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+    oneof_index: 5
+    proto3_optional: true
+  }
+  field {
+    name: "billing_country"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 6
+    proto3_optional: true
+  }
+  field {
+    name: "stripe_customer_id"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  oneof_decl {
+    name: "_payment_amount_usd_cents"
+  }
+  oneof_decl {
+    name: "_invoice_payment_attempts"
+  }
+  oneof_decl {
+    name: "_invoice_age_days"
+  }
+  oneof_decl {
+    name: "_current_payment_blocked"
+  }
+  oneof_decl {
+    name: "_current_payment_failed"
+  }
+  oneof_decl {
+    name: "_subscription_seats"
+  }
+  oneof_decl {
+    name: "_billing_country"
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+}
+message_type {
+  name: "SignInFlowData"
+  field {
+    name: "remote_ip"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "hcaptcha_response"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "hcaptcha_expected"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "user_agent"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "GetDecisionResponse"
+  field {
+    name: "decision"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".services.fraud_guard.Decision"
+  }
+  field {
+    name: "rule_decisions"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".services.fraud_guard.GetDecisionResponse.RuleDecisionsEntry"
+  }
+  field {
+    name: "shadow_rule_decisions"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".services.fraud_guard.GetDecisionResponse.ShadowRuleDecisionsEntry"
+  }
+  field {
+    name: "errored_rules"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".services.fraud_guard.GetDecisionResponse.ErroredRulesEntry"
+  }
+  field {
+    name: "tags"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  nested_type {
+    name: "RuleDecisionsEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_ENUM
+      type_name: ".services.fraud_guard.Decision"
+    }
+    options {
+      map_entry: true
+    }
+  }
+  nested_type {
+    name: "ShadowRuleDecisionsEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_ENUM
+      type_name: ".services.fraud_guard.Decision"
+    }
+    options {
+      map_entry: true
+    }
+  }
+  nested_type {
+    name: "ErroredRulesEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    options {
+      map_entry: true
+    }
+  }
+}
+message_type {
+  name: "EvaluationResult"
+  field {
+    name: "signals_json"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "raw_signals_json"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "rule_decisions"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".services.fraud_guard.EvaluationResult.RuleDecisionsEntry"
+  }
+  field {
+    name: "shadow_rule_decisions"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".services.fraud_guard.EvaluationResult.ShadowRuleDecisionsEntry"
+  }
+  field {
+    name: "errored_rules"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".services.fraud_guard.EvaluationResult.ErroredRulesEntry"
+  }
+  field {
+    name: "message"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tags"
+    number: 8
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "decision"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".services.fraud_guard.Decision"
+  }
+  nested_type {
+    name: "RuleDecisionsEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_ENUM
+      type_name: ".services.fraud_guard.Decision"
+    }
+    options {
+      map_entry: true
+    }
+  }
+  nested_type {
+    name: "ShadowRuleDecisionsEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_ENUM
+      type_name: ".services.fraud_guard.Decision"
+    }
+    options {
+      map_entry: true
+    }
+  }
+  nested_type {
+    name: "ErroredRulesEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    options {
+      map_entry: true
+    }
+  }
+  reserved_range {
+    start: 6
+    end: 7
+  }
+}
+message_type {
+  name: "GetDecisionRequest"
+  field {
+    name: "email"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "flow_type"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".services.fraud_guard.FlowType"
+  }
+  field {
+    name: "include_debug_fields"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "caller"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".services.fraud_guard.FraudGuardCaller"
+  }
+}
+message_type {
+  name: "EvaluationRequest"
+  field {
+    name: "flow_type"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".services.fraud_guard.FlowType"
+  }
+  field {
+    name: "email"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "caller"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".services.fraud_guard.FraudGuardCaller"
+  }
+  field {
+    name: "tenant_tier"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".services.tenant.TenantTier"
+  }
+  field {
+    name: "is_team_user"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "signup_flow_data"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.fraud_guard.SignupFlowData"
+    oneof_index: 0
+  }
+  field {
+    name: "post_signup_flow_data"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.fraud_guard.PostSignupFlowData"
+    oneof_index: 0
+  }
+  field {
+    name: "payment_flow_data"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.fraud_guard.PaymentFlowData"
+    oneof_index: 0
+  }
+  field {
+    name: "signin_flow_data"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.fraud_guard.SignInFlowData"
+    oneof_index: 0
+  }
+  field {
+    name: "include_debug_fields"
+    number: 20
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "get_existing_decision_within_hours"
+    number: 21
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "flow_data"
+  }
+  oneof_decl {
+    name: "_get_existing_decision_within_hours"
+  }
+}
+message_type {
+  name: "UpdatePaymentCounterRequest"
+  field {
+    name: "opaque_user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "event_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "event_type"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".services.fraud_guard.PaymentEventType"
+  }
+  field {
+    name: "amount_usd_cents"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+}
+message_type {
+  name: "UpdatePaymentCounterResponse"
+  field {
+    name: "updated"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "counters"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.fraud_guard.PaymentCounters"
+  }
+}
+message_type {
+  name: "PaymentCounters"
+  field {
+    name: "opaque_user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "lifetime_payment_count"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "lifetime_revenue_cents"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "lifetime_refund_count"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "lifetime_chargeback_count"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+}
+message_type {
+  name: "GetPaymentCountersRequest"
+  field {
+    name: "opaque_user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetPaymentCountersResponse"
+  field {
+    name: "counters"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.fraud_guard.PaymentCounters"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_counters"
+  }
+}
+message_type {
+  name: "GetStripePaymentMetricsRequest"
+  field {
+    name: "stripe_customer_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+}
+message_type {
+  name: "GetStripePaymentMetricsResponse"
+  field {
+    name: "metrics"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.fraud_guard.StripePaymentMetrics"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_metrics"
+  }
+}
+message_type {
+  name: "CustomerPaymentMetrics"
+  field {
+    name: "lifetime_payment_count"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "lifetime_revenue_usd_cents"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "lifetime_refund_count"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "lifetime_chargeback_count"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+}
+message_type {
+  name: "StripePaymentMetrics"
+  field {
+    name: "stripe_customer_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "metrics"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.fraud_guard.CustomerPaymentMetrics"
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+  reserved_range {
+    start: 3
+    end: 4
+  }
+  reserved_range {
+    start: 4
+    end: 5
+  }
+  reserved_range {
+    start: 6
+    end: 7
+  }
+}
+message_type {
+  name: "GetDNSSignalsRequest"
+  field {
+    name: "domain"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "DNSSignals"
+  field {
+    name: "domain"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "mx_hosts"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "mx_ips"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "mx_host_base"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "mx_host_tld"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "mx_ip_class_c"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "mx_primary_host"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "mx_primary_pref"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "dmarc_exists"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "dmarc_policy"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "dmarc_pct"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "dmarc_is_reject"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "dmarc_has_rua"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "dmarc_has_ruf"
+    number: 14
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "dmarc_rua"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "dmarc_ruf"
+    number: 16
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "apex_has_a"
+    number: 17
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "apex_has_aaaa"
+    number: 18
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "apex_a"
+    number: 19
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "apex_aaaa"
+    number: 20
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "has_bimi"
+    number: 21
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "domain_created"
+    number: 22
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "domain_updated"
+    number: 23
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "domain_expires"
+    number: 24
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "cache_source"
+    number: 25
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "error"
+    number: 26
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "soa_serial"
+    number: 27
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "dmarc_rua_list"
+    number: 28
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "dmarc_ruf_list"
+    number: 29
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetDNSSignalsResponse"
+  field {
+    name: "signals"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.fraud_guard.DNSSignals"
+  }
+}
+message_type {
+  name: "InvalidateDNSSignalsCacheRequest"
+}
+message_type {
+  name: "InvalidateDNSSignalsCacheResponse"
+  field {
+    name: "success"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "message"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "purged_count"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+enum_type {
+  name: "ListName"
+  value {
+    name: "LIST_NAME_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "PQA_DOMAIN"
+    number: 1
+  }
+  value {
+    name: "BANNED_DOMAIN"
+    number: 2
+  }
+  value {
+    name: "APPROVED_EMAIL"
+    number: 3
+  }
+}
+enum_type {
+  name: "FraudGuardCaller"
+  value {
+    name: "FRAUD_GUARD_CALLER_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "AUTH_CENTRAL"
+    number: 1
+  }
+  value {
+    name: "MISUSE_MONITOR"
+    number: 2
+  }
+  value {
+    name: "AUTH_CENTRAL_FAILED_PAYMENT"
+    number: 3
+  }
+  value {
+    name: "BILLING_CENTRAL_FAILED_PAYMENT"
+    number: 4
+  }
+}
+enum_type {
+  name: "FlowType"
+  value {
+    name: "FLOW_TYPE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "SIGNUP"
+    number: 1
+  }
+  value {
+    name: "DOMAIN_CHECK"
+    number: 2
+  }
+  value {
+    name: "POST_SIGNUP"
+    number: 3
+  }
+  value {
+    name: "PAYMENT"
+    number: 4
+  }
+  value {
+    name: "SIGN_IN"
+    number: 5
+  }
+}
+enum_type {
+  name: "WorkOSRadarAction"
+  value {
+    name: "WORKOS_RADAR_ACTION_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "WORKOS_RADAR_ACTION_SIGN_UP"
+    number: 1
+  }
+  value {
+    name: "WORKOS_RADAR_ACTION_SIGN_IN"
+    number: 2
+  }
+  value {
+    name: "WORKOS_RADAR_ACTION_DISABLE"
+    number: 3
+  }
+}
+enum_type {
+  name: "Decision"
+  value {
+    name: "DECISION_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "APPROVE"
+    number: 1
+  }
+  value {
+    name: "BLOCK"
+    number: 2
+  }
+  value {
+    name: "SUSPICIOUS"
+    number: 3
+  }
+}
+enum_type {
+  name: "PaymentEventType"
+  value {
+    name: "PAYMENT_EVENT_TYPE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "PAYMENT_SUCCEEDED"
+    number: 1
+  }
+  value {
+    name: "REFUND"
+    number: 2
+  }
+  value {
+    name: "CHARGEBACK"
+    number: 3
+  }
+}
+service {
+  name: "FraudGuard"
+  method {
+    name: "GetDecision"
+    input_type: ".services.fraud_guard.GetDecisionRequest"
+    output_type: ".services.fraud_guard.EvaluationResult"
+    options {
+    }
+  }
+  method {
+    name: "Evaluate"
+    input_type: ".services.fraud_guard.EvaluationRequest"
+    output_type: ".services.fraud_guard.EvaluationResult"
+    options {
+    }
+  }
+  method {
+    name: "UpdateList"
+    input_type: ".services.fraud_guard.ListRequest"
+    output_type: ".services.fraud_guard.ListResponse"
+    options {
+    }
+  }
+  method {
+    name: "GetListValues"
+    input_type: ".services.fraud_guard.ListValuesRequest"
+    output_type: ".services.fraud_guard.ListValuesResponse"
+    options {
+    }
+  }
+  method {
+    name: "UpdatePaymentCounter"
+    input_type: ".services.fraud_guard.UpdatePaymentCounterRequest"
+    output_type: ".services.fraud_guard.UpdatePaymentCounterResponse"
+    options {
+    }
+  }
+  method {
+    name: "GetPaymentCounters"
+    input_type: ".services.fraud_guard.GetPaymentCountersRequest"
+    output_type: ".services.fraud_guard.GetPaymentCountersResponse"
+    options {
+    }
+  }
+  method {
+    name: "GetStripePaymentMetrics"
+    input_type: ".services.fraud_guard.GetStripePaymentMetricsRequest"
+    output_type: ".services.fraud_guard.GetStripePaymentMetricsResponse"
+    options {
+    }
+  }
+  method {
+    name: "InvalidateDNSSignalsCache"
+    input_type: ".services.fraud_guard.InvalidateDNSSignalsCacheRequest"
+    output_type: ".services.fraud_guard.InvalidateDNSSignalsCacheResponse"
+    options {
+    }
+  }
+  method {
+    name: "GetDNSSignals"
+    input_type: ".services.fraud_guard.GetDNSSignalsRequest"
+    output_type: ".services.fraud_guard.GetDNSSignalsResponse"
+    options {
+    }
+  }
+}
+options {
+  go_package: "github.com/augmentcode/augment/services/fraud_guard/proto"
+}
+syntax: "proto3"

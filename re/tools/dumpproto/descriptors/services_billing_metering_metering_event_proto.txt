@@ -1,0 +1,409 @@
+name: "services/billing/metering/metering_event.proto"
+package: "metering_event"
+dependency: "google/protobuf/timestamp.proto"
+dependency: "services/auth/central/server/auth_entities.proto"
+message_type {
+  name: "RequestContext"
+  field {
+    name: "request_source"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "request_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "session_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "user_id"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.UserId"
+  }
+  field {
+    name: "user_email_override"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "conversation_id"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "parent_conversation_id"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "root_conversation_id"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "turn_id"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "user_type"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.UserType"
+  }
+  field {
+    name: "bot_type"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.BotType"
+  }
+  field {
+    name: "is_byok"
+    number: 14
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "expert_id"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  reserved_range {
+    start: 4
+    end: 5
+  }
+}
+message_type {
+  name: "AgentMeteringMetadata"
+  field {
+    name: "activity_display_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "model_display_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "requested_model_name"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "routing_reason"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ContextEngineMeteringMetadata"
+  field {
+    name: "activity_display_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "model_display_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ComputeMeteringMetadata"
+  field {
+    name: "activity_display_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "model_display_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "vm_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "CostContext"
+  field {
+    name: "activity_multiplier"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_DOUBLE
+  }
+  field {
+    name: "input_tokens"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "output_tokens"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "cache_read_tokens"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "cache_write_tokens"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "model_name"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "total_cost_usd"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_DOUBLE
+  }
+  field {
+    name: "byok_provider_name"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "surcharge_rate"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_DOUBLE
+  }
+  field {
+    name: "surcharge_usd"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "base_cost_usd"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "vm_count"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "total_cpu_cost_usd"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_DOUBLE
+  }
+  field {
+    name: "total_memory_cost_usd"
+    number: 14
+    label: LABEL_OPTIONAL
+    type: TYPE_DOUBLE
+  }
+  field {
+    name: "total_billable_seconds"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_DOUBLE
+  }
+  field {
+    name: "cpu_cores"
+    number: 16
+    label: LABEL_OPTIONAL
+    type: TYPE_FLOAT
+  }
+  field {
+    name: "memory_size_mib"
+    number: 17
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "provider_region"
+    number: 18
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "endpoint_scope"
+    number: 19
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "regional_multiplier"
+    number: 20
+    label: LABEL_OPTIONAL
+    type: TYPE_DOUBLE
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_regional_multiplier"
+  }
+}
+message_type {
+  name: "MeteringEvent"
+  field {
+    name: "idempotency_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "usage_type"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".metering_event.MeteringEvent.UsageType"
+  }
+  field {
+    name: "request_context"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".metering_event.RequestContext"
+  }
+  field {
+    name: "agent_metering_metadata"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".metering_event.AgentMeteringMetadata"
+    oneof_index: 0
+  }
+  field {
+    name: "context_engine_metering_metadata"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".metering_event.ContextEngineMeteringMetadata"
+    oneof_index: 0
+  }
+  field {
+    name: "compute_metering_metadata"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".metering_event.ComputeMeteringMetadata"
+    oneof_index: 0
+  }
+  field {
+    name: "timestamp"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "credits_consumed"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_DOUBLE
+  }
+  field {
+    name: "cost_context"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".metering_event.CostContext"
+  }
+  field {
+    name: "dry_run"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "is_byok"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    options {
+      deprecated: true
+    }
+  }
+  field {
+    name: "billed_amount_usd"
+    number: 14
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "estimated_customer_cost_usd"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  enum_type {
+    name: "UsageType"
+    value {
+      name: "USAGE_TYPE_UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "AGENT"
+      number: 1
+    }
+    value {
+      name: "CONTEXT_ENGINE"
+      number: 2
+    }
+    value {
+      name: "COMPUTE"
+      number: 3
+    }
+  }
+  oneof_decl {
+    name: "metadata"
+  }
+}
+options {
+  go_package: "github.com/augmentcode/augment/services/billing/metering_event_proto"
+}
+syntax: "proto3"

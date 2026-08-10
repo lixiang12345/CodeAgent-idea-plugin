@@ -1,0 +1,47 @@
+name: "clients/sidecar/libs/protos/intake_service.proto"
+package: "com.augmentcode.sidecar"
+message_type {
+  name: "FileWalkRequest"
+  field {
+    name: "walkRoot"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "additionalExcludedExtensions"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "maxFileSize"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "relativePathsToConsider"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "FileWalkResponse"
+  field {
+    name: "filesToProcess"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+service {
+  name: "IntakeService"
+  method {
+    name: "FileWalk"
+    input_type: ".com.augmentcode.sidecar.FileWalkRequest"
+    output_type: ".com.augmentcode.sidecar.FileWalkResponse"
+  }
+}
+syntax: "proto3"

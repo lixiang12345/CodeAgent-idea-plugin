@@ -1,0 +1,2156 @@
+name: "services/auth/central/server/auth_entities.proto"
+package: "auth_entities"
+dependency: "google/protobuf/timestamp.proto"
+message_type {
+  name: "UserSuspension"
+  field {
+    name: "suspension_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "created_time"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "suspension_type"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.UserSuspensionType"
+  }
+  field {
+    name: "evidence"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "enforced"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "enforcement_reason"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "PricingMigrationInfo"
+  field {
+    name: "migrated_at"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "legacy_plan_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "new_plan_id"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "remaining_user_messages"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_DOUBLE
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+}
+message_type {
+  name: "ServiceMetadata"
+  field {
+    name: "service_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "service_description"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "created_by"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UserFlags"
+  field {
+    name: "team_discovery_join_skipped"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "team_join_requested"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "team_invitation_skipped"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+  reserved_range {
+    start: 2
+    end: 3
+  }
+}
+message_type {
+  name: "User"
+  field {
+    name: "id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "email"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "nonce"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT64
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "tenants"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "created_at"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "in_usa"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "stripe_customer_id"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "blocked"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "idp_user_ids"
+    number: 11
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "orb_customer_id"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "orb_subscription_id"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "suspensions"
+    number: 17
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.UserSuspension"
+  }
+  field {
+    name: "subscription_creation_info"
+    number: 18
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.User.SubscriptionCreationInfo"
+  }
+  field {
+    name: "suspension_exempt"
+    number: 19
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "deletion_state"
+    number: 20
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.User.DeletionState"
+  }
+  field {
+    name: "promotions"
+    number: 21
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.UserPromotion"
+    options {
+      deprecated: true
+    }
+  }
+  field {
+    name: "given_name"
+    number: 22
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "family_name"
+    number: 23
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "pending_change"
+    number: 24
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.PendingChange"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "tags"
+    number: 25
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "pricing_migration_info"
+    number: 27
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.PricingMigrationInfo"
+  }
+  field {
+    name: "needs_get_started"
+    number: 28
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "type"
+    number: 29
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.UserType"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "service"
+    number: 30
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.ServiceMetadata"
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "user_source_submitted"
+    number: 31
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "flags"
+    number: 32
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.UserFlags"
+  }
+  field {
+    name: "business_email_verified"
+    number: 33
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "preferred_team_name"
+    number: 34
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  nested_type {
+    name: "SubscriptionCreationInfo"
+    field {
+      name: "id"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "status"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_ENUM
+      type_name: ".auth_entities.User.SubscriptionCreationInfo.Status"
+    }
+    field {
+      name: "created_at"
+      number: 3
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.Timestamp"
+    }
+    field {
+      name: "updated_at"
+      number: 4
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.Timestamp"
+    }
+    enum_type {
+      name: "Status"
+      value {
+        name: "SUCCESS"
+        number: 0
+      }
+      value {
+        name: "PENDING"
+        number: 1
+      }
+    }
+  }
+  enum_type {
+    name: "DeletionState"
+    value {
+      name: "NOT_DELETED"
+      number: 0
+    }
+    value {
+      name: "GDPR_CCPA_DELETED"
+      number: 1
+    }
+    value {
+      name: "ACCOUNT_DELETED"
+      number: 2
+    }
+  }
+  oneof_decl {
+    name: "_pending_change"
+  }
+  oneof_decl {
+    name: "_type"
+  }
+  oneof_decl {
+    name: "_service"
+  }
+  reserved_range {
+    start: 8
+    end: 9
+  }
+  reserved_range {
+    start: 9
+    end: 10
+  }
+  reserved_range {
+    start: 13
+    end: 14
+  }
+  reserved_range {
+    start: 14
+    end: 15
+  }
+  reserved_range {
+    start: 16
+    end: 17
+  }
+  reserved_range {
+    start: 26
+    end: 27
+  }
+  reserved_range {
+    start: 35
+    end: 36
+  }
+  reserved_range {
+    start: 36
+    end: 37
+  }
+  reserved_name: "is_upfront_payment_experiment"
+}
+message_type {
+  name: "UserPromotion"
+  field {
+    name: "promotion_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "status"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.PromotionStatus"
+  }
+  field {
+    name: "enrolled_at"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "enrollment_attempts"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "UserTenantMapping"
+  field {
+    name: "tenant"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "customer_ui_roles"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_ENUM
+    type_name: ".auth_entities.CustomerUiRole"
+  }
+}
+message_type {
+  name: "IdpUserMapping"
+  field {
+    name: "idp_user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "augment_user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ServiceNameMapping"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "service_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "user_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ServiceTokenMetadata"
+  field {
+    name: "token_description"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "created_by"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "token_creator"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.TokenCreator"
+  }
+}
+message_type {
+  name: "PersonalTokenMetadata"
+  field {
+    name: "token_description"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "TokenHash"
+  field {
+    name: "hash"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "idp_user_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "augment_user_id"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "creation_time"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "expiration_time_seconds"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "service_token_metadata"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.ServiceTokenMetadata"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "bot_type"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.BotType"
+  }
+  field {
+    name: "personal_token_metadata"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.PersonalTokenMetadata"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_service_token_metadata"
+  }
+  oneof_decl {
+    name: "_personal_token_metadata"
+  }
+  reserved_range {
+    start: 4
+    end: 5
+  }
+  reserved_range {
+    start: 8
+    end: 9
+  }
+}
+message_type {
+  name: "Code"
+  field {
+    name: "code"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "idp_user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "email"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "client_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "redirect_uri"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "code_challenge"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "is_used"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "creation_time_seconds"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "augment_user_id"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "oidc_nonce"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "TermsApproval"
+  field {
+    name: "email"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "approved"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "revision"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "SignupLimiterState"
+  field {
+    name: "credits_available"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_FLOAT
+  }
+  field {
+    name: "last_update_time_seconds"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "max_burst"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+}
+message_type {
+  name: "Session"
+  field {
+    name: "session_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "login_args"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "auth0_event_json"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "created_at"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "expires_at"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+}
+message_type {
+  name: "UserId"
+  field {
+    name: "user_id_type"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.UserId.UserIdType"
+  }
+  field {
+    name: "user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  enum_type {
+    name: "UserIdType"
+    value {
+      name: "UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "AUGMENT"
+      number: 1
+    }
+    value {
+      name: "API_TOKEN"
+      number: 2
+    }
+    value {
+      name: "SLACK"
+      number: 3
+    }
+    value {
+      name: "INTERNAL_IAP"
+      number: 4
+    }
+  }
+}
+message_type {
+  name: "TenantCreation"
+  field {
+    name: "id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "created_at"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "status"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.TenantCreation.Status"
+  }
+  field {
+    name: "tenant_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  enum_type {
+    name: "Status"
+    value {
+      name: "UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "PENDING"
+      number: 1
+    }
+    value {
+      name: "SUCCESS"
+      number: 2
+    }
+    value {
+      name: "ERROR"
+      number: 3
+    }
+  }
+}
+message_type {
+  name: "TenantInvitation"
+  field {
+    name: "id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "created_at"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "invitee_email"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "tenant_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "inviter_user_id"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "status"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.TenantInvitation.Status"
+  }
+  field {
+    name: "inviter_email"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  enum_type {
+    name: "Status"
+    value {
+      name: "UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "PENDING"
+      number: 1
+    }
+    value {
+      name: "ACCEPTED"
+      number: 2
+    }
+    value {
+      name: "DECLINED"
+      number: 3
+    }
+  }
+}
+message_type {
+  name: "JoinRequest"
+  field {
+    name: "id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "created_at"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "requester_user_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "requester_email"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "tenant_id"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "status"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.JoinRequest.Status"
+  }
+  enum_type {
+    name: "Status"
+    value {
+      name: "UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "PENDING"
+      number: 1
+    }
+    value {
+      name: "APPROVED"
+      number: 2
+    }
+    value {
+      name: "REJECTED"
+      number: 3
+    }
+  }
+}
+message_type {
+  name: "TenantSubscriptionMapping"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "created_at"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "stripe_customer_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "orb_customer_id"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "orb_subscription_id"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "pending_change"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.PendingChange"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "pricing_migration_info"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.PricingMigrationInfo"
+  }
+  oneof_decl {
+    name: "_pending_change"
+  }
+  reserved_range {
+    start: 2
+    end: 3
+  }
+  reserved_range {
+    start: 6
+    end: 7
+  }
+  reserved_range {
+    start: 24
+    end: 25
+  }
+  reserved_range {
+    start: 8
+    end: 9
+  }
+  reserved_range {
+    start: 10
+    end: 11
+  }
+}
+message_type {
+  name: "Subscription"
+  field {
+    name: "subscription_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "stripe_customer_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "seats"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "start_date"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "trial_end"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "end_date"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "cancel_at_period_end"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "has_payment_method"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "tenant_id"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+  }
+  field {
+    name: "user_id"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+  }
+  field {
+    name: "created_at"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "updated_at"
+    number: 14
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "orb_customer_id"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "orb_status"
+    number: 16
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.Subscription.OrbStatus"
+  }
+  field {
+    name: "external_plan_id"
+    number: 18
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "seats_id"
+    number: 20
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "included_credits_id"
+    number: 21
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "credits_per_month"
+    number: 22
+    label: LABEL_OPTIONAL
+    type: TYPE_DOUBLE
+  }
+  field {
+    name: "usage_balance_depleted"
+    number: 23
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "subscription_change_id"
+    number: 24
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "cancelled_due_to_payment_failure"
+    number: 25
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "payment_history"
+    number: 26
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.PaymentHistoryInfo"
+  }
+  field {
+    name: "top_up_enabled"
+    number: 27
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "usage_balance_low"
+    number: 28
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "top_up_threshold"
+    number: 29
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "top_up_amount"
+    number: 30
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "top_up_active_from"
+    number: 31
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    oneof_index: 4
+    proto3_optional: true
+  }
+  field {
+    name: "scheduled_plan_change"
+    number: 33
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.ScheduledPlanChange"
+    oneof_index: 5
+    proto3_optional: true
+  }
+  enum_type {
+    name: "OrbStatus"
+    value {
+      name: "ORB_STATUS_UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "ORB_STATUS_UPCOMING"
+      number: 1
+    }
+    value {
+      name: "ORB_STATUS_ACTIVE"
+      number: 2
+    }
+    value {
+      name: "ORB_STATUS_ENDED"
+      number: 3
+    }
+  }
+  oneof_decl {
+    name: "owner"
+  }
+  oneof_decl {
+    name: "_subscription_change_id"
+  }
+  oneof_decl {
+    name: "_top_up_threshold"
+  }
+  oneof_decl {
+    name: "_top_up_amount"
+  }
+  oneof_decl {
+    name: "_top_up_active_from"
+  }
+  oneof_decl {
+    name: "_scheduled_plan_change"
+  }
+  reserved_range {
+    start: 3
+    end: 4
+  }
+  reserved_range {
+    start: 4
+    end: 5
+  }
+  reserved_range {
+    start: 17
+    end: 18
+  }
+  reserved_range {
+    start: 19
+    end: 20
+  }
+  reserved_range {
+    start: 32
+    end: 33
+  }
+}
+message_type {
+  name: "PaymentHistoryInfo"
+  field {
+    name: "most_recent_payment_date"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+}
+message_type {
+  name: "ScheduledPlanChange"
+  field {
+    name: "external_plan_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "effective_date"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+}
+message_type {
+  name: "InvitationResolution"
+  field {
+    name: "id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "created_at"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "status"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.InvitationResolution.Status"
+  }
+  enum_type {
+    name: "Status"
+    value {
+      name: "UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "PENDING"
+      number: 1
+    }
+    value {
+      name: "SUCCESS"
+      number: 2
+    }
+    value {
+      name: "ERROR"
+      number: 3
+    }
+  }
+}
+message_type {
+  name: "PlanChange"
+  field {
+    name: "status"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.PlanChange.Status"
+  }
+  field {
+    name: "target_plan_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "checkout_session_url"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "total_cost"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "orb_pending_change_id"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "checkout_session_id"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "message_id"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 2
+    proto3_optional: true
+  }
+  enum_type {
+    name: "Status"
+    value {
+      name: "UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "PENDING"
+      number: 1
+    }
+    value {
+      name: "SUCCESS"
+      number: 2
+    }
+    value {
+      name: "PAYMENT_FAILED"
+      number: 3
+    }
+  }
+  oneof_decl {
+    name: "_orb_pending_change_id"
+  }
+  oneof_decl {
+    name: "_checkout_session_id"
+  }
+  oneof_decl {
+    name: "_message_id"
+  }
+}
+message_type {
+  name: "PendingChange"
+  field {
+    name: "id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "created_at"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "updated_at"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "plan_change"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.PlanChange"
+    oneof_index: 0
+  }
+  oneof_decl {
+    name: "change"
+  }
+}
+message_type {
+  name: "FeatureGatingInfo"
+  field {
+    name: "feature_controls"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.FeatureControl"
+  }
+}
+message_type {
+  name: "FeatureControl"
+  field {
+    name: "feature_types"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_ENUM
+    type_name: ".auth_entities.FeatureControl.FeatureType"
+  }
+  field {
+    name: "state"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.FeatureControl.FeatureState"
+  }
+  field {
+    name: "disabled_reason"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.FeatureControl.FeatureDisabledReason"
+  }
+  field {
+    name: "end_date"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "display_info"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.FeatureControlDisplayInfo"
+  }
+  field {
+    name: "call_to_action"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.FeatureControl.FeatureCallToAction"
+  }
+  field {
+    name: "usd_billing_metadata"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.USDBillingFeatureMetadata"
+    oneof_index: 0
+  }
+  enum_type {
+    name: "FeatureType"
+    value {
+      name: "UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "ALL_FEATURES"
+      number: 1
+    }
+    value {
+      name: "CHAT"
+      number: 2
+    }
+    value {
+      name: "AGENT"
+      number: 3
+    }
+    value {
+      name: "REMOTE_AGENT"
+      number: 4
+    }
+    value {
+      name: "CLI_AGENT"
+      number: 5
+    }
+    value {
+      name: "ORIENTATION"
+      number: 7
+    }
+    value {
+      name: "CODE_REVIEW"
+      number: 9
+    }
+    value {
+      name: "AGENTIC_SLACK_BOT"
+      number: 10
+    }
+    value {
+      name: "CHAT_STREAM_CREDIT_CONSUMPTION"
+      number: 21
+    }
+    value {
+      name: "CONTEXT_ENGINE"
+      number: 22
+    }
+    value {
+      name: "POSEIDON"
+      number: 25
+    }
+    value {
+      name: "USD_BILLING"
+      number: 26
+    }
+    value {
+      name: "ENTERPRISE_BYOK"
+      number: 27
+    }
+    value {
+      name: "INDEXING_INFRA"
+      number: 28
+    }
+    reserved_range {
+      start: 6
+      end: 6
+    }
+    reserved_range {
+      start: 8
+      end: 8
+    }
+    reserved_range {
+      start: 23
+      end: 23
+    }
+    reserved_range {
+      start: 24
+      end: 24
+    }
+  }
+  enum_type {
+    name: "FeatureState"
+    value {
+      name: "STATE_UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "ENABLED"
+      number: 1
+    }
+    value {
+      name: "DISABLED"
+      number: 2
+    }
+  }
+  enum_type {
+    name: "FeatureDisabledReason"
+    value {
+      name: "REASON_UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "INACTIVE_SUBSCRIPTION"
+      number: 1
+    }
+    value {
+      name: "USAGE_BALANCE_DEPLETED"
+      number: 2
+    }
+    value {
+      name: "NOT_INCLUDED_IN_PLAN"
+      number: 3
+    }
+    value {
+      name: "QUOTA_EXCEEDED"
+      number: 4
+    }
+  }
+  enum_type {
+    name: "FeatureCallToAction"
+    value {
+      name: "CALL_TO_ACTION_UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "CLAIM_TRIAL"
+      number: 1
+    }
+    value {
+      name: "BALANCE_LOW_ENABLE_TOP_UP"
+      number: 2
+    }
+    value {
+      name: "BALANCE_LOW_MANAGE"
+      number: 3
+    }
+  }
+  oneof_decl {
+    name: "feature_control_metadata"
+  }
+}
+message_type {
+  name: "USDBillingFeatureMetadata"
+  field {
+    name: "surcharge_rate"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "BannerButton"
+  field {
+    name: "title"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "url"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "BannerInformation"
+  field {
+    name: "message"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "button"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.BannerButton"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "banner_type"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.BannerInformation.BannerType"
+  }
+  field {
+    name: "display_style"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.BannerInformation.BannerDisplayStyle"
+  }
+  enum_type {
+    name: "BannerType"
+    value {
+      name: "BANNER_TYPE_UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "URL_LINK"
+      number: 1
+      options {
+        deprecated: true
+      }
+    }
+    value {
+      name: "USAGE_BALANCE_DEPLETED"
+      number: 2
+    }
+    value {
+      name: "USAGE_BALANCE_LOW"
+      number: 3
+    }
+    value {
+      name: "REQUIRE_PAYMENT_FOR_TRIAL"
+      number: 4
+    }
+  }
+  enum_type {
+    name: "BannerDisplayStyle"
+    value {
+      name: "BANNER_DISPLAY_STYLE_UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "INFO"
+      number: 1
+    }
+    value {
+      name: "PROMOTION"
+      number: 2
+    }
+    value {
+      name: "WARNING"
+      number: 3
+    }
+    value {
+      name: "ALERT"
+      number: 4
+    }
+  }
+  oneof_decl {
+    name: "_button"
+  }
+}
+message_type {
+  name: "FeatureControlDisplayInfo"
+  field {
+    name: "mkdown_message"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "reminder_suffix"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "banner"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.BannerInformation"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "error_message"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "error_detail"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  oneof_decl {
+    name: "_banner"
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+}
+message_type {
+  name: "AuthorizationResult"
+  field {
+    name: "allowed"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "denial_reason"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.DenialReason"
+  }
+  field {
+    name: "reason_detail"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DynamicOAuthClient"
+  field {
+    name: "client_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "client_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "redirect_uris"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "client_id_issued_at"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "grant_types"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "response_types"
+    number: 6
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "token_endpoint_auth_method"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "client_uri"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "logo_uri"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "scope"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "contacts"
+    number: 11
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "tos_uri"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "policy_uri"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+enum_type {
+  name: "CustomerUiRole"
+  value {
+    name: "UNKNOWN_CUSTOMER_UI_ROLE"
+    number: 0
+  }
+  value {
+    name: "ADMIN"
+    number: 1
+  }
+}
+enum_type {
+  name: "BotType"
+  value {
+    name: "BOT_TYPE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "CODE_REVIEW_BOT"
+    number: 1
+  }
+  value {
+    name: "CODE_REVIEW_EVAL_BOT"
+    number: 2
+  }
+  value {
+    name: "ATHENA_BOT"
+    number: 3
+  }
+  value {
+    name: "SLACK_BOT"
+    number: 4
+  }
+  value {
+    name: "LINEAR_BOT"
+    number: 5
+  }
+  value {
+    name: "SANDBOX"
+    number: 6
+  }
+}
+enum_type {
+  name: "UserTier"
+  value {
+    name: "UNKNOWN_TIER"
+    number: 0
+  }
+  value {
+    name: "COMMUNITY"
+    number: 1
+  }
+  value {
+    name: "PROFESSIONAL"
+    number: 2
+  }
+}
+enum_type {
+  name: "UserSuspensionType"
+  value {
+    name: "USER_SUSPENSION_TYPE_UNKNOWN"
+    number: 0
+  }
+  value {
+    name: "USER_SUSPENSION_TYPE_API_ABUSE"
+    number: 1
+  }
+  value {
+    name: "USER_SUSPENSION_TYPE_FREE_TRIAL_ABUSE"
+    number: 2
+  }
+  value {
+    name: "USER_SUSPENSION_TYPE_COMMUNITY_ABUSE"
+    number: 3
+  }
+  value {
+    name: "USER_SUSPENSION_TYPE_DISPOSABLE_EMAIL"
+    number: 4
+  }
+  value {
+    name: "USER_SUSPENSION_TYPE_PAYMENT_FRAUD"
+    number: 5
+  }
+}
+enum_type {
+  name: "PricingMigrationStatus"
+  value {
+    name: "PRICING_MIGRATION_STATUS_USER_MESSAGE_BASED"
+    number: 0
+  }
+  value {
+    name: "PRICING_MIGRATION_STATUS_MIGRATING"
+    number: 1
+  }
+  value {
+    name: "PRICING_MIGRATION_STATUS_CREDIT_BASED"
+    number: 2
+  }
+}
+enum_type {
+  name: "UserType"
+  value {
+    name: "USER_TYPE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "USER_TYPE_REGULAR"
+    number: 1
+  }
+  value {
+    name: "USER_TYPE_SERVICE"
+    number: 2
+  }
+}
+enum_type {
+  name: "PromotionStatus"
+  value {
+    name: "PROMOTION_STATUS_UNKNOWN"
+    number: 0
+  }
+  value {
+    name: "PROMOTION_STATUS_ELIGIBLE"
+    number: 1
+  }
+  value {
+    name: "PROMOTION_STATUS_INELIGIBLE"
+    number: 2
+  }
+  value {
+    name: "PROMOTION_STATUS_ENROLLED"
+    number: 3
+  }
+}
+enum_type {
+  name: "TokenCreator"
+  value {
+    name: "TOKEN_CREATOR_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "TOKEN_CREATOR_USER"
+    number: 1
+  }
+  value {
+    name: "TOKEN_CREATOR_COSMOS_AUTOMATION"
+    number: 2
+  }
+}
+enum_type {
+  name: "DenialReason"
+  value {
+    name: "DENIAL_REASON_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "INSUFFICIENT_ROLE"
+    number: 1
+  }
+  value {
+    name: "NO_ROLE_ASSIGNED"
+    number: 2
+  }
+  value {
+    name: "TOKEN_ROLE_RESTRICTED"
+    number: 3
+  }
+}
+options {
+  go_package: "github.com/augmentcode/augment/services/auth/central/server/auth_entities_proto"
+}
+syntax: "proto3"

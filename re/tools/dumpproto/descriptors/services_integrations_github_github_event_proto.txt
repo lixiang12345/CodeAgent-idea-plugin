@@ -1,0 +1,834 @@
+name: "services/integrations/github/github_event.proto"
+package: "github_event"
+dependency: "google/protobuf/timestamp.proto"
+message_type {
+  name: "EventMetadata"
+  field {
+    name: "installation_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_name"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "request_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "delivery_id"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "Repository"
+  field {
+    name: "name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "owner"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "node_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "PushEvent"
+  field {
+    name: "repository"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.Repository"
+  }
+  field {
+    name: "ref"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "before_sha"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "after_sha"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "pushed_at_timestamp"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "forced"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "head_commit_timestamp"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+}
+message_type {
+  name: "UserInfo"
+  field {
+    name: "login"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "email"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "node_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "InstallationEvent"
+  field {
+    name: "repos"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".github_event.Repository"
+  }
+  field {
+    name: "action"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "sender"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.UserInfo"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "requester"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.UserInfo"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_sender"
+  }
+  oneof_decl {
+    name: "_requester"
+  }
+}
+message_type {
+  name: "PullRequestEvent"
+  field {
+    name: "repository"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.Repository"
+  }
+  field {
+    name: "action"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "number"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "title"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "body"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "state"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "author"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.UserInfo"
+  }
+  field {
+    name: "assignee"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.UserInfo"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "labels"
+    number: 9
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "created_at"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "updated_at"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "head_ref"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "head_sha"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "base_ref"
+    number: 14
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "base_sha"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "requested_reviewers"
+    number: 16
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".github_event.UserInfo"
+  }
+  field {
+    name: "draft"
+    number: 17
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "merged"
+    number: 18
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "merged_at"
+    number: 19
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_assignee"
+  }
+  oneof_decl {
+    name: "_merged_at"
+  }
+}
+message_type {
+  name: "Comment"
+  field {
+    name: "body"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "user"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.UserInfo"
+  }
+  field {
+    name: "created_at"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "updated_at"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "path"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "line"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "commit_id"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "PullRequestReviewCommentEvent"
+  field {
+    name: "repository"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.Repository"
+  }
+  field {
+    name: "action"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "number"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "comment"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.Comment"
+  }
+  field {
+    name: "pull_request_title"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "pull_request_state"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "pull_request_author"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.UserInfo"
+  }
+}
+message_type {
+  name: "CheckSuite"
+  field {
+    name: "id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "head_sha"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "status"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "conclusion"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "created_at"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "updated_at"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "pull_requests"
+    number: 7
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".github_event.PullRequestReference"
+  }
+}
+message_type {
+  name: "PullRequestReference"
+  field {
+    name: "number"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "title"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "state"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "author"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.UserInfo"
+  }
+}
+message_type {
+  name: "CheckSuiteEvent"
+  field {
+    name: "repository"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.Repository"
+  }
+  field {
+    name: "action"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "check_suite"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.CheckSuite"
+  }
+}
+message_type {
+  name: "IssueComment"
+  field {
+    name: "body"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "user"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.UserInfo"
+  }
+  field {
+    name: "created_at"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "updated_at"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+}
+message_type {
+  name: "IssueCommentEvent"
+  field {
+    name: "repository"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.Repository"
+  }
+  field {
+    name: "action"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "number"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "comment"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.IssueComment"
+  }
+  field {
+    name: "issue_title"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "issue_state"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "is_pull_request"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "issue_author"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.UserInfo"
+  }
+}
+message_type {
+  name: "CommitStatus"
+  field {
+    name: "state"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "target_url"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "description"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "context"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "created_at"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "updated_at"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "StatusEvent"
+  field {
+    name: "repository"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.Repository"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "sha"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "state"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "status"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.CommitStatus"
+  }
+  field {
+    name: "pull_requests"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".github_event.PullRequestReference"
+  }
+}
+message_type {
+  name: "GithubEvent"
+  field {
+    name: "metadata"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.EventMetadata"
+  }
+  field {
+    name: "event_type"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "push"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.PushEvent"
+    oneof_index: 0
+  }
+  field {
+    name: "installation"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.InstallationEvent"
+    oneof_index: 0
+  }
+  field {
+    name: "pull_request"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.PullRequestEvent"
+    oneof_index: 0
+  }
+  field {
+    name: "pull_request_review_comment"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.PullRequestReviewCommentEvent"
+    oneof_index: 0
+  }
+  field {
+    name: "check_suite"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.CheckSuiteEvent"
+    oneof_index: 0
+  }
+  field {
+    name: "issue_comment"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.IssueCommentEvent"
+    oneof_index: 0
+  }
+  field {
+    name: "status"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".github_event.StatusEvent"
+    oneof_index: 0
+  }
+  field {
+    name: "raw_json"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  oneof_decl {
+    name: "event"
+  }
+}
+syntax: "proto3"

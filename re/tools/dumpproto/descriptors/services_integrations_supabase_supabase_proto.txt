@@ -1,0 +1,272 @@
+name: "services/integrations/supabase/supabase.proto"
+package: "supabase"
+dependency: "google/protobuf/struct.proto"
+dependency: "google/rpc/status.proto"
+message_type {
+  name: "IsConfiguredRequest"
+}
+message_type {
+  name: "IsConfiguredResponse"
+  field {
+    name: "is_configured"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "GetSupabaseOAuthUrlRequest"
+}
+message_type {
+  name: "GetSupabaseOAuthUrlResponse"
+  field {
+    name: "oauth_url"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "status_code"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "HydrateSupabaseSettingsRequest"
+  field {
+    name: "code"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "HydrateSupabaseSettingsResponse"
+  field {
+    name: "status_code"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "session_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "projects"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".supabase.SupabaseProject"
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "SupabaseProject"
+  field {
+    name: "ref"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "url"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "region"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "RevokeOAuthGrantRequest"
+}
+message_type {
+  name: "RevokeOAuthGrantResponse"
+  field {
+    name: "status"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.rpc.Status"
+  }
+}
+message_type {
+  name: "SupabaseApiRequest"
+  field {
+    name: "path"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "method"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".supabase.HTTPMethod"
+  }
+  field {
+    name: "data"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Struct"
+    options {
+      debug_redact: true
+    }
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_data"
+  }
+}
+message_type {
+  name: "SupabaseApiResponse"
+  field {
+    name: "response"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "status_code"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "TestConnectionRequest"
+}
+message_type {
+  name: "TestConnectionResponse"
+  field {
+    name: "status_code"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "error_message"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetProjectsRequest"
+}
+message_type {
+  name: "GetProjectsResponse"
+  field {
+    name: "projects"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".supabase.SupabaseProject"
+    options {
+      debug_redact: true
+    }
+  }
+}
+enum_type {
+  name: "HTTPMethod"
+  value {
+    name: "UNKNOWN"
+    number: 0
+  }
+  value {
+    name: "GET"
+    number: 1
+  }
+  value {
+    name: "POST"
+    number: 2
+  }
+  value {
+    name: "PUT"
+    number: 3
+  }
+  value {
+    name: "PATCH"
+    number: 4
+  }
+  value {
+    name: "DELETE"
+    number: 5
+  }
+}
+service {
+  name: "Supabase"
+  method {
+    name: "IsConfigured"
+    input_type: ".supabase.IsConfiguredRequest"
+    output_type: ".supabase.IsConfiguredResponse"
+  }
+  method {
+    name: "GetSupabaseOAuthUrl"
+    input_type: ".supabase.GetSupabaseOAuthUrlRequest"
+    output_type: ".supabase.GetSupabaseOAuthUrlResponse"
+  }
+  method {
+    name: "HydrateSupabaseSettings"
+    input_type: ".supabase.HydrateSupabaseSettingsRequest"
+    output_type: ".supabase.HydrateSupabaseSettingsResponse"
+  }
+  method {
+    name: "RevokeOAuthGrant"
+    input_type: ".supabase.RevokeOAuthGrantRequest"
+    output_type: ".supabase.RevokeOAuthGrantResponse"
+  }
+  method {
+    name: "CallSupabaseApi"
+    input_type: ".supabase.SupabaseApiRequest"
+    output_type: ".supabase.SupabaseApiResponse"
+  }
+  method {
+    name: "TestConnection"
+    input_type: ".supabase.TestConnectionRequest"
+    output_type: ".supabase.TestConnectionResponse"
+  }
+  method {
+    name: "GetProjects"
+    input_type: ".supabase.GetProjectsRequest"
+    output_type: ".supabase.GetProjectsResponse"
+  }
+}
+syntax: "proto3"

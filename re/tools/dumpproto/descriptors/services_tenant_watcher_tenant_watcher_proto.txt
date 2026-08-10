@@ -1,0 +1,562 @@
+name: "services/tenant_watcher/tenant_watcher.proto"
+package: "services.tenant"
+dependency: "google/protobuf/duration.proto"
+dependency: "services/token_exchange/auth_options.proto"
+message_type {
+  name: "GetTenantsRequest"
+  field {
+    name: "shard_namespace"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "AuthConfiguration"
+  field {
+    name: "allowed_identity_providers"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "domains"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "restrict_to_groups"
+    number: 6
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+  reserved_range {
+    start: 2
+    end: 3
+  }
+  reserved_range {
+    start: 3
+    end: 4
+  }
+}
+message_type {
+  name: "Config"
+  field {
+    name: "configs"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".services.tenant.Config.ConfigsEntry"
+  }
+  nested_type {
+    name: "ConfigsEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    options {
+      map_entry: true
+    }
+  }
+}
+message_type {
+  name: "Tenant"
+  field {
+    name: "id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "shard_namespace"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "cloud"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tier"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".services.tenant.TenantTier"
+  }
+  field {
+    name: "auth_configuration"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.tenant.AuthConfiguration"
+  }
+  field {
+    name: "config"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.tenant.Config"
+  }
+  field {
+    name: "deleted_at"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "other_namespace"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "encryption_key_name"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "encryption_key_ttl"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Duration"
+  }
+  field {
+    name: "version"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetTenantsResponse"
+  field {
+    name: "tenants"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".services.tenant.Tenant"
+  }
+}
+message_type {
+  name: "CreateTenantRequest"
+  field {
+    name: "name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "shard_namespace"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "cloud"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tier"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".services.tenant.TenantTier"
+  }
+  field {
+    name: "auth_configuration"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.tenant.AuthConfiguration"
+  }
+  field {
+    name: "config"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.tenant.Config"
+  }
+}
+message_type {
+  name: "CreateTenantResponse"
+  field {
+    name: "tenant"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.tenant.Tenant"
+  }
+}
+message_type {
+  name: "UpdateTenantRequest"
+  field {
+    name: "tenant"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.tenant.Tenant"
+  }
+}
+message_type {
+  name: "UpdateTenantResponse"
+  field {
+    name: "tenant"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.tenant.Tenant"
+  }
+}
+message_type {
+  name: "DeleteTenantRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteTenantResponse"
+}
+message_type {
+  name: "GetTenantByIDRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetTenantByIDResponse"
+  field {
+    name: "tenant"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.tenant.Tenant"
+  }
+}
+message_type {
+  name: "GetCurrentTenantRequest"
+}
+message_type {
+  name: "GetCurrentTenantResponse"
+  field {
+    name: "id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tier"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".services.tenant.TenantTier"
+  }
+  field {
+    name: "domain"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "is_discoverable"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    options {
+      deprecated: true
+    }
+  }
+  field {
+    name: "is_self_serve_team"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "config"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.tenant.GetCurrentTenantResponse.Config"
+  }
+  nested_type {
+    name: "Config"
+    field {
+      name: "is_discoverable"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_BOOL
+    }
+    field {
+      name: "enterprise_enable_code_review"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_BOOL
+    }
+    field {
+      name: "customer_ui_automation_analytics_enabled"
+      number: 3
+      label: LABEL_OPTIONAL
+      type: TYPE_BOOL
+    }
+  }
+  oneof_decl {
+    name: "_domain"
+  }
+}
+message_type {
+  name: "GetTenantByNameRequest"
+  field {
+    name: "tenant_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetTenantByNameResponse"
+  field {
+    name: "tenant"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.tenant.Tenant"
+  }
+}
+message_type {
+  name: "GetTenantByEmailDomainRequest"
+  field {
+    name: "email_domain"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetTenantByEmailDomainResponse"
+  field {
+    name: "tenant"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".services.tenant.Tenant"
+  }
+}
+message_type {
+  name: "GetShardNamespaceRequest"
+  field {
+    name: "shard_namespace"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetShardNamespaceResponse"
+  field {
+    name: "cloud"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "InsertTenantDiscoveryRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "domain"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "InsertTenantDiscoveryResponse"
+}
+message_type {
+  name: "DeleteTenantDiscoveryRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteTenantDiscoveryResponse"
+}
+message_type {
+  name: "GetTenantDiscoveriesByDomainRequest"
+  field {
+    name: "domain"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetTenantDiscoveriesByDomainResponse"
+  field {
+    name: "tenants"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".services.tenant.Tenant"
+  }
+}
+enum_type {
+  name: "TenantTier"
+  value {
+    name: "TENANT_TIER_UNKNOWN"
+    number: 0
+  }
+  value {
+    name: "ENTERPRISE"
+    number: 1
+  }
+  value {
+    name: "PROFESSIONAL"
+    number: 2
+  }
+  value {
+    name: "COMMUNITY"
+    number: 3
+  }
+}
+service {
+  name: "TenantWatcher"
+  method {
+    name: "GetTenantsStream"
+    input_type: ".services.tenant.GetTenantsRequest"
+    output_type: ".services.tenant.GetTenantsResponse"
+    options {
+    }
+    server_streaming: true
+  }
+  method {
+    name: "CreateTenant"
+    input_type: ".services.tenant.CreateTenantRequest"
+    output_type: ".services.tenant.CreateTenantResponse"
+    options {
+    }
+  }
+  method {
+    name: "UpdateTenant"
+    input_type: ".services.tenant.UpdateTenantRequest"
+    output_type: ".services.tenant.UpdateTenantResponse"
+    options {
+    }
+  }
+  method {
+    name: "DeleteTenant"
+    input_type: ".services.tenant.DeleteTenantRequest"
+    output_type: ".services.tenant.DeleteTenantResponse"
+    options {
+    }
+  }
+  method {
+    name: "GetTenantByID"
+    input_type: ".services.tenant.GetTenantByIDRequest"
+    output_type: ".services.tenant.GetTenantByIDResponse"
+    options {
+    }
+  }
+  method {
+    name: "GetCurrentTenant"
+    input_type: ".services.tenant.GetCurrentTenantRequest"
+    output_type: ".services.tenant.GetCurrentTenantResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "GetTenantByName"
+    input_type: ".services.tenant.GetTenantByNameRequest"
+    output_type: ".services.tenant.GetTenantByNameResponse"
+    options {
+    }
+  }
+  method {
+    name: "GetTenantByEmailDomain"
+    input_type: ".services.tenant.GetTenantByEmailDomainRequest"
+    output_type: ".services.tenant.GetTenantByEmailDomainResponse"
+    options {
+    }
+  }
+  method {
+    name: "GetShardNamespace"
+    input_type: ".services.tenant.GetShardNamespaceRequest"
+    output_type: ".services.tenant.GetShardNamespaceResponse"
+    options {
+    }
+  }
+  method {
+    name: "InsertTenantDiscovery"
+    input_type: ".services.tenant.InsertTenantDiscoveryRequest"
+    output_type: ".services.tenant.InsertTenantDiscoveryResponse"
+    options {
+    }
+  }
+  method {
+    name: "DeleteTenantDiscovery"
+    input_type: ".services.tenant.DeleteTenantDiscoveryRequest"
+    output_type: ".services.tenant.DeleteTenantDiscoveryResponse"
+    options {
+    }
+  }
+  method {
+    name: "GetTenantDiscoveriesByDomain"
+    input_type: ".services.tenant.GetTenantDiscoveriesByDomainRequest"
+    output_type: ".services.tenant.GetTenantDiscoveriesByDomainResponse"
+    options {
+    }
+  }
+}
+options {
+  go_package: "github.com/augmentcode/augment/services/tenant_watcher/proto"
+}
+syntax: "proto3"

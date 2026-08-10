@@ -1,0 +1,146 @@
+name: "services/share/share.proto"
+package: "share"
+dependency: "google/protobuf/timestamp.proto"
+message_type {
+  name: "ChatExchange"
+  field {
+    name: "request_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "message"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "response"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "response_nodes_json"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "GetChatConversationRequest"
+  field {
+    name: "uuid"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetChatConversationResponse"
+  field {
+    name: "uuid"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "date"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "user"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "conversation_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "chat"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".share.ChatExchange"
+  }
+  field {
+    name: "title"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "SaveChatConversationRequest"
+  field {
+    name: "user"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "conversation_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "chat"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".share.ChatExchange"
+  }
+  field {
+    name: "title"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "SaveChatConversationResponse"
+  field {
+    name: "uuid"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+service {
+  name: "Share"
+  method {
+    name: "GetChatConversation"
+    input_type: ".share.GetChatConversationRequest"
+    output_type: ".share.GetChatConversationResponse"
+  }
+  method {
+    name: "SaveChatConversation"
+    input_type: ".share.SaveChatConversationRequest"
+    output_type: ".share.SaveChatConversationResponse"
+  }
+}
+syntax: "proto3"

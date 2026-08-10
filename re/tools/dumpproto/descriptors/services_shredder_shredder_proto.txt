@@ -1,0 +1,174 @@
+name: "services/shredder/shredder.proto"
+package: "shredder"
+dependency: "google/protobuf/timestamp.proto"
+dependency: "services/token_exchange/auth_options.proto"
+message_type {
+  name: "EnqueueUserDataDeletionRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "reason"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "content_deletion"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".shredder.ContentDeletionRequest"
+    oneof_index: 0
+  }
+  field {
+    name: "account_deletion"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".shredder.AccountDeletionRequest"
+    oneof_index: 0
+  }
+  field {
+    name: "gdpr_ccpa_deletion"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".shredder.GdprCcpaDeletionRequest"
+    oneof_index: 0
+  }
+  field {
+    name: "vanguard_content_deletion"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".shredder.VanguardContentDeletionRequest"
+    oneof_index: 0
+  }
+  field {
+    name: "user_email"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "request"
+  }
+  oneof_decl {
+    name: "_user_email"
+  }
+}
+message_type {
+  name: "AccountDeletionRequest"
+}
+message_type {
+  name: "ContentDeletionRequest"
+}
+message_type {
+  name: "VanguardContentDeletionRequest"
+}
+message_type {
+  name: "GdprCcpaDeletionRequest"
+}
+message_type {
+  name: "EnqueueUserDataDeletionResponse"
+  field {
+    name: "deletion"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".shredder.Deletion"
+  }
+}
+message_type {
+  name: "ListDeletionsForUserRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "page_size"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+}
+message_type {
+  name: "ListDeletionsForUserResponse"
+  field {
+    name: "deletions"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".shredder.Deletion"
+  }
+}
+message_type {
+  name: "Deletion"
+  field {
+    name: "deletion_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "status"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".shredder.Deletion.Status"
+  }
+  field {
+    name: "created_at"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  enum_type {
+    name: "Status"
+    value {
+      name: "STATUS_UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "PENDING"
+      number: 1
+    }
+    value {
+      name: "COMPLETED"
+      number: 2
+    }
+  }
+}
+service {
+  name: "Shredder"
+  method {
+    name: "EnqueueUserDataDeletion"
+    input_type: ".shredder.EnqueueUserDataDeletionRequest"
+    output_type: ".shredder.EnqueueUserDataDeletionResponse"
+    options {
+      [auth_options.required_token_scopes]: SHREDDER_RW
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "ListDeletionsForUser"
+    input_type: ".shredder.ListDeletionsForUserRequest"
+    output_type: ".shredder.ListDeletionsForUserResponse"
+    options {
+      [auth_options.required_token_scopes]: SHREDDER_R
+    }
+  }
+}
+syntax: "proto3"

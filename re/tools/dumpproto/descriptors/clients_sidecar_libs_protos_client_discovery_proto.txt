@@ -1,0 +1,172 @@
+name: "clients/sidecar/libs/protos/client_discovery.proto"
+package: "augment.client_discovery"
+message_type {
+  name: "GrpcTransportConfig"
+  field {
+    name: "base_url"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "rpc_path"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "full_rpc_url"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "port"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "ClientDiscovery"
+  field {
+    name: "supported_services"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_ENUM
+    type_name: ".augment.client_discovery.ClientServiceType"
+  }
+  field {
+    name: "grpc"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".augment.client_discovery.GrpcTransportConfig"
+    oneof_index: 0
+  }
+  field {
+    name: "direct"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 0
+  }
+  oneof_decl {
+    name: "configuration"
+  }
+}
+message_type {
+  name: "ClientDiscoveryRequest"
+  field {
+    name: "requested_services"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_ENUM
+    type_name: ".augment.client_discovery.ClientServiceType"
+  }
+}
+message_type {
+  name: "ClientDiscoveryResponse"
+  field {
+    name: "transports"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".augment.client_discovery.ClientDiscovery"
+  }
+}
+enum_type {
+  name: "ClientServiceType"
+  value {
+    name: "ECHO"
+    number: 0
+  }
+  value {
+    name: "KV_STORE"
+    number: 1
+  }
+  value {
+    name: "CLIENT_FEATURE_FLAGS"
+    number: 2
+  }
+  value {
+    name: "INTAKE"
+    number: 3
+  }
+  value {
+    name: "SETTINGS_WEBVIEW_COMMUNICATION"
+    number: 4
+  }
+  value {
+    name: "HIERARCHICAL_RULES"
+    number: 5
+  }
+  value {
+    name: "USER_WORKSPACE"
+    number: 6
+  }
+  value {
+    name: "CONVERSATION"
+    number: 7
+  }
+  value {
+    name: "CHAT_HISTORY"
+    number: 8
+  }
+  value {
+    name: "AUGMENT"
+    number: 9
+  }
+  value {
+    name: "CHAT_INPUT_COMPLETION"
+    number: 10
+  }
+  value {
+    name: "CUSTOM_COMMANDS"
+    number: 11
+  }
+  value {
+    name: "REPOSITORY_ALLOWLIST"
+    number: 12
+  }
+  value {
+    name: "INDEXING"
+    number: 13
+  }
+  value {
+    name: "SKILLS"
+    number: 14
+  }
+  value {
+    name: "RULES_MANAGEMENT"
+    number: 15
+  }
+  value {
+    name: "HTTP_HEALTH_CHECK"
+    number: 16
+  }
+  value {
+    name: "ASK_USER"
+    number: 17
+  }
+  value {
+    name: "PLUGIN_MARKETPLACE"
+    number: 18
+  }
+  value {
+    name: "HOOKS"
+    number: 19
+  }
+  value {
+    name: "AGENTS"
+    number: 20
+  }
+  value {
+    name: "ACP"
+    number: 21
+  }
+}
+options {
+  java_package: "com.augmentcode.client_discovery"
+}
+syntax: "proto3"

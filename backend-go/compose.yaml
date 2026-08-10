@@ -1,0 +1,35 @@
+services:
+  augment-local:
+    build: .
+    image: augment-local:latest
+    container_name: augment-local
+    ports:
+      - "8445:8445" # OIDC IdP  —— point the IDE here via -Daugmentcode.oauth.url
+      - "8787:8787" # tenant surface (REST /api-client/* + connect/gRPC + discovery)
+    environment:
+      OIDC_URL: "${OIDC_URL:-http://127.0.0.1:8445}"
+      TENANT_URL: "${TENANT_URL:-http://127.0.0.1:8787}"
+      TENANT_ID: "${TENANT_ID:-local-tenant}"
+      TENANT_NAME: "${TENANT_NAME:-Augment Local}"
+      USER_EMAIL: "${USER_EMAIL:-local@augment.local}"
+      USER_PLAN: "${USER_PLAN:-professional}"
+      # 模型网关 — 指向 OpenAI 兼容 /v1/chat/completions 时走真实模型。
+      # 密钥不在此文件硬编码：通过同级 backend-go/.env（gitignored）或 shell 环境提供。
+      #   MODEL_GATEWAY_URL=${MODEL_GATEWAY_URL:-https://true-sota.com}
+      #   MODEL_GATEWAY_API_KEY=<required>   — 未设置时后端进入模拟器模式
+      MODEL_GATEWAY_URL: "${MODEL_GATEWAY_URL:-https://true-sota.com}"
+      MODEL_GATEWAY_API_KEY: "${MODEL_GATEWAY_API_KEY:-}"
+      # 自定义模型名 — 传给网关的 model 字段
+      MODEL_GATEWAY_MODEL: "${MODEL_GATEWAY_MODEL:-gpt-5.6-sol}"
+      # 自定义模型 ID / Base URL — 如果设置了，会覆盖 GetModels 返回的模型列表
+      # 格式: JSON 对象 {"displayName":"My Model","shortName":"my","description":"..."} 或
+      # 逗号分隔的 model_id 列表（第一个为默认）
+      CUSTOM_MODELS: "${CUSTOM_MODELS:-}"
+      # JWT_PRIVATE_KEY: deterministic key so tokens survive restarts.
+      # JWT_PRIVATE_KEY: "${JWT_PRIVATE_KEY:-}"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5

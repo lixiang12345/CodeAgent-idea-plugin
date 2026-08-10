@@ -1,0 +1,1163 @@
+name: "services/agents/agents.proto"
+package: "agents"
+dependency: "base/blob_names/blob_names.proto"
+dependency: "google/rpc/status.proto"
+dependency: "services/chat_host/chat.proto"
+message_type {
+  name: "CodebaseRetrievalRequest"
+  field {
+    name: "information_request"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "dialog"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.Exchange"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "blobs"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".base.blob_names.Blobs"
+  }
+  field {
+    name: "max_output_length"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "disable_codebase_retrieval"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "enable_commit_retrieval"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "enable_conversation_retrieval"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "bring_your_own_key"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.BringYourOwnKey"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "conversation_id"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "parent_conversation_id"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "root_conversation_id"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "turn_id"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 4
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_bring_your_own_key"
+  }
+  oneof_decl {
+    name: "_conversation_id"
+  }
+  oneof_decl {
+    name: "_parent_conversation_id"
+  }
+  oneof_decl {
+    name: "_root_conversation_id"
+  }
+  oneof_decl {
+    name: "_turn_id"
+  }
+}
+message_type {
+  name: "CodebaseRetrievalResponse"
+  field {
+    name: "formatted_retrieval"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "codebase_retrieval_elapsed_ms"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "conversation_retrieval_elapsed_ms"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "conversation_initial_retrieval_ms"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "conversation_query_rewriting_ms"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "conversation_followup_retrieval_ms"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "blob_name_lookup_ms"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "codebase_chunks_retrieved"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "conversation_chunks_initial"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "conversation_queries_generated"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "conversation_chunks_followup"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "conversation_chunks_combined"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "codebase_result_len_pre_truncation"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "codebase_result_len"
+    number: 14
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "conversation_result_len_pre_truncation"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "conversation_result_len"
+    number: 16
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "combined_result_len"
+    number: 17
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "total_budget"
+    number: 18
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "codebase_budget"
+    number: 19
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "conversation_budget"
+    number: 20
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "codebase_truncated"
+    number: 21
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "conversation_truncated"
+    number: 22
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "final_truncated"
+    number: 23
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "CodebaseRetrievalRawRequest"
+  field {
+    name: "queries"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".agents.RawRetrievalQuery"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "blobs"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".base.blob_names.Blobs"
+  }
+  field {
+    name: "max_chunks"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "max_output_length"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "user_guided_blobs"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "external_source_ids"
+    number: 6
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "disable_auto_external_sources"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "path"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "prefix"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "suffix"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "selected_code"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "dialog"
+    number: 12
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.Exchange"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "include_formatted_retrieval"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "include_line_numbers"
+    number: 14
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "conversation_id"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "parent_conversation_id"
+    number: 16
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "root_conversation_id"
+    number: 17
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "turn_id"
+    number: 18
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 3
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_conversation_id"
+  }
+  oneof_decl {
+    name: "_parent_conversation_id"
+  }
+  oneof_decl {
+    name: "_root_conversation_id"
+  }
+  oneof_decl {
+    name: "_turn_id"
+  }
+}
+message_type {
+  name: "RawRetrievalQuery"
+  field {
+    name: "description"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "path"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "contains_string"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "max_chunks"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "CodebaseRetrievalRawResponse"
+  field {
+    name: "chunks"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".agents.RawRetrievedChunk"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "formatted_retrieval"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "unknown_blob_names"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "checkpoint_not_found"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "RawRetrievedChunk"
+  field {
+    name: "text"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "path"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "char_start"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "char_end"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "line_start"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "length_in_lines"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "blob_name"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "score"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_FLOAT
+  }
+  field {
+    name: "origin"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "matched_string"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "external_source_id"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "external_source_name"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "EditFileRequest"
+  field {
+    name: "file_path"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "edit_summary"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "detailed_edit_description"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "file_contents"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "EditFileResponse"
+  field {
+    name: "modified_file_contents"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "is_error"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "ListRemoteToolsRequest"
+  field {
+    name: "tool_ids"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_ENUM
+    type_name: ".agents.RemoteToolId"
+  }
+}
+message_type {
+  name: "ListRemoteToolsResponseMessage"
+  field {
+    name: "tool_definition"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ToolDefinition"
+  }
+  field {
+    name: "remote_tool_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".agents.RemoteToolId"
+  }
+  field {
+    name: "availability_status"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".agents.ToolAvailabilityStatus"
+  }
+  field {
+    name: "tool_safety"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".agents.ToolSafety"
+  }
+  field {
+    name: "oauth_url"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ListRemoteToolsResponse"
+  field {
+    name: "tools"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".agents.ListRemoteToolsResponseMessage"
+  }
+}
+message_type {
+  name: "AtlassianToolExtraInput"
+  field {
+    name: "server_url"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "personal_api_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "username"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "NotionToolExtraInput"
+  field {
+    name: "api_token"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "LinearToolExtraInput"
+  field {
+    name: "api_token"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "GitHubToolExtraInput"
+  field {
+    name: "api_token"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "RunRemoteToolRequest"
+  field {
+    name: "tool_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      deprecated: true
+    }
+  }
+  field {
+    name: "tool_input_json"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "tool_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".agents.RemoteToolId"
+  }
+  field {
+    name: "atlassian_tool_extra_input"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".agents.AtlassianToolExtraInput"
+    oneof_index: 0
+  }
+  field {
+    name: "notion_tool_extra_input"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".agents.NotionToolExtraInput"
+    oneof_index: 0
+  }
+  field {
+    name: "linear_tool_extra_input"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".agents.LinearToolExtraInput"
+    oneof_index: 0
+  }
+  field {
+    name: "github_tool_extra_input"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".agents.GitHubToolExtraInput"
+    oneof_index: 0
+  }
+  oneof_decl {
+    name: "extra_tool_input"
+  }
+  reserved_range {
+    start: 8
+    end: 9
+  }
+}
+message_type {
+  name: "RunRemoteToolResponse"
+  field {
+    name: "tool_output"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "tool_result_message"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "is_error"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    options {
+      deprecated: true
+    }
+  }
+  field {
+    name: "status"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".agents.RemoteToolResponseStatus"
+  }
+  field {
+    name: "compressed_full_output"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "full_output_size"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "content_nodes"
+    number: 7
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.ToolResultContentNode"
+  }
+  oneof_decl {
+    name: "_compressed_full_output"
+  }
+  oneof_decl {
+    name: "_full_output_size"
+  }
+}
+message_type {
+  name: "CheckToolSafetyRequest"
+  field {
+    name: "tool_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".agents.RemoteToolId"
+  }
+  field {
+    name: "tool_input_json"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "CheckToolSafetyResponse"
+  field {
+    name: "is_safe"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "RevokeToolAccessRequest"
+  field {
+    name: "tool_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".agents.RemoteToolId"
+  }
+}
+message_type {
+  name: "RevokeToolAccessResponse"
+  field {
+    name: "status"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.rpc.Status"
+  }
+}
+message_type {
+  name: "TestToolConnectionRequest"
+  field {
+    name: "tool_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".agents.RemoteToolId"
+  }
+}
+message_type {
+  name: "TestToolConnectionResponse"
+  field {
+    name: "status"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.rpc.Status"
+  }
+}
+enum_type {
+  name: "RemoteToolId"
+  value {
+    name: "UNKNOWN"
+    number: 0
+  }
+  value {
+    name: "WEB_SEARCH"
+    number: 1
+  }
+  value {
+    name: "GITHUB_API"
+    number: 8
+  }
+  value {
+    name: "GITHUB_APP_READONLY_API"
+    number: 18
+  }
+  value {
+    name: "GITHUB_APP_POST_COMMENT"
+    number: 19
+  }
+  value {
+    name: "GITHUB_APP_PR_DESCRIPTION"
+    number: 20
+  }
+  value {
+    name: "LINEAR"
+    number: 12
+  }
+  value {
+    name: "JIRA"
+    number: 13
+  }
+  value {
+    name: "CONFLUENCE"
+    number: 14
+  }
+  value {
+    name: "NOTION"
+    number: 15
+  }
+  value {
+    name: "SUPABASE"
+    number: 16
+  }
+  value {
+    name: "GLEAN"
+    number: 17
+  }
+  value {
+    name: "CONTEXT_CANVAS"
+    number: 21
+  }
+  reserved_range {
+    start: 2
+    end: 2
+  }
+  reserved_range {
+    start: 3
+    end: 3
+  }
+  reserved_range {
+    start: 4
+    end: 4
+  }
+  reserved_range {
+    start: 5
+    end: 5
+  }
+  reserved_range {
+    start: 6
+    end: 6
+  }
+  reserved_range {
+    start: 7
+    end: 7
+  }
+  reserved_range {
+    start: 9
+    end: 9
+  }
+  reserved_range {
+    start: 10
+    end: 10
+  }
+  reserved_range {
+    start: 11
+    end: 11
+  }
+}
+enum_type {
+  name: "RemoteToolResponseStatus"
+  value {
+    name: "TOOL_EXECUTION_UNKNOWN_STATUS"
+    number: 0
+  }
+  value {
+    name: "TOOL_EXECUTION_SUCCESS"
+    number: 1
+  }
+  value {
+    name: "TOOL_NOT_FOUND"
+    number: 2
+  }
+  value {
+    name: "INVALID_TOOL_INPUT"
+    number: 3
+  }
+  value {
+    name: "TOOL_EXECUTION_ERROR"
+    number: 4
+  }
+  value {
+    name: "TOOL_NOT_AVAILABLE"
+    number: 5
+  }
+  value {
+    name: "TOOL_AUTHENTICATION_ERROR"
+    number: 6
+  }
+}
+enum_type {
+  name: "ToolSafety"
+  value {
+    name: "TOOL_UNSAFE"
+    number: 0
+  }
+  value {
+    name: "TOOL_SAFE"
+    number: 1
+  }
+  value {
+    name: "TOOL_CHECK"
+    number: 2
+  }
+}
+enum_type {
+  name: "ToolAvailabilityStatus"
+  value {
+    name: "UNKNOWN_STATUS"
+    number: 0
+  }
+  value {
+    name: "AVAILABLE"
+    number: 1
+  }
+  value {
+    name: "USER_CONFIG_REQUIRED"
+    number: 2
+  }
+}
+service {
+  name: "Agents"
+  method {
+    name: "CodebaseRetrieval"
+    input_type: ".agents.CodebaseRetrievalRequest"
+    output_type: ".agents.CodebaseRetrievalResponse"
+    options {
+    }
+  }
+  method {
+    name: "CodebaseRetrievalRaw"
+    input_type: ".agents.CodebaseRetrievalRawRequest"
+    output_type: ".agents.CodebaseRetrievalRawResponse"
+    options {
+    }
+  }
+  method {
+    name: "EditFile"
+    input_type: ".agents.EditFileRequest"
+    output_type: ".agents.EditFileResponse"
+    options {
+    }
+  }
+  method {
+    name: "ListRemoteTools"
+    input_type: ".agents.ListRemoteToolsRequest"
+    output_type: ".agents.ListRemoteToolsResponse"
+    options {
+    }
+  }
+  method {
+    name: "RunRemoteTool"
+    input_type: ".agents.RunRemoteToolRequest"
+    output_type: ".agents.RunRemoteToolResponse"
+    options {
+    }
+  }
+  method {
+    name: "CheckToolSafety"
+    input_type: ".agents.CheckToolSafetyRequest"
+    output_type: ".agents.CheckToolSafetyResponse"
+    options {
+    }
+  }
+  method {
+    name: "RevokeToolAccess"
+    input_type: ".agents.RevokeToolAccessRequest"
+    output_type: ".agents.RevokeToolAccessResponse"
+    options {
+    }
+  }
+  method {
+    name: "TestToolConnection"
+    input_type: ".agents.TestToolConnectionRequest"
+    output_type: ".agents.TestToolConnectionResponse"
+    options {
+    }
+  }
+}
+syntax: "proto3"

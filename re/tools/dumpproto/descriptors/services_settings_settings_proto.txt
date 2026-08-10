@@ -1,0 +1,3270 @@
+name: "services/settings/settings.proto"
+package: "settings"
+dependency: "google/protobuf/descriptor.proto"
+dependency: "google/protobuf/timestamp.proto"
+dependency: "services/integrations/glean/glean.proto"
+dependency: "services/integrations/supabase/supabase.proto"
+dependency: "services/token_exchange/auth_options.proto"
+message_type {
+  name: "RepoInformation"
+  field {
+    name: "repo_owner"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "repo_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "installation_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+}
+message_type {
+  name: "GithubInstallation"
+  field {
+    name: "installation_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "owner_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "enterprise_app_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "installed_by_augment_user_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "installed_by_display_name"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  oneof_decl {
+    name: "_enterprise_app_id"
+  }
+}
+message_type {
+  name: "GithubEnterpriseAppRegistration"
+  field {
+    name: "hostname"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "organization"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "app_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "webhook_secret"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "private_key"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "app_name"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "client_id"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "client_secret"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "GithubSettings"
+  field {
+    name: "repos"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.RepoInformation"
+  }
+  field {
+    name: "pending_install_requests"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.PendingGithubInstallRequest"
+  }
+  field {
+    name: "installations"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.GithubInstallation"
+  }
+  field {
+    name: "enterprise_app_registration"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.GithubEnterpriseAppRegistration"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_enterprise_app_registration"
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+  reserved_range {
+    start: 4
+    end: 5
+  }
+}
+message_type {
+  name: "PendingGithubInstallRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "user_email"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "RepoMapping"
+  field {
+    name: "repos"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.RepoInformation"
+  }
+}
+message_type {
+  name: "ChannelMappings"
+  field {
+    name: "channel_mappings"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.ChannelMappings.ChannelMappingsEntry"
+  }
+  nested_type {
+    name: "ChannelMappingsEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".settings.RepoMapping"
+    }
+    options {
+      map_entry: true
+    }
+  }
+}
+message_type {
+  name: "PersonalitySetting"
+  field {
+    name: "predefined"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".settings.PredefinedPersonality"
+    oneof_index: 0
+  }
+  field {
+    name: "custom_description"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+  }
+  oneof_decl {
+    name: "personality_type"
+  }
+}
+message_type {
+  name: "AgenticChannelConfig"
+  field {
+    name: "repo_mapping"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.RepoMapping"
+  }
+  field {
+    name: "guidelines"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "personality"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.PersonalitySetting"
+  }
+  field {
+    name: "context_canvas_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "expert_ids"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "agent_id"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_context_canvas_id"
+  }
+  oneof_decl {
+    name: "_agent_id"
+  }
+}
+message_type {
+  name: "SlackSettings"
+  field {
+    name: "enterprise_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "team_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "oauth_token"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "bot_user_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "channel_mappings"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.ChannelMappings"
+  }
+  field {
+    name: "assistant_flow_enabled"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "agentic_channel_configs"
+    number: 7
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.SlackSettings.AgenticChannelConfigsEntry"
+  }
+  field {
+    name: "granted_scopes"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  nested_type {
+    name: "AgenticChannelConfigsEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".settings.AgenticChannelConfig"
+    }
+    options {
+      map_entry: true
+    }
+  }
+}
+message_type {
+  name: "GleanJWTKeyPairInfo"
+  field {
+    name: "algorithm"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "key_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "private_key"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "public_key"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GleanTenantSettings"
+  field {
+    name: "oauth_client_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "oauth_client_secret"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "oauth_subdomain"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "oauth_provider"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".glean.Provider"
+  }
+  field {
+    name: "glean_domain"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "glean_jwt_key_pair_info"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.GleanJWTKeyPairInfo"
+  }
+}
+message_type {
+  name: "CodeReviewRepoSettings"
+  field {
+    name: "enable_on_pr_ready"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    options {
+      deprecated: true
+    }
+  }
+  field {
+    name: "trigger"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".settings.CodeReviewTrigger"
+  }
+  field {
+    name: "auto_approval_setting"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".settings.CodeReviewAutoApprovalSetting"
+  }
+}
+message_type {
+  name: "CodeReviewTenantSettings"
+  field {
+    name: "default_settings"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.CodeReviewRepoSettings"
+  }
+  field {
+    name: "per_repo_settings"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.CodeReviewTenantSettings.PerRepoSettingsEntry"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "is_enabled"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "mcp_server_ids"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "github_user_allowlist"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "use_github_user_allowlist"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "prompt_mode"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".settings.CodeReviewPromptMode"
+  }
+  field {
+    name: "github_user_denylist"
+    number: 8
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  nested_type {
+    name: "PerRepoSettingsEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".settings.CodeReviewRepoSettings"
+    }
+    options {
+      map_entry: true
+    }
+  }
+}
+message_type {
+  name: "ToolPermissionsSettings"
+  field {
+    name: "rules"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.ToolPermissionRule"
+  }
+}
+message_type {
+  name: "ToolPermissionRule"
+  field {
+    name: "tool_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "simple_permission"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.SimplePermission"
+    oneof_index: 0
+  }
+  field {
+    name: "webhook_policy"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.WebhookPolicy"
+    oneof_index: 0
+  }
+  field {
+    name: "script_policy"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.ScriptPolicy"
+    oneof_index: 0
+  }
+  field {
+    name: "event_type"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "shell_input_regex"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  oneof_decl {
+    name: "permission"
+  }
+}
+message_type {
+  name: "SimplePermission"
+  field {
+    name: "type"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "WebhookPolicy"
+  field {
+    name: "webhook_url"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ScriptPolicy"
+  field {
+    name: "script"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "NotionSettings"
+}
+message_type {
+  name: "RemoteAgentMcpConfig"
+  field {
+    name: "command"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "args"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "timeout_ms"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "env"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.RemoteAgentMcpConfig.EnvEntry"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "use_shell_interpolation"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "name"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "disabled"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 4
+    proto3_optional: true
+  }
+  field {
+    name: "type"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 5
+    proto3_optional: true
+  }
+  field {
+    name: "url"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 6
+    proto3_optional: true
+  }
+  field {
+    name: "auth_type"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".settings.McpAuthType"
+    oneof_index: 7
+    proto3_optional: true
+  }
+  field {
+    name: "icon_url"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 8
+    proto3_optional: true
+  }
+  field {
+    name: "description"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 9
+    proto3_optional: true
+  }
+  nested_type {
+    name: "EnvEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    options {
+      map_entry: true
+    }
+  }
+  oneof_decl {
+    name: "_command"
+  }
+  oneof_decl {
+    name: "_timeout_ms"
+  }
+  oneof_decl {
+    name: "_use_shell_interpolation"
+  }
+  oneof_decl {
+    name: "_name"
+  }
+  oneof_decl {
+    name: "_disabled"
+  }
+  oneof_decl {
+    name: "_type"
+  }
+  oneof_decl {
+    name: "_url"
+  }
+  oneof_decl {
+    name: "_auth_type"
+  }
+  oneof_decl {
+    name: "_icon_url"
+  }
+  oneof_decl {
+    name: "_description"
+  }
+}
+message_type {
+  name: "McpOAuthCredentials"
+  field {
+    name: "access_token"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "refresh_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "access_token_expires_at"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "token_type"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "scope"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "authorization_endpoint"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "token_endpoint"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "issuer"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 4
+    proto3_optional: true
+  }
+  field {
+    name: "client_id"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "client_secret"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 5
+    proto3_optional: true
+  }
+  field {
+    name: "has_refresh_token"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 6
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_refresh_token"
+  }
+  oneof_decl {
+    name: "_access_token_expires_at"
+  }
+  oneof_decl {
+    name: "_token_type"
+  }
+  oneof_decl {
+    name: "_scope"
+  }
+  oneof_decl {
+    name: "_issuer"
+  }
+  oneof_decl {
+    name: "_client_secret"
+  }
+  oneof_decl {
+    name: "_has_refresh_token"
+  }
+}
+message_type {
+  name: "McpConfig"
+  field {
+    name: "id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "config"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.RemoteAgentMcpConfig"
+  }
+  field {
+    name: "oauth_credentials"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.McpOAuthCredentials"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "needs_reauthentication"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "added_by"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "enabled_products"
+    number: 7
+    label: LABEL_REPEATED
+    type: TYPE_ENUM
+    type_name: ".settings.McpProductType"
+  }
+  field {
+    name: "share_generation"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "fully_configured"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 4
+    proto3_optional: true
+  }
+  field {
+    name: "space_id"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 5
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_oauth_credentials"
+  }
+  oneof_decl {
+    name: "_needs_reauthentication"
+  }
+  oneof_decl {
+    name: "_added_by"
+  }
+  oneof_decl {
+    name: "_share_generation"
+  }
+  oneof_decl {
+    name: "_fully_configured"
+  }
+  oneof_decl {
+    name: "_space_id"
+  }
+  reserved_range {
+    start: 5
+    end: 6
+  }
+  reserved_name: "oauth_credentials_ref"
+}
+message_type {
+  name: "McpConfigSettings"
+  field {
+    name: "mcp_configs"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.McpConfig"
+  }
+}
+message_type {
+  name: "DisplayNameSettings"
+  field {
+    name: "display_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "LinearAgentOAuthCredentials"
+  field {
+    name: "access_token"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "refresh_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "access_token_expires_at"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "token_type"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "scope"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 3
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_refresh_token"
+  }
+  oneof_decl {
+    name: "_access_token_expires_at"
+  }
+  oneof_decl {
+    name: "_token_type"
+  }
+  oneof_decl {
+    name: "_scope"
+  }
+}
+message_type {
+  name: "LinearWorkspace"
+  field {
+    name: "organization_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "organization_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "oauth_credentials"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.LinearAgentOAuthCredentials"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "app_user_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  oneof_decl {
+    name: "_oauth_credentials"
+  }
+}
+message_type {
+  name: "LinearAgentSettings"
+  field {
+    name: "workspaces"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.LinearWorkspace"
+  }
+}
+message_type {
+  name: "RepositoryAllowlistSettings"
+  field {
+    name: "repository_urls"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "is_deny_list"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "ByokSettings"
+  field {
+    name: "anthropic_api_key"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "openai_api_key"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "bedrock_api_key"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "bedrock_region"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "vertex_anthropic_service_account_key"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "vertex_anthropic_region"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "vertex_anthropic_project_id"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "vertex_gemini_service_account_key"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "vertex_gemini_region"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "vertex_gemini_project_id"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "TenantSettings"
+  field {
+    name: "github_settings"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.GithubSettings"
+  }
+  field {
+    name: "slack_settings"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.SlackSettings"
+  }
+  field {
+    name: "glean_tenant_settings"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.GleanTenantSettings"
+  }
+  field {
+    name: "notion_settings"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.NotionSettings"
+  }
+  field {
+    name: "code_review_settings"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.CodeReviewTenantSettings"
+  }
+  field {
+    name: "tool_permissions_settings"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.ToolPermissionsSettings"
+  }
+  field {
+    name: "mcp_config_settings"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.McpConfigSettings"
+  }
+  field {
+    name: "display_name_settings"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.DisplayNameSettings"
+  }
+  field {
+    name: "linear_agent_settings"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.LinearAgentSettings"
+  }
+  field {
+    name: "repository_allowlist_settings"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.RepositoryAllowlistSettings"
+  }
+  field {
+    name: "poseidon_tenant_settings"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.PoseidonTenantSettings"
+  }
+  field {
+    name: "byok_settings"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.ByokSettings"
+  }
+  field {
+    name: "default_model_override_settings"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.DefaultModelOverrideSettings"
+  }
+  field {
+    name: "gitlab_tenant_settings"
+    number: 14
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.GitLabTenantSettings"
+  }
+}
+message_type {
+  name: "GetTenantSettingsRequest"
+}
+message_type {
+  name: "GetTenantSettingsResponse"
+  field {
+    name: "settings"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.TenantSettings"
+  }
+  field {
+    name: "version"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UpdateTenantSettingsRequest"
+  field {
+    name: "settings"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.TenantSettings"
+  }
+  field {
+    name: "expected_version"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UpdateTenantSettingsResponse"
+  field {
+    name: "version"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetTeamDisplayNameRequest"
+}
+message_type {
+  name: "GetTeamDisplayNameResponse"
+  field {
+    name: "display_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "version"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UpdateTeamDisplayNameRequest"
+  field {
+    name: "display_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "expected_version"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UpdateTeamDisplayNameResponse"
+  field {
+    name: "version"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UserSettings"
+  field {
+    name: "glean_user_settings"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.GleanUserSettings"
+  }
+  field {
+    name: "linear_user_settings"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.LinearUserSettings"
+  }
+  field {
+    name: "notion_user_settings"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.NotionUserSettings"
+  }
+  field {
+    name: "atlassian_user_settings"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.AtlassianUserSettings"
+  }
+  field {
+    name: "github_user_settings"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.GithubUserSettings"
+  }
+  field {
+    name: "supabase_user_settings"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.SupabaseUserSettings"
+  }
+  field {
+    name: "poseidon_user_settings"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.PoseidonUserSettings"
+  }
+  field {
+    name: "mcp_config_settings"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.McpConfigSettings"
+  }
+  field {
+    name: "shared_mcp_preferences"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.SharedMcpServerPreferences"
+  }
+  field {
+    name: "gitlab_user_settings"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.GitLabUserSettings"
+  }
+}
+message_type {
+  name: "GetUserSettingsRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetUserSettingsResponse"
+  field {
+    name: "settings"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.UserSettings"
+  }
+  field {
+    name: "version"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "dropped_shared_server_opt_ins"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.DroppedSharedServerOptIn"
+  }
+}
+message_type {
+  name: "DroppedSharedServerOptIn"
+  field {
+    name: "server_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "reason"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "opt_in_generation"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "current_generation"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+}
+message_type {
+  name: "GetUserSettingsMetadataRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetUserSettingsMetadataResponse"
+  field {
+    name: "has_glean_settings"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "has_linear_settings"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "has_notion_settings"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "has_atlassian_settings"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "has_github_settings"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "has_supabase_settings"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "has_poseidon_settings"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "has_mcp_config_settings"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "has_shared_mcp_preferences"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "has_gitlab_settings"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "GithubUserSettings"
+  field {
+    name: "access_token"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "access_token_expiration"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "refresh_token"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "refresh_token_expiration"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "token_type"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "github_login"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "github_name"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "github_email"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "GitLabTenantSettings"
+  field {
+    name: "group_access_token"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "host"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "bot_username"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "access_token_expiration"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "webhooks"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.GitLabTenantSettings.WebhooksEntry"
+  }
+  field {
+    name: "bot_token_is_personal"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  nested_type {
+    name: "WebhooksEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".settings.GitLabWebhookMetadata"
+    }
+    options {
+      map_entry: true
+    }
+  }
+}
+message_type {
+  name: "GitLabWebhookMetadata"
+  field {
+    name: "external_subscription_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "scope_type"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "resource_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "resource_path"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "event_families"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "display_name"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "host"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "enabled"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "GitLabUserSettings"
+  field {
+    name: "access_token"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "access_token_expiration"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "refresh_token"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "refresh_token_expiration"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "token_type"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "gitlab_username"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "gitlab_name"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "gitlab_email"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "host"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GleanUserSettings"
+  field {
+    name: "access_token"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "refresh_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "token_type"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "NotionUserSettings"
+  field {
+    name: "access_token"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "bot_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "workspace_name"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "workspace_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "AtlassianOAuthSettings"
+  field {
+    name: "access_token"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "refresh_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "cloud_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "AtlassianUserSettings"
+  field {
+    name: "jira_settings"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.AtlassianOAuthSettings"
+  }
+  field {
+    name: "confluence_settings"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.AtlassianOAuthSettings"
+  }
+  field {
+    name: "atlassian_account_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "deleted_cloud_ids"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "LinearUserSettings"
+  field {
+    name: "access_token"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "scope"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "refresh_token"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "access_token_expiration"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+}
+message_type {
+  name: "SupabaseUserSettings"
+  field {
+    name: "access_token"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "refresh_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "access_token_expiration"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "projects"
+    number: 7
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".supabase.SupabaseProject"
+  }
+}
+message_type {
+  name: "PoseidonTenantSettings"
+  field {
+    name: "default_base_image_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "pinned_expert_ids"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DefaultModelOverrideSettings"
+  field {
+    name: "override_model_family"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "allowed_model_families"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "data_retention_approved"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_data_retention_approved"
+  }
+}
+message_type {
+  name: "PoseidonUserSettings"
+  field {
+    name: "default_environment_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "pinned_expert_ids"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "favorite_session_ids"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "pinned_order"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.PinnedEntry"
+  }
+}
+message_type {
+  name: "PinnedEntry"
+  field {
+    name: "session_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+  }
+  field {
+    name: "project_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+  }
+  field {
+    name: "space_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  oneof_decl {
+    name: "entry"
+  }
+}
+message_type {
+  name: "McpServerProductPreference"
+  field {
+    name: "enabled_products"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_ENUM
+    type_name: ".settings.McpProductType"
+  }
+}
+message_type {
+  name: "SharedMcpServerPreferences"
+  field {
+    name: "enabled_server_ids"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "disabled_server_ids"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "enabled_at_generation"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.SharedMcpServerPreferences.EnabledAtGenerationEntry"
+  }
+  field {
+    name: "server_product_preferences"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.SharedMcpServerPreferences.ServerProductPreferencesEntry"
+  }
+  nested_type {
+    name: "EnabledAtGenerationEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_INT64
+    }
+    options {
+      map_entry: true
+    }
+  }
+  nested_type {
+    name: "ServerProductPreferencesEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".settings.McpServerProductPreference"
+    }
+    options {
+      map_entry: true
+    }
+  }
+}
+message_type {
+  name: "UpdateUserSettingsRequest"
+  field {
+    name: "settings"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.UserSettings"
+  }
+  field {
+    name: "expected_version"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "user_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UpdateUserSettingsResponse"
+  field {
+    name: "version"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteUserSettingsRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteUserSettingsResponse"
+  field {
+    name: "num_settings_deleted"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_num_settings_deleted"
+  }
+}
+message_type {
+  name: "SharedGuideline"
+  field {
+    name: "guideline_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "content"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "description"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "type"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".settings.GuidelineType"
+  }
+  field {
+    name: "created_at"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "updated_at"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "created_by_user_id"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "updated_by_user_id"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "version"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "is_active"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "TenantSharedGuidelines"
+  field {
+    name: "guidelines"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.SharedGuideline"
+  }
+}
+message_type {
+  name: "GetSharedGuidelinesRequest"
+  field {
+    name: "type_filter"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".settings.GuidelineType"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "active_only"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_type_filter"
+  }
+  oneof_decl {
+    name: "_active_only"
+  }
+}
+message_type {
+  name: "GetSharedGuidelinesResponse"
+  field {
+    name: "guidelines"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.SharedGuideline"
+  }
+}
+message_type {
+  name: "CreateSharedGuidelineRequest"
+  field {
+    name: "name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "content"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "description"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "type"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".settings.GuidelineType"
+  }
+  field {
+    name: "is_active"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_is_active"
+  }
+}
+message_type {
+  name: "CreateSharedGuidelineResponse"
+  field {
+    name: "guideline"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.SharedGuideline"
+  }
+}
+message_type {
+  name: "UpdateSharedGuidelineRequest"
+  field {
+    name: "guideline_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "content"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "description"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "type"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".settings.GuidelineType"
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "is_active"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 4
+    proto3_optional: true
+  }
+  field {
+    name: "expected_version"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  oneof_decl {
+    name: "_name"
+  }
+  oneof_decl {
+    name: "_content"
+  }
+  oneof_decl {
+    name: "_description"
+  }
+  oneof_decl {
+    name: "_type"
+  }
+  oneof_decl {
+    name: "_is_active"
+  }
+}
+message_type {
+  name: "UpdateSharedGuidelineResponse"
+  field {
+    name: "guideline"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.SharedGuideline"
+  }
+}
+message_type {
+  name: "DeleteSharedGuidelineRequest"
+  field {
+    name: "guideline_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteSharedGuidelineResponse"
+  field {
+    name: "success"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "UpsertMcpUserConfigRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "config"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.McpConfig"
+  }
+  field {
+    name: "expected_version"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UpsertMcpUserConfigResponse"
+  field {
+    name: "created"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "version"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "RemoveMcpUserConfigRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "config_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "expected_version"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "RemoveMcpUserConfigResponse"
+  field {
+    name: "removed"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "version"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "PinExpertRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "expert_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "PinExpertResponse"
+}
+message_type {
+  name: "UnpinExpertRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "expert_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UnpinExpertResponse"
+}
+message_type {
+  name: "FavoriteSessionRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "session_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "space_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "FavoriteSessionResponse"
+}
+message_type {
+  name: "UnfavoriteSessionRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "session_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "space_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UnfavoriteSessionResponse"
+}
+message_type {
+  name: "ReorderFavoriteSessionsRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "session_ids"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ReorderFavoriteSessionsResponse"
+}
+message_type {
+  name: "ReorderPinnedRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "pinned_order"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.PinnedEntry"
+  }
+  field {
+    name: "space_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ReorderPinnedResponse"
+}
+message_type {
+  name: "PinTeamExpertRequest"
+  field {
+    name: "expert_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "PinTeamExpertResponse"
+}
+message_type {
+  name: "UnpinTeamExpertRequest"
+  field {
+    name: "expert_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UnpinTeamExpertResponse"
+}
+message_type {
+  name: "UpsertMcpTenantConfigRequest"
+  field {
+    name: "config"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".settings.McpConfig"
+  }
+  field {
+    name: "expected_version"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UpsertMcpTenantConfigResponse"
+  field {
+    name: "created"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "version"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "RemoveMcpTenantConfigRequest"
+  field {
+    name: "config_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "expected_version"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "RemoveMcpTenantConfigResponse"
+  field {
+    name: "removed"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "version"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "CountMcpConfigsInSpaceRequest"
+  field {
+    name: "space_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "CountMcpConfigsInSpaceResponse"
+  field {
+    name: "count"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "ListMcpTenantConfigsRequest"
+  field {
+    name: "space_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "default_space_only"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "ListMcpTenantConfigsResponse"
+  field {
+    name: "mcp_configs"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".settings.McpConfig"
+  }
+  field {
+    name: "version"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+enum_type {
+  name: "PredefinedPersonality"
+  value {
+    name: "PERSONALITY_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "FRIENDLY"
+    number: 1
+  }
+  value {
+    name: "SUCCINCT"
+    number: 2
+  }
+  value {
+    name: "PROFESSIONAL"
+    number: 3
+  }
+  value {
+    name: "PIRATE"
+    number: 4
+  }
+}
+enum_type {
+  name: "CodeReviewTrigger"
+  value {
+    name: "CODE_REVIEW_TRIGGER_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "CODE_REVIEW_TRIGGER_ON_PR_READY"
+    number: 1
+  }
+  value {
+    name: "CODE_REVIEW_TRIGGER_COMMENT_WITH_KEYPHRASE"
+    number: 2
+  }
+  value {
+    name: "CODE_REVIEW_TRIGGER_DISABLED"
+    number: 3
+  }
+}
+enum_type {
+  name: "CodeReviewAutoApprovalSetting"
+  value {
+    name: "CODE_REVIEW_AUTO_APPROVAL_SETTING_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "CODE_REVIEW_AUTO_APPROVAL_SETTING_DISABLED"
+    number: 1
+  }
+  value {
+    name: "CODE_REVIEW_AUTO_APPROVAL_SETTING_LOW_RISK_ONLY_DEPRECATED"
+    number: 2
+    options {
+      deprecated: true
+    }
+  }
+  value {
+    name: "CODE_REVIEW_AUTO_APPROVAL_SETTING_LOW_RISK_ONLY"
+    number: 3
+  }
+}
+enum_type {
+  name: "CodeReviewPromptMode"
+  value {
+    name: "CODE_REVIEW_PROMPT_MODE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "CODE_REVIEW_PROMPT_MODE_HIGH_SIGNAL_TO_NOISE"
+    number: 1
+  }
+  value {
+    name: "CODE_REVIEW_PROMPT_MODE_RECALL_FOCUS"
+    number: 2
+  }
+  value {
+    name: "CODE_REVIEW_PROMPT_MODE_DEEP_REVIEW"
+    number: 3
+  }
+}
+enum_type {
+  name: "McpAuthType"
+  value {
+    name: "MCP_AUTH_TYPE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "MCP_AUTH_TYPE_NONE"
+    number: 1
+  }
+  value {
+    name: "MCP_AUTH_TYPE_OAUTH"
+    number: 2
+  }
+  value {
+    name: "MCP_AUTH_TYPE_API_KEY"
+    number: 3
+  }
+}
+enum_type {
+  name: "McpProductType"
+  value {
+    name: "MCP_PRODUCT_TYPE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "MCP_PRODUCT_TYPE_CLI"
+    number: 1
+  }
+  value {
+    name: "MCP_PRODUCT_TYPE_CLOUD_AGENT"
+    number: 2
+  }
+  reserved_range {
+    start: 3
+    end: 10
+  }
+}
+enum_type {
+  name: "GuidelineType"
+  value {
+    name: "GUIDELINE_TYPE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "GUIDELINE_TYPE_ALWAYS_APPLY"
+    number: 1
+  }
+  value {
+    name: "GUIDELINE_TYPE_MANUAL"
+    number: 2
+  }
+  value {
+    name: "GUIDELINE_TYPE_AUTO"
+    number: 3
+  }
+}
+service {
+  name: "Settings"
+  method {
+    name: "GetTenantSettings"
+    input_type: ".settings.GetTenantSettingsRequest"
+    output_type: ".settings.GetTenantSettingsResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_R
+    }
+  }
+  method {
+    name: "UpdateTenantSettings"
+    input_type: ".settings.UpdateTenantSettingsRequest"
+    output_type: ".settings.UpdateTenantSettingsResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "GetUserSettings"
+    input_type: ".settings.GetUserSettingsRequest"
+    output_type: ".settings.GetUserSettingsResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_R
+    }
+  }
+  method {
+    name: "UpdateUserSettings"
+    input_type: ".settings.UpdateUserSettingsRequest"
+    output_type: ".settings.UpdateUserSettingsResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "DeleteUserSettings"
+    input_type: ".settings.DeleteUserSettingsRequest"
+    output_type: ".settings.DeleteUserSettingsResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "GetUserSettingsMetadata"
+    input_type: ".settings.GetUserSettingsMetadataRequest"
+    output_type: ".settings.GetUserSettingsMetadataResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_R
+    }
+  }
+  method {
+    name: "GetTeamDisplayName"
+    input_type: ".settings.GetTeamDisplayNameRequest"
+    output_type: ".settings.GetTeamDisplayNameResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_R
+    }
+  }
+  method {
+    name: "UpdateTeamDisplayName"
+    input_type: ".settings.UpdateTeamDisplayNameRequest"
+    output_type: ".settings.UpdateTeamDisplayNameResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "GetSharedGuidelines"
+    input_type: ".settings.GetSharedGuidelinesRequest"
+    output_type: ".settings.GetSharedGuidelinesResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_R
+    }
+  }
+  method {
+    name: "CreateSharedGuideline"
+    input_type: ".settings.CreateSharedGuidelineRequest"
+    output_type: ".settings.CreateSharedGuidelineResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "UpdateSharedGuideline"
+    input_type: ".settings.UpdateSharedGuidelineRequest"
+    output_type: ".settings.UpdateSharedGuidelineResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "DeleteSharedGuideline"
+    input_type: ".settings.DeleteSharedGuidelineRequest"
+    output_type: ".settings.DeleteSharedGuidelineResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "UpsertMcpUserConfig"
+    input_type: ".settings.UpsertMcpUserConfigRequest"
+    output_type: ".settings.UpsertMcpUserConfigResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "RemoveMcpUserConfig"
+    input_type: ".settings.RemoveMcpUserConfigRequest"
+    output_type: ".settings.RemoveMcpUserConfigResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "PinExpert"
+    input_type: ".settings.PinExpertRequest"
+    output_type: ".settings.PinExpertResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "UnpinExpert"
+    input_type: ".settings.UnpinExpertRequest"
+    output_type: ".settings.UnpinExpertResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "FavoriteSession"
+    input_type: ".settings.FavoriteSessionRequest"
+    output_type: ".settings.FavoriteSessionResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "UnfavoriteSession"
+    input_type: ".settings.UnfavoriteSessionRequest"
+    output_type: ".settings.UnfavoriteSessionResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "ReorderFavoriteSessions"
+    input_type: ".settings.ReorderFavoriteSessionsRequest"
+    output_type: ".settings.ReorderFavoriteSessionsResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "ReorderPinned"
+    input_type: ".settings.ReorderPinnedRequest"
+    output_type: ".settings.ReorderPinnedResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "PinTeamExpert"
+    input_type: ".settings.PinTeamExpertRequest"
+    output_type: ".settings.PinTeamExpertResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "UnpinTeamExpert"
+    input_type: ".settings.UnpinTeamExpertRequest"
+    output_type: ".settings.UnpinTeamExpertResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "UpsertMcpTenantConfig"
+    input_type: ".settings.UpsertMcpTenantConfigRequest"
+    output_type: ".settings.UpsertMcpTenantConfigResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "RemoveMcpTenantConfig"
+    input_type: ".settings.RemoveMcpTenantConfigRequest"
+    output_type: ".settings.RemoveMcpTenantConfigResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_RW
+    }
+  }
+  method {
+    name: "CountMcpConfigsInSpace"
+    input_type: ".settings.CountMcpConfigsInSpaceRequest"
+    output_type: ".settings.CountMcpConfigsInSpaceResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_R
+    }
+  }
+  method {
+    name: "ListMcpTenantConfigs"
+    input_type: ".settings.ListMcpTenantConfigsRequest"
+    output_type: ".settings.ListMcpTenantConfigsResponse"
+    options {
+      [auth_options.required_token_scopes]: SETTINGS_R
+    }
+  }
+}
+syntax: "proto3"

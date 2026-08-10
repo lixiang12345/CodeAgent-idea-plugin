@@ -1,0 +1,437 @@
+name: "services/shredder/shredder_admin.proto"
+package: "shredder_admin"
+dependency: "google/protobuf/timestamp.proto"
+dependency: "services/shredder/shredder.proto"
+message_type {
+  name: "EnqueueUserDataDeletionResponse"
+  field {
+    name: "deletion"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".shredder_admin.Deletion"
+  }
+}
+message_type {
+  name: "ListDeletionsRequest"
+  field {
+    name: "page_size"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "page_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "user_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "user_email"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "status"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".shredder_admin.Deletion.Status"
+    oneof_index: 2
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_user_id"
+  }
+  oneof_decl {
+    name: "_user_email"
+  }
+  oneof_decl {
+    name: "_status"
+  }
+}
+message_type {
+  name: "ListDeletionsResponse"
+  field {
+    name: "deletions"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".shredder_admin.Deletion"
+  }
+  field {
+    name: "next_page_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetDeletionRequest"
+  field {
+    name: "deletion_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetDeletionResponse"
+  field {
+    name: "deletion"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".shredder_admin.Deletion"
+  }
+  field {
+    name: "tasks"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".shredder_admin.Task"
+  }
+}
+message_type {
+  name: "UpdateTaskRequest"
+  field {
+    name: "deletion_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "task_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "reason"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "status"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".shredder_admin.Task.Status"
+  }
+}
+message_type {
+  name: "UpdateTaskResponse"
+}
+message_type {
+  name: "RetryTaskRequest"
+  field {
+    name: "deletion_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "task_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "reason"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "RetryTaskResponse"
+}
+message_type {
+  name: "Deletion"
+  field {
+    name: "deletion_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "status"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".shredder_admin.Deletion.Status"
+  }
+  field {
+    name: "request"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".shredder.EnqueueUserDataDeletionRequest"
+  }
+  field {
+    name: "user_email"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "created_at"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "updated_at"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "completed_at"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  enum_type {
+    name: "Status"
+    value {
+      name: "STATUS_UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "PENDING"
+      number: 1
+    }
+    value {
+      name: "COMPLETED"
+      number: 2
+    }
+    value {
+      name: "FAILED"
+      number: 3
+    }
+  }
+}
+message_type {
+  name: "Task"
+  field {
+    name: "task_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "status"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".shredder_admin.Task.Status"
+  }
+  field {
+    name: "started_at"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "updated_at"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "completed_at"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "details"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".shredder_admin.TaskDetails"
+  }
+  field {
+    name: "status_detail"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  enum_type {
+    name: "Status"
+    value {
+      name: "STATUS_UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "BLOCKED"
+      number: 1
+    }
+    value {
+      name: "PENDING"
+      number: 2
+    }
+    value {
+      name: "COMPLETED"
+      number: 3
+    }
+    value {
+      name: "FAILED"
+      number: 4
+    }
+  }
+}
+message_type {
+  name: "TaskDetails"
+  field {
+    name: "analytics_forget_user"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".shredder_admin.AnalyticsForgetUserTask"
+    oneof_index: 0
+  }
+  field {
+    name: "auth_central_forget_user"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".shredder_admin.AuthCentralForgetUserTask"
+    oneof_index: 0
+  }
+  field {
+    name: "auth_central_delete_account"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".shredder_admin.AuthCentralDeleteAccountTask"
+    oneof_index: 0
+  }
+  field {
+    name: "vanguard_export_delete_blobs"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".shredder_admin.VanguardExportDeleteBlobsTask"
+    oneof_index: 0
+  }
+  field {
+    name: "vanguard_export_delete_request_data"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".shredder_admin.VanguardExportDeleteRequestDataTask"
+    oneof_index: 0
+  }
+  field {
+    name: "content_manager_delete_blobs"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".shredder_admin.ContentManagerDeleteBlobsTask"
+    oneof_index: 0
+  }
+  field {
+    name: "settings_delete_user_settings"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".shredder_admin.SettingsDeleteUserSettings"
+    oneof_index: 0
+  }
+  field {
+    name: "remote_agents_delete_data"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".shredder_admin.RemoteAgentsDeleteDataTask"
+    oneof_index: 0
+  }
+  oneof_decl {
+    name: "task"
+  }
+}
+message_type {
+  name: "AnalyticsForgetUserTask"
+}
+message_type {
+  name: "AuthCentralForgetUserTask"
+}
+message_type {
+  name: "AuthCentralDeleteAccountTask"
+}
+message_type {
+  name: "VanguardExportDeleteBlobsTask"
+}
+message_type {
+  name: "VanguardExportDeleteRequestDataTask"
+}
+message_type {
+  name: "ContentManagerDeleteBlobsTask"
+  field {
+    name: "vanguard_deletion_enabled"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "SettingsDeleteUserSettings"
+}
+message_type {
+  name: "RemoteAgentsDeleteDataTask"
+}
+service {
+  name: "ShredderAdmin"
+  method {
+    name: "EnqueueUserDataDeletion"
+    input_type: ".shredder.EnqueueUserDataDeletionRequest"
+    output_type: ".shredder_admin.EnqueueUserDataDeletionResponse"
+  }
+  method {
+    name: "ListDeletions"
+    input_type: ".shredder_admin.ListDeletionsRequest"
+    output_type: ".shredder_admin.ListDeletionsResponse"
+  }
+  method {
+    name: "GetDeletion"
+    input_type: ".shredder_admin.GetDeletionRequest"
+    output_type: ".shredder_admin.GetDeletionResponse"
+  }
+  method {
+    name: "UpdateTask"
+    input_type: ".shredder_admin.UpdateTaskRequest"
+    output_type: ".shredder_admin.UpdateTaskResponse"
+  }
+  method {
+    name: "RetryTask"
+    input_type: ".shredder_admin.RetryTaskRequest"
+    output_type: ".shredder_admin.RetryTaskResponse"
+  }
+}
+syntax: "proto3"

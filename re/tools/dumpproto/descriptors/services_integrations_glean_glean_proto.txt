@@ -1,0 +1,561 @@
+name: "services/integrations/glean/glean.proto"
+package: "glean"
+dependency: "google/protobuf/timestamp.proto"
+message_type {
+  name: "GetGleanTenantSettingsRequest"
+}
+message_type {
+  name: "GetGleanTenantSettingsResponse"
+  field {
+    name: "oauth_provider"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".glean.Provider"
+    options {
+      deprecated: true
+    }
+  }
+  field {
+    name: "glean_domain"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "public_key"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "HydrateGleanTenantSettingsRequest"
+  field {
+    name: "oauth_client_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      deprecated: true
+      debug_redact: true
+    }
+  }
+  field {
+    name: "oauth_client_secret"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      deprecated: true
+      debug_redact: true
+    }
+  }
+  field {
+    name: "oauth_subdomain"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      deprecated: true
+    }
+  }
+  field {
+    name: "oauth_provider"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".glean.Provider"
+    options {
+      deprecated: true
+    }
+  }
+  field {
+    name: "glean_domain"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "HydrateGleanTenantSettingsResponse"
+}
+message_type {
+  name: "HydrateGleanUserSettingsRequest"
+  field {
+    name: "code"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "HydrateGleanUserSettingsResponse"
+}
+message_type {
+  name: "GetOAuthURLRequest"
+}
+message_type {
+  name: "GetOAuthURLResponse"
+  field {
+    name: "oauth_url"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "SearchRequest"
+  field {
+    name: "query"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "include_private_docs"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "user_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "user_email"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "Person"
+  field {
+    name: "name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "Document"
+  field {
+    name: "document_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "title"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "content"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "document_type"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".glean.DocumentType"
+  }
+  field {
+    name: "data_source"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".glean.DataSource"
+  }
+  field {
+    name: "url"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "children"
+    number: 7
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".glean.Document"
+  }
+  field {
+    name: "author"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".glean.Person"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "created_at"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "updated_at"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "visibility"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".glean.Document.Visibility"
+  }
+  field {
+    name: "snippets"
+    number: 12
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".glean.Document.Snippet"
+  }
+  field {
+    name: "data_source_name"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  nested_type {
+    name: "Snippet"
+    field {
+      name: "text"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+      options {
+        debug_redact: true
+      }
+    }
+    field {
+      name: "start_range"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_INT32
+    }
+    field {
+      name: "end_range"
+      number: 3
+      label: LABEL_OPTIONAL
+      type: TYPE_INT32
+    }
+    field {
+      name: "document_id"
+      number: 4
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+  }
+  enum_type {
+    name: "Visibility"
+    value {
+      name: "UNSPECIFIED_VISIBILITY"
+      number: 0
+    }
+    value {
+      name: "PUBLIC_LINK"
+      number: 1
+    }
+    value {
+      name: "PUBLIC_VISIBLE"
+      number: 2
+    }
+    value {
+      name: "DOMAIN_VISIBLE"
+      number: 3
+    }
+    value {
+      name: "DOMAIN_LINK"
+      number: 4
+    }
+    value {
+      name: "PRIVATE"
+      number: 5
+    }
+    value {
+      name: "SPECIFIC_PEOPLE_AND_GROUPS"
+      number: 6
+    }
+  }
+}
+message_type {
+  name: "SearchResponse"
+  field {
+    name: "documents"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".glean.Document"
+  }
+  field {
+    name: "oauth_url"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "status_code"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "GenerateNewKeyPairRequest"
+}
+message_type {
+  name: "GenerateNewKeyPairResponse"
+  field {
+    name: "public_key"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "CallGleanApiRequest"
+  field {
+    name: "path"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "method"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".glean.HttpMethod"
+  }
+  field {
+    name: "payload"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "CallGleanApiResponse"
+  field {
+    name: "response"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "status_code"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "IsToolConfiguredRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      deprecated: true
+    }
+  }
+}
+message_type {
+  name: "IsToolConfiguredResponse"
+  field {
+    name: "is_configured"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+enum_type {
+  name: "Provider"
+  value {
+    name: "UNSPECIFIED_PROVIDER"
+    number: 0
+  }
+  value {
+    name: "GSUITE"
+    number: 1
+  }
+  value {
+    name: "AZURE"
+    number: 2
+  }
+  value {
+    name: "OKTA"
+    number: 3
+  }
+  value {
+    name: "ONELOGIN"
+    number: 4
+  }
+}
+enum_type {
+  name: "DocumentType"
+  value {
+    name: "UNSPECIFIED_DOCUMENT_TYPE"
+    number: 0
+  }
+  value {
+    name: "PAGE"
+    number: 1
+  }
+  value {
+    name: "MESSAGE"
+    number: 2
+  }
+  value {
+    name: "CHANNEL"
+    number: 3
+  }
+  value {
+    name: "CONVERSATION"
+    number: 4
+  }
+  value {
+    name: "ISSUE"
+    number: 5
+  }
+}
+enum_type {
+  name: "DataSource"
+  value {
+    name: "UNSPECIFIED_DATA_SOURCE"
+    number: 0
+  }
+  value {
+    name: "SLACK"
+    number: 1
+  }
+  value {
+    name: "NOTION"
+    number: 2
+  }
+  value {
+    name: "LINEAR"
+    number: 3
+  }
+  value {
+    name: "GITHUB"
+    number: 4
+  }
+}
+enum_type {
+  name: "HttpMethod"
+  value {
+    name: "UNKNOWN"
+    number: 0
+  }
+  value {
+    name: "GET"
+    number: 1
+  }
+  value {
+    name: "POST"
+    number: 2
+  }
+}
+service {
+  name: "Glean"
+  method {
+    name: "GetGleanTenantSettings"
+    input_type: ".glean.GetGleanTenantSettingsRequest"
+    output_type: ".glean.GetGleanTenantSettingsResponse"
+    options {
+    }
+  }
+  method {
+    name: "HydrateGleanTenantSettings"
+    input_type: ".glean.HydrateGleanTenantSettingsRequest"
+    output_type: ".glean.HydrateGleanTenantSettingsResponse"
+    options {
+    }
+  }
+  method {
+    name: "HydrateGleanUserSettings"
+    input_type: ".glean.HydrateGleanUserSettingsRequest"
+    output_type: ".glean.HydrateGleanUserSettingsResponse"
+    options {
+    }
+  }
+  method {
+    name: "GenerateNewKeyPair"
+    input_type: ".glean.GenerateNewKeyPairRequest"
+    output_type: ".glean.GenerateNewKeyPairResponse"
+  }
+  method {
+    name: "Search"
+    input_type: ".glean.SearchRequest"
+    output_type: ".glean.SearchResponse"
+  }
+  method {
+    name: "CallGleanApi"
+    input_type: ".glean.CallGleanApiRequest"
+    output_type: ".glean.CallGleanApiResponse"
+  }
+  method {
+    name: "IsToolConfigured"
+    input_type: ".glean.IsToolConfiguredRequest"
+    output_type: ".glean.IsToolConfiguredResponse"
+  }
+  method {
+    name: "GetOAuthURL"
+    input_type: ".glean.GetOAuthURLRequest"
+    output_type: ".glean.GetOAuthURLResponse"
+  }
+}
+options {
+  go_package: "github.com/augmentcode/augment/services/integrations/glean/proto"
+}
+syntax: "proto3"

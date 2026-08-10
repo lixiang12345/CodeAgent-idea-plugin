@@ -1,0 +1,2539 @@
+name: "services/remote_agents/remote_agents.proto"
+package: "remote_agents"
+dependency: "google/protobuf/timestamp.proto"
+dependency: "services/auth/central/server/auth_entities.proto"
+dependency: "services/chat_host/chat.proto"
+dependency: "services/settings/settings.proto"
+message_type {
+  name: "CreateAgentRequest"
+  field {
+    name: "config"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.AgentConfig"
+  }
+  field {
+    name: "image_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_image_name"
+  }
+}
+message_type {
+  name: "CreateAgentResponse"
+  field {
+    name: "agent"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.Agent"
+  }
+}
+message_type {
+  name: "ListAgentsRequest"
+  field {
+    name: "bot_type"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.BotType"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_bot_type"
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+}
+message_type {
+  name: "ListAgentsResponse"
+  field {
+    name: "agents"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.Agent"
+  }
+  field {
+    name: "max_agents"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "max_active_agents"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "ChatRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "request_details"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.ChatRequestDetails"
+  }
+}
+message_type {
+  name: "ChatResponse"
+}
+message_type {
+  name: "ChatHistoryRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "last_processed_sequence_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "peek_only"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_peek_only"
+  }
+}
+message_type {
+  name: "ChatHistoryResponse"
+  field {
+    name: "chat_history"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.ChatHistoryExchange"
+  }
+  field {
+    name: "session_summary"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "agent"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.Agent"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_session_summary"
+  }
+  oneof_decl {
+    name: "_agent"
+  }
+}
+message_type {
+  name: "InterruptAgentRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "InterruptAgentResponse"
+}
+message_type {
+  name: "DeleteAgentRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteAgentResponse"
+}
+message_type {
+  name: "Agent"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "status"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".remote_agents.AgentStatus"
+  }
+  field {
+    name: "config"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.AgentConfig"
+  }
+  field {
+    name: "created_at"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "updated_at"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "ssh_config"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.AgentSSHConfig"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "has_updates"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "workspace_status"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".remote_agents.WorkspaceStatus"
+  }
+  field {
+    name: "expires_at"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    oneof_index: 2
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_ssh_config"
+  }
+  oneof_decl {
+    name: "_has_updates"
+  }
+  oneof_decl {
+    name: "_expires_at"
+  }
+}
+message_type {
+  name: "WorkspaceSetupStep"
+  field {
+    name: "step_description"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "logs"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "status"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".remote_agents.WorkspaceSetupStepStatus"
+  }
+  field {
+    name: "sequence_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "step_number"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+}
+message_type {
+  name: "WorkspaceSetupStatus"
+  field {
+    name: "steps"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.WorkspaceSetupStep"
+  }
+}
+message_type {
+  name: "AgentSSHConfig"
+  field {
+    name: "public_keys"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "hostname"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "ssh_config_options"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.SSHConfigOption"
+  }
+}
+message_type {
+  name: "AgentConfig"
+  field {
+    name: "workspace_setup"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.WorkspaceSetup"
+  }
+  field {
+    name: "starting_nodes"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatRequestNode"
+  }
+  field {
+    name: "user_guidelines"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "workspace_guidelines"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "model"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "is_setup_script_agent"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "mcp_servers"
+    number: 8
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.McpServerConfig"
+  }
+  field {
+    name: "title"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 4
+    proto3_optional: true
+  }
+  field {
+    name: "request_source"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".remote_agents.RequestSource"
+    oneof_index: 5
+    proto3_optional: true
+  }
+  field {
+    name: "disabled_tools"
+    number: 12
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "mcp_oauth_credentials"
+    number: 13
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.AgentConfig.McpOauthCredentialsEntry"
+  }
+  field {
+    name: "bot_type"
+    number: 14
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.BotType"
+    oneof_index: 6
+    proto3_optional: true
+  }
+  field {
+    name: "correlation_id"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 7
+    proto3_optional: true
+  }
+  field {
+    name: "skip_feature_gating_for_free_trial"
+    number: 16
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 8
+    proto3_optional: true
+  }
+  nested_type {
+    name: "McpOauthCredentialsEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".settings.McpOAuthCredentials"
+    }
+    options {
+      map_entry: true
+    }
+  }
+  oneof_decl {
+    name: "_user_guidelines"
+  }
+  oneof_decl {
+    name: "_workspace_guidelines"
+  }
+  oneof_decl {
+    name: "_model"
+  }
+  oneof_decl {
+    name: "_is_setup_script_agent"
+  }
+  oneof_decl {
+    name: "_title"
+  }
+  oneof_decl {
+    name: "_request_source"
+  }
+  oneof_decl {
+    name: "_bot_type"
+  }
+  oneof_decl {
+    name: "_correlation_id"
+  }
+  oneof_decl {
+    name: "_skip_feature_gating_for_free_trial"
+  }
+  reserved_range {
+    start: 5
+    end: 6
+  }
+  reserved_range {
+    start: 11
+    end: 12
+  }
+}
+message_type {
+  name: "McpServerConfig"
+  field {
+    name: "command"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "args"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "timeout_ms"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "env"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.McpServerConfig.EnvEntry"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "use_shell_interpolation"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "name"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "disabled"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 4
+    proto3_optional: true
+  }
+  field {
+    name: "type"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 5
+    proto3_optional: true
+  }
+  field {
+    name: "url"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 6
+    proto3_optional: true
+  }
+  nested_type {
+    name: "EnvEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    options {
+      map_entry: true
+    }
+  }
+  oneof_decl {
+    name: "_command"
+  }
+  oneof_decl {
+    name: "_timeout_ms"
+  }
+  oneof_decl {
+    name: "_use_shell_interpolation"
+  }
+  oneof_decl {
+    name: "_name"
+  }
+  oneof_decl {
+    name: "_disabled"
+  }
+  oneof_decl {
+    name: "_type"
+  }
+  oneof_decl {
+    name: "_url"
+  }
+}
+message_type {
+  name: "ChatRequestDetails"
+  field {
+    name: "request_nodes"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatRequestNode"
+  }
+  field {
+    name: "user_guidelines"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "workspace_guidelines"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "model_id"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "mcp_servers"
+    number: 6
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.McpServerConfig"
+  }
+  oneof_decl {
+    name: "_user_guidelines"
+  }
+  oneof_decl {
+    name: "_workspace_guidelines"
+  }
+  oneof_decl {
+    name: "_model_id"
+  }
+  reserved_range {
+    start: 4
+    end: 5
+  }
+}
+message_type {
+  name: "GithubRef"
+  field {
+    name: "url"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "ref"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "WorkspaceSetup"
+  field {
+    name: "github_ref"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.GithubRef"
+    oneof_index: 0
+  }
+  field {
+    name: "patch"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "setup_script"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "token"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "api_url"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 4
+    proto3_optional: true
+  }
+  field {
+    name: "git_config"
+    number: 6
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.WorkspaceSetup.GitConfigEntry"
+    options {
+      debug_redact: true
+    }
+  }
+  nested_type {
+    name: "GitConfigEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    options {
+      map_entry: true
+    }
+  }
+  oneof_decl {
+    name: "starting_files"
+  }
+  oneof_decl {
+    name: "_patch"
+  }
+  oneof_decl {
+    name: "_setup_script"
+  }
+  oneof_decl {
+    name: "_token"
+  }
+  oneof_decl {
+    name: "_api_url"
+  }
+}
+message_type {
+  name: "MountedSecret"
+  field {
+    name: "value"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "mount_path"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "encoding"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".remote_agents.SecretEncoding"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "is_absolute_path"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  oneof_decl {
+    name: "_encoding"
+  }
+}
+message_type {
+  name: "WorkspaceAgentConfig"
+  field {
+    name: "user_id"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "workspace_id"
+    number: 21
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "config"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.AgentConfig"
+  }
+  field {
+    name: "experiments"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.WorkspaceAgentConfig.ExperimentsEntry"
+  }
+  field {
+    name: "github_username"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "github_user_token"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "github_name"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "github_email"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "request_insight_topic_name"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_name"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "otel_exporter_otlp_endpoint"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "otel_context"
+    number: 12
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.WorkspaceAgentConfig.OtelContextEntry"
+  }
+  field {
+    name: "user_secrets_env"
+    number: 13
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.WorkspaceAgentConfig.UserSecretsEnvEntry"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "user_secrets_env_encoding"
+    number: 17
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.WorkspaceAgentConfig.UserSecretsEnvEncodingEntry"
+  }
+  field {
+    name: "user_secrets_mounted"
+    number: 14
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.WorkspaceAgentConfig.UserSecretsMountedEntry"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "image_name"
+    number: 16
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "ssh_disabled"
+    number: 18
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "disabled_tools"
+    number: 19
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "container_entrypoint"
+    number: 20
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  nested_type {
+    name: "ExperimentsEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    options {
+      map_entry: true
+    }
+  }
+  nested_type {
+    name: "OtelContextEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    options {
+      map_entry: true
+    }
+  }
+  nested_type {
+    name: "UserSecretsEnvEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    options {
+      map_entry: true
+    }
+  }
+  nested_type {
+    name: "UserSecretsEnvEncodingEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_ENUM
+      type_name: ".remote_agents.SecretEncoding"
+    }
+    options {
+      map_entry: true
+    }
+  }
+  nested_type {
+    name: "UserSecretsMountedEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".remote_agents.MountedSecret"
+    }
+    options {
+      map_entry: true
+    }
+  }
+}
+message_type {
+  name: "ChatHistoryExchange"
+  field {
+    name: "exchange"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.Exchange"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "changed_files"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.ChangedFile"
+  }
+  field {
+    name: "sequence_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "turn_summary"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "finished_at"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "changed_files_skipped"
+    number: 6
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "changed_files_skipped_count"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+    oneof_index: 2
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_exchange"
+  }
+  oneof_decl {
+    name: "_turn_summary"
+  }
+  oneof_decl {
+    name: "_changed_files_skipped_count"
+  }
+}
+message_type {
+  name: "ChangedFile"
+  field {
+    name: "old_path"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "new_path"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "old_contents"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "new_contents"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "change_type"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".remote_agents.ChangedFile.FileChangeType"
+  }
+  enum_type {
+    name: "FileChangeType"
+    value {
+      name: "ADDED"
+      number: 0
+    }
+    value {
+      name: "DELETED"
+      number: 1
+    }
+    value {
+      name: "MODIFIED"
+      number: 2
+    }
+    value {
+      name: "RENAMED"
+      number: 3
+    }
+  }
+}
+message_type {
+  name: "AddSSHKeyRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "public_keys"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "SSHConfigOption"
+  field {
+    name: "key"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "value"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "AddSSHKeyResponse"
+  field {
+    name: "ssh_config"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.AgentSSHConfig"
+  }
+}
+message_type {
+  name: "ResumeAgentRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ResumeAgentResponse"
+}
+message_type {
+  name: "ResumeHintAgentRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "hint_reason"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".remote_agents.ResumeHintAgentReason"
+  }
+}
+message_type {
+  name: "ResumeHintAgentResponse"
+  field {
+    name: "resume_started"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "PauseAgentRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "PauseAgentResponse"
+}
+message_type {
+  name: "UpdateAgentRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "new_title"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_new_title"
+  }
+}
+message_type {
+  name: "UpdateAgentResponse"
+  field {
+    name: "agent"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.Agent"
+  }
+}
+message_type {
+  name: "WorkspaceReportStatusRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "status"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".remote_agents.AgentStatus"
+  }
+  field {
+    name: "has_active_ssh_connection"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "WorkspaceReportStatusResponse"
+}
+message_type {
+  name: "WorkspaceReportChatHistoryRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "chat_history"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.ChatHistoryExchange"
+  }
+}
+message_type {
+  name: "WorkspaceReportChatHistoryResponse"
+}
+message_type {
+  name: "WorkspaceInterruptRequest"
+}
+message_type {
+  name: "WorkspaceChatRequest"
+  field {
+    name: "request_details"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.ChatRequestDetails"
+  }
+}
+message_type {
+  name: "WorkspacePollUpdateRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "last_processed_sequence_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+}
+message_type {
+  name: "WorkspaceUpdate"
+  field {
+    name: "sequence_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "interrupt"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.WorkspaceInterruptRequest"
+    oneof_index: 0
+  }
+  field {
+    name: "chat_request"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.WorkspaceChatRequest"
+    oneof_index: 0
+  }
+  oneof_decl {
+    name: "update"
+  }
+}
+message_type {
+  name: "WorkspacePollUpdateResponse"
+  field {
+    name: "updates"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.WorkspaceUpdate"
+  }
+}
+message_type {
+  name: "WorkspaceLogsRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "last_processed_step"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "last_processed_sequence_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_last_processed_step"
+  }
+  oneof_decl {
+    name: "_last_processed_sequence_id"
+  }
+}
+message_type {
+  name: "WorkspaceLogsResponse"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "workspace_setup_status"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.WorkspaceSetupStatus"
+  }
+}
+message_type {
+  name: "WorkspaceReportSetupLogsRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "workspace_setup_status"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.WorkspaceSetupStatus"
+  }
+}
+message_type {
+  name: "WorkspaceReportSetupLogsResponse"
+}
+message_type {
+  name: "WorkspaceReportLastSequenceIdRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "last_processed_sequence_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+}
+message_type {
+  name: "WorkspaceReportLastSequenceIdResponse"
+}
+message_type {
+  name: "WorkspaceGetLastSequenceIdRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "WorkspaceGetLastSequenceIdResponse"
+  field {
+    name: "last_processed_sequence_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+}
+message_type {
+  name: "WorkspaceStreamRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "last_processed_sequence_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+}
+message_type {
+  name: "WorkspaceStreamUpdate"
+  field {
+    name: "type"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".remote_agents.WorkspaceUpdateType"
+  }
+  field {
+    name: "sequence_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "interrupt"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.WorkspaceInterruptRequest"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "chat_request"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.WorkspaceChatRequest"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_interrupt"
+  }
+  oneof_decl {
+    name: "_chat_request"
+  }
+}
+message_type {
+  name: "WorkspaceStreamResponse"
+  field {
+    name: "updates"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.WorkspaceStreamUpdate"
+  }
+}
+message_type {
+  name: "ListAgentsStreamRequest"
+  field {
+    name: "last_update_timestamp"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_last_update_timestamp"
+  }
+}
+message_type {
+  name: "AgentHistoryStreamRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "last_processed_sequence_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "peek_only"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_peek_only"
+  }
+}
+message_type {
+  name: "AgentListUpdate"
+  field {
+    name: "type"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".remote_agents.AgentListUpdateType"
+  }
+  field {
+    name: "update_timestamp"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "agent"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.Agent"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "deleted_agent_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "all_agents"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.Agent"
+  }
+  field {
+    name: "max_agents"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "max_active_agents"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+    oneof_index: 3
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_agent"
+  }
+  oneof_decl {
+    name: "_deleted_agent_id"
+  }
+  oneof_decl {
+    name: "_max_agents"
+  }
+  oneof_decl {
+    name: "_max_active_agents"
+  }
+}
+message_type {
+  name: "ListAgentsStreamResponse"
+  field {
+    name: "updates"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.AgentListUpdate"
+  }
+}
+message_type {
+  name: "ExchangeUpdate"
+  field {
+    name: "request_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "sequence_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "appended_text"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "appended_nodes"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatResultNode"
+  }
+  field {
+    name: "appended_changed_files"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.ChangedFile"
+  }
+  oneof_decl {
+    name: "_request_id"
+  }
+}
+message_type {
+  name: "AgentHistoryUpdate"
+  field {
+    name: "type"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".remote_agents.AgentHistoryUpdateType"
+  }
+  field {
+    name: "exchange"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.ChatHistoryExchange"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "exchange_update"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.ExchangeUpdate"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "agent"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.Agent"
+    oneof_index: 2
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_exchange"
+  }
+  oneof_decl {
+    name: "_exchange_update"
+  }
+  oneof_decl {
+    name: "_agent"
+  }
+}
+message_type {
+  name: "AgentHistoryStreamResponse"
+  field {
+    name: "updates"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.AgentHistoryUpdate"
+  }
+}
+message_type {
+  name: "GenerateSummaryRequest"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "start_sequence_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "end_sequence_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+}
+message_type {
+  name: "GenerateSummaryResponse"
+  field {
+    name: "diff_descriptions"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.DiffExplanationSection"
+  }
+}
+message_type {
+  name: "DiffExplanationSection"
+  field {
+    name: "title"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "description"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "sections"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.DiffExplanationSubSection"
+  }
+}
+message_type {
+  name: "DiffExplanationSubSectionDescription"
+  field {
+    name: "path"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "text"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "range"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.Range"
+  }
+  field {
+    name: "selected_code"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "Range"
+  field {
+    name: "start"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "end"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "DiffExplanationSubSection"
+  field {
+    name: "title"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "descriptions"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.DiffExplanationSubSectionDescription"
+  }
+  field {
+    name: "diff_type"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".remote_agents.DiffType"
+  }
+}
+message_type {
+  name: "DeleteAllAgentsForUserRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteAllAgentsForUserResponse"
+  field {
+    name: "num_agents_deleted"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "ListGithubSetupScriptsRequest"
+  field {
+    name: "github_ref"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.GithubRef"
+  }
+}
+message_type {
+  name: "ListGithubSetupScriptsResponse"
+  field {
+    name: "script_paths"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ReadGithubSetupScriptRequest"
+  field {
+    name: "github_ref"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.GithubRef"
+  }
+  field {
+    name: "script_path"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ReadGithubSetupScriptResponse"
+  field {
+    name: "content"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetAgentInfoForSupportRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "agent_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetAgentInfoForSupportResponse"
+  field {
+    name: "agent"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.Agent"
+  }
+}
+message_type {
+  name: "PendingAgentAssignment"
+  field {
+    name: "agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "status"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".remote_agents.PendingAgentAssignment.Status"
+  }
+  field {
+    name: "retry_count"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "enqueued_at"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "tenant_id"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "user_id"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "workspace_config"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".remote_agents.WorkspaceAgentConfig"
+  }
+  enum_type {
+    name: "Status"
+    value {
+      name: "UNSPECIFIED"
+      number: 0
+    }
+    value {
+      name: "PENDING"
+      number: 1
+    }
+  }
+}
+message_type {
+  name: "RemoteAgentCompletionEvent"
+  field {
+    name: "remote_agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "final_status"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".remote_agents.AgentStatus"
+  }
+  field {
+    name: "bot_type"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.BotType"
+  }
+  field {
+    name: "completed_at"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "correlation_id"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_correlation_id"
+  }
+}
+enum_type {
+  name: "WorkspaceSetupStepStatus"
+  value {
+    name: "WORKSPACE_SETUP_STEP_STATUS_UNKNOWN"
+    number: 0
+  }
+  value {
+    name: "WORKSPACE_SETUP_STEP_STATUS_RUNNING"
+    number: 1
+  }
+  value {
+    name: "WORKSPACE_SETUP_STEP_STATUS_SUCCESS"
+    number: 2
+  }
+  value {
+    name: "WORKSPACE_SETUP_STEP_STATUS_FAILURE"
+    number: 3
+  }
+  value {
+    name: "WORKSPACE_SETUP_STEP_STATUS_SKIPPED"
+    number: 4
+  }
+}
+enum_type {
+  name: "AgentStatus"
+  value {
+    name: "AGENT_STATUS_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "AGENT_STATUS_PENDING"
+    number: 5
+  }
+  value {
+    name: "AGENT_STATUS_STARTING"
+    number: 1
+  }
+  value {
+    name: "AGENT_STATUS_RUNNING"
+    number: 2
+  }
+  value {
+    name: "AGENT_STATUS_IDLE"
+    number: 3
+  }
+  value {
+    name: "AGENT_STATUS_FAILED"
+    number: 4
+  }
+  value {
+    name: "AGENT_STATUS_PAUSING"
+    number: 6
+    options {
+      deprecated: true
+    }
+  }
+  value {
+    name: "AGENT_STATUS_PAUSED"
+    number: 7
+    options {
+      deprecated: true
+    }
+  }
+  value {
+    name: "AGENT_STATUS_PENDING_DELETION"
+    number: 8
+  }
+}
+enum_type {
+  name: "WorkspaceStatus"
+  value {
+    name: "WORKSPACE_STATUS_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "WORKSPACE_STATUS_RUNNING"
+    number: 1
+  }
+  value {
+    name: "WORKSPACE_STATUS_PAUSING"
+    number: 2
+  }
+  value {
+    name: "WORKSPACE_STATUS_PAUSED"
+    number: 3
+  }
+  value {
+    name: "WORKSPACE_STATUS_RESUMING"
+    number: 4
+  }
+  value {
+    name: "WORKSPACE_STATUS_DELETING"
+    number: 5
+  }
+}
+enum_type {
+  name: "RequestSource"
+  value {
+    name: "REQUEST_SOURCE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "REQUEST_SOURCE_IDE"
+    number: 1
+  }
+  value {
+    name: "REQUEST_SOURCE_AUGMENT_ACTIONS"
+    number: 2
+  }
+  value {
+    name: "REQUEST_SOURCE_SLACK_BOT"
+    number: 3
+  }
+  value {
+    name: "REQUEST_SOURCE_GITHUB_BOT"
+    number: 4
+  }
+  value {
+    name: "REQUEST_SOURCE_LINEAR_BOT"
+    number: 5
+  }
+  value {
+    name: "REQUEST_SOURCE_CLI"
+    number: 6
+  }
+}
+enum_type {
+  name: "SecretEncoding"
+  value {
+    name: "SECRET_ENCODING_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "SECRET_ENCODING_BASE64"
+    number: 1
+  }
+}
+enum_type {
+  name: "ResumeHintAgentReason"
+  value {
+    name: "RESUME_AGENT_HINT_REASON_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "RESUME_AGENT_HINT_REASON_TYPING_MESSAGE"
+    number: 1
+  }
+  value {
+    name: "RESUME_AGENT_HINT_REASON_VIEWING_AGENT"
+    number: 2
+  }
+}
+enum_type {
+  name: "WorkspaceUpdateType"
+  value {
+    name: "WORKSPACE_UPDATE_TYPE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "WORKSPACE_UPDATE_INTERRUPT"
+    number: 1
+  }
+  value {
+    name: "WORKSPACE_UPDATE_CHAT_REQUEST"
+    number: 2
+  }
+}
+enum_type {
+  name: "AgentListUpdateType"
+  value {
+    name: "AGENT_LIST_UPDATE_TYPE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "AGENT_LIST_AGENT_ADDED"
+    number: 1
+  }
+  value {
+    name: "AGENT_LIST_AGENT_UPDATED"
+    number: 2
+  }
+  value {
+    name: "AGENT_LIST_AGENT_DELETED"
+    number: 3
+  }
+  value {
+    name: "AGENT_LIST_ALL_AGENTS"
+    number: 4
+  }
+}
+enum_type {
+  name: "AgentHistoryUpdateType"
+  value {
+    name: "AGENT_HISTORY_UPDATE_TYPE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "AGENT_HISTORY_EXCHANGE"
+    number: 1
+  }
+  value {
+    name: "AGENT_HISTORY_EXCHANGE_UPDATE"
+    number: 2
+  }
+  value {
+    name: "AGENT_HISTORY_AGENT_STATUS"
+    number: 3
+  }
+}
+enum_type {
+  name: "DiffType"
+  value {
+    name: "UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "FIX"
+    number: 1
+  }
+  value {
+    name: "FEATURE"
+    number: 2
+  }
+  value {
+    name: "REFACTOR"
+    number: 3
+  }
+  value {
+    name: "DOCUMENTATION"
+    number: 4
+  }
+  value {
+    name: "STYLE"
+    number: 5
+  }
+  value {
+    name: "TEST"
+    number: 6
+  }
+  value {
+    name: "CHORE"
+    number: 7
+  }
+  value {
+    name: "REVERT"
+    number: 8
+  }
+  value {
+    name: "OTHER"
+    number: 9
+  }
+}
+service {
+  name: "RemoteAgents"
+  method {
+    name: "CreateAgent"
+    input_type: ".remote_agents.CreateAgentRequest"
+    output_type: ".remote_agents.CreateAgentResponse"
+    options {
+    }
+  }
+  method {
+    name: "ListAgents"
+    input_type: ".remote_agents.ListAgentsRequest"
+    output_type: ".remote_agents.ListAgentsResponse"
+    options {
+    }
+  }
+  method {
+    name: "ListAgentsStream"
+    input_type: ".remote_agents.ListAgentsStreamRequest"
+    output_type: ".remote_agents.ListAgentsStreamResponse"
+    options {
+    }
+    server_streaming: true
+  }
+  method {
+    name: "Chat"
+    input_type: ".remote_agents.ChatRequest"
+    output_type: ".remote_agents.ChatResponse"
+    options {
+    }
+  }
+  method {
+    name: "ChatHistory"
+    input_type: ".remote_agents.ChatHistoryRequest"
+    output_type: ".remote_agents.ChatHistoryResponse"
+    options {
+    }
+  }
+  method {
+    name: "AgentHistoryStream"
+    input_type: ".remote_agents.AgentHistoryStreamRequest"
+    output_type: ".remote_agents.AgentHistoryStreamResponse"
+    options {
+    }
+    server_streaming: true
+  }
+  method {
+    name: "InterruptAgent"
+    input_type: ".remote_agents.InterruptAgentRequest"
+    output_type: ".remote_agents.InterruptAgentResponse"
+    options {
+    }
+  }
+  method {
+    name: "DeleteAgent"
+    input_type: ".remote_agents.DeleteAgentRequest"
+    output_type: ".remote_agents.DeleteAgentResponse"
+    options {
+    }
+  }
+  method {
+    name: "WorkspaceLogs"
+    input_type: ".remote_agents.WorkspaceLogsRequest"
+    output_type: ".remote_agents.WorkspaceLogsResponse"
+    options {
+    }
+  }
+  method {
+    name: "AddSSHKey"
+    input_type: ".remote_agents.AddSSHKeyRequest"
+    output_type: ".remote_agents.AddSSHKeyResponse"
+    options {
+    }
+  }
+  method {
+    name: "ResumeAgent"
+    input_type: ".remote_agents.ResumeAgentRequest"
+    output_type: ".remote_agents.ResumeAgentResponse"
+    options {
+    }
+  }
+  method {
+    name: "ResumeHintAgent"
+    input_type: ".remote_agents.ResumeHintAgentRequest"
+    output_type: ".remote_agents.ResumeHintAgentResponse"
+    options {
+    }
+  }
+  method {
+    name: "PauseAgent"
+    input_type: ".remote_agents.PauseAgentRequest"
+    output_type: ".remote_agents.PauseAgentResponse"
+    options {
+    }
+  }
+  method {
+    name: "UpdateAgent"
+    input_type: ".remote_agents.UpdateAgentRequest"
+    output_type: ".remote_agents.UpdateAgentResponse"
+    options {
+    }
+  }
+  method {
+    name: "GenerateSummary"
+    input_type: ".remote_agents.GenerateSummaryRequest"
+    output_type: ".remote_agents.GenerateSummaryResponse"
+    options {
+    }
+  }
+  method {
+    name: "WorkspaceReportStatus"
+    input_type: ".remote_agents.WorkspaceReportStatusRequest"
+    output_type: ".remote_agents.WorkspaceReportStatusResponse"
+    options {
+    }
+  }
+  method {
+    name: "WorkspaceReportChatHistory"
+    input_type: ".remote_agents.WorkspaceReportChatHistoryRequest"
+    output_type: ".remote_agents.WorkspaceReportChatHistoryResponse"
+    options {
+    }
+  }
+  method {
+    name: "WorkspacePollUpdate"
+    input_type: ".remote_agents.WorkspacePollUpdateRequest"
+    output_type: ".remote_agents.WorkspacePollUpdateResponse"
+    options {
+    }
+  }
+  method {
+    name: "WorkspaceStream"
+    input_type: ".remote_agents.WorkspaceStreamRequest"
+    output_type: ".remote_agents.WorkspaceStreamResponse"
+    options {
+    }
+    server_streaming: true
+  }
+  method {
+    name: "WorkspaceReportSetupLogs"
+    input_type: ".remote_agents.WorkspaceReportSetupLogsRequest"
+    output_type: ".remote_agents.WorkspaceReportSetupLogsResponse"
+    options {
+    }
+  }
+  method {
+    name: "WorkspaceReportLastSequenceId"
+    input_type: ".remote_agents.WorkspaceReportLastSequenceIdRequest"
+    output_type: ".remote_agents.WorkspaceReportLastSequenceIdResponse"
+    options {
+    }
+  }
+  method {
+    name: "WorkspaceGetLastSequenceId"
+    input_type: ".remote_agents.WorkspaceGetLastSequenceIdRequest"
+    output_type: ".remote_agents.WorkspaceGetLastSequenceIdResponse"
+    options {
+    }
+  }
+  method {
+    name: "DeleteAllAgentsForUser"
+    input_type: ".remote_agents.DeleteAllAgentsForUserRequest"
+    output_type: ".remote_agents.DeleteAllAgentsForUserResponse"
+    options {
+    }
+  }
+  method {
+    name: "GetAgentInfoForSupport"
+    input_type: ".remote_agents.GetAgentInfoForSupportRequest"
+    output_type: ".remote_agents.GetAgentInfoForSupportResponse"
+    options {
+    }
+  }
+  method {
+    name: "ListGithubSetupScripts"
+    input_type: ".remote_agents.ListGithubSetupScriptsRequest"
+    output_type: ".remote_agents.ListGithubSetupScriptsResponse"
+    options {
+    }
+  }
+  method {
+    name: "ReadGithubSetupScript"
+    input_type: ".remote_agents.ReadGithubSetupScriptRequest"
+    output_type: ".remote_agents.ReadGithubSetupScriptResponse"
+    options {
+    }
+  }
+}
+syntax: "proto3"

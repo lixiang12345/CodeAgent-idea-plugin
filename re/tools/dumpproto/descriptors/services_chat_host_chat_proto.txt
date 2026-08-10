@@ -1,0 +1,2699 @@
+name: "services/chat_host/chat.proto"
+package: "chat"
+dependency: "base/blob_names/blob_names.proto"
+dependency: "google/protobuf/timestamp.proto"
+dependency: "google/rpc/status.proto"
+dependency: "services/billing/central/billing_entities.proto"
+dependency: "services/lib/proto/chat.proto"
+message_type {
+  name: "ChatPosition"
+  field {
+    name: "prefix_begin"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "suffix_end"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "blob_name"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "PerFileChangeStats"
+  field {
+    name: "file_path"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "insertion_count"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "deletion_count"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "old_file_path"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "PerTypeChangedFileStats"
+  field {
+    name: "changed_file_count"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "per_file_change_stats_head"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.PerFileChangeStats"
+  }
+  field {
+    name: "per_file_change_stats_tail"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.PerFileChangeStats"
+  }
+}
+message_type {
+  name: "ChangedFileStats"
+  field {
+    name: "added_file_stats"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.PerTypeChangedFileStats"
+  }
+  field {
+    name: "broken_file_stats"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.PerTypeChangedFileStats"
+  }
+  field {
+    name: "copied_file_stats"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.PerTypeChangedFileStats"
+  }
+  field {
+    name: "deleted_file_stats"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.PerTypeChangedFileStats"
+  }
+  field {
+    name: "modified_file_stats"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.PerTypeChangedFileStats"
+  }
+  field {
+    name: "renamed_file_stats"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.PerTypeChangedFileStats"
+  }
+  field {
+    name: "unmerged_file_stats"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.PerTypeChangedFileStats"
+  }
+  field {
+    name: "unknown_file_stats"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.PerTypeChangedFileStats"
+  }
+}
+message_type {
+  name: "ChatFeatureDetectionFlags"
+  field {
+    name: "support_relevant_sources"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "support_tool_use_start"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "support_parallel_tool_use"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 2
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_support_relevant_sources"
+  }
+  oneof_decl {
+    name: "_support_tool_use_start"
+  }
+  oneof_decl {
+    name: "_support_parallel_tool_use"
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+  reserved_range {
+    start: 2
+    end: 3
+  }
+}
+message_type {
+  name: "ChatRetrievalRequest"
+  field {
+    name: "model_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "query"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "blobs"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".base.blob_names.Blobs"
+  }
+  field {
+    name: "max_chunks"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "RetrievedChunk"
+  field {
+    name: "text"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "path"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "char_start"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "char_end"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "blob_name"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ChatRetrievalResponse"
+  field {
+    name: "retrieved_chunks"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.RetrievedChunk"
+  }
+  field {
+    name: "unknown_blob_names"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "checkpoint_not_found"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "ThirdPartyOverride"
+  field {
+    name: "provider_model_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "api_key"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "base_url"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 2
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_provider_model_name"
+  }
+  oneof_decl {
+    name: "_api_key"
+  }
+  oneof_decl {
+    name: "_base_url"
+  }
+}
+message_type {
+  name: "BringYourOwnKey"
+  field {
+    name: "provider"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".chat.BYOKProvider"
+  }
+  field {
+    name: "key"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "ClientMetadata"
+  field {
+    name: "client_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "client_version"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "client_subtype"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "acp_client_name"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "acp_client_version"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "user_agent"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "platform"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "arch"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ChatRequest"
+  field {
+    name: "model_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "path"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "prefix"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "selected_code"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "suffix"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "message"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "chat_history"
+    number: 7
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.Exchange"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "position"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatPosition"
+  }
+  field {
+    name: "lang"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "sequence_id"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "blobs"
+    number: 12
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".base.blob_names.Blobs"
+  }
+  field {
+    name: "enable_preference_collection"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "user_guided_blobs"
+    number: 14
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "external_source_ids"
+    number: 16
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "context_code_exchange_request_id"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "disable_auto_external_sources"
+    number: 17
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "prompt_formatter_name"
+    number: 18
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "changed_file_stats"
+    number: 19
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChangedFileStats"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "diff"
+    number: 20
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "relevant_commit_messages"
+    number: 21
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "example_commit_messages"
+    number: 22
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "user_guidelines"
+    number: 23
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "workspace_guidelines"
+    number: 24
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "feature_detection_flags"
+    number: 25
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatFeatureDetectionFlags"
+    oneof_index: 4
+    proto3_optional: true
+  }
+  field {
+    name: "tool_definitions"
+    number: 26
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.ToolDefinition"
+  }
+  field {
+    name: "nodes"
+    number: 27
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatRequestNode"
+  }
+  field {
+    name: "persona_type"
+    number: 29
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".chat.PersonaType"
+    oneof_index: 5
+    proto3_optional: true
+  }
+  field {
+    name: "is_suspicious"
+    number: 30
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "rules"
+    number: 31
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.Rule"
+  }
+  field {
+    name: "silent"
+    number: 32
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "agent_tasks"
+    number: 33
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 6
+    proto3_optional: true
+  }
+  field {
+    name: "client_type"
+    number: 34
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".chat.ClientType"
+  }
+  field {
+    name: "chat_mode"
+    number: 35
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".chat.ChatMode"
+    oneof_index: 7
+    proto3_optional: true
+  }
+  field {
+    name: "third_party_override"
+    number: 36
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ThirdPartyOverride"
+    oneof_index: 8
+    proto3_optional: true
+  }
+  field {
+    name: "conversation_id"
+    number: 37
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 9
+    proto3_optional: true
+  }
+  field {
+    name: "silent_type"
+    number: 38
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".chat.SilentType"
+    oneof_index: 10
+    proto3_optional: true
+  }
+  field {
+    name: "system_prompt_override"
+    number: 39
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 11
+    proto3_optional: true
+  }
+  field {
+    name: "system_prompt_replacements"
+    number: 40
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.SystemPromptReplacement"
+  }
+  field {
+    name: "canvas_id"
+    number: 41
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 12
+    proto3_optional: true
+  }
+  field {
+    name: "skills"
+    number: 42
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.Skill"
+  }
+  field {
+    name: "system_prompt_append"
+    number: 43
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 13
+    proto3_optional: true
+  }
+  field {
+    name: "consume_credits_on_silent_requests"
+    number: 44
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 14
+    proto3_optional: true
+  }
+  field {
+    name: "turn_id"
+    number: 45
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 15
+    proto3_optional: true
+  }
+  field {
+    name: "parent_conversation_id"
+    number: 46
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 16
+    proto3_optional: true
+  }
+  field {
+    name: "root_conversation_id"
+    number: 47
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 17
+    proto3_optional: true
+  }
+  field {
+    name: "disable_thinking"
+    number: 48
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 18
+    proto3_optional: true
+  }
+  field {
+    name: "bring_your_own_key"
+    number: 49
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.BringYourOwnKey"
+    oneof_index: 19
+    proto3_optional: true
+  }
+  field {
+    name: "requested_model_name"
+    number: 50
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 20
+    proto3_optional: true
+  }
+  field {
+    name: "subscription_id"
+    number: 51
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 21
+    proto3_optional: true
+  }
+  field {
+    name: "client_metadata"
+    number: 52
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ClientMetadata"
+    oneof_index: 22
+    proto3_optional: true
+  }
+  field {
+    name: "internal_agent_persona_id"
+    number: 53
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 23
+    proto3_optional: true
+  }
+  field {
+    name: "persona_prompts"
+    number: 54
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 24
+    proto3_optional: true
+  }
+  field {
+    name: "skip_conversation_indexing"
+    number: 55
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 25
+    proto3_optional: true
+  }
+  field {
+    name: "sender_user_id"
+    number: 56
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 26
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_changed_file_stats"
+  }
+  oneof_decl {
+    name: "_diff"
+  }
+  oneof_decl {
+    name: "_user_guidelines"
+  }
+  oneof_decl {
+    name: "_workspace_guidelines"
+  }
+  oneof_decl {
+    name: "_feature_detection_flags"
+  }
+  oneof_decl {
+    name: "_persona_type"
+  }
+  oneof_decl {
+    name: "_agent_tasks"
+  }
+  oneof_decl {
+    name: "_chat_mode"
+  }
+  oneof_decl {
+    name: "_third_party_override"
+  }
+  oneof_decl {
+    name: "_conversation_id"
+  }
+  oneof_decl {
+    name: "_silent_type"
+  }
+  oneof_decl {
+    name: "_system_prompt_override"
+  }
+  oneof_decl {
+    name: "_canvas_id"
+  }
+  oneof_decl {
+    name: "_system_prompt_append"
+  }
+  oneof_decl {
+    name: "_consume_credits_on_silent_requests"
+  }
+  oneof_decl {
+    name: "_turn_id"
+  }
+  oneof_decl {
+    name: "_parent_conversation_id"
+  }
+  oneof_decl {
+    name: "_root_conversation_id"
+  }
+  oneof_decl {
+    name: "_disable_thinking"
+  }
+  oneof_decl {
+    name: "_bring_your_own_key"
+  }
+  oneof_decl {
+    name: "_requested_model_name"
+  }
+  oneof_decl {
+    name: "_subscription_id"
+  }
+  oneof_decl {
+    name: "_client_metadata"
+  }
+  oneof_decl {
+    name: "_internal_agent_persona_id"
+  }
+  oneof_decl {
+    name: "_persona_prompts"
+  }
+  oneof_decl {
+    name: "_skip_conversation_indexing"
+  }
+  oneof_decl {
+    name: "_sender_user_id"
+  }
+  reserved_range {
+    start: 9
+    end: 10
+  }
+  reserved_range {
+    start: 28
+    end: 29
+  }
+}
+message_type {
+  name: "SystemPromptReplacement"
+  field {
+    name: "search"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "replace"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "Rule"
+  field {
+    name: "type"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".chat.RuleType"
+  }
+  field {
+    name: "path"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "content"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "description"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_description"
+  }
+}
+message_type {
+  name: "Skill"
+  field {
+    name: "name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "description"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "location"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "IncorporatedExternalSource"
+  field {
+    name: "source_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "link"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "source_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  oneof_decl {
+    name: "_link"
+  }
+}
+message_type {
+  name: "WorkspaceFileChunk"
+  field {
+    name: "char_start"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "char_end"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "blob_name"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ChatResponse"
+  field {
+    name: "text"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "unknown_blob_names"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "checkpoint_not_found"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "workspace_file_chunks"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.WorkspaceFileChunk"
+  }
+  field {
+    name: "incorporated_external_sources"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.IncorporatedExternalSource"
+  }
+  field {
+    name: "replace_text_response"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatReplaceText"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "nodes"
+    number: 7
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatResultNode"
+  }
+  field {
+    name: "status_code"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".chat.ChatResponseStatusCode"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "stop_reason"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".chat.ChatStopReason"
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "error_message"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "effective_model_name"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 4
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_replace_text_response"
+  }
+  oneof_decl {
+    name: "_status_code"
+  }
+  oneof_decl {
+    name: "_stop_reason"
+  }
+  oneof_decl {
+    name: "_error_message"
+  }
+  oneof_decl {
+    name: "_effective_model_name"
+  }
+}
+message_type {
+  name: "ChatResultBillingMetadata"
+  field {
+    name: "transaction_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "credits_consumed"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "cost_usd"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "usage_unit"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".billing.UsageUnit"
+  }
+  field {
+    name: "effective_model_name"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_transaction_id"
+  }
+  oneof_decl {
+    name: "_effective_model_name"
+  }
+  reserved_range {
+    start: 3
+    end: 4
+  }
+  reserved_range {
+    start: 4
+    end: 5
+  }
+  reserved_range {
+    start: 5
+    end: 6
+  }
+  reserved_range {
+    start: 6
+    end: 7
+  }
+  reserved_name: "input_tokens"
+  reserved_name: "output_tokens"
+  reserved_name: "cache_read_input_tokens"
+  reserved_name: "cache_creation_input_tokens"
+}
+message_type {
+  name: "ChatReplaceText"
+  field {
+    name: "replacement_text"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "start_line_number"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "end_line_number"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "ChatResultNode"
+  field {
+    name: "id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "type"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".chat.ChatResultNodeType"
+  }
+  field {
+    name: "content"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "tool_use"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatResultToolUse"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "thinking"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatResultThinking"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "billing_metadata"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatResultBillingMetadata"
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "token_usage"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatResultTokenUsage"
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "metadata"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatResultNodeMetadata"
+    oneof_index: 4
+    proto3_optional: true
+  }
+  field {
+    name: "timestamp_ms"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT64
+    oneof_index: 5
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_tool_use"
+  }
+  oneof_decl {
+    name: "_thinking"
+  }
+  oneof_decl {
+    name: "_billing_metadata"
+  }
+  oneof_decl {
+    name: "_token_usage"
+  }
+  oneof_decl {
+    name: "_metadata"
+  }
+  oneof_decl {
+    name: "_timestamp_ms"
+  }
+  reserved_range {
+    start: 9
+    end: 10
+  }
+  reserved_name: "context_usage"
+}
+message_type {
+  name: "ChatRequestNode"
+  field {
+    name: "id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "type"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".chat.ChatRequestNodeType"
+  }
+  field {
+    name: "text_node"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatRequestText"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "tool_result_node"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatRequestToolResult"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "image_node"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatRequestImage"
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "ide_state_node"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatRequestIdeState"
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "edit_events_node"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatRequestEditEvents"
+    oneof_index: 4
+    proto3_optional: true
+  }
+  field {
+    name: "file_node"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatRequestFile"
+    oneof_index: 5
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_text_node"
+  }
+  oneof_decl {
+    name: "_tool_result_node"
+  }
+  oneof_decl {
+    name: "_image_node"
+  }
+  oneof_decl {
+    name: "_ide_state_node"
+  }
+  oneof_decl {
+    name: "_edit_events_node"
+  }
+  oneof_decl {
+    name: "_file_node"
+  }
+  reserved_range {
+    start: 6
+    end: 7
+  }
+}
+message_type {
+  name: "Exchange"
+  field {
+    name: "request_message"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "response_text"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "request_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "request_nodes"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatRequestNode"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "response_nodes"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatResultNode"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "created_at"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    oneof_index: 2
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_response_text"
+  }
+  oneof_decl {
+    name: "_request_id"
+  }
+  oneof_decl {
+    name: "_created_at"
+  }
+}
+message_type {
+  name: "ChatHistoryMetadata"
+  field {
+    name: "chat_mode"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".chat.ChatMode"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "created_at"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "is_silent"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "is_successful"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "model_name"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 4
+    proto3_optional: true
+  }
+  field {
+    name: "request_id"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 5
+    proto3_optional: true
+  }
+  field {
+    name: "turn_id"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 6
+    proto3_optional: true
+  }
+  field {
+    name: "parent_conversation_id"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 7
+    proto3_optional: true
+  }
+  field {
+    name: "root_conversation_id"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 8
+    proto3_optional: true
+  }
+  field {
+    name: "persisted_through_event_seq"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+    oneof_index: 9
+    proto3_optional: true
+  }
+  field {
+    name: "is_partial"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 10
+    proto3_optional: true
+  }
+  field {
+    name: "subscription_id"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 11
+    proto3_optional: true
+  }
+  field {
+    name: "sender_user_id"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 12
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_chat_mode"
+  }
+  oneof_decl {
+    name: "_created_at"
+  }
+  oneof_decl {
+    name: "_is_silent"
+  }
+  oneof_decl {
+    name: "_is_successful"
+  }
+  oneof_decl {
+    name: "_model_name"
+  }
+  oneof_decl {
+    name: "_request_id"
+  }
+  oneof_decl {
+    name: "_turn_id"
+  }
+  oneof_decl {
+    name: "_parent_conversation_id"
+  }
+  oneof_decl {
+    name: "_root_conversation_id"
+  }
+  oneof_decl {
+    name: "_persisted_through_event_seq"
+  }
+  oneof_decl {
+    name: "_is_partial"
+  }
+  oneof_decl {
+    name: "_subscription_id"
+  }
+  oneof_decl {
+    name: "_sender_user_id"
+  }
+}
+message_type {
+  name: "ExchangeWithMetadata"
+  field {
+    name: "exchange"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.Exchange"
+  }
+  field {
+    name: "metadata"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ChatHistoryMetadata"
+  }
+}
+message_type {
+  name: "MessageBlock"
+  field {
+    name: "contentBlock"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.MessageBlock.ContentBlockEntry"
+  }
+  nested_type {
+    name: "ContentBlockEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    options {
+      map_entry: true
+    }
+  }
+}
+message_type {
+  name: "FindMissingRequest"
+  field {
+    name: "model_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "blob_names"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "FindMissingResponse"
+  field {
+    name: "missing_blob_names"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+    options {
+      deprecated: true
+    }
+  }
+  field {
+    name: "nonindexed_blob_names"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ListChatHistoryRequest"
+  field {
+    name: "conversation_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "start_timestamp"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "end_timestamp"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "exclude_silent"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "limit"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "subscription_id"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 4
+    proto3_optional: true
+  }
+  field {
+    name: "forward_pagination"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 5
+    proto3_optional: true
+  }
+  field {
+    name: "exclude_retried_stopped_exchanges"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 6
+    proto3_optional: true
+  }
+  field {
+    name: "omit_legacy_chat_history"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 7
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_start_timestamp"
+  }
+  oneof_decl {
+    name: "_end_timestamp"
+  }
+  oneof_decl {
+    name: "_exclude_silent"
+  }
+  oneof_decl {
+    name: "_limit"
+  }
+  oneof_decl {
+    name: "_subscription_id"
+  }
+  oneof_decl {
+    name: "_forward_pagination"
+  }
+  oneof_decl {
+    name: "_exclude_retried_stopped_exchanges"
+  }
+  oneof_decl {
+    name: "_omit_legacy_chat_history"
+  }
+}
+message_type {
+  name: "ListChatHistoryResponse"
+  field {
+    name: "chat_history"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.Exchange"
+  }
+  field {
+    name: "chat_history_with_metadata"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.ExchangeWithMetadata"
+  }
+}
+message_type {
+  name: "CountChatHistoryRequest"
+  field {
+    name: "conversation_ids"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "exclude_silent"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "exclude_failed"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_exclude_silent"
+  }
+  oneof_decl {
+    name: "_exclude_failed"
+  }
+}
+message_type {
+  name: "CountConversationResult"
+  field {
+    name: "conversation_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "count"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+    oneof_index: 0
+  }
+  field {
+    name: "error"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+  }
+  oneof_decl {
+    name: "result"
+  }
+}
+message_type {
+  name: "CountChatHistoryResponse"
+  field {
+    name: "results"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.CountConversationResult"
+  }
+}
+message_type {
+  name: "InsertChatHistoryRequest"
+  field {
+    name: "conversation_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "exchanges"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.ExchangeWithMetadata"
+  }
+}
+message_type {
+  name: "InsertChatHistoryResponse"
+  field {
+    name: "entries"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.InsertChatHistoryResponse.Entry"
+  }
+  nested_type {
+    name: "Entry"
+    field {
+      name: "index"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_INT64
+    }
+    field {
+      name: "status"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".google.rpc.Status"
+    }
+  }
+}
+message_type {
+  name: "CreateWorkspaceRequest"
+  field {
+    name: "name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  reserved_range {
+    start: 2
+    end: 3
+  }
+}
+message_type {
+  name: "CreateWorkspaceResponse"
+  field {
+    name: "workspace_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ListWorkspacesRequest"
+}
+message_type {
+  name: "WorkspaceInfo"
+  field {
+    name: "workspace_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "created_at"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "updated_at"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_created_at"
+  }
+  oneof_decl {
+    name: "_updated_at"
+  }
+  reserved_range {
+    start: 5
+    end: 6
+  }
+}
+message_type {
+  name: "ListWorkspacesResponse"
+  field {
+    name: "workspaces"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.WorkspaceInfo"
+  }
+}
+message_type {
+  name: "UpdateWorkspaceRequest"
+  field {
+    name: "workspace_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "UpdateWorkspaceResponse"
+  field {
+    name: "workspace"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.WorkspaceInfo"
+  }
+}
+message_type {
+  name: "ConversationInfo"
+  field {
+    name: "conversation_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "workspace_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "title"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "is_pinned"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "type"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".chat.ConversationType"
+  }
+  field {
+    name: "created_at"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "updated_at"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "forked_from_conversation_id"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "forked_from_exchange_id"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 3
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_created_at"
+  }
+  oneof_decl {
+    name: "_updated_at"
+  }
+  oneof_decl {
+    name: "_forked_from_conversation_id"
+  }
+  oneof_decl {
+    name: "_forked_from_exchange_id"
+  }
+}
+message_type {
+  name: "CreateConversationRequest"
+  field {
+    name: "workspace_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "title"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "is_pinned"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "type"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".chat.ConversationType"
+  }
+  field {
+    name: "conversation_id"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "forked_from_conversation_id"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "forked_from_exchange_id"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 2
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_conversation_id"
+  }
+  oneof_decl {
+    name: "_forked_from_conversation_id"
+  }
+  oneof_decl {
+    name: "_forked_from_exchange_id"
+  }
+}
+message_type {
+  name: "CreateConversationResponse"
+  field {
+    name: "conversation_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UpdateConversationRequest"
+  field {
+    name: "workspace_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "conversation_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "title"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "is_pinned"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_title"
+  }
+  oneof_decl {
+    name: "_is_pinned"
+  }
+}
+message_type {
+  name: "UpdateConversationResponse"
+  field {
+    name: "conversation"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ConversationInfo"
+  }
+}
+message_type {
+  name: "GetConversationRequest"
+  field {
+    name: "workspace_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "conversation_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetConversationResponse"
+  field {
+    name: "conversation"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".chat.ConversationInfo"
+  }
+}
+message_type {
+  name: "ListConversationsRequest"
+  field {
+    name: "workspace_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ListConversationsResponse"
+  field {
+    name: "conversations"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".chat.ConversationInfo"
+  }
+}
+message_type {
+  name: "DeleteConversationRequest"
+  field {
+    name: "workspace_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "conversation_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteConversationResponse"
+}
+enum_type {
+  name: "BYOKProvider"
+  value {
+    name: "PROVIDER_UNKNOWN"
+    number: 0
+  }
+  value {
+    name: "PROVIDER_ANTHROPIC"
+    number: 1
+  }
+  value {
+    name: "PROVIDER_OPENAI"
+    number: 2
+  }
+  value {
+    name: "PROVIDER_BEDROCK"
+    number: 3
+  }
+  value {
+    name: "PROVIDER_FIREWORKS"
+    number: 4
+  }
+  value {
+    name: "PROVIDER_VERTEXAI_ANTHROPIC"
+    number: 5
+  }
+  value {
+    name: "PROVIDER_VERTEXAI_GEMINI"
+    number: 6
+  }
+}
+enum_type {
+  name: "RuleType"
+  value {
+    name: "ALWAYS_ATTACHED"
+    number: 0
+  }
+  value {
+    name: "MANUAL"
+    number: 1
+  }
+  value {
+    name: "AGENT_REQUESTED"
+    number: 2
+  }
+}
+enum_type {
+  name: "SilentType"
+  value {
+    name: "SILENT_TYPE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "SILENT_TYPE_UNKNOWN"
+    number: 19
+  }
+  value {
+    name: "REWRITE_PROMPT_INSTRUCTION"
+    number: 1
+  }
+  value {
+    name: "HISTORY_SUMMARY_PROMPT"
+    number: 2
+  }
+  value {
+    name: "CLASSIFY_AND_DISTILL_PROMPT"
+    number: 3
+  }
+  value {
+    name: "CLASSIFY_AND_DISTILL_SUCCESS_PROMPT"
+    number: 4
+  }
+  value {
+    name: "INJECTION_PROMPT"
+    number: 5
+  }
+  value {
+    name: "SUMMARY_EXCHANGE_PROMPT"
+    number: 6
+  }
+  value {
+    name: "UPDATE_TASK_LIST_PROMPT"
+    number: 7
+  }
+  value {
+    name: "GENERATE_QUESTIONS_PROMPT"
+    number: 8
+  }
+  value {
+    name: "PROJECT_SUMMARY_PROMPT"
+    number: 9
+  }
+  value {
+    name: "COMPRESSION_PROMPT"
+    number: 10
+  }
+  value {
+    name: "LANGUAGE_LOCALIZATION_PROMPT"
+    number: 12
+  }
+  value {
+    name: "DETECT_LANGUAGES_PROMPT"
+    number: 13
+  }
+  value {
+    name: "ORIENTATION_COMPRESSION_PROMPT"
+    number: 14
+  }
+  value {
+    name: "ORIENTATION_BUILD_TEST_QUERY"
+    number: 15
+  }
+  value {
+    name: "HELPFUL_SOFTWARE_ENGINEER_PROMPT"
+    number: 16
+  }
+  value {
+    name: "AGENT_ONBOARDING_PROMPT"
+    number: 17
+  }
+  value {
+    name: "EMPTY_MESSAGE_WITH_TOOL_CALL"
+    number: 18
+  }
+  value {
+    name: "TOOL_SEARCH_PROMPT"
+    number: 20
+  }
+  reserved_range {
+    start: 11
+    end: 11
+  }
+}
+enum_type {
+  name: "PersonaType"
+  value {
+    name: "DEFAULT"
+    number: 0
+  }
+  value {
+    name: "PROTOTYPER"
+    number: 1
+  }
+  value {
+    name: "BRAINSTORM"
+    number: 2
+  }
+  value {
+    name: "REVIEWER"
+    number: 3
+  }
+}
+enum_type {
+  name: "ClientType"
+  value {
+    name: "UNKNOWN"
+    number: 0
+  }
+  value {
+    name: "CLI"
+    number: 1
+  }
+  value {
+    name: "VSCODE"
+    number: 2
+  }
+  value {
+    name: "INTELLIJ"
+    number: 3
+  }
+  value {
+    name: "WEB"
+    number: 4
+  }
+}
+enum_type {
+  name: "ChatMode"
+  value {
+    name: "CHAT"
+    number: 0
+  }
+  value {
+    name: "AGENT"
+    number: 1
+  }
+  value {
+    name: "ORIENTATION"
+    number: 3
+  }
+  value {
+    name: "REMOTE_AGENT"
+    number: 5
+  }
+  value {
+    name: "CLI_AGENT"
+    number: 6
+  }
+  value {
+    name: "CLI_NONINTERACTIVE"
+    number: 7
+  }
+  value {
+    name: "CODE_REVIEW"
+    number: 8
+  }
+  value {
+    name: "AGENTIC_SLACK_BOT"
+    number: 9
+  }
+  value {
+    name: "CONTEXT_ENGINE_SDK"
+    number: 10
+  }
+  value {
+    name: "CONTEXT_ENGINE_MCP"
+    number: 11
+  }
+  value {
+    name: "POSEIDON_CLI_AGENT"
+    number: 12
+  }
+  reserved_range {
+    start: 2
+    end: 2
+  }
+  reserved_range {
+    start: 4
+    end: 4
+  }
+}
+enum_type {
+  name: "ChatResponseStatusCode"
+  value {
+    name: "OK"
+    number: 0
+  }
+  value {
+    name: "EXCEED_CONTEXT_LENGTH"
+    number: 1
+  }
+  value {
+    name: "WAS_BLOCKED"
+    number: 2
+  }
+  value {
+    name: "INVALID_REQUEST"
+    number: 3
+  }
+  value {
+    name: "SUMMARIZE_AND_RETRY"
+    number: 4
+  }
+}
+enum_type {
+  name: "ConversationType"
+  value {
+    name: "CONVERSATION_TYPE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "CONVERSATION_TYPE_CHAT"
+    number: 1
+  }
+  value {
+    name: "CONVERSATION_TYPE_AGENT"
+    number: 2
+  }
+}
+service {
+  name: "Chat"
+  method {
+    name: "Chat"
+    input_type: ".chat.ChatRequest"
+    output_type: ".chat.ChatResponse"
+  }
+  method {
+    name: "ChatStream"
+    input_type: ".chat.ChatRequest"
+    output_type: ".chat.ChatResponse"
+    server_streaming: true
+  }
+  method {
+    name: "FindMissing"
+    input_type: ".chat.FindMissingRequest"
+    output_type: ".chat.FindMissingResponse"
+  }
+  method {
+    name: "ChatRetrieval"
+    input_type: ".chat.ChatRetrievalRequest"
+    output_type: ".chat.ChatRetrievalResponse"
+  }
+  method {
+    name: "ListChatHistory"
+    input_type: ".chat.ListChatHistoryRequest"
+    output_type: ".chat.ListChatHistoryResponse"
+  }
+  method {
+    name: "CountChatHistory"
+    input_type: ".chat.CountChatHistoryRequest"
+    output_type: ".chat.CountChatHistoryResponse"
+  }
+  method {
+    name: "InsertChatHistory"
+    input_type: ".chat.InsertChatHistoryRequest"
+    output_type: ".chat.InsertChatHistoryResponse"
+  }
+  method {
+    name: "CreateWorkspace"
+    input_type: ".chat.CreateWorkspaceRequest"
+    output_type: ".chat.CreateWorkspaceResponse"
+  }
+  method {
+    name: "ListWorkspaces"
+    input_type: ".chat.ListWorkspacesRequest"
+    output_type: ".chat.ListWorkspacesResponse"
+  }
+  method {
+    name: "UpdateWorkspace"
+    input_type: ".chat.UpdateWorkspaceRequest"
+    output_type: ".chat.UpdateWorkspaceResponse"
+  }
+  method {
+    name: "CreateConversation"
+    input_type: ".chat.CreateConversationRequest"
+    output_type: ".chat.CreateConversationResponse"
+  }
+  method {
+    name: "UpdateConversation"
+    input_type: ".chat.UpdateConversationRequest"
+    output_type: ".chat.UpdateConversationResponse"
+  }
+  method {
+    name: "GetConversation"
+    input_type: ".chat.GetConversationRequest"
+    output_type: ".chat.GetConversationResponse"
+  }
+  method {
+    name: "DeleteConversation"
+    input_type: ".chat.DeleteConversationRequest"
+    output_type: ".chat.DeleteConversationResponse"
+  }
+  method {
+    name: "ListConversations"
+    input_type: ".chat.ListConversationsRequest"
+    output_type: ".chat.ListConversationsResponse"
+  }
+}
+public_dependency: 4
+syntax: "proto3"

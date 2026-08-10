@@ -1,0 +1,5975 @@
+name: "services/auth/central/server/auth.proto"
+package: "auth"
+dependency: "base/logging/audit_ocsf/audit_log.proto"
+dependency: "google/protobuf/timestamp.proto"
+dependency: "services/auth/central/server/auth_entities.proto"
+dependency: "services/billing/lib/subscription/subscription.proto"
+dependency: "services/token_exchange/auth_options.proto"
+message_type {
+  name: "RebuildIndexesRequest"
+}
+message_type {
+  name: "RebuildIndexesResponse"
+}
+message_type {
+  name: "CreateTokenForUserRequest"
+  field {
+    name: "augment_user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "expiration_time_seconds"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "trigger_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "bot_type"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.BotType"
+  }
+  reserved_range {
+    start: 5
+    end: 6
+  }
+}
+message_type {
+  name: "CreateTokenForUserResponse"
+  field {
+    name: "access_token"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "expires_in"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+}
+message_type {
+  name: "GetUserRequest"
+  field {
+    name: "user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "unfiltered_suspensions"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  oneof_decl {
+    name: "_tenant_id"
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+}
+message_type {
+  name: "GetUserResponse"
+  field {
+    name: "user"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.User"
+  }
+}
+message_type {
+  name: "BatchGetUsersRequest"
+  field {
+    name: "requests"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.GetUserRequest"
+  }
+}
+message_type {
+  name: "BatchGetUsersResponse"
+  field {
+    name: "users"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.BatchGetUsersResponse.UsersEntry"
+  }
+  nested_type {
+    name: "UsersEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".auth.GetUserResponse"
+    }
+    options {
+      map_entry: true
+    }
+  }
+}
+message_type {
+  name: "MarkUserSawGetStartedPageRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_tenant_id"
+  }
+}
+message_type {
+  name: "MarkUserSawGetStartedPageResponse"
+}
+message_type {
+  name: "MarkUserSubmittedSourceFormRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_tenant_id"
+  }
+}
+message_type {
+  name: "MarkUserSubmittedSourceFormResponse"
+}
+message_type {
+  name: "UpdateOnboardingFlagsRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "team_discovery_join_skipped"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "team_join_requested"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "team_invitation_skipped"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+    oneof_index: 3
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_tenant_id"
+  }
+  oneof_decl {
+    name: "_team_discovery_join_skipped"
+  }
+  oneof_decl {
+    name: "_team_join_requested"
+  }
+  oneof_decl {
+    name: "_team_invitation_skipped"
+  }
+}
+message_type {
+  name: "UpdateOnboardingFlagsResponse"
+}
+message_type {
+  name: "GetUserBillingInfoRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetUserBillingInfoResponse"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "email"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "is_self_serve_team"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "orb_customer_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "orb_subscription_id"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "stripe_customer_id"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "team_admin_user_ids"
+    number: 7
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "subscription_creation_info"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.User.SubscriptionCreationInfo"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "pricing_migration_info"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.PricingMigrationInfo"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "billing_entity_type"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth.BillingEntityType"
+  }
+  field {
+    name: "is_admin"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "pending_change"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.PendingChange"
+    oneof_index: 2
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_subscription_creation_info"
+  }
+  oneof_decl {
+    name: "_pricing_migration_info"
+  }
+  oneof_decl {
+    name: "_pending_change"
+  }
+  reserved_range {
+    start: 8
+    end: 9
+  }
+}
+message_type {
+  name: "UpdateUserBillingInfoRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "orb_customer_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "orb_subscription_id"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "stripe_customer_id"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 2
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_orb_customer_id"
+  }
+  oneof_decl {
+    name: "_orb_subscription_id"
+  }
+  oneof_decl {
+    name: "_stripe_customer_id"
+  }
+  reserved_range {
+    start: 3
+    end: 4
+  }
+}
+message_type {
+  name: "UpdateUserBillingInfoResponse"
+}
+message_type {
+  name: "AddUserToTenantRequest"
+  field {
+    name: "email"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "tenant_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+  reserved_range {
+    start: 4
+    end: 5
+  }
+}
+message_type {
+  name: "AddUserToTenantResponse"
+  field {
+    name: "user"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.User"
+  }
+}
+message_type {
+  name: "UpdateUserOnTenantRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "customer_ui_roles"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_ENUM
+    type_name: ".auth_entities.CustomerUiRole"
+  }
+  field {
+    name: "extra_audit_data"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".audit_log.ExtraAuditData"
+  }
+}
+message_type {
+  name: "UpdateUserOnTenantResponse"
+  field {
+    name: "customer_ui_roles"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_ENUM
+    type_name: ".auth_entities.CustomerUiRole"
+  }
+}
+message_type {
+  name: "GetUserOnTenantRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetUserOnTenantResponse"
+  field {
+    name: "customer_ui_roles"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_ENUM
+    type_name: ".auth_entities.CustomerUiRole"
+  }
+}
+message_type {
+  name: "IsUserTrustedRequest"
+  field {
+    name: "email"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "augment_user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "idp_user_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "IsUserTrustedResponse"
+  field {
+    name: "is_trusted"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "reason"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "RemoveUserFromTenantRequest"
+  field {
+    name: "user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+}
+message_type {
+  name: "RemoveUserFromTenantResponse"
+}
+message_type {
+  name: "UpdateUserEmailRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "current_email"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "new_email"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UpdateUserEmailResponse"
+}
+message_type {
+  name: "ListTenantUsersRequest"
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "filter_suspensions"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+}
+message_type {
+  name: "UserTenantCustomerUiRoles"
+  field {
+    name: "customer_ui_roles"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_ENUM
+    type_name: ".auth_entities.CustomerUiRole"
+  }
+}
+message_type {
+  name: "ListTenantUsersResponse"
+  field {
+    name: "users"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.User"
+  }
+  field {
+    name: "user_id_to_customer_ui_roles"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.ListTenantUsersResponse.UserIdToCustomerUiRolesEntry"
+  }
+  nested_type {
+    name: "UserIdToCustomerUiRolesEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".auth.UserTenantCustomerUiRoles"
+    }
+    options {
+      map_entry: true
+    }
+  }
+}
+message_type {
+  name: "GetTokenInfoRequest"
+  field {
+    name: "token"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "requestor"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetTokenInfoResponse"
+  field {
+    name: "legacy_user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      deprecated: true
+      debug_redact: true
+    }
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_name"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "augment_user_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "user_email"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "enterprise"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".subscription.EnterpriseSubscription"
+    oneof_index: 0
+  }
+  field {
+    name: "active_subscription"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".subscription.ActiveSubscription"
+    oneof_index: 0
+  }
+  field {
+    name: "inactive_subscription"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".subscription.InactiveSubscription"
+    oneof_index: 0
+  }
+  field {
+    name: "suspensions"
+    number: 10
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.UserSuspension"
+  }
+  field {
+    name: "feature_gating_info"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.FeatureGatingInfo"
+  }
+  field {
+    name: "user_created_at"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "user_type"
+    number: 14
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.UserType"
+  }
+  field {
+    name: "bot_type"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.BotType"
+  }
+  field {
+    name: "shard_namespace"
+    number: 16
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "other_namespace"
+    number: 17
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "organizational_roles"
+    number: 18
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  oneof_decl {
+    name: "subscription"
+  }
+  reserved_range {
+    start: 8
+    end: 9
+  }
+  reserved_range {
+    start: 12
+    end: 13
+  }
+}
+message_type {
+  name: "RevokeUserCookiesRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "RevokeUserCookiesResponse"
+}
+message_type {
+  name: "RevokeUserRequest"
+  field {
+    name: "email"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "RevokeUserResponse"
+  field {
+    name: "tokens_deleted"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "RevokeUserByIdRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "RevokeUserByIdResponse"
+  field {
+    name: "tokens_deleted"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "RemoveSelfServeAccountsForTeamRequest"
+  field {
+    name: "dry_run"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "tenant_ids_to_ignore"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  oneof_decl {
+    name: "_tenant_id"
+  }
+}
+message_type {
+  name: "RemoveSelfServeAccountsForTeamResponse"
+  field {
+    name: "removed_users"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.RemoveSelfServeAccountsForTeamResponse.UserRemovals"
+  }
+  field {
+    name: "failed_users"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  nested_type {
+    name: "TenantInfo"
+    field {
+      name: "tenant_id"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "tenant_name"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+  }
+  nested_type {
+    name: "UserRemovals"
+    field {
+      name: "user_id"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "primary_tenants"
+      number: 2
+      label: LABEL_REPEATED
+      type: TYPE_MESSAGE
+      type_name: ".auth.RemoveSelfServeAccountsForTeamResponse.TenantInfo"
+    }
+    field {
+      name: "removed_tenants"
+      number: 3
+      label: LABEL_REPEATED
+      type: TYPE_MESSAGE
+      type_name: ".auth.RemoveSelfServeAccountsForTeamResponse.TenantInfo"
+    }
+  }
+}
+message_type {
+  name: "RemoveExtraSelfServeTenantsFromUsersRequest"
+  field {
+    name: "make_changes"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "namespace_ids"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "RemoveExtraSelfServeTenantsFromUsersResponse"
+  field {
+    name: "removed_users"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.RemoveExtraSelfServeTenantsFromUsersResponse.UserRemovals"
+  }
+  field {
+    name: "failed_users"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  nested_type {
+    name: "TenantInfo"
+    field {
+      name: "tenant_id"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "tenant_name"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+  }
+  nested_type {
+    name: "UserRemovals"
+    field {
+      name: "user_id"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "primary_tenant"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".auth.RemoveExtraSelfServeTenantsFromUsersResponse.TenantInfo"
+    }
+    field {
+      name: "removed_tenants"
+      number: 3
+      label: LABEL_REPEATED
+      type: TYPE_MESSAGE
+      type_name: ".auth.RemoveExtraSelfServeTenantsFromUsersResponse.TenantInfo"
+    }
+  }
+}
+message_type {
+  name: "RemoveDeletedTenantsFromUsersRequest"
+  field {
+    name: "make_changes"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "tenant_mappings_for_deleted_tenants"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.RemoveDeletedTenantsFromUsersRequest.TenantMappingsForDeletedTenantsEntry"
+  }
+  nested_type {
+    name: "TenantMappingsForDeletedTenantsEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    options {
+      map_entry: true
+    }
+  }
+}
+message_type {
+  name: "RemoveDeletedTenantsFromUsersResponse"
+  field {
+    name: "removed_users"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.RemoveDeletedTenantsFromUsersResponse.UserRemovals"
+  }
+  field {
+    name: "failed_users"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  nested_type {
+    name: "TenantInfo"
+    field {
+      name: "tenant_id"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "tenant_name"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+  }
+  nested_type {
+    name: "UserRemovals"
+    field {
+      name: "user_id"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "removed_tenants"
+      number: 2
+      label: LABEL_REPEATED
+      type: TYPE_MESSAGE
+      type_name: ".auth.RemoveDeletedTenantsFromUsersResponse.TenantInfo"
+    }
+  }
+}
+message_type {
+  name: "UserMerge"
+  field {
+    name: "email"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "primary_user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "merged_user_ids"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "subscription_source_user_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "primary_user_tenant"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.UserMerge.PrimaryUserTenantEntry"
+  }
+  field {
+    name: "merged_user_tenants"
+    number: 6
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.UserMerge.MergedUserTenantsEntry"
+  }
+  field {
+    name: "merged_emails"
+    number: 15
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "preserved_orb_customer_id"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "preserved_orb_subscription_id"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "preserved_stripe_customer_id"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "merged_user_subscription_ids"
+    number: 10
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "canceled_subscription_ids"
+    number: 11
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "idp_user_ids"
+    number: 12
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  nested_type {
+    name: "PrimaryUserTenantEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    options {
+      map_entry: true
+    }
+  }
+  nested_type {
+    name: "MergedUserTenantsEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    options {
+      map_entry: true
+    }
+  }
+}
+message_type {
+  name: "MergeDuplicateAccountsRequest"
+  field {
+    name: "user_ids"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "dry_run"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "MergeDuplicateAccountsResponse"
+  field {
+    name: "user_merge"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.UserMerge"
+  }
+  field {
+    name: "failed_users"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteTenantSubscriptionMappingRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteTenantSubscriptionMappingResponse"
+}
+message_type {
+  name: "DeduplicateUserTenantListRequest"
+  field {
+    name: "make_changes"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeduplicateUserTenantListResponse"
+  field {
+    name: "previous_tenants"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "new_tenant"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UserCreditGrant"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "num_usage_units"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  reserved_range {
+    start: 2
+    end: 3
+  }
+  reserved_range {
+    start: 5
+    end: 6
+  }
+}
+message_type {
+  name: "GrantFreeCreditsToUsersRequest"
+  field {
+    name: "user_credits"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.UserCreditGrant"
+  }
+  field {
+    name: "idempotency_key"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "reason"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "use_idempotency_key_directly"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "email_template_id"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_email_template_id"
+  }
+}
+message_type {
+  name: "CreditGrantResult"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "status"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth.CreditGrantResult.Status"
+  }
+  field {
+    name: "error_message"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  enum_type {
+    name: "Status"
+    value {
+      name: "STATUS_UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "STATUS_SUCCESS"
+      number: 1
+    }
+    value {
+      name: "STATUS_ERROR"
+      number: 2
+    }
+  }
+}
+message_type {
+  name: "GrantFreeCreditsToUsersResponse"
+  field {
+    name: "results"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.CreditGrantResult"
+  }
+}
+message_type {
+  name: "UpdateAdminUserForTeamRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "admin_user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UpdateAdminUserForTeamResponse"
+}
+message_type {
+  name: "MigratePopulateIDPUserMappingsRequest"
+}
+message_type {
+  name: "MigratePopulateIDPUserMappingsResponse"
+}
+message_type {
+  name: "BackfillCancellationsRequest"
+  field {
+    name: "make_changes"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "max_invoices_to_process"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "minimum_invoice_amount"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "BackfillCancellationsResponse"
+  field {
+    name: "successful_invoice_ids"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "failed_invoice_ids"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "not_attempted_invoice_ids"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "voided_invoice_ids"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "RemovePendingStatusRequest"
+  field {
+    name: "user_ids"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_ids"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "subscription_ids"
+    number: 6
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+  reserved_range {
+    start: 2
+    end: 3
+  }
+  reserved_range {
+    start: 3
+    end: 4
+  }
+}
+message_type {
+  name: "RemovePendingStatusResponse"
+  field {
+    name: "results"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.RemovePendingStatusResult"
+  }
+}
+message_type {
+  name: "RemovePendingStatusResult"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "subscription_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "success"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "error_message"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetUserSubscriptionInfoRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetUserSubscriptionInfoResponse"
+  field {
+    name: "enterprise"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".subscription.EnterpriseSubscription"
+    oneof_index: 0
+  }
+  field {
+    name: "active_subscription"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".subscription.ActiveSubscription"
+    oneof_index: 0
+  }
+  field {
+    name: "inactive_subscription"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".subscription.InactiveSubscription"
+    oneof_index: 0
+  }
+  field {
+    name: "suspensions"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.UserSuspension"
+  }
+  field {
+    name: "feature_gating_info"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.FeatureGatingInfo"
+  }
+  oneof_decl {
+    name: "subscription"
+  }
+  reserved_range {
+    start: 3
+    end: 4
+  }
+}
+message_type {
+  name: "RemoveMessagesFromDeadLetterQueueRequest"
+  field {
+    name: "queue_type"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth.DeadLetterQueueType"
+  }
+  field {
+    name: "message_ids"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+    options {
+      debug_redact: false
+    }
+  }
+  field {
+    name: "timeout_seconds"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "RemoveMessagesFromDeadLetterQueueResponse"
+}
+message_type {
+  name: "SetEarlyTokenExpirationRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "seconds_from_creation"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "SetEarlyTokenExpirationResponse"
+  field {
+    name: "tokens_updated"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "CreateTenantForTeamRequest"
+  field {
+    name: "admin_user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "display_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_display_name"
+  }
+}
+message_type {
+  name: "CreateTenantForTeamResponse"
+  field {
+    name: "tenant_creation_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "CreateTenantForCurrentUserRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "display_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "access_token_hash"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_display_name"
+  }
+  oneof_decl {
+    name: "_access_token_hash"
+  }
+}
+message_type {
+  name: "CreateTenantForCurrentUserResponse"
+  field {
+    name: "tenant_creation_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetCreateTenantForTeamStatusRequest"
+  field {
+    name: "tenant_creation_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetCreateTenantForTeamStatusResponse"
+  field {
+    name: "tenant_creation"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.TenantCreation"
+  }
+}
+message_type {
+  name: "InviteUsersToTenantRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "invitee_emails"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "InviteUsersToTenantResponse"
+  field {
+    name: "invitation_statuses"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.InviteUsersToTenantResponse.InvitationCreationStatus"
+  }
+  nested_type {
+    name: "InvitationCreationStatus"
+    field {
+      name: "email"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+      options {
+        debug_redact: true
+      }
+    }
+    field {
+      name: "status"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_ENUM
+      type_name: ".auth.InviteUsersToTenantResponse.InvitationCreationStatus.Status"
+    }
+    field {
+      name: "invitation_id"
+      number: 3
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    enum_type {
+      name: "Status"
+      value {
+        name: "UNKNOWN"
+        number: 0
+      }
+      value {
+        name: "SUCCESS"
+        number: 1
+      }
+      value {
+        name: "ERROR"
+        number: 2
+      }
+    }
+  }
+}
+message_type {
+  name: "GetTenantInvitationsRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetTenantInvitationsResponse"
+  field {
+    name: "invitations"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.TenantInvitation"
+  }
+}
+message_type {
+  name: "GetUserInvitationsRequest"
+  field {
+    name: "email"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "GetUserInvitationsResponse"
+  field {
+    name: "invitations"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.TenantInvitation"
+  }
+}
+message_type {
+  name: "ResolveInvitationsRequest"
+  field {
+    name: "accept_invitation_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "decline_invitation_ids"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "idp_user_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  oneof_decl {
+    name: "_accept_invitation_id"
+  }
+}
+message_type {
+  name: "ResolveInvitationsResponse"
+  field {
+    name: "invitation_resolution_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetResolveInvitationsStatusRequest"
+  field {
+    name: "invitation_resolution_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetResolveInvitationsStatusResponse"
+  field {
+    name: "invitation_resolution"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.InvitationResolution"
+  }
+}
+message_type {
+  name: "DeleteInvitationRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "invitation_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteInvitationResponse"
+}
+message_type {
+  name: "RequestToJoinTeamRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "team_is_discoverable"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.TeamIsDiscoverable"
+    oneof_index: 0
+  }
+  oneof_decl {
+    name: "join_reason"
+  }
+}
+message_type {
+  name: "TeamIsDiscoverable"
+}
+message_type {
+  name: "RequestToJoinTeamResponse"
+  field {
+    name: "join_request_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "user_had_pending_invitation"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "ResolveJoinRequestRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "join_request_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "approve"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "user_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ResolveJoinRequestResponse"
+}
+message_type {
+  name: "GetTeamPendingJoinRequestsRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetTeamPendingJoinRequestsResponse"
+  field {
+    name: "join_requests"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.JoinRequest"
+  }
+}
+message_type {
+  name: "GetUserJoinRequestsRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetUserJoinRequestsResponse"
+  field {
+    name: "join_requests"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.JoinRequest"
+  }
+}
+message_type {
+  name: "DeleteJoinRequestRequest"
+  field {
+    name: "join_request_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "user_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteJoinRequestResponse"
+}
+message_type {
+  name: "GetSubscriptionRequest"
+  field {
+    name: "subscription_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+  }
+  oneof_decl {
+    name: "lookup_id"
+  }
+}
+message_type {
+  name: "GetSubscriptionResponse"
+  field {
+    name: "subscription"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.Subscription"
+  }
+}
+message_type {
+  name: "UpdateSubscriptionRequest"
+  field {
+    name: "subscription_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "seats"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "reason"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UpdateSubscriptionResponse"
+}
+message_type {
+  name: "CreateUserSuspensionRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "suspension_type"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.UserSuspensionType"
+  }
+  field {
+    name: "evidence"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "CreateUserSuspensionResponse"
+  field {
+    name: "suspension_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tokens_deleted"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "ValidateUserSuspensionRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "suspension_type"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.UserSuspensionType"
+  }
+  field {
+    name: "evidence"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "ValidateUserSuspensionResponse"
+}
+message_type {
+  name: "ValidateTeamSuspensionRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "suspension_type"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.UserSuspensionType"
+  }
+  field {
+    name: "evidence"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "ValidateTeamSuspensionResponse"
+  field {
+    name: "total_members"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "would_suspend"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "would_skip"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "would_fail"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "CreateTeamSuspensionRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "suspension_type"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.UserSuspensionType"
+  }
+  field {
+    name: "evidence"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "CreateTeamSuspensionResponse"
+  field {
+    name: "total_members"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "suspended_count"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "skipped_count"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "failed_count"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "ValidateDeleteTeamSuspensionsRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "evidence"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "ValidateDeleteTeamSuspensionsResponse"
+  field {
+    name: "total_members"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "would_clear"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "would_skip"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "would_fail"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "total_suspensions"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "DeleteTeamSuspensionsRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "evidence"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "DeleteTeamSuspensionsResponse"
+  field {
+    name: "total_members"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "cleared_count"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "skipped_count"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "failed_count"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "suspensions_deleted"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "DeleteUserSuspensionsRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "suspension_ids"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteUserSuspensionsResponse"
+  field {
+    name: "suspensions_deleted"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "UpdateSuspensionExemptionRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "exempt"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "reason"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UpdateSuspensionExemptionResponse"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "exempt"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "CancelSubscriptionRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "cancel_immediately"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "feedback"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.CancelSubscriptionRequest.Feedback"
+  }
+  field {
+    name: "reason"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  nested_type {
+    name: "Feedback"
+    field {
+      name: "cancellation_reason"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_ENUM
+      type_name: ".auth.CancellationReason"
+    }
+    field {
+      name: "additional_feedback"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+      oneof_index: 0
+      proto3_optional: true
+    }
+    oneof_decl {
+      name: "_additional_feedback"
+    }
+  }
+}
+message_type {
+  name: "CancelSubscriptionResponse"
+}
+message_type {
+  name: "CloseSubscriptionRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "immediate"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "reason"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "CloseSubscriptionResponse"
+}
+message_type {
+  name: "ResolveSubscriptionRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ResolveSubscriptionResponse"
+}
+message_type {
+  name: "CreateSubscriptionRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "CreateSubscriptionResponse"
+}
+message_type {
+  name: "RemoveTeamMemberRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_tenant_id"
+  }
+}
+message_type {
+  name: "RemoveTeamMemberResponse"
+}
+message_type {
+  name: "DeleteAccountRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteAccountResponse"
+  field {
+    name: "deletion_type"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth.AccountDeletionType"
+  }
+}
+message_type {
+  name: "ListSubscriptionsRequest"
+  field {
+    name: "page_size"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "page_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ListSubscriptionsResponse"
+  field {
+    name: "subscriptions"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.Subscription"
+  }
+  field {
+    name: "next_page_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ListTenantSubscriptionMappingsRequest"
+  field {
+    name: "page_size"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "page_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ListTenantSubscriptionMappingsResponse"
+  field {
+    name: "tenant_subscription_mappings"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.TenantSubscriptionMapping"
+  }
+  field {
+    name: "next_page_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ListUserTenantMappingsRequest"
+  field {
+    name: "page_size"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "page_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ListUserTenantMappingsResponse"
+  field {
+    name: "user_tenant_mappings"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.UserTenantMapping"
+  }
+  field {
+    name: "next_page_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "FailedPayment"
+  field {
+    name: "amount"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "date"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "invoice_url"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetUserOrbPlanInfoRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "OrbPlanDisplayInfo"
+  field {
+    name: "sort_order"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "usage_unit_display_name"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "plan_facts"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "subtitle"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+  reserved_range {
+    start: 2
+    end: 3
+  }
+}
+message_type {
+  name: "OrbPlanInfo"
+  field {
+    name: "external_plan_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "formatted_plan_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "price_per_seat"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "additional_usage_unit_cost"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "usage_units_per_seat"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_FLOAT
+  }
+  field {
+    name: "training_allowed"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "teams_allowed"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "max_num_seats"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "usage_unit_name"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      deprecated: true
+    }
+  }
+  field {
+    name: "plan_type"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth.OrbPlanInfo.PlanType"
+  }
+  field {
+    name: "display_info"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.OrbPlanDisplayInfo"
+  }
+  field {
+    name: "auto_top_up_available"
+    number: 14
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "should_upsell_in_cancellation"
+    number: 17
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "is_cancellation_immediate"
+    number: 18
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "is_selectable"
+    number: 19
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  enum_type {
+    name: "PlanType"
+    value {
+      name: "PLAN_TYPE_UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "PLAN_TYPE_COMMUNITY"
+      number: 1
+    }
+    value {
+      name: "PLAN_TYPE_TRIAL"
+      number: 2
+    }
+    value {
+      name: "PLAN_TYPE_PAID"
+      number: 3
+    }
+    value {
+      name: "PLAN_TYPE_FREE"
+      number: 4
+    }
+  }
+  reserved_range {
+    start: 5
+    end: 6
+  }
+  reserved_range {
+    start: 13
+    end: 14
+  }
+  reserved_range {
+    start: 15
+    end: 16
+  }
+  reserved_range {
+    start: 16
+    end: 17
+  }
+}
+message_type {
+  name: "PendingOrbPlan"
+}
+message_type {
+  name: "GetUserOrbPlanInfoResponse"
+  field {
+    name: "orb_plan_info"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.OrbPlanInfo"
+    oneof_index: 0
+  }
+  field {
+    name: "pending_plan"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.PendingOrbPlan"
+    oneof_index: 0
+  }
+  oneof_decl {
+    name: "plan_info"
+  }
+}
+message_type {
+  name: "GetAllOrbPlansRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetAllOrbPlansResponse"
+  field {
+    name: "orb_plans"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.OrbPlanInfo"
+  }
+}
+message_type {
+  name: "UnschedulePlanChangesRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UnschedulePlanChangesResponse"
+}
+message_type {
+  name: "GetUsersRequest"
+  field {
+    name: "search_string"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "page_size"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "page_token"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "include_gdpr_ccpa_deleted"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "filter_suspensions"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "GetUsersResponse"
+  field {
+    name: "users"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.User"
+  }
+  field {
+    name: "next_page_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "MigrateUserBlocksToSuspensionsRequest"
+}
+message_type {
+  name: "MigrateUserBlocksToSuspensionsResponse"
+  field {
+    name: "users_migrated"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "users_failed"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "GetUserOrbCreditsInfoRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetUserOrbCreditsInfoResponse"
+  field {
+    name: "usage_units_available"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "usage_units_used_this_billing_cycle"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "usage_units_pending"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "usage_units_remaining"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_FLOAT
+  }
+  field {
+    name: "usage_units_consumed_this_billing_cycle"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_FLOAT
+  }
+  field {
+    name: "banner"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.BannerInformation"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "is_credit_balance_low"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "is_credit_balance_depleted"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  oneof_decl {
+    name: "_banner"
+  }
+}
+message_type {
+  name: "GetUserOrbPaymentInfoRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetUserOrbPaymentInfoResponse"
+  field {
+    name: "has_payment_method"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "failed_payment"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.FailedPayment"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_failed_payment"
+  }
+  reserved_range {
+    start: 3
+    end: 4
+  }
+}
+message_type {
+  name: "GetUserOrbSubscriptionInfoRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "OrbSubscriptionInfo"
+  field {
+    name: "orb_customer_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "orb_subscription_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "portal_url"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "external_plan_id"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "subscription_status"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth.OrbSubscriptionInfo.SubscriptionStatus"
+  }
+  field {
+    name: "usage_units_renewing_each_billing_cycle"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "usage_units_included_this_billing_cycle"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "seats"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "monthly_total_cost"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "next_billing_cycle_amount"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "billing_period_end_date_iso"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "trial_period_end_date_iso"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      deprecated: true
+    }
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "subscription_end_date_iso"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "subscription_end_at_billing_cycle_end"
+    number: 14
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "scheduled_target_plan_id"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "cancelled_due_to_payment_failure"
+    number: 16
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "credit_consumption_min_date_iso"
+    number: 17
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "next_billing_cycle_plan_name"
+    number: 18
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  enum_type {
+    name: "SubscriptionStatus"
+    value {
+      name: "UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "UPCOMING"
+      number: 1
+    }
+    value {
+      name: "ACTIVE"
+      number: 2
+    }
+    value {
+      name: "ENDED"
+      number: 3
+    }
+  }
+  oneof_decl {
+    name: "_trial_period_end_date_iso"
+  }
+  oneof_decl {
+    name: "_subscription_end_date_iso"
+  }
+  oneof_decl {
+    name: "_scheduled_target_plan_id"
+  }
+}
+message_type {
+  name: "PendingOrbSubscription"
+}
+message_type {
+  name: "NoSubscription"
+}
+message_type {
+  name: "GetUserOrbSubscriptionInfoResponse"
+  field {
+    name: "subscription"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.OrbSubscriptionInfo"
+    oneof_index: 0
+  }
+  field {
+    name: "pending_subscription"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.PendingOrbSubscription"
+    oneof_index: 0
+  }
+  field {
+    name: "nonexistent_subscription"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.NoSubscription"
+    oneof_index: 0
+  }
+  oneof_decl {
+    name: "orb_subscription_info"
+  }
+}
+message_type {
+  name: "SuspensionCleanupRequest"
+  field {
+    name: "remove_suspension_types"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_ENUM
+    type_name: ".auth_entities.UserSuspensionType"
+  }
+  field {
+    name: "dedup_suspension_types"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_ENUM
+    type_name: ".auth_entities.UserSuspensionType"
+  }
+  field {
+    name: "evidence_regex"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "SuspensionCleanupResponse"
+  field {
+    name: "suspensions_removed"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "suspensions_deduped"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "updates_failed"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "ForgetUserRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ForgetUserResponse"
+}
+message_type {
+  name: "AddUserTagsRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tags"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "AddUserTagsResponse"
+}
+message_type {
+  name: "RemoveUserTagsRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tags"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "RemoveUserTagsResponse"
+}
+message_type {
+  name: "SubscriptionEventPair"
+  field {
+    name: "subscription_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "orb_customer_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "TriggerOrbSubscriptionEventRequest"
+  field {
+    name: "subscription_pairs"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.SubscriptionEventPair"
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+  reserved_range {
+    start: 2
+    end: 3
+  }
+}
+message_type {
+  name: "TriggerOrbSubscriptionEventResult"
+  field {
+    name: "subscription_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "orb_customer_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "status"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth.TriggerOrbSubscriptionEventResult.Status"
+  }
+  field {
+    name: "error_message"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "subscription"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.Subscription"
+  }
+  enum_type {
+    name: "Status"
+    value {
+      name: "STATUS_UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "STATUS_SUCCESS"
+      number: 1
+    }
+    value {
+      name: "STATUS_ERROR"
+      number: 2
+    }
+  }
+}
+message_type {
+  name: "TriggerOrbSubscriptionEventResponse"
+  field {
+    name: "results"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.TriggerOrbSubscriptionEventResult"
+  }
+  field {
+    name: "total_processed"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "successful_count"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "error_count"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  reserved_range {
+    start: 1
+    end: 2
+  }
+}
+message_type {
+  name: "BackfillPaymentHistoryRequest"
+  field {
+    name: "dry_run"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "limit"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "subscription_ids"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "BackfillPaymentHistoryResponse"
+  field {
+    name: "successful_subscription_ids"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "failed_subscription_ids"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "skipped_subscription_ids"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "total_processed"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "AutoTopUpConfig"
+  field {
+    name: "amount"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "threshold"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "enabled"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "GetPlanChangeDetailsRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "plan_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "success_url"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "cancel_url"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "auto_top_up_config"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.AutoTopUpConfig"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "plan_change_source"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth.PlanChangeSource"
+  }
+  oneof_decl {
+    name: "_auto_top_up_config"
+  }
+}
+message_type {
+  name: "GetPlanChangeDetailsResponse"
+  field {
+    name: "plan_details"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.GetPlanChangeDetailsResponse.PlanChangeDetails"
+  }
+  nested_type {
+    name: "BillingPeriod"
+    field {
+      name: "start_date_iso"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "amount_due"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "credits"
+      number: 3
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+  }
+  nested_type {
+    name: "Proration"
+    field {
+      name: "prorated_amount_due"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "credited_amount"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "total_amount_due"
+      number: 3
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "prorated_credits"
+      number: 4
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "credits_left_in_month_for_current_plan"
+      number: 5
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "total_new_credits"
+      number: 6
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+  }
+  nested_type {
+    name: "PlanChangeDetails"
+    field {
+      name: "plan_id"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "proration"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".auth.GetPlanChangeDetailsResponse.Proration"
+      oneof_index: 0
+      proto3_optional: true
+    }
+    field {
+      name: "next_billing_period"
+      number: 3
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".auth.GetPlanChangeDetailsResponse.BillingPeriod"
+    }
+    field {
+      name: "checkout_session_url"
+      number: 5
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+      oneof_index: 1
+      proto3_optional: true
+    }
+    field {
+      name: "plan_change_type"
+      number: 6
+      label: LABEL_OPTIONAL
+      type: TYPE_ENUM
+      type_name: ".auth.PlanChangeType"
+    }
+    oneof_decl {
+      name: "_proration"
+    }
+    oneof_decl {
+      name: "_checkout_session_url"
+    }
+    reserved_range {
+      start: 4
+      end: 5
+    }
+  }
+}
+message_type {
+  name: "HandlePlanChangeRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "target_plan_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "HandlePlanChangeResponse"
+  field {
+    name: "plan_change_type"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth.PlanChangeType"
+  }
+}
+message_type {
+  name: "PutUserInPendingStateRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "checkout_session_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "PutUserInPendingStateResponse"
+}
+message_type {
+  name: "GetPendingChangeRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetPendingChangeResponse"
+  field {
+    name: "pending_change"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.PendingChange"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "pricing_migration_info"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.PricingMigrationInfo"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_pending_change"
+  }
+  oneof_decl {
+    name: "_pricing_migration_info"
+  }
+}
+message_type {
+  name: "GetTopUpRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetTopUpResponse"
+  field {
+    name: "enabled"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "threshold_default"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "amount_default"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "threshold"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "amount"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "cost_per_credit"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_DOUBLE
+  }
+  field {
+    name: "threshold_min"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "threshold_max"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "amount_min"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "amount_max"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+}
+message_type {
+  name: "SetTopUpEnabledRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "enabled"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "source"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth.TopUpConfigurationSource"
+  }
+}
+message_type {
+  name: "SetTopUpEnabledResponse"
+}
+message_type {
+  name: "ConfigureTopUpRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "threshold"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "amount"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "source"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth.TopUpConfigurationSource"
+  }
+}
+message_type {
+  name: "ConfigureTopUpResponse"
+}
+message_type {
+  name: "UpdateTeamSettingsRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "is_discoverable"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "UpdateTeamSettingsResponse"
+}
+message_type {
+  name: "GetDiscoverableTeamsRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetDiscoverableTeamsResponse"
+  field {
+    name: "teams"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.DiscoverableTeam"
+  }
+}
+message_type {
+  name: "DiscoverableTeam"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "team_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "domain"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "admin_email"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "member_count"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "GetCreditConsumptionRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "date_range"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.CreditConsumptionDateRange"
+    oneof_index: 0
+  }
+  field {
+    name: "billing_cycle"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth.CreditConsumptionBillingCyclePeriod"
+    oneof_index: 0
+  }
+  field {
+    name: "group_by"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth.CreditConsumptionGroupBy"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "granularity"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth.CreditConsumptionTimeGranularity"
+    oneof_index: 2
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "time_period"
+  }
+  oneof_decl {
+    name: "_group_by"
+  }
+  oneof_decl {
+    name: "_granularity"
+  }
+}
+message_type {
+  name: "CreditConsumptionDateRange"
+  field {
+    name: "start_date_iso"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "end_date_iso"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetCreditConsumptionResponse"
+  field {
+    name: "data_points"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.ConsumptionDataPoint"
+  }
+}
+message_type {
+  name: "ConsumptionDataPoint"
+  field {
+    name: "date_range"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.CreditConsumptionDateRange"
+  }
+  field {
+    name: "credits_consumed"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "group_key"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_group_key"
+  }
+}
+message_type {
+  name: "GetCreditAnalyticsInfoRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "date_range"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.CreditConsumptionDateRange"
+    oneof_index: 0
+  }
+  field {
+    name: "billing_cycle"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth.CreditConsumptionBillingCyclePeriod"
+    oneof_index: 0
+  }
+  oneof_decl {
+    name: "time_period"
+  }
+}
+message_type {
+  name: "GetCreditAnalyticsInfoResponse"
+  field {
+    name: "total_credits_consumed"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "credits_percent_increase_over_previous_period"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_DOUBLE
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "active_user_count"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "users_percent_increase_over_previous_period"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_DOUBLE
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_credits_percent_increase_over_previous_period"
+  }
+  oneof_decl {
+    name: "_users_percent_increase_over_previous_period"
+  }
+}
+message_type {
+  name: "GetServiceAccountRequest"
+  field {
+    name: "service_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GetServiceAccountResponse"
+  field {
+    name: "user"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.User"
+  }
+}
+message_type {
+  name: "ListServiceAccountsRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "page_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "page_size"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_page_token"
+  }
+  oneof_decl {
+    name: "_page_size"
+  }
+}
+message_type {
+  name: "ListServiceAccountsResponse"
+  field {
+    name: "service_accounts"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.User"
+  }
+  field {
+    name: "next_page_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "CreateServiceAccountRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "service_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "service_description"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "CreateServiceAccountResponse"
+  field {
+    name: "user"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.User"
+  }
+}
+message_type {
+  name: "DeleteServiceAccountRequest"
+  field {
+    name: "service_account_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "DeleteServiceAccountResponse"
+}
+message_type {
+  name: "CreateServiceAccountTokenRequest"
+  field {
+    name: "service_account_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "token_description"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "expiration_time_seconds"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "token_creator"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.TokenCreator"
+  }
+  oneof_decl {
+    name: "_expiration_time_seconds"
+  }
+}
+message_type {
+  name: "CreateServiceAccountTokenResponse"
+  field {
+    name: "access_token"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "token_metadata"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.ServiceTokenMetadata"
+  }
+}
+message_type {
+  name: "ServiceTokenMetadata"
+  field {
+    name: "token_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "token_description"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "expiration_time_seconds"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "created_at"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "tenant_url"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "created_by"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "token_creator"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".auth_entities.TokenCreator"
+  }
+}
+message_type {
+  name: "ListServiceAccountTokensRequest"
+  field {
+    name: "service_account_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "exclude_creators"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_ENUM
+    type_name: ".auth_entities.TokenCreator"
+  }
+}
+message_type {
+  name: "ListServiceAccountTokensResponse"
+  field {
+    name: "tokens"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.ServiceTokenMetadata"
+  }
+}
+message_type {
+  name: "RevokeServiceAccountTokenRequest"
+  field {
+    name: "service_account_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "token_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "RevokeServiceAccountTokenResponse"
+}
+message_type {
+  name: "UpdateServiceAccountMetadataRequest"
+  field {
+    name: "service_account_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "service_description"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_service_description"
+  }
+}
+message_type {
+  name: "UpdateServiceAccountMetadataResponse"
+  field {
+    name: "updated_metadata"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth_entities.ServiceMetadata"
+  }
+}
+message_type {
+  name: "UpdateServiceAccountTokenMetadataRequest"
+  field {
+    name: "service_account_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "token_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "token_description"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_token_description"
+  }
+}
+message_type {
+  name: "UpdateServiceAccountTokenMetadataResponse"
+  field {
+    name: "updated_metadata"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.ServiceTokenMetadata"
+  }
+}
+message_type {
+  name: "ListPersonalTokensRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ListPersonalTokensResponse"
+  field {
+    name: "tokens"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.PersonalTokenMetadata"
+  }
+}
+message_type {
+  name: "PersonalTokenMetadata"
+  field {
+    name: "token_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "token_description"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "expiration_time_seconds"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "created_at"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "tenant_url"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "CreatePersonalTokenRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "token_description"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "expiration_time_seconds"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_expiration_time_seconds"
+  }
+}
+message_type {
+  name: "CreatePersonalTokenResponse"
+  field {
+    name: "access_token"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "token_metadata"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.PersonalTokenMetadata"
+  }
+}
+message_type {
+  name: "RevokePersonalTokenRequest"
+  field {
+    name: "token_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "RevokePersonalTokenResponse"
+}
+message_type {
+  name: "UpdatePersonalTokenRequest"
+  field {
+    name: "token_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "token_description"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_token_description"
+  }
+}
+message_type {
+  name: "UpdatePersonalTokenResponse"
+  field {
+    name: "updated_metadata"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".auth.PersonalTokenMetadata"
+  }
+}
+message_type {
+  name: "TeamMemberInfo"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "email"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "roles"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_ENUM
+    type_name: ".auth_entities.CustomerUiRole"
+  }
+  field {
+    name: "created_at"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "given_name"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "family_name"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  reserved_range {
+    start: 7
+    end: 8
+  }
+}
+message_type {
+  name: "ListTeamMembersRequest"
+  field {
+    name: "tenant_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "role_filter"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_ENUM
+    type_name: ".auth_entities.CustomerUiRole"
+  }
+  field {
+    name: "page_size"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "page_token"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ListTeamMembersResponse"
+  field {
+    name: "users"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".auth.TeamMemberInfo"
+  }
+  field {
+    name: "next_page_token"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UpdateUserPreferredTeamNameRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "preferred_team_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UpdateUserPreferredTeamNameResponse"
+}
+message_type {
+  name: "DeleteOrphanedTokensRequest"
+  field {
+    name: "make_changes"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "DeleteOrphanedTokensResponse"
+}
+message_type {
+  name: "CountTokensForUserRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "include_expired"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "CountTokensForUserResponse"
+  field {
+    name: "token_count"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+}
+message_type {
+  name: "UpdateSubscriptionForTeamCreationRequest"
+  field {
+    name: "admin_user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "team_tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UpdateSubscriptionForTeamCreationResponse"
+}
+message_type {
+  name: "UpdateSubscriptionForTeamDissolutionRequest"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "team_tenant_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "UpdateSubscriptionForTeamDissolutionResponse"
+}
+enum_type {
+  name: "BillingEntityType"
+  value {
+    name: "BILLING_ENTITY_TYPE_UNKNOWN"
+    number: 0
+  }
+  value {
+    name: "SELF_SERVE_USER"
+    number: 1
+  }
+  value {
+    name: "SELF_SERVE_TEAM"
+    number: 2
+  }
+  value {
+    name: "ENTERPRISE"
+    number: 3
+  }
+}
+enum_type {
+  name: "DeadLetterQueueType"
+  value {
+    name: "DEAD_LETTER_QUEUE_TYPE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "DEAD_LETTER_QUEUE_TYPE_ASYNC_OPS"
+    number: 1
+  }
+  value {
+    name: "DEAD_LETTER_QUEUE_TYPE_STRIPE_EVENTS"
+    number: 2
+  }
+  value {
+    name: "DEAD_LETTER_QUEUE_TYPE_BILLING_EVENTS"
+    number: 3
+  }
+}
+enum_type {
+  name: "CancellationReason"
+  value {
+    name: "CANCELLATION_REASON_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "CANCELLATION_REASON_TOO_EXPENSIVE"
+    number: 1
+  }
+  value {
+    name: "CANCELLATION_REASON_NOT_USING_ENOUGH"
+    number: 2
+  }
+  value {
+    name: "CANCELLATION_REASON_MISSING_FEATURES"
+    number: 3
+  }
+  value {
+    name: "CANCELLATION_REASON_TECHNICAL_ISSUES"
+    number: 4
+  }
+  value {
+    name: "CANCELLATION_REASON_SWITCHING_TO_COMPETITOR"
+    number: 5
+  }
+  value {
+    name: "CANCELLATION_REASON_SWITCHING_TO_CLAUDE_CODE"
+    number: 6
+  }
+  value {
+    name: "CANCELLATION_REASON_SWITCHING_TO_CODEX"
+    number: 7
+  }
+  value {
+    name: "CANCELLATION_REASON_SWITCHING_TO_GEMINI_CLI"
+    number: 8
+  }
+  value {
+    name: "CANCELLATION_REASON_SWITCHING_TO_CURSOR"
+    number: 9
+  }
+  value {
+    name: "CANCELLATION_REASON_SWITCHING_TO_WINDSURF"
+    number: 10
+  }
+  value {
+    name: "CANCELLATION_REASON_SWITCHING_TO_COPILOT"
+    number: 11
+  }
+  value {
+    name: "CANCELLATION_REASON_SWITCHING_TO_CLINE"
+    number: 12
+  }
+  value {
+    name: "CANCELLATION_REASON_SWITCHING_TO_DEVIN"
+    number: 13
+  }
+  value {
+    name: "CANCELLATION_REASON_SWITCHING_TO_ROO"
+    number: 14
+  }
+  value {
+    name: "CANCELLATION_REASON_SWITCHING_TO_LOVABLE"
+    number: 15
+  }
+  value {
+    name: "CANCELLATION_REASON_SWITCHING_TO_FACTORY"
+    number: 16
+  }
+  value {
+    name: "CANCELLATION_REASON_SWITCHING_TO_OTHER_TOOL"
+    number: 17
+  }
+  value {
+    name: "CANCELLATION_REASON_NO_LONGER_NEEDED"
+    number: 18
+  }
+  value {
+    name: "CANCELLATION_REASON_OTHER"
+    number: 19
+  }
+  value {
+    name: "CANCELLATION_REASON_REQUIRE_COMPLETIONS_FEATURE"
+    number: 20
+  }
+  value {
+    name: "CANCELLATION_REASON_REQUIRE_NEXT_EDIT_FEATURE"
+    number: 21
+  }
+}
+enum_type {
+  name: "AccountDeletionType"
+  value {
+    name: "ACCOUNT_DELETION_TYPE_UNKNOWN"
+    number: 0
+  }
+  value {
+    name: "ACCOUNT_DELETION_TYPE_ENTERPRISE"
+    number: 1
+  }
+  value {
+    name: "ACCOUNT_DELETION_TYPE_INDIVIDUAL"
+    number: 2
+  }
+  value {
+    name: "ACCOUNT_DELETION_TYPE_TEAM_ADMIN"
+    number: 3
+  }
+  value {
+    name: "ACCOUNT_DELETION_TYPE_TEAM_MEMBER"
+    number: 4
+  }
+}
+enum_type {
+  name: "PlanChangeType"
+  value {
+    name: "UNKNOWN"
+    number: 0
+  }
+  value {
+    name: "IMMEDIATE"
+    number: 1
+  }
+  value {
+    name: "END_OF_BILLING_PERIOD"
+    number: 2
+  }
+}
+enum_type {
+  name: "PlanChangeSource"
+  value {
+    name: "PLAN_CHANGE_SOURCE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "PLAN_CHANGE_SOURCE_ONBOARDING"
+    number: 1
+  }
+}
+enum_type {
+  name: "TopUpConfigurationSource"
+  value {
+    name: "TOP_UP_CONFIGURATION_SOURCE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "TOP_UP_CONFIGURATION_SOURCE_STANDALONE"
+    number: 1
+  }
+  value {
+    name: "TOP_UP_CONFIGURATION_SOURCE_PLAN_CHANGE"
+    number: 2
+  }
+  value {
+    name: "TOP_UP_CONFIGURATION_SOURCE_ONBOARDING"
+    number: 3
+  }
+}
+enum_type {
+  name: "CreditConsumptionBillingCyclePeriod"
+  value {
+    name: "BILLING_CYCLE_PERIOD_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "CURRENT_BILLING_CYCLE"
+    number: 1
+  }
+}
+enum_type {
+  name: "CreditConsumptionGroupBy"
+  value {
+    name: "NONE"
+    number: 0
+  }
+  value {
+    name: "MODEL_NAME"
+    number: 1
+  }
+  value {
+    name: "USER_EMAIL"
+    number: 2
+  }
+  value {
+    name: "ACTIVITY_TYPE"
+    number: 3
+  }
+}
+enum_type {
+  name: "CreditConsumptionTimeGranularity"
+  value {
+    name: "TOTAL"
+    number: 0
+  }
+  value {
+    name: "DAY"
+    number: 1
+  }
+  value {
+    name: "WEEK"
+    number: 2
+  }
+}
+service {
+  name: "AuthService"
+  method {
+    name: "AddUserToTenant"
+    input_type: ".auth.AddUserToTenantRequest"
+    output_type: ".auth.AddUserToTenantResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "GetUserOnTenant"
+    input_type: ".auth.GetUserOnTenantRequest"
+    output_type: ".auth.GetUserOnTenantResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "IsUserTrusted"
+    input_type: ".auth.IsUserTrustedRequest"
+    output_type: ".auth.IsUserTrustedResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "UpdateUserOnTenant"
+    input_type: ".auth.UpdateUserOnTenantRequest"
+    output_type: ".auth.UpdateUserOnTenantResponse"
+  }
+  method {
+    name: "RemoveUserFromTenant"
+    input_type: ".auth.RemoveUserFromTenantRequest"
+    output_type: ".auth.RemoveUserFromTenantResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "UpdateUserEmail"
+    input_type: ".auth.UpdateUserEmailRequest"
+    output_type: ".auth.UpdateUserEmailResponse"
+  }
+  method {
+    name: "ListTenantUsers"
+    input_type: ".auth.ListTenantUsersRequest"
+    output_type: ".auth.ListTenantUsersResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "GetUser"
+    input_type: ".auth.GetUserRequest"
+    output_type: ".auth.GetUserResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "BatchGetUsers"
+    input_type: ".auth.BatchGetUsersRequest"
+    output_type: ".auth.BatchGetUsersResponse"
+  }
+  method {
+    name: "MarkUserSawGetStartedPage"
+    input_type: ".auth.MarkUserSawGetStartedPageRequest"
+    output_type: ".auth.MarkUserSawGetStartedPageResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "MarkUserSubmittedSourceForm"
+    input_type: ".auth.MarkUserSubmittedSourceFormRequest"
+    output_type: ".auth.MarkUserSubmittedSourceFormResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "UpdateOnboardingFlags"
+    input_type: ".auth.UpdateOnboardingFlagsRequest"
+    output_type: ".auth.UpdateOnboardingFlagsResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "GetUsers"
+    input_type: ".auth.GetUsersRequest"
+    output_type: ".auth.GetUsersResponse"
+  }
+  method {
+    name: "GetTokenInfo"
+    input_type: ".auth.GetTokenInfoRequest"
+    output_type: ".auth.GetTokenInfoResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+      [auth_options.required_token_scopes]: BILLING_R
+    }
+  }
+  method {
+    name: "RevokeUserCookies"
+    input_type: ".auth.RevokeUserCookiesRequest"
+    output_type: ".auth.RevokeUserCookiesResponse"
+  }
+  method {
+    name: "RevokeUser"
+    input_type: ".auth.RevokeUserRequest"
+    output_type: ".auth.RevokeUserResponse"
+  }
+  method {
+    name: "RevokeUserById"
+    input_type: ".auth.RevokeUserByIdRequest"
+    output_type: ".auth.RevokeUserByIdResponse"
+  }
+  method {
+    name: "CreateUserSuspension"
+    input_type: ".auth.CreateUserSuspensionRequest"
+    output_type: ".auth.CreateUserSuspensionResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "ValidateUserSuspension"
+    input_type: ".auth.ValidateUserSuspensionRequest"
+    output_type: ".auth.ValidateUserSuspensionResponse"
+  }
+  method {
+    name: "ValidateTeamSuspension"
+    input_type: ".auth.ValidateTeamSuspensionRequest"
+    output_type: ".auth.ValidateTeamSuspensionResponse"
+  }
+  method {
+    name: "CreateTeamSuspension"
+    input_type: ".auth.CreateTeamSuspensionRequest"
+    output_type: ".auth.CreateTeamSuspensionResponse"
+  }
+  method {
+    name: "ValidateDeleteTeamSuspensions"
+    input_type: ".auth.ValidateDeleteTeamSuspensionsRequest"
+    output_type: ".auth.ValidateDeleteTeamSuspensionsResponse"
+  }
+  method {
+    name: "DeleteTeamSuspensions"
+    input_type: ".auth.DeleteTeamSuspensionsRequest"
+    output_type: ".auth.DeleteTeamSuspensionsResponse"
+  }
+  method {
+    name: "UpdateSuspensionExemption"
+    input_type: ".auth.UpdateSuspensionExemptionRequest"
+    output_type: ".auth.UpdateSuspensionExemptionResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "DeleteUserSuspensions"
+    input_type: ".auth.DeleteUserSuspensionsRequest"
+    output_type: ".auth.DeleteUserSuspensionsResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "GetUserBillingInfo"
+    input_type: ".auth.GetUserBillingInfoRequest"
+    output_type: ".auth.GetUserBillingInfoResponse"
+  }
+  method {
+    name: "UpdateUserBillingInfo"
+    input_type: ".auth.UpdateUserBillingInfoRequest"
+    output_type: ".auth.UpdateUserBillingInfoResponse"
+  }
+  method {
+    name: "SuspensionCleanup"
+    input_type: ".auth.SuspensionCleanupRequest"
+    output_type: ".auth.SuspensionCleanupResponse"
+  }
+  method {
+    name: "ForgetUser"
+    input_type: ".auth.ForgetUserRequest"
+    output_type: ".auth.ForgetUserResponse"
+  }
+  method {
+    name: "GetUserSubscriptionInfo"
+    input_type: ".auth.GetUserSubscriptionInfoRequest"
+    output_type: ".auth.GetUserSubscriptionInfoResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+      [auth_options.required_token_scopes]: BILLING_R
+    }
+  }
+  method {
+    name: "AddUserTags"
+    input_type: ".auth.AddUserTagsRequest"
+    output_type: ".auth.AddUserTagsResponse"
+  }
+  method {
+    name: "RemoveUserTags"
+    input_type: ".auth.RemoveUserTagsRequest"
+    output_type: ".auth.RemoveUserTagsResponse"
+  }
+  method {
+    name: "RebuildIndexes"
+    input_type: ".auth.RebuildIndexesRequest"
+    output_type: ".auth.RebuildIndexesResponse"
+  }
+  method {
+    name: "CreateTokenForUser"
+    input_type: ".auth.CreateTokenForUserRequest"
+    output_type: ".auth.CreateTokenForUserResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_MINT
+    }
+  }
+  method {
+    name: "GetServiceAccount"
+    input_type: ".auth.GetServiceAccountRequest"
+    output_type: ".auth.GetServiceAccountResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "ListServiceAccounts"
+    input_type: ".auth.ListServiceAccountsRequest"
+    output_type: ".auth.ListServiceAccountsResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "CreateServiceAccount"
+    input_type: ".auth.CreateServiceAccountRequest"
+    output_type: ".auth.CreateServiceAccountResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "DeleteServiceAccount"
+    input_type: ".auth.DeleteServiceAccountRequest"
+    output_type: ".auth.DeleteServiceAccountResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "CreateServiceAccountToken"
+    input_type: ".auth.CreateServiceAccountTokenRequest"
+    output_type: ".auth.CreateServiceAccountTokenResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_MINT
+    }
+  }
+  method {
+    name: "ListServiceAccountTokens"
+    input_type: ".auth.ListServiceAccountTokensRequest"
+    output_type: ".auth.ListServiceAccountTokensResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "RevokeServiceAccountToken"
+    input_type: ".auth.RevokeServiceAccountTokenRequest"
+    output_type: ".auth.RevokeServiceAccountTokenResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "UpdateServiceAccountMetadata"
+    input_type: ".auth.UpdateServiceAccountMetadataRequest"
+    output_type: ".auth.UpdateServiceAccountMetadataResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "UpdateServiceAccountTokenMetadata"
+    input_type: ".auth.UpdateServiceAccountTokenMetadataRequest"
+    output_type: ".auth.UpdateServiceAccountTokenMetadataResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "SetEarlyTokenExpiration"
+    input_type: ".auth.SetEarlyTokenExpirationRequest"
+    output_type: ".auth.SetEarlyTokenExpirationResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "UpdateUserPreferredTeamName"
+    input_type: ".auth.UpdateUserPreferredTeamNameRequest"
+    output_type: ".auth.UpdateUserPreferredTeamNameResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "DeleteOrphanedTokens"
+    input_type: ".auth.DeleteOrphanedTokensRequest"
+    output_type: ".auth.DeleteOrphanedTokensResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_ADMIN
+    }
+  }
+  method {
+    name: "ListPersonalTokens"
+    input_type: ".auth.ListPersonalTokensRequest"
+    output_type: ".auth.ListPersonalTokensResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "CreatePersonalToken"
+    input_type: ".auth.CreatePersonalTokenRequest"
+    output_type: ".auth.CreatePersonalTokenResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_MINT
+    }
+  }
+  method {
+    name: "RevokePersonalToken"
+    input_type: ".auth.RevokePersonalTokenRequest"
+    output_type: ".auth.RevokePersonalTokenResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "UpdatePersonalToken"
+    input_type: ".auth.UpdatePersonalTokenRequest"
+    output_type: ".auth.UpdatePersonalTokenResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "CountTokensForUser"
+    input_type: ".auth.CountTokensForUserRequest"
+    output_type: ".auth.CountTokensForUserResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+}
+service {
+  name: "TeamManagementService"
+  method {
+    name: "ListTeamMembers"
+    input_type: ".auth.ListTeamMembersRequest"
+    output_type: ".auth.ListTeamMembersResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+      [auth_options.authz_required_permissions]: "team:view_members"
+    }
+  }
+  method {
+    name: "CreateTenantForCurrentUser"
+    input_type: ".auth.CreateTenantForCurrentUserRequest"
+    output_type: ".auth.CreateTenantForCurrentUserResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+      [auth_options.required_token_scopes]: BILLING_R
+    }
+  }
+  method {
+    name: "CreateTenantForTeam"
+    input_type: ".auth.CreateTenantForTeamRequest"
+    output_type: ".auth.CreateTenantForTeamResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+      [auth_options.required_token_scopes]: BILLING_R
+    }
+  }
+  method {
+    name: "GetCreateTenantForTeamStatus"
+    input_type: ".auth.GetCreateTenantForTeamStatusRequest"
+    output_type: ".auth.GetCreateTenantForTeamStatusResponse"
+  }
+  method {
+    name: "GetCreateTenantForTeamStatusWithScope"
+    input_type: ".auth.GetCreateTenantForTeamStatusRequest"
+    output_type: ".auth.GetCreateTenantForTeamStatusResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "InviteUsersToTenant"
+    input_type: ".auth.InviteUsersToTenantRequest"
+    output_type: ".auth.InviteUsersToTenantResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+      [auth_options.required_token_scopes]: BILLING_R
+      [auth_options.authz_required_permissions]: "team:invite"
+    }
+  }
+  method {
+    name: "GetTenantInvitations"
+    input_type: ".auth.GetTenantInvitationsRequest"
+    output_type: ".auth.GetTenantInvitationsResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+      [auth_options.authz_required_permissions]: "team:view_invitations"
+    }
+  }
+  method {
+    name: "GetUserInvitations"
+    input_type: ".auth.GetUserInvitationsRequest"
+    output_type: ".auth.GetUserInvitationsResponse"
+  }
+  method {
+    name: "ResolveInvitations"
+    input_type: ".auth.ResolveInvitationsRequest"
+    output_type: ".auth.ResolveInvitationsResponse"
+  }
+  method {
+    name: "GetResolveInvitationsStatus"
+    input_type: ".auth.GetResolveInvitationsStatusRequest"
+    output_type: ".auth.GetResolveInvitationsStatusResponse"
+  }
+  method {
+    name: "DeleteInvitation"
+    input_type: ".auth.DeleteInvitationRequest"
+    output_type: ".auth.DeleteInvitationResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+      [auth_options.authz_required_permissions]: "team:cancel_invitation"
+    }
+  }
+  method {
+    name: "RequestToJoinTeam"
+    input_type: ".auth.RequestToJoinTeamRequest"
+    output_type: ".auth.RequestToJoinTeamResponse"
+  }
+  method {
+    name: "ResolveJoinRequest"
+    input_type: ".auth.ResolveJoinRequestRequest"
+    output_type: ".auth.ResolveJoinRequestResponse"
+    options {
+      [auth_options.authz_required_permissions]: "team:resolve_join_requests"
+    }
+  }
+  method {
+    name: "GetTeamPendingJoinRequests"
+    input_type: ".auth.GetTeamPendingJoinRequestsRequest"
+    output_type: ".auth.GetTeamPendingJoinRequestsResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+      [auth_options.authz_required_permissions]: "team:view_join_requests"
+    }
+  }
+  method {
+    name: "GetUserJoinRequests"
+    input_type: ".auth.GetUserJoinRequestsRequest"
+    output_type: ".auth.GetUserJoinRequestsResponse"
+  }
+  method {
+    name: "DeleteJoinRequest"
+    input_type: ".auth.DeleteJoinRequestRequest"
+    output_type: ".auth.DeleteJoinRequestResponse"
+  }
+  method {
+    name: "RemoveTeamMember"
+    input_type: ".auth.RemoveTeamMemberRequest"
+    output_type: ".auth.RemoveTeamMemberResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "DeleteAccount"
+    input_type: ".auth.DeleteAccountRequest"
+    output_type: ".auth.DeleteAccountResponse"
+    options {
+      [auth_options.authz_required_permissions]: "team:delete_account"
+    }
+  }
+  method {
+    name: "UpdateTeamSettings"
+    input_type: ".auth.UpdateTeamSettingsRequest"
+    output_type: ".auth.UpdateTeamSettingsResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+      [auth_options.authz_required_permissions]: "team:update_settings"
+    }
+  }
+  method {
+    name: "GetDiscoverableTeams"
+    input_type: ".auth.GetDiscoverableTeamsRequest"
+    output_type: ".auth.GetDiscoverableTeamsResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "GetSubscription"
+    input_type: ".auth.GetSubscriptionRequest"
+    output_type: ".auth.GetSubscriptionResponse"
+  }
+  method {
+    name: "CreateSubscription"
+    input_type: ".auth.CreateSubscriptionRequest"
+    output_type: ".auth.CreateSubscriptionResponse"
+  }
+  method {
+    name: "UpdateSubscription"
+    input_type: ".auth.UpdateSubscriptionRequest"
+    output_type: ".auth.UpdateSubscriptionResponse"
+  }
+  method {
+    name: "CancelSubscription"
+    input_type: ".auth.CancelSubscriptionRequest"
+    output_type: ".auth.CancelSubscriptionResponse"
+  }
+  method {
+    name: "CloseSubscription"
+    input_type: ".auth.CloseSubscriptionRequest"
+    output_type: ".auth.CloseSubscriptionResponse"
+  }
+  method {
+    name: "ResolveSubscription"
+    input_type: ".auth.ResolveSubscriptionRequest"
+    output_type: ".auth.ResolveSubscriptionResponse"
+  }
+  method {
+    name: "UpdateSubscriptionForTeamCreation"
+    input_type: ".auth.UpdateSubscriptionForTeamCreationRequest"
+    output_type: ".auth.UpdateSubscriptionForTeamCreationResponse"
+  }
+  method {
+    name: "UpdateSubscriptionForTeamDissolution"
+    input_type: ".auth.UpdateSubscriptionForTeamDissolutionRequest"
+    output_type: ".auth.UpdateSubscriptionForTeamDissolutionResponse"
+  }
+  method {
+    name: "GetAllOrbPlans"
+    input_type: ".auth.GetAllOrbPlansRequest"
+    output_type: ".auth.GetAllOrbPlansResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "GetUserOrbPlanInfo"
+    input_type: ".auth.GetUserOrbPlanInfoRequest"
+    output_type: ".auth.GetUserOrbPlanInfoResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "UnschedulePlanChanges"
+    input_type: ".auth.UnschedulePlanChangesRequest"
+    output_type: ".auth.UnschedulePlanChangesResponse"
+  }
+  method {
+    name: "GetPlanChangeDetails"
+    input_type: ".auth.GetPlanChangeDetailsRequest"
+    output_type: ".auth.GetPlanChangeDetailsResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "HandlePlanChange"
+    input_type: ".auth.HandlePlanChangeRequest"
+    output_type: ".auth.HandlePlanChangeResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "PutUserInPendingState"
+    input_type: ".auth.PutUserInPendingStateRequest"
+    output_type: ".auth.PutUserInPendingStateResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "GetPendingChange"
+    input_type: ".auth.GetPendingChangeRequest"
+    output_type: ".auth.GetPendingChangeResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "GetUserOrbCreditsInfo"
+    input_type: ".auth.GetUserOrbCreditsInfoRequest"
+    output_type: ".auth.GetUserOrbCreditsInfoResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "GetUserOrbPaymentInfo"
+    input_type: ".auth.GetUserOrbPaymentInfoRequest"
+    output_type: ".auth.GetUserOrbPaymentInfoResponse"
+  }
+  method {
+    name: "GetUserOrbSubscriptionInfo"
+    input_type: ".auth.GetUserOrbSubscriptionInfoRequest"
+    output_type: ".auth.GetUserOrbSubscriptionInfoResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "GrantFreeCreditsToUsers"
+    input_type: ".auth.GrantFreeCreditsToUsersRequest"
+    output_type: ".auth.GrantFreeCreditsToUsersResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "GetTopUp"
+    input_type: ".auth.GetTopUpRequest"
+    output_type: ".auth.GetTopUpResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "SetTopUpEnabled"
+    input_type: ".auth.SetTopUpEnabledRequest"
+    output_type: ".auth.SetTopUpEnabledResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "ConfigureTopUp"
+    input_type: ".auth.ConfigureTopUpRequest"
+    output_type: ".auth.ConfigureTopUpResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "GetCreditConsumption"
+    input_type: ".auth.GetCreditConsumptionRequest"
+    output_type: ".auth.GetCreditConsumptionResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "GetCreditAnalyticsInfo"
+    input_type: ".auth.GetCreditAnalyticsInfoRequest"
+    output_type: ".auth.GetCreditAnalyticsInfoResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_R
+    }
+  }
+  method {
+    name: "BackfillCancellations"
+    input_type: ".auth.BackfillCancellationsRequest"
+    output_type: ".auth.BackfillCancellationsResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "BackfillPaymentHistory"
+    input_type: ".auth.BackfillPaymentHistoryRequest"
+    output_type: ".auth.BackfillPaymentHistoryResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_ADMIN
+    }
+  }
+  method {
+    name: "MergeDuplicateAccounts"
+    input_type: ".auth.MergeDuplicateAccountsRequest"
+    output_type: ".auth.MergeDuplicateAccountsResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_ADMIN
+    }
+  }
+  method {
+    name: "RemoveMessagesFromDeadLetterQueue"
+    input_type: ".auth.RemoveMessagesFromDeadLetterQueueRequest"
+    output_type: ".auth.RemoveMessagesFromDeadLetterQueueResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "RemovePendingStatus"
+    input_type: ".auth.RemovePendingStatusRequest"
+    output_type: ".auth.RemovePendingStatusResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_RW
+    }
+  }
+  method {
+    name: "TriggerOrbSubscriptionEvent"
+    input_type: ".auth.TriggerOrbSubscriptionEventRequest"
+    output_type: ".auth.TriggerOrbSubscriptionEventResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_ADMIN
+    }
+  }
+  method {
+    name: "UpdateAdminUserForTeam"
+    input_type: ".auth.UpdateAdminUserForTeamRequest"
+    output_type: ".auth.UpdateAdminUserForTeamResponse"
+  }
+  method {
+    name: "DeleteTenantSubscriptionMapping"
+    input_type: ".auth.DeleteTenantSubscriptionMappingRequest"
+    output_type: ".auth.DeleteTenantSubscriptionMappingResponse"
+    options {
+      [auth_options.required_token_scopes]: AUTH_ADMIN
+    }
+  }
+}
+options {
+  go_package: "github.com/augmentcode/augment/services/auth/central/server/proto"
+}
+syntax: "proto3"

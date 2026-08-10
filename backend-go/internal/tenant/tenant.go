@@ -1,0 +1,226 @@
+// Package tenant assembles the tenant surface: the /api-client/* REST gateway
+// (grpc-gateway emulation of public_api.Augment), the connect/gRPC protocol
+// mux, the discovery table and health endpoints. Every RPC in the 214-method
+// table is explicitly routable; unimplemented methods answer with a loud
+// 501 / Unimplemented instead of a silent 404.
+package tenant
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"strings"
+
+	"augment-local/internal/chat"
+	"augment-local/internal/discovery"
+	"augment-local/internal/state"
+	"augment-local/internal/surface"
+	"augment-local/internal/tools"
+)
+
+// Server is the tenant-side HTTP surface (port 8787 by default).
+type Server struct {
+	TenantURL    string
+	Store        *state.Store
+	Responder    *surface.Responder
+	Chat         *chat.Simulator
+	ToolExecutor *tools.Executor
+	pathIndex    map[string]string // grpc-gateway REST path -> RPC method name
+	TokenHandler http.HandlerFunc  // set by main to issue tokens (oidc.Provider)
+}
+
+func New(tenantURL, gatewayURL, gatewayModel string) *Server {
+	st := state.New()
+	te := tools.New("")
+	s := &Server{
+		TenantURL:    tenantURL,
+		Store:        st,
+		Responder:    &surface.Responder{Store: st, TenantURL: tenantURL, GatewayURL: gatewayURL, ToolExecutor: te},
+		Chat:         chat.New(st, gatewayURL, gatewayModel),
+		ToolExecutor: te,
+		pathIndex:    make(map[string]string),
+	}
+	for _, m := range surface.Routes {
+		if m.Path != "-" {
+			s.pathIndex[m.Path] = m.Name
+		}
+	}
+	return s
+}
+
+// Handler builds the fully-assembled mux.
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+
+	// Health + discovery.
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { s.writeJSON(w, 200, map[string]any{"status": "SERVING"}) })
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { s.writeJSON(w, 200, map[string]any{"status": "SERVING"}) })
+	mux.HandleFunc("/api-client/health", func(w http.ResponseWriter, r *http.Request) { s.writeJSON(w, 200, map[string]any{"status": "SERVING"}) })
+	mux.HandleFunc("/api-client/client-discovery", discovery.Handler(s.TenantURL))
+	mux.HandleFunc("/client-discovery", discovery.Handler(s.TenantURL))
+
+// /token — the IDE's AugmentAPI.token(tenantURL, tokenRequest) POSTs here
+	// (NOT to the OIDC provider). This is where the real token exchange happens after
+	// the OAuth callback returns to the IDE with tenant_url in the redirect.
+	if s.TokenHandler != nil {
+		mux.HandleFunc("/token", s.TokenHandler)
+		mux.HandleFunc("/oauth/token", s.TokenHandler)
+	}
+
+	// All /api-client/* REST routes dispatch through one handler.
+	mux.HandleFunc("/api-client/", s.handleAPIClient)
+
+	// Everything else: connect/gRPC paths (augment.public_api.Augment/Method),
+	// bare grpc-gateway REST paths, grpc health, or 404.
+	mux.HandleFunc("/", s.handleCatchAll)
+
+	return cors(logRequests(mux))
+}
+
+
+// logRequests wraps a handler to log every incoming request on the tenant surface.
+func logRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("tenant: %s %s content-type=%s", r.Method, r.URL.Path, r.Header.Get("Content-Type"))
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// handleAPIClient serves the /api-client/<grpc-gateway-path> REST surface.
+func (s *Server) handleAPIClient(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api-client")
+	method := s.pathIndex[path]
+	if method == "" {
+		s.writeJSON(w, 404, map[string]any{"code": "not_found", "message": fmt.Sprintf("no RPC for path %s", r.URL.Path)})
+		return
+	}
+	s.dispatchREST(w, r, method, path)
+}
+
+// dispatchREST runs a method by its grpc-gateway path form.
+func (s *Server) dispatchREST(w http.ResponseWriter, r *http.Request, method, path string) {
+	if surface.ImplementedStreams[method] {
+		s.streamREST(w, r, method)
+		return
+	}
+	req := decodeBody(r)
+	resp, handled, err := s.Responder.Handle(method, req)
+	if err != nil {
+		s.writeJSON(w, 500, map[string]any{"code": "internal", "message": err.Error()})
+		return
+	}
+	if !handled {
+		log.Printf("tenant: %s -> 501 surface not implemented (path %s)", method, path)
+		s.writeJSON(w, 501, map[string]any{"code": "unimplemented", "message": fmt.Sprintf("surface not implemented: %s", method)})
+		return
+	}
+	s.writeJSON(w, 200, resp)
+}
+
+// streamREST serves the ChatStream simulator over NDJSON or SSE depending on
+// the Accept header.
+func (s *Server) streamREST(w http.ResponseWriter, r *http.Request, method string) {
+	req := decodeBody(r)
+	// DEBUG: log the full request body to understand IDE's message format.
+	log.Printf("chat-stream req body: %+v", req)
+	flow := chat.FlowNDJSON
+	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		flow = chat.FlowSSE
+		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+	} else {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	}
+	w.WriteHeader(http.StatusOK)
+	if err := s.Chat.Stream(r.Context(), w, flow, req); err != nil {
+		log.Printf("tenant: chat stream error: %v", err)
+	}
+}
+
+// handleCatchAll dispatches connect/gRPC RPC paths, bare REST paths, and 404s.
+func (s *Server) handleCatchAll(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+
+	// Bare grpc-gateway REST route (no /api-client prefix).
+	if method, ok := s.pathIndex[path]; ok {
+		s.dispatchREST(w, r, method, path)
+		return
+	}
+
+	// grpc.health.v1.Health/Check over gRPC/connect.
+	if path == "/grpc.health.v1.Health/Check" || path == "/grpc.health.v1.Health/CheckStream" {
+		s.handleGRPCHealth(w, r)
+		return
+	}
+
+	// connect/gRPC style: /<service>/<method> where service contains a dot,
+	// or known dotless services (e.g. "augmentcode" for tools/hooks RPCs).
+	trimmed := strings.TrimPrefix(path, "/")
+	slash := strings.Index(trimmed, "/")
+	if slash > 0 {
+		svc := trimmed[:slash]
+		method := trimmed[slash+1:]
+		if method != "" && (strings.Contains(svc, ".") || isKnownDotlessService(svc)) {
+			s.handleRPC(w, r, svc, method)
+			return
+		}
+	}
+
+	s.writeJSON(w, 404, map[string]any{"code": "not_found", "message": fmt.Sprintf("unknown path %s", path)})
+}
+
+// decodeBody reads a JSON request body into a map (empty body -> empty map).
+func decodeBody(r *http.Request) map[string]any {
+	req := map[string]any{}
+	body, err := io.ReadAll(r.Body)
+	if err != nil || len(strings.TrimSpace(string(body))) == 0 {
+		return req
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		// A single JSON value at top level (e.g. an array or string) is
+		// tolerated as an empty request — the message shape we care about is
+		// an object.
+		var v any
+		if err2 := json.Unmarshal(body, &v); err2 == nil {
+			req["_raw"] = v
+		}
+	}
+	return req
+}
+
+// isKnownDotlessService allows gRPC service names that don't contain a dot.
+// The IDE sidecar uses service names like "augmentcode" for tools/hooks RPCs
+// that are routed through its JSON-RPC bridge to the backend.
+func isKnownDotlessService(svc string) bool {
+	switch svc {
+	case "augmentcode":
+		return true
+	default:
+		return false
+	}
+}
+
+// cors wraps a handler with permissive CORS for the IDE webview.
+func cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Access-Control-Allow-Origin", "*")
+		h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Connect-Protocol-Version, Grpc-Timeout, X-Request-Id, Accept, Accept-Encoding")
+		h.Set("Access-Control-Expose-Headers", "Grpc-Status, Grpc-Message, Connect-Protocol-Version")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

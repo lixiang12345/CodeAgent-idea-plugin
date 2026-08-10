@@ -1,0 +1,731 @@
+name: "base/serversideagents/state/agent_state.proto"
+package: "base.serversideagents.state"
+dependency: "google/protobuf/any.proto"
+dependency: "google/protobuf/timestamp.proto"
+dependency: "services/token_exchange/auth_options.proto"
+message_type {
+  name: "AgentState"
+  field {
+    name: "agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "status"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".base.serversideagents.state.AgentStatus"
+  }
+  field {
+    name: "created_at"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "updated_at"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "pending_messages"
+    number: 10
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".base.serversideagents.state.PendingMessage"
+  }
+  field {
+    name: "last_processed_event_id"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "last_request_id"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "version"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT64
+  }
+  field {
+    name: "conversation_turns"
+    number: 14
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".base.serversideagents.state.ConversationTurn"
+  }
+  field {
+    name: "iteration_count"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "agent_type"
+    number: 25
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "team_id"
+    number: 19
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "agent_name"
+    number: 23
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "agent_context"
+    number: 24
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Any"
+    options {
+      debug_redact: true
+    }
+    oneof_index: 4
+    proto3_optional: true
+  }
+  field {
+    name: "executed_tools"
+    number: 26
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".base.serversideagents.state.AgentState.ExecutedToolsEntry"
+  }
+  field {
+    name: "current_turn_id"
+    number: 27
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 5
+    proto3_optional: true
+  }
+  nested_type {
+    name: "ExecutedToolsEntry"
+    field {
+      name: "key"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.Timestamp"
+    }
+    options {
+      map_entry: true
+    }
+  }
+  oneof_decl {
+    name: "_last_processed_event_id"
+  }
+  oneof_decl {
+    name: "_last_request_id"
+  }
+  oneof_decl {
+    name: "_team_id"
+  }
+  oneof_decl {
+    name: "_agent_name"
+  }
+  oneof_decl {
+    name: "_agent_context"
+  }
+  oneof_decl {
+    name: "_current_turn_id"
+  }
+  reserved_range {
+    start: 2
+    end: 3
+  }
+  reserved_range {
+    start: 3
+    end: 4
+  }
+  reserved_range {
+    start: 7
+    end: 8
+  }
+  reserved_range {
+    start: 8
+    end: 9
+  }
+  reserved_range {
+    start: 9
+    end: 10
+  }
+  reserved_range {
+    start: 16
+    end: 17
+  }
+  reserved_range {
+    start: 17
+    end: 18
+  }
+  reserved_range {
+    start: 18
+    end: 19
+  }
+  reserved_range {
+    start: 20
+    end: 21
+  }
+  reserved_range {
+    start: 21
+    end: 22
+  }
+  reserved_range {
+    start: 22
+    end: 23
+  }
+}
+message_type {
+  name: "ConversationTurn"
+  field {
+    name: "sequence_number"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "timestamp"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "type"
+    number: 20
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "turn_id"
+    number: 21
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "assistant_response"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".base.serversideagents.state.AssistantResponse"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "tool_use"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".base.serversideagents.state.ToolUse"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "tool_result"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".base.serversideagents.state.ToolResult"
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "request_id"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "event_id"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 4
+    proto3_optional: true
+  }
+  field {
+    name: "text_content"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 5
+    proto3_optional: true
+  }
+  field {
+    name: "original_message"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Any"
+    options {
+      debug_redact: true
+    }
+    oneof_index: 6
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_assistant_response"
+  }
+  oneof_decl {
+    name: "_tool_use"
+  }
+  oneof_decl {
+    name: "_tool_result"
+  }
+  oneof_decl {
+    name: "_request_id"
+  }
+  oneof_decl {
+    name: "_event_id"
+  }
+  oneof_decl {
+    name: "_text_content"
+  }
+  oneof_decl {
+    name: "_original_message"
+  }
+  reserved_range {
+    start: 3
+    end: 4
+  }
+  reserved_range {
+    start: 4
+    end: 5
+  }
+  reserved_range {
+    start: 8
+    end: 9
+  }
+  reserved_range {
+    start: 9
+    end: 10
+  }
+  reserved_range {
+    start: 13
+    end: 14
+  }
+  reserved_range {
+    start: 14
+    end: 15
+  }
+}
+message_type {
+  name: "UserMessage"
+  field {
+    name: "user_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "content"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "timestamp"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  reserved_range {
+    start: 3
+    end: 4
+  }
+}
+message_type {
+  name: "AssistantResponse"
+  field {
+    name: "content"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "stop_reason"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ToolUse"
+  field {
+    name: "tool_use_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "tool_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "input_json"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+}
+message_type {
+  name: "ToolResult"
+  field {
+    name: "tool_use_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "content"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "is_error"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "duration_ms"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "start_time_ms"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_duration_ms"
+  }
+  oneof_decl {
+    name: "_start_time_ms"
+  }
+}
+message_type {
+  name: "PendingMessage"
+  field {
+    name: "event_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "received_at"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "text_content"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "original_message"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Any"
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "original_message_type"
+    number: 14
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  reserved_range {
+    start: 3
+    end: 4
+  }
+  reserved_range {
+    start: 4
+    end: 5
+  }
+  reserved_range {
+    start: 5
+    end: 6
+  }
+  reserved_range {
+    start: 6
+    end: 7
+  }
+  reserved_range {
+    start: 8
+    end: 9
+  }
+  reserved_range {
+    start: 9
+    end: 10
+  }
+  reserved_range {
+    start: 10
+    end: 11
+  }
+  reserved_range {
+    start: 11
+    end: 12
+  }
+  reserved_range {
+    start: 12
+    end: 13
+  }
+}
+message_type {
+  name: "AgentEvent"
+  field {
+    name: "event_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "agent_id"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "event_type"
+    number: 19
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "timestamp"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+  field {
+    name: "payload"
+    number: 18
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Any"
+    options {
+      debug_redact: true
+    }
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "source_agent_id"
+    number: 14
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "request_id"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  oneof_decl {
+    name: "_payload"
+  }
+  oneof_decl {
+    name: "_source_agent_id"
+  }
+  reserved_range {
+    start: 3
+    end: 4
+  }
+  reserved_range {
+    start: 5
+    end: 6
+  }
+  reserved_range {
+    start: 6
+    end: 7
+  }
+  reserved_range {
+    start: 7
+    end: 8
+  }
+  reserved_range {
+    start: 8
+    end: 9
+  }
+  reserved_range {
+    start: 9
+    end: 10
+  }
+  reserved_range {
+    start: 10
+    end: 11
+  }
+  reserved_range {
+    start: 11
+    end: 12
+  }
+  reserved_range {
+    start: 12
+    end: 13
+  }
+  reserved_range {
+    start: 13
+    end: 14
+  }
+  reserved_range {
+    start: 16
+    end: 17
+  }
+  reserved_range {
+    start: 17
+    end: 18
+  }
+}
+message_type {
+  name: "LoadAgentRequest"
+  field {
+    name: "agent_id"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "LoadAgentResponse"
+  field {
+    name: "state"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".base.serversideagents.state.AgentState"
+  }
+}
+message_type {
+  name: "ListAllAgentsRequest"
+  field {
+    name: "filter"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Any"
+  }
+}
+message_type {
+  name: "ListAllAgentsResponse"
+  field {
+    name: "agent_ids"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+enum_type {
+  name: "AgentStatus"
+  value {
+    name: "AGENT_STATUS_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "ACTIVE"
+    number: 1
+  }
+  value {
+    name: "PAUSED"
+    number: 2
+  }
+  value {
+    name: "ABORTED"
+    number: 3
+  }
+}
+service {
+  name: "AgentStateDebug"
+  method {
+    name: "LoadAgent"
+    input_type: ".base.serversideagents.state.LoadAgentRequest"
+    output_type: ".base.serversideagents.state.LoadAgentResponse"
+    options {
+      [auth_options.required_token_scopes]: REQUEST_RESTRICTED_R
+    }
+  }
+  method {
+    name: "ListAllAgents"
+    input_type: ".base.serversideagents.state.ListAllAgentsRequest"
+    output_type: ".base.serversideagents.state.ListAllAgentsResponse"
+  }
+}
+options {
+  go_package: "github.com/augmentcode/augment/base/serversideagents/state/state_proto"
+}
+syntax: "proto3"

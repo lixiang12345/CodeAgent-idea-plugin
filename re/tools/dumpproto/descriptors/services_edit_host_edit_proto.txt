@@ -1,0 +1,501 @@
+name: "services/edit_host/edit.proto"
+package: "edit"
+dependency: "base/blob_names/blob_names.proto"
+message_type {
+  name: "Exchange"
+  field {
+    name: "request_message"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "response_text"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "request_id"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_response_text"
+  }
+  oneof_decl {
+    name: "_request_id"
+  }
+}
+message_type {
+  name: "EditPosition"
+  field {
+    name: "prefix_begin"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "suffix_end"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "blob_name"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "EditRequest"
+  field {
+    name: "model_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "path"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "prefix"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "selected_text"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "suffix"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "instruction"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "position"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".edit.EditPosition"
+  }
+  field {
+    name: "lang"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "sequence_id"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "blobs"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".base.blob_names.Blobs"
+  }
+  reserved_range {
+    start: 8
+    end: 9
+  }
+}
+message_type {
+  name: "EditResponse"
+  field {
+    name: "text"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "unknown_blob_names"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "checkpoint_not_found"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+message_type {
+  name: "InstructionRequest"
+  field {
+    name: "model_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "path"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "prefix"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "selected_text"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "suffix"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "instruction"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "position"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".edit.EditPosition"
+  }
+  field {
+    name: "lang"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "sequence_id"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "blobs"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".base.blob_names.Blobs"
+  }
+  field {
+    name: "chat_history"
+    number: 11
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".edit.Exchange"
+  }
+  field {
+    name: "code_block"
+    number: 12
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "target_file_path"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "target_file_content"
+    number: 14
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "context_code_exchange_request_id"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "user_guidelines"
+    number: 16
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 4
+    proto3_optional: true
+  }
+  field {
+    name: "workspace_guidelines"
+    number: 17
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 5
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_code_block"
+  }
+  oneof_decl {
+    name: "_target_file_path"
+  }
+  oneof_decl {
+    name: "_target_file_content"
+  }
+  oneof_decl {
+    name: "_context_code_exchange_request_id"
+  }
+  oneof_decl {
+    name: "_user_guidelines"
+  }
+  oneof_decl {
+    name: "_workspace_guidelines"
+  }
+}
+message_type {
+  name: "InstructionResponse"
+  field {
+    name: "text"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "unknown_blob_names"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "checkpoint_not_found"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "replace_text"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".edit.ReplaceText"
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "status_code"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".edit.InstructionResponseStatusCode"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_replace_text"
+  }
+  oneof_decl {
+    name: "_status_code"
+  }
+}
+message_type {
+  name: "ReplaceText"
+  field {
+    name: "text"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "start_line"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+    oneof_index: 1
+    proto3_optional: true
+  }
+  field {
+    name: "end_line"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+    oneof_index: 2
+    proto3_optional: true
+  }
+  field {
+    name: "old_text"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+    oneof_index: 3
+    proto3_optional: true
+  }
+  field {
+    name: "sequence_id"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  oneof_decl {
+    name: "_text"
+  }
+  oneof_decl {
+    name: "_start_line"
+  }
+  oneof_decl {
+    name: "_end_line"
+  }
+  oneof_decl {
+    name: "_old_text"
+  }
+}
+message_type {
+  name: "InstructionAggregateResponse"
+  field {
+    name: "text"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "unknown_blob_names"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "checkpoint_not_found"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "replace_text"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".edit.ReplaceText"
+  }
+}
+enum_type {
+  name: "InstructionResponseStatusCode"
+  value {
+    name: "OK"
+    number: 0
+  }
+  value {
+    name: "EXCEED_CONTEXT_LENGTH"
+    number: 1
+  }
+}
+service {
+  name: "Edit"
+  method {
+    name: "Edit"
+    input_type: ".edit.EditRequest"
+    output_type: ".edit.EditResponse"
+  }
+  method {
+    name: "InstructionStream"
+    input_type: ".edit.InstructionRequest"
+    output_type: ".edit.InstructionResponse"
+    server_streaming: true
+  }
+}
+syntax: "proto3"

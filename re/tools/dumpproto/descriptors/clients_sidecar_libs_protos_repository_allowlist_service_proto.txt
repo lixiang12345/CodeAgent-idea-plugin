@@ -1,0 +1,71 @@
+name: "clients/sidecar/libs/protos/repository_allowlist_service.proto"
+package: "com.augmentcode.sidecar"
+message_type {
+  name: "CheckRepositoriesAllowedRequest"
+  field {
+    name: "repository_urls"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "config"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".com.augmentcode.sidecar.RepositoryAllowlistConfig"
+  }
+}
+message_type {
+  name: "CheckRepositoriesAllowedResponse"
+  field {
+    name: "allowed"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "block_reason"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_block_reason"
+  }
+}
+message_type {
+  name: "RepositoryAllowlistConfig"
+  field {
+    name: "enabled"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "repositories"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "is_deny_list"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+service {
+  name: "RepositoryAllowlistService"
+  method {
+    name: "CheckRepositoriesAllowed"
+    input_type: ".com.augmentcode.sidecar.CheckRepositoriesAllowedRequest"
+    output_type: ".com.augmentcode.sidecar.CheckRepositoriesAllowedResponse"
+  }
+}
+options {
+  java_package: "com.augmentcode.sidecar"
+}
+syntax: "proto3"

@@ -1,0 +1,40 @@
+name: "services/token_exchange/auth_options.proto"
+package: "auth_options"
+dependency: "google/protobuf/descriptor.proto"
+dependency: "services/token_exchange/token_scopes.proto"
+message_type {
+  name: "AuthorizationMetadata"
+  field {
+    name: "requires_iap"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+}
+extension {
+  name: "required_token_scopes"
+  extendee: ".google.protobuf.MethodOptions"
+  number: 50001
+  label: LABEL_REPEATED
+  type: TYPE_ENUM
+  type_name: ".token_scopes.Scope"
+}
+extension {
+  name: "authorization_metadata"
+  extendee: ".google.protobuf.MethodOptions"
+  number: 50002
+  label: LABEL_OPTIONAL
+  type: TYPE_MESSAGE
+  type_name: ".auth_options.AuthorizationMetadata"
+}
+extension {
+  name: "authz_required_permissions"
+  extendee: ".google.protobuf.MethodOptions"
+  number: 50012
+  label: LABEL_REPEATED
+  type: TYPE_STRING
+}
+options {
+  go_package: "github.com/augmentcode/augment/services/token_exchange/auth_options_proto"
+}
+syntax: "proto3"

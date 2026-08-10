@@ -1,0 +1,526 @@
+name: "services/completion_host/completion.proto"
+package: "completion"
+dependency: "base/blob_names/blob_names.proto"
+dependency: "base/diff_utils/edit_events.proto"
+dependency: "google/protobuf/timestamp.proto"
+dependency: "services/lib/grpc/stream_mux/stream_mux.proto"
+message_type {
+  name: "CompletionPosition"
+  field {
+    name: "prefix_begin"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "cursor_position"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "suffix_end"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "blob_name"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "RNGSeed"
+  field {
+    name: "value"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT64
+  }
+}
+message_type {
+  name: "TabSwitchEvent"
+  field {
+    name: "path"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "file_blob_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "GitDiffFileInfo"
+  field {
+    name: "content_blob_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "file_blob_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "ReplacementText"
+  field {
+    name: "blob_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "path"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "char_start"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "char_end"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "replacement_text"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "present_in_blob"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "expected_blob_name"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "timestamp"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+    oneof_index: 1
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_expected_blob_name"
+  }
+  oneof_decl {
+    name: "_timestamp"
+  }
+}
+message_type {
+  name: "ViewedContentEvent"
+  field {
+    name: "path"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "file_blob_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "visible_content"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "line_start"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "line_end"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "char_start"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "char_end"
+    number: 7
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "timestamp"
+    number: 8
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".google.protobuf.Timestamp"
+  }
+}
+message_type {
+  name: "RecencyInfo"
+  field {
+    name: "tab_switch_events"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".completion.TabSwitchEvent"
+  }
+  field {
+    name: "git_diff_file_info"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".completion.GitDiffFileInfo"
+  }
+  field {
+    name: "recent_changes"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".completion.ReplacementText"
+  }
+  field {
+    name: "viewed_contents"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".completion.ViewedContentEvent"
+  }
+}
+message_type {
+  name: "CompletionRequest"
+  field {
+    name: "model_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "prefix"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "path"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "suffix"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "max_tokens"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "lang"
+    number: 10
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "position"
+    number: 11
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".completion.CompletionPosition"
+  }
+  field {
+    name: "truncation"
+    number: 12
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "seed"
+    number: 13
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".completion.RNGSeed"
+  }
+  field {
+    name: "sequence_id"
+    number: 14
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT32
+  }
+  field {
+    name: "probe_only"
+    number: 15
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "blobs"
+    number: 16
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".base.blob_names.Blobs"
+  }
+  field {
+    name: "recency_info"
+    number: 17
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".completion.RecencyInfo"
+  }
+  field {
+    name: "filter_threshold"
+    number: 18
+    label: LABEL_OPTIONAL
+    type: TYPE_FLOAT
+    oneof_index: 0
+    proto3_optional: true
+  }
+  field {
+    name: "edit_events"
+    number: 19
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".base.diff_utils.GranularEditEvent"
+  }
+  field {
+    name: "completion_type"
+    number: 20
+    label: LABEL_OPTIONAL
+    type: TYPE_ENUM
+    type_name: ".completion.CompletionType"
+  }
+  oneof_decl {
+    name: "_filter_threshold"
+  }
+  reserved_range {
+    start: 5
+    end: 6
+  }
+  reserved_range {
+    start: 6
+    end: 7
+  }
+  reserved_range {
+    start: 7
+    end: 8
+  }
+  reserved_range {
+    start: 8
+    end: 9
+  }
+}
+message_type {
+  name: "CompletionResponse"
+  field {
+    name: "text"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "unknown_blob_names"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+  field {
+    name: "skipped_suffix"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "suffix_replacement_text"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+    options {
+      debug_redact: true
+    }
+  }
+  field {
+    name: "checkpoint_not_found"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "filter_score"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_FLOAT
+    oneof_index: 0
+    proto3_optional: true
+  }
+  oneof_decl {
+    name: "_filter_score"
+  }
+}
+message_type {
+  name: "SessionRequest"
+  field {
+    name: "context"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".stream_mux.MuxedRequest"
+  }
+  field {
+    name: "request"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".completion.CompletionRequest"
+  }
+}
+message_type {
+  name: "SessionResponse"
+  field {
+    name: "context"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".stream_mux.MuxedResponse"
+  }
+  field {
+    name: "response"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".completion.CompletionResponse"
+  }
+}
+message_type {
+  name: "FindMissingRequest"
+  field {
+    name: "model_name"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "blob_names"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "FindMissingResponse"
+  field {
+    name: "missing_blob_names"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+    options {
+      deprecated: true
+    }
+  }
+  field {
+    name: "nonindexed_blob_names"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+enum_type {
+  name: "CompletionType"
+  value {
+    name: "COMPLETION_TYPE_UNSPECIFIED"
+    number: 0
+  }
+  value {
+    name: "COMPLETION_TYPE_CODE"
+    number: 1
+  }
+  value {
+    name: "COMPLETION_TYPE_CHAT_INPUT"
+    number: 2
+  }
+}
+service {
+  name: "Completion"
+  method {
+    name: "Complete"
+    input_type: ".completion.CompletionRequest"
+    output_type: ".completion.CompletionResponse"
+  }
+  method {
+    name: "CompleteSession"
+    input_type: ".completion.SessionRequest"
+    output_type: ".completion.SessionResponse"
+    client_streaming: true
+    server_streaming: true
+  }
+  method {
+    name: "FindMissing"
+    input_type: ".completion.FindMissingRequest"
+    output_type: ".completion.FindMissingResponse"
+  }
+}
+syntax: "proto3"
