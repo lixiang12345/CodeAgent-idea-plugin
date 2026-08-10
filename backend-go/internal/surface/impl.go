@@ -452,7 +452,7 @@ func (r *Responder) chatInputCompletion(req map[string]any) (any, error) {
 	empty := func() map[string]any {
 		return map[string]any{
 			"completion_items":     []any{},
-			"unknown_blob_names":   []any{},
+			"unknown_memory_names": []any{},
 			"checkpoint_not_found": false,
 		}
 	}
@@ -543,7 +543,7 @@ func (r *Responder) chatInputCompletion(req map[string]any) (any, error) {
 			"text":          text,
 			"finish_reason": finishReason,
 		}},
-		"unknown_blob_names":   []any{},
+		"unknown_memory_names": []any{},
 		"checkpoint_not_found": false,
 	}, nil
 }

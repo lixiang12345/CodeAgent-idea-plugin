@@ -144,7 +144,7 @@ func TestChatInputCompletionUsesLowReasoningGatewayCall(t *testing.T) {
 			Text         string `json:"text"`
 			FinishReason string `json:"finish_reason"`
 		} `json:"completion_items"`
-		UnknownBlobNames   []string `json:"unknown_blob_names"`
+		UnknownMemoryNames []string `json:"unknown_memory_names"`
 		CheckpointNotFound bool     `json:"checkpoint_not_found"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
@@ -159,7 +159,7 @@ func TestChatInputCompletionUsesLowReasoningGatewayCall(t *testing.T) {
 	if got.CompletionItems[0].FinishReason != "stop" {
 		t.Fatalf("finish reason = %q", got.CompletionItems[0].FinishReason)
 	}
-	if got.UnknownBlobNames == nil || got.CheckpointNotFound {
+	if got.UnknownMemoryNames == nil || got.CheckpointNotFound {
 		t.Fatalf("completion metadata = %#v", got)
 	}
 }
@@ -180,7 +180,7 @@ func TestChatInputCompletionGatewayFailureDegradesToEmptySuggestion(t *testing.T
 	}
 	var got struct {
 		CompletionItems    []any    `json:"completion_items"`
-		UnknownBlobNames   []string `json:"unknown_blob_names"`
+		UnknownMemoryNames []string `json:"unknown_memory_names"`
 		CheckpointNotFound bool     `json:"checkpoint_not_found"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
@@ -189,7 +189,7 @@ func TestChatInputCompletionGatewayFailureDegradesToEmptySuggestion(t *testing.T
 	if len(got.CompletionItems) != 0 {
 		t.Fatalf("completion items = %#v, want empty fallback", got.CompletionItems)
 	}
-	if got.CompletionItems == nil || got.UnknownBlobNames == nil || got.CheckpointNotFound {
+	if got.CompletionItems == nil || got.UnknownMemoryNames == nil || got.CheckpointNotFound {
 		t.Fatalf("completion fallback = %#v", got)
 	}
 }

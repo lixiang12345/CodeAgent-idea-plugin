@@ -66,7 +66,7 @@ REMOTE_COUNT=$(echo "$REMOTE_TOOLS" | python3 -c "import sys,json; print(len(jso
 [[ "$REMOTE_COUNT" == "0" ]] && ok "remote tool catalog is protocol-safe (IDE tools stay in sidecar)" || bad "remote tool catalog count=$REMOTE_COUNT"
 
 CHAT_COMPLETION=$(curl -sf -X POST "$TENANT/api-client/chat-input-completion" -H 'Content-Type: application/json' -d '{"prompt":""}')
-echo "$CHAT_COMPLETION" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d.get("completion_items"), list); assert isinstance(d.get("unknown_blob_names"), list)' \
+echo "$CHAT_COMPLETION" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d.get("completion_items"), list); assert isinstance(d.get("unknown_memory_names"), list)' \
   && ok "chat input completion contract" || bad "chat input completion contract"
 CODE_COMPLETION=$(curl -sf -X POST "$TENANT/api-client/completion" -H 'Content-Type: application/json' -d '{"prompt":""}')
 echo "$CODE_COMPLETION" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d.get("completion_items"), list); assert isinstance(d.get("unknown_memory_names"), list)' \
