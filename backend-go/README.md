@@ -53,6 +53,7 @@ curl -s http://127.0.0.1:8787/healthz            # {"status":"SERVING"}
 
 ```bash
 ./scripts/e2e-probe.sh                # 全量驱动探针：OIDC→token→REST→chat→discovery→connect→gRPC
+./scripts/verify-patched-jar.sh        # JAR 完整性、Java 21、sidecar 语法与敏感日志锚点
 go test ./...                          # 单元测试（oidc + tenant 协议面）
 ```
 

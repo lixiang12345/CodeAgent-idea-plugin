@@ -50,16 +50,17 @@ Go 后端替代云端身份、模型、聊天、工具调度和检索代理；Si
 
 ## Sidecar/JAR 剩余风险
 
-补丁 JAR `releases/intellij-augment-0.482.3-beta.jar` 目前只有二进制工件，没有对应 Java/Kotlin 源码、patch 文件或确定性重建流程。这是接管方案的主要供应链和维护风险。
+补丁 JAR 的 workspace bridge 现在有版本化 Java 源码、Java 21 编译、锚点计数 sidecar patch 和自动验证流程；连续构建 SHA 一致。初始化 token、MCP env、Redux payload 和 webview message 不再原文落盘，index-status 不再双 timer 调度，完成后降频为 30 秒。
 
-已审计到的 bridge 限制：
+仍存在的 bridge 限制：
 
-- `sidecar/index.cjs` 有 5 个调用点硬编码 `127.0.0.1:8787`，没有使用 OIDC token 下发的 `tenantUrl`；自定义 tenant 端口、远程部署或反向代理会失效。
-- index-status 在完成后仍按约 3 秒轮询，失败被静默吞掉；JVM bridge 有多个 `catch Throwable`，异常会降级为空或 running。
-- workspace 概览用字符串截取解析 JSON，`totalThreads` 固定为 1，语言统计只递归有限深度。
-- 原始 IDE/Sidecar 日志可能包含完整文件内容、规则和请求 payload；共享日志前必须脱敏。
+- Java bridge 可用 `-Daugmentcode.tenant.url`、sidecar 可用 `AUGMENT_TENANT_URL` 覆盖地址，但还没有直接复用 OIDC 会话里的动态 `tenantUrl` 和 Bearer token；默认仍是本机 `127.0.0.1:8787`。
+- JVM status 请求仍是最多 3 秒的同步 `HttpClient.send`，异常会降级为空或 running；语言统计只递归有限深度。
+- `totalThreads` 已从伪造的 1 改为未知值 0，但真实 Sidecar LevelDB thread count 尚未接入 bridge。
+- `SettingsService.class` 和两个 webview bundle 的历史补丁仍没有源码或 transformer；当前脚本可重建本轮 bridge/sidecar 加固，但还不能从原始 ZIP 重建全部 6 个变更 entry。
+- Sidecar 及第三方库仍有其他 debug 日志；共享日志前仍应做二次脱敏。
 
-因此当前交付应视为“本机、loopback、指定插件版本”的可用接管层，而不是可远程部署的通用插件后端。
+因此当前交付应视为“本机、指定插件版本”的可用接管层，而不是已认证的远程多租户插件后端。
 
 ## 验收顺序
 
@@ -73,6 +74,7 @@ go vet ./...
 go test -race ./... -count=1
 go build ./...
 bash -n scripts/*.sh
+./scripts/verify-patched-jar.sh
 docker compose up -d --build --force-recreate augment-local
 docker compose ps
 ./scripts/e2e-oauth-flow.sh                 # 要求真实模型成功

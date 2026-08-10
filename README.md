@@ -69,7 +69,7 @@ cp releases/intellij-augment-0.482.3-beta.jar \
   ~/Library/Application\ Support/JetBrains/IntelliJIdea2026.1/plugins/intellij-augment/lib/
 ```
 
-> 原始未打补丁 jar 可随时从插件市场重新安装回滚。补丁内容：`SettingsService` 两个 bridge（workspace 列表 + 语言统计）、sidecar `generate-project-overview` handler、webview 摘要链路、onboarding 空问题过滤。
+> 原始未打补丁 jar 可随时从插件市场重新安装回滚。补丁内容：`SettingsService` 两个 bridge（workspace 列表 + 语言统计）、sidecar `generate-project-overview` handler、webview 摘要链路、onboarding 空问题过滤，以及 Java 21/日志/轮询加固。当前 bridge 源码和验证流程见 `re/patches/intellij-augment-0.482.3/`。
 
 ### 5. 连接 IDE
 
