@@ -687,6 +687,8 @@ func (s *Simulator) callOpenAI(ctx context.Context, baseURL, model string, messa
 	}
 
 	bodyBytes, _ := json.Marshal(body)
+	log.Printf("chat: openai request model=%s body=%d bytes msgs=%d tools=%d reasoning=%s",
+		model, len(bodyBytes), len(messages), len(toolDefs), reasoning)
 
 	url := strings.TrimSuffix(baseURL, "/v1")
 	url = strings.TrimSuffix(url, "/")
@@ -797,7 +799,64 @@ func (s *Simulator) callOpenAI(ctx context.Context, baseURL, model string, messa
 		})
 	}
 	log.Printf("chat: openai stream content=%d chars, tools=%d", len(mr.Content), len(mr.ToolCalls))
+
+	// Some gateways (e.g. krill-ai codex) return an empty response when
+	// reasoning_effort=xhigh — no content and no tool calls. Degrade to a low
+	// effort non-streaming retry so simple requests still get an answer.
+	if reasoning == "xhigh" && len(mr.Content) == 0 && len(mr.ToolCalls) == 0 {
+		log.Printf("chat: openai xhigh returned empty; retrying with low reasoning effort")
+		if txt := s.retryOpenAILow(ctx, url, model, messages, toolDefs); txt != "" {
+			_ = streamText(emit, txt)
+			mr.Content = txt
+			return mr, nil
+		}
+	}
 	return mr, nil
+}
+
+// retryOpenAILow makes a non-streaming OpenAI-compatible call with
+// reasoning_effort=low and returns the assistant text (used as a fallback when
+// the primary streaming call returns nothing).
+func (s *Simulator) retryOpenAILow(ctx context.Context, url, model string, messages, toolDefs []map[string]any) string {
+	body := map[string]any{
+		"model":            model,
+		"messages":         messages,
+		"temperature":      0.5,
+		"reasoning_effort": "low",
+		"stream":           false,
+	}
+	if len(toolDefs) > 0 {
+		body["tools"] = toolDefs
+		body["tool_choice"] = "auto"
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if s.GatewayKey != "" {
+		req.Header.Set("Authorization", "Bearer "+s.GatewayKey)
+	}
+	resp, err := s.HTTPClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return ""
+	}
+	if len(out.Choices) > 0 {
+		return out.Choices[0].Message.Content
+	}
+	return ""
 }
 
 func (s *Simulator) callAnthropic(ctx context.Context, baseURL, model string, messages, toolDefs []map[string]any, emit func(map[string]any) error) (*modelResponse, error) {
