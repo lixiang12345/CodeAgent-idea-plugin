@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -290,6 +292,40 @@ func TestChatStreamNDJSON(t *testing.T) {
 	if !sawThinking || !sawFinished || !sawText || !sawEndTurn || sawError {
 		t.Errorf("stream events: thinking=%v finished=%v text=%v endTurn=%v error=%v (lines=%d)",
 			sawThinking, sawFinished, sawText, sawEndTurn, sawError, lines)
+	}
+}
+
+func TestChatStreamDoesNotLogRequestBody(t *testing.T) {
+	gateway := successfulModelGateway(t)
+	defer gateway.Close()
+
+	var logs bytes.Buffer
+	previousWriter := log.Writer()
+	previousFlags := log.Flags()
+	previousPrefix := log.Prefix()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	log.SetPrefix("")
+	t.Cleanup(func() {
+		log.SetOutput(previousWriter)
+		log.SetFlags(previousFlags)
+		log.SetPrefix(previousPrefix)
+	})
+
+	srv := httptest.NewServer(New("http://127.0.0.1:8787", gateway.URL, "test-model").Handler())
+	defer srv.Close()
+	const sensitiveMessage = "sensitive-chat-payload-must-not-reach-logs"
+	resp := post(t, srv.URL+"/api-client/chat-stream", `{"message":"`+sensitiveMessage+`","conversation_id":"log-redaction"}`)
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		t.Fatalf("read chat stream: %v", err)
+	}
+
+	if strings.Contains(logs.String(), sensitiveMessage) {
+		t.Fatalf("chat request body leaked into logs: %s", logs.String())
+	}
+	if !strings.Contains(logs.String(), "tenant: POST /api-client/chat-stream") {
+		t.Fatalf("request metadata log missing; captured logs: %s", logs.String())
 	}
 }
 

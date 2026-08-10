@@ -46,13 +46,13 @@ func main() {
 	flag.Parse()
 
 	idp, err := oidc.NewProvider(oidcURL, oidc.Tenant{
-		TenantID:   envOr("TENANT_ID", "local-tenant"),
-		TenantName: envOr("TENANT_NAME", "Augment Local"),
-		TenantURL:  tenantURL,
-		UserID:     envOr("USER_ID", "local-user"),
-		Email:      envOr("USER_EMAIL", "local@augment.local"),
+		TenantID:    envOr("TENANT_ID", "local-tenant"),
+		TenantName:  envOr("TENANT_NAME", "Augment Local"),
+		TenantURL:   tenantURL,
+		UserID:      envOr("USER_ID", "local-user"),
+		Email:       envOr("USER_EMAIL", "local@augment.local"),
 		DisplayName: envOr("USER_NAME", "Local User"),
-		Plan:       envOr("USER_PLAN", "professional"),
+		Plan:        envOr("USER_PLAN", "professional"),
 	}, os.Getenv("JWT_PRIVATE_KEY"))
 	if err != nil {
 		log.Fatalf("oidc: %v", err)
@@ -64,7 +64,7 @@ func main() {
 	ten := tenant.New(tenantURL, gatewayURL, gatewayModel)
 	ten.TokenHandler = func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("tenant: %s %s (TokenHandler) content-type=%s", r.Method, r.URL.Path, r.Header.Get("Content-Type"))
-		idp.IssueToken(w)
+		idp.ExchangeToken(w, r)
 	}
 
 	// Kick off ContextEngine indexing at startup so the codebase is indexed
@@ -109,7 +109,6 @@ func main() {
 	_ = srvOIDC.Shutdown(shut)
 	_ = srvTenant.Shutdown(shut)
 }
-
 
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

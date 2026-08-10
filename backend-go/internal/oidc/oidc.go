@@ -12,12 +12,15 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"log"
 	"math/big"
+	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -27,27 +30,35 @@ import (
 
 const kid = "augment-local-1"
 
+const authorizationCodeTTL = 10 * time.Minute
+
+type authorizationCode struct {
+	redirectURI   string
+	codeChallenge string
+	method        string
+	expiresAt     time.Time
+}
+
 // Tenant describes the identity the plugin receives after login. tenantUrl is
 // the address of the tenant surface that will serve all /api-client/* calls.
 type Tenant struct {
-	TenantID   string `json:"tenantId"`
-	TenantName string `json:"tenantName"`
-	TenantURL  string `json:"tenantUrl"`
-	UserID     string `json:"id"`
-	Email      string `json:"email"`
+	TenantID    string `json:"tenantId"`
+	TenantName  string `json:"tenantName"`
+	TenantURL   string `json:"tenantUrl"`
+	UserID      string `json:"id"`
+	Email       string `json:"email"`
 	DisplayName string `json:"name"`
-	Plan       string `json:"plan"`
+	Plan        string `json:"plan"`
 }
 
 // Provider is the local OIDC authority.
 type Provider struct {
-	baseURL  string
-	tenant   Tenant
-	key      *rsa.PrivateKey
-	pubJWK   map[string]any
-	codes    sync.Map // code -> redirectURI
-	mu       sync.Mutex
-	now      func() time.Time
+	baseURL string
+	tenant  Tenant
+	key     *rsa.PrivateKey
+	pubJWK  map[string]any
+	codes   sync.Map // code -> authorizationCode
+	now     func() time.Time
 }
 
 // NewProvider builds a Provider, loading an RSA key from oidcPrivateKeyPEM if
@@ -142,9 +153,9 @@ func (p *Provider) handleWellKnown(w http.ResponseWriter, r *http.Request) {
 		"subject_types_supported":               []string{"public"},
 		"id_token_signing_alg_values_supported": []string{"RS256"},
 		"scopes_supported":                      []string{"openid", "profile", "email", "offline_access"},
-		"grant_types_supported":                 []string{"authorization_code", "refresh_token", "client_credentials"},
+		"grant_types_supported":                 []string{"authorization_code"},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_post", "none"},
-		"code_challenge_methods_supported":      []string{"S256", "plain"},
+		"code_challenge_methods_supported":      []string{"S256"},
 		"claims_supported":                      []string{"sub", "email", "name", "tenantId", "tenantName", "tenantUrl", "plan"},
 	})
 }
@@ -180,33 +191,57 @@ func (p *Provider) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	redirectURI := q.Get("redirect_uri")
 	state := q.Get("state")
-	log.Printf("oidc: authorize GET, redirect_uri=%s state=%s code_challenge=%t", redirectURI, state, q.Get("code_challenge") != "")
+	challenge := q.Get("code_challenge")
+	method := q.Get("code_challenge_method")
+	log.Printf("oidc: authorize GET, redirect_uri=%s state=%s code_challenge=%t", redirectURI, state, challenge != "")
 	if redirectURI == "" {
 		http.Error(w, "missing redirect_uri", http.StatusBadRequest)
 		return
 	}
+	redirect, err := url.Parse(redirectURI)
+	if err != nil || !validLoopbackRedirect(redirect) {
+		http.Error(w, "invalid redirect_uri", http.StatusBadRequest)
+		return
+	}
+	if q.Get("response_type") != "code" {
+		http.Error(w, "unsupported response_type", http.StatusBadRequest)
+		return
+	}
+	if method != "S256" || !validS256Challenge(challenge) {
+		http.Error(w, "S256 PKCE is required", http.StatusBadRequest)
+		return
+	}
 	// Always auto-complete — same code path for GET, POST, and autologin.
-	p.completeAuthorize(w, r, redirectURI, state, q.Get("code_challenge"), q.Get("code_challenge_method"))
+	p.completeAuthorize(w, r, redirectURI, state, challenge, method)
+}
+
+func validLoopbackRedirect(redirect *url.URL) bool {
+	if redirect == nil || redirect.Scheme != "http" || redirect.Host == "" {
+		return false
+	}
+	host := redirect.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (p *Provider) completeAuthorize(w http.ResponseWriter, r *http.Request, redirectURI, state, cc, ccm string) {
 	log.Printf("oidc: completeAuthorize -> redirect to %s (code sent)", redirectURI)
 	code := randomToken(24)
-	val := map[string]any{
-		"redirect_uri":  redirectURI,
-		"state":         state,
-		"code_challenge": cc,
-		"ccm":            ccm,
-		"exp":            time.Now().Add(10 * time.Minute).Unix(),
-	}
-	raw, _ := json.Marshal(val)
-	p.codes.Store(code, string(raw))
-
 	u, err := url.Parse(redirectURI)
 	if err != nil {
 		http.Error(w, "bad redirect_uri", http.StatusBadRequest)
 		return
 	}
+	p.codes.Store(code, authorizationCode{
+		redirectURI:   redirectURI,
+		codeChallenge: cc,
+		method:        ccm,
+		expiresAt:     p.now().Add(authorizationCodeTTL),
+	})
+
 	query := u.Query()
 	query.Set("code", code)
 	if state != "" {
@@ -221,7 +256,8 @@ func (p *Provider) completeAuthorize(w http.ResponseWriter, r *http.Request, red
 func (p *Provider) handleToken(w http.ResponseWriter, r *http.Request) {
 	log.Printf("oidc: token request content-type=%s", r.Header.Get("Content-Type"))
 	var grantType, code, redirectURI, verifier string
-	switch r.Header.Get("Content-Type") {
+	mediaType, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	switch mediaType {
 	case "application/json":
 		var body struct {
 			GrantType    string `json:"grant_type"`
@@ -239,45 +275,69 @@ func (p *Provider) handleToken(w http.ResponseWriter, r *http.Request) {
 		redirectURI = r.FormValue("redirect_uri")
 		verifier = r.FormValue("code_verifier")
 	}
-	if grantType == "" {
-		grantType = "authorization_code"
+	if grantType != "authorization_code" {
+		writeOAuthError(w, "unsupported_grant_type", "only authorization_code is supported")
+		return
+	}
+	if code == "" {
+		writeOAuthError(w, "invalid_request", "missing code")
+		return
 	}
 
-	if grantType == "authorization_code" {
-		if code == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request", "error_description": "missing code"})
-			return
-		}
-		raw, ok := p.codes.LoadAndDelete(code)
-		if !ok {
-			// Be lenient: a fresh install may replay a stale code or the IDE may
-			// use a code it got from a previous provider run. Issue anyway.
-			log.Printf("oidc: unknown auth code %q (lenient issue)", code)
-		} else {
-			var val map[string]any
-			_ = json.Unmarshal([]byte(raw.(string)), &val)
-			// Cross-check the redirect_uri the token request claims against the
-			// one bound at authorize time when the plugin sends both.
-			if stored, _ := val["redirect_uri"].(string); stored != "" && redirectURI != "" && stored != redirectURI {
-				log.Printf("oidc: redirect_uri mismatch (have %q, stored %q) — lenient issue", redirectURI, stored)
-			}
-			if cc, _ := val["code_challenge"].(string); cc != "" && verifier != "" {
-				if !pkceValid(cc, val["ccm"].(string), verifier) {
-					writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_grant", "error_description": "PKCE verification failed"})
-					return
-				}
-			}
-		}
+	// Consume first and validate second. A failed redirect, expiry, or PKCE
+	// check must never leave a code available for a corrected replay.
+	raw, ok := p.codes.LoadAndDelete(code)
+	stored, validRecord := raw.(authorizationCode)
+	if !ok || !validRecord || !p.now().Before(stored.expiresAt) ||
+		redirectURI == "" || redirectURI != stored.redirectURI ||
+		stored.method != "S256" || !validS256Challenge(stored.codeChallenge) ||
+		!validCodeVerifier(verifier) || !pkceValid(stored.codeChallenge, stored.method, verifier) {
+		writeOAuthError(w, "invalid_grant", "authorization code is invalid or expired")
+		return
 	}
 	p.IssueToken(w)
 }
 
+// ExchangeToken validates and consumes an authorization code before issuing
+// tokens. The tenant surface exposes this same handler because the IntelliJ
+// client exchanges its code at tenantUrl/token rather than the issuer URL.
+func (p *Provider) ExchangeToken(w http.ResponseWriter, r *http.Request) {
+	p.handleToken(w, r)
+}
+
 func pkceValid(challenge, method, verifier string) bool {
-	if method == "plain" {
-		return challenge == verifier
+	if method != "S256" {
+		return false
 	}
 	sum := sha256.Sum256([]byte(verifier))
-	return challenge == base64.RawURLEncoding.EncodeToString(sum[:])
+	actual := base64.RawURLEncoding.EncodeToString(sum[:])
+	return subtle.ConstantTimeCompare([]byte(challenge), []byte(actual)) == 1
+}
+
+func validS256Challenge(challenge string) bool {
+	decoded, err := base64.RawURLEncoding.DecodeString(challenge)
+	return err == nil && len(decoded) == sha256.Size
+}
+
+func validCodeVerifier(verifier string) bool {
+	if len(verifier) < 43 || len(verifier) > 128 {
+		return false
+	}
+	for _, c := range []byte(verifier) {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func writeOAuthError(w http.ResponseWriter, code, description string) {
+	writeJSON(w, http.StatusBadRequest, map[string]any{
+		"error":             code,
+		"error_description": description,
+	})
 }
 
 // IssueToken writes a full token response to w. Exported so the

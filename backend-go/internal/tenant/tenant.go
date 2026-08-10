@@ -182,8 +182,6 @@ func (s *Server) dispatchREST(w http.ResponseWriter, r *http.Request, method, pa
 // the Accept header.
 func (s *Server) streamREST(w http.ResponseWriter, r *http.Request, method string) {
 	req := decodeBody(r)
-	// DEBUG: log the full request body to understand IDE's message format.
-	log.Printf("chat-stream req body: %+v", req)
 	flow := chat.FlowNDJSON
 	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
 		flow = chat.FlowSSE

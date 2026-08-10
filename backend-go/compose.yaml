@@ -4,8 +4,8 @@ services:
     image: augment-local:latest
     container_name: augment-local
     ports:
-      - "8445:8445" # OIDC IdP  —— point the IDE here via -Daugmentcode.oauth.url
-      - "8787:8787" # tenant surface (REST /api-client/* + connect/gRPC + discovery)
+      - "127.0.0.1:8445:8445" # OIDC IdP - point the IDE here via -Daugmentcode.oauth.url
+      - "127.0.0.1:8787:8787" # tenant surface (REST /api-client/* + connect/gRPC + discovery)
     environment:
       OIDC_URL: "${OIDC_URL:-http://127.0.0.1:8445}"
       TENANT_URL: "${TENANT_URL:-http://127.0.0.1:8787}"
