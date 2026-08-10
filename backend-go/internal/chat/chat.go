@@ -155,7 +155,7 @@ func (s *Simulator) Stream(ctx context.Context, w io.Writer, flow Flow, req map[
 	if isWorkspaceQuestionsRequest(cfg.UserMessage) {
 		nid := int32(1)
 		_ = emitNode(node{ID: nid, Type: "THINKING",
-			Content: "Generating workspace onboarding questions …",
+			Content:   "Generating workspace onboarding questions …",
 			Timestamp: ms(),
 		})
 		nid++
@@ -232,14 +232,18 @@ func (s *Simulator) Stream(ctx context.Context, w io.Writer, flow Flow, req map[
 
 		// Call the model.
 		resp, err := s.callModel(ctx, cfg.Model, messages, toolDefs, emit)
+		if err == nil && (resp == nil || (strings.TrimSpace(resp.Content) == "" && len(resp.ToolCalls) == 0)) {
+			err = fmt.Errorf("模型网关返回空响应：没有文本或工具调用")
+		}
 		if err != nil {
 			log.Printf("chat: model call error: %v", err)
 			errText := fmt.Sprintf("模型调用失败: %v。请检查网关配置。", err)
 			_ = emitText(emit, errText)
-			// Persist the turn even on failure so the conversation survives
-			// webview reloads / screen switches.
+			_ = emitNode(node{ID: nodeID, Type: "MAIN_TEXT_FINISHED", Timestamp: ms()})
+			nodeID++
+			_ = emit(map[string]any{"stop_reason": "STOP_REASON_ERROR"})
 			s.persistTurn(cfg, errText, nil)
-			break
+			return nil
 		}
 
 		// Model asked to use tools.
@@ -490,9 +494,22 @@ func (s *Simulator) buildMessagesFromIDE(cfg requestConfig, system string) []map
 		msgs = append(msgs, map[string]any{"role": "system", "content": system})
 	}
 
-	// Walk the IDE's chat_history (each entry is an Exchange).
+	// The IDE stores a tool call in one exchange's response_nodes and its result
+	// in the next exchange's request_nodes. Parse all exchanges first so results
+	// can be associated with their calls by tool_use_id.
+	turns := make([]parsedTurn, 0, len(cfg.ChatHistory))
+	toolResults := make(map[string]map[string]any)
 	for _, ex := range cfg.ChatHistory {
 		turn := parseExchange(ex)
+		turns = append(turns, turn)
+		for _, tr := range turn.ToolResults {
+			if id := str(tr["tool_call_id"]); id != "" {
+				toolResults[id] = tr
+			}
+		}
+	}
+
+	for _, turn := range turns {
 
 		// User message.
 		if turn.UserMsg != "" {
@@ -502,13 +519,12 @@ func (s *Simulator) buildMessagesFromIDE(cfg requestConfig, system string) []map
 		// Assistant: if there are tool calls, emit assistant + tool results.
 		if len(turn.ToolCalls) > 0 {
 			msgs = append(msgs, assistantToolMsg(turn.ToolCalls, turn.AssistantText))
-			for _, tr := range turn.ToolResults {
-				msgs = append(msgs, toolResultMsg(tr))
-			}
-			if len(turn.ToolResults) == 0 {
-				// Model used tools but no results recorded — add a placeholder
-				// so the conversation structure is valid.
-				for _, tc := range turn.ToolCalls {
+			for _, tc := range turn.ToolCalls {
+				if tr, ok := toolResults[tc.ID]; ok {
+					msgs = append(msgs, toolResultMsg(tr))
+				} else {
+					// Keep the OpenAI message structure valid when the IDE genuinely
+					// did not record a result for this tool call.
 					msgs = append(msgs, map[string]any{
 						"role":         "tool",
 						"tool_call_id": tc.ID,
@@ -567,7 +583,7 @@ func parseExchange(ex map[string]any) parsedTurn {
 		AssistantText: str(ex["response_text"]),
 	}
 
-	// request_nodes: user's message nodes (textNode).
+	// request_nodes: user text and tool results from the previous exchange.
 	if rns, ok := ex["request_nodes"].([]any); ok {
 		for _, rn := range rns {
 			nm, _ := rn.(map[string]any)
@@ -580,6 +596,9 @@ func parseExchange(ex map[string]any) parsedTurn {
 				if c := str(txt["content"]); c != "" && turn.UserMsg == "" {
 					turn.UserMsg = c
 				}
+			}
+			if tr := parseToolResultNode(nm); tr != nil {
+				turn.ToolResults = append(turn.ToolResults, tr)
 			}
 		}
 	}
@@ -599,13 +618,8 @@ func parseExchange(ex map[string]any) parsedTurn {
 					turn.ToolCalls = append(turn.ToolCalls, tc)
 				}
 			}
-			// Tool result nodes.
-			if tr, ok := nm["tool_result_node"].(map[string]any); ok {
-				turn.ToolResults = append(turn.ToolResults, map[string]any{
-					"tool_call_id": str(tr["tool_use_id"]),
-					"content":      str(tr["content"]),
-					"is_error":     bo(tr["is_error"]),
-				})
+			if tr := parseToolResultNode(nm); tr != nil {
+				turn.ToolResults = append(turn.ToolResults, tr)
 			}
 			// Collapse text from nodes that have inline content.
 			if c := str(nm["content"]); c != "" && !strings.Contains(c, "tool_use") {
@@ -622,6 +636,32 @@ func parseExchange(ex map[string]any) parsedTurn {
 	}
 
 	return turn
+}
+
+func parseToolResultNode(n map[string]any) map[string]any {
+	tr, _ := n["tool_result_node"].(map[string]any)
+	if tr == nil {
+		tr, _ = n["toolResultNode"].(map[string]any)
+	}
+	if tr == nil {
+		return nil
+	}
+	id := str(tr["tool_use_id"])
+	if id == "" {
+		id = str(tr["toolUseId"])
+	}
+	if id == "" {
+		return nil
+	}
+	isError := bo(tr["is_error"])
+	if _, ok := tr["is_error"]; !ok {
+		isError = bo(tr["isError"])
+	}
+	return map[string]any{
+		"tool_call_id": id,
+		"content":      str(tr["content"]),
+		"is_error":     isError,
+	}
 }
 
 func buildCodeContextMessage(cfg requestConfig) string {
@@ -737,6 +777,9 @@ func (s *Simulator) callOpenAI(ctx context.Context, baseURL, model string, messa
 	for sc.Scan() {
 		line := sc.Text()
 		if !strings.HasPrefix(line, "data:") {
+			if message := openAIErrorMessage([]byte(strings.TrimSpace(line))); message != "" {
+				return nil, fmt.Errorf("openai: %s", message)
+			}
 			continue
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
@@ -810,19 +853,28 @@ func (s *Simulator) callOpenAI(ctx context.Context, baseURL, model string, messa
 	// effort non-streaming retry so simple requests still get an answer.
 	if reasoning == "xhigh" && len(mr.Content) == 0 && len(mr.ToolCalls) == 0 {
 		log.Printf("chat: openai xhigh returned empty; retrying with low reasoning effort")
-		if txt := s.retryOpenAILow(ctx, url, model, messages, toolDefs); txt != "" {
-			_ = streamText(emit, txt)
-			mr.Content = txt
-			return mr, nil
+		retry, retryErr := s.retryOpenAILow(ctx, url, model, messages, toolDefs)
+		if retryErr != nil {
+			return nil, fmt.Errorf("模型网关返回空响应，低推理重试失败: %w", retryErr)
 		}
+		if retry != nil && (retry.Content != "" || len(retry.ToolCalls) > 0) {
+			if retry.Content != "" {
+				if err := streamText(emit, retry.Content); err != nil {
+					return nil, err
+				}
+				retry.Streamed = true
+			}
+			return retry, nil
+		}
+		return nil, fmt.Errorf("模型网关返回空响应：低推理重试仍无文本或工具调用")
 	}
 	return mr, nil
 }
 
 // retryOpenAILow makes a non-streaming OpenAI-compatible call with
-// reasoning_effort=low and returns the assistant text (used as a fallback when
-// the primary streaming call returns nothing).
-func (s *Simulator) retryOpenAILow(ctx context.Context, url, model string, messages, toolDefs []map[string]any) string {
+// reasoning_effort=low and returns the complete assistant message, including
+// tool calls, when the primary streaming call returns nothing.
+func (s *Simulator) retryOpenAILow(ctx context.Context, url, model string, messages, toolDefs []map[string]any) (*modelResponse, error) {
 	body := map[string]any{
 		"model":            model,
 		"messages":         messages,
@@ -837,7 +889,7 @@ func (s *Simulator) retryOpenAILow(ctx context.Context, url, model string, messa
 	bodyBytes, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return ""
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if s.GatewayKey != "" {
@@ -845,23 +897,68 @@ func (s *Simulator) retryOpenAILow(ctx context.Context, url, model string, messa
 	}
 	resp, err := s.HTTPClient.Do(req)
 	if err != nil {
-		return ""
+		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, truncate(strings.TrimSpace(string(raw)), 500))
+	}
 	var out struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content   string `json:"content"`
+				ToolCalls []struct {
+					ID       string `json:"id"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return ""
+		log.Printf("chat: retryOpenAILow decode error: %v", err)
+		return nil, err
+	}
+	if out.Error.Message != "" {
+		return nil, fmt.Errorf("openai: %s", out.Error.Message)
 	}
 	if len(out.Choices) > 0 {
-		return out.Choices[0].Message.Content
+		message := out.Choices[0].Message
+		retry := &modelResponse{Content: message.Content}
+		for _, tc := range message.ToolCalls {
+			if tc.ID == "" && tc.Function.Name == "" {
+				continue
+			}
+			retry.ToolCalls = append(retry.ToolCalls, modelToolCall{
+				ID: tc.ID, Name: tc.Function.Name, Arguments: tc.Function.Arguments,
+			})
+		}
+		log.Printf("chat: retryOpenAILow returned %d chars, tools=%d", len(retry.Content), len(retry.ToolCalls))
+		return retry, nil
 	}
-	return ""
+	log.Printf("chat: retryOpenAILow returned no choices")
+	return &modelResponse{}, nil
+}
+
+func openAIErrorMessage(data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+	var envelope struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(data, &envelope) != nil {
+		return ""
+	}
+	return envelope.Error.Message
 }
 
 func (s *Simulator) callAnthropic(ctx context.Context, baseURL, model string, messages, toolDefs []map[string]any, emit func(map[string]any) error) (*modelResponse, error) {

@@ -2,6 +2,7 @@ package tenant
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,8 +10,16 @@ import (
 	"testing"
 )
 
+func TestEncodeChatResponseStopReasonError(t *testing.T) {
+	got := encodeChatResponse(map[string]any{"stop_reason": "STOP_REASON_ERROR"})
+	want := []byte{0x38, 0x07}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("encoded stop reason = %x, want %x", got, want)
+	}
+}
+
 func testServer() *httptest.Server {
-	return httptest.NewServer(New("http://127.0.0.1:8787", "", "").Handler())
+	return httptest.NewServer(New("http://127.0.0.1:8787", "", "augment-local-code-1").Handler())
 }
 
 func post(t *testing.T, url, body string) *http.Response {
@@ -49,7 +58,7 @@ func TestGetModelsREST(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 	var d struct {
-		DefaultModel string `json:"default_model"`
+		DefaultModel string `json:"defaultModel"`
 		Models       []struct {
 			Name string `json:"name"`
 		} `json:"models"`
@@ -109,7 +118,7 @@ func TestChatStreamNDJSON(t *testing.T) {
 				}
 			}
 		}
-		if evt["stop_reason"] == "END_TURN" {
+		if evt["stop_reason"] == "END_TURN" || evt["stop_reason"] == "STOP_REASON_ERROR" {
 			sawStop = true
 		}
 	}

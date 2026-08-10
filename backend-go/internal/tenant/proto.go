@@ -342,8 +342,19 @@ func encodeChatResponse(evt map[string]any) []byte {
 			}
 		}
 	}
-	if stop, ok := evt["stop_reason"].(string); ok && stop == "END_TURN" {
-		writeVarint(&out, 7, 1) // ChatStopReason.END_TURN
+	if stop, ok := evt["stop_reason"].(string); ok {
+		stopValues := map[string]uint64{
+			"END_TURN":                1,
+			"MAX_TOKENS":              2,
+			"TOOL_USE_REQUESTED":      3,
+			"SAFETY":                  4,
+			"RECITATION":              5,
+			"MALFORMED_FUNCTION_CALL": 6,
+			"STOP_REASON_ERROR":       7,
+		}
+		if value, found := stopValues[stop]; found {
+			writeVarint(&out, 7, value)
+		}
 	}
 	return out.Bytes()
 }
