@@ -354,14 +354,57 @@ func (c *ContextEngineClient) Status() map[string]any {
 	if err := json.Unmarshal(body, &d); err != nil {
 		return out
 	}
+	indexed := false
 	for _, w := range d.Workspaces {
 		if w.Indexed {
+			indexed = true
 			out["indexed"] = true
 			out["stats"] = w.Stats
 			break
 		}
 	}
+	if !indexed {
+		// Not indexed yet — surface the in-flight job progress so the UI can
+		// render a real percentage (filesDone/filesTotal).
+		if p := c.jobProgress(); p != nil {
+			out["progress"] = p
+		}
+	}
 	return out
+}
+
+// jobProgress returns the in-progress index job's scan/chunk progress, or nil
+// when there's no live job (completed jobs are pruned by ContextEngine).
+func (c *ContextEngineClient) jobProgress() map[string]any {
+	c.mu.Lock()
+	jobID := c.jobID
+	c.mu.Unlock()
+	if jobID == "" {
+		return nil
+	}
+	resp, body, err := c.do("GET", "/v1/index-jobs/"+jobID, nil)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	var out struct {
+		Job struct {
+			Status   string `json:"status"`
+			Progress struct {
+				Phase      string `json:"phase"`
+				FilesTotal int    `json:"filesTotal"`
+				FilesDone  int    `json:"filesDone"`
+			} `json:"progress"`
+		} `json:"job"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil
+	}
+	return map[string]any{
+		"status":     out.Job.Status,
+		"phase":      out.Job.Progress.Phase,
+		"filesTotal": out.Job.Progress.FilesTotal,
+		"filesDone":  out.Job.Progress.FilesDone,
+	}
 }
 
 // Retrieve packs task context from ContextEngine and returns the packed_text.
