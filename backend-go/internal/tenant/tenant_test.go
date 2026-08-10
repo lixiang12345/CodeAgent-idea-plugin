@@ -61,6 +61,30 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestContextEngineStatusIncludesPersistedConversationCount(t *testing.T) {
+	t.Setenv("STATE_FILE", t.TempDir()+"/state.json")
+	server := New("http://127.0.0.1:8787", "", "augment-local-code-1")
+	server.Store.CreateConversation("conversation-1", "workspace", "First", false)
+	server.Store.CreateConversation("conversation-2", "workspace", "Second", false)
+	srv := httptest.NewServer(server.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/contextengine/index-status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var got struct {
+		TotalThreads int `json:"totalThreads"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.TotalThreads != 2 {
+		t.Fatalf("totalThreads = %d, want 2", got.TotalThreads)
+	}
+}
+
 func TestGetModelsREST(t *testing.T) {
 	srv := testServer()
 	defer srv.Close()
@@ -292,6 +316,24 @@ func TestChatStreamNDJSON(t *testing.T) {
 	if !sawThinking || !sawFinished || !sawText || !sawEndTurn || sawError {
 		t.Errorf("stream events: thinking=%v finished=%v text=%v endTurn=%v error=%v (lines=%d)",
 			sawThinking, sawFinished, sawText, sawEndTurn, sawError, lines)
+	}
+}
+
+func TestChatStreamCreatesConversationForHomeStatus(t *testing.T) {
+	t.Setenv("STATE_FILE", t.TempDir()+"/state.json")
+	gateway := successfulModelGateway(t)
+	defer gateway.Close()
+	server := New("http://127.0.0.1:8787", gateway.URL, "test-model")
+	srv := httptest.NewServer(server.Handler())
+	defer srv.Close()
+
+	resp := post(t, srv.URL+"/api-client/chat-stream", `{"message":"hi","conversation_id":"home-thread"}`)
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(server.Store.ListConversations("")); got != 1 {
+		t.Fatalf("conversation count = %d, want 1", got)
 	}
 }
 

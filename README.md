@@ -8,7 +8,7 @@
 
 ```
 IntelliJ (Augment 插件, 闭源)
-   │  0.482.3-beta 插件 jar（含 5 个补丁，见 releases/）
+   │  0.482.3.999-local 插件（发布文件名保留 beta，见 releases/）
    ▼
 sidecar (Node, 插件自带) ──────► augment-local (Go 后端, :8445/:8787)
    │                                    │
@@ -69,6 +69,8 @@ cp releases/intellij-augment-0.482.3-beta.jar \
   ~/Library/Application\ Support/JetBrains/IntelliJIdea2026.1/plugins/intellij-augment/lib/
 ```
 
+JAR 内部版本是 `0.482.3.999-local`，高于对应 Marketplace stable，避免 IDE 在重启后自动覆盖本地补丁。
+
 > 原始未打补丁 jar 可随时从插件市场重新安装回滚。补丁内容：`SettingsService` 两个 bridge（workspace 列表 + 语言统计）、sidecar `generate-project-overview` handler、webview 摘要链路、onboarding 空问题过滤，以及 Java 21/日志/轮询加固。当前 bridge 源码和验证流程见 `re/patches/intellij-augment-0.482.3/`。
 
 ### 5. 连接 IDE
@@ -103,3 +105,4 @@ ContextEngine 不再写死工程路径。每次聊天请求携带的 `workspace_
 - **codebase-retrieval 返回“正在索引”**：首次索引需数秒~数分钟，稍后重试
 - **模型无回复**：检查 `MODEL_GATEWAY_URL/API_KEY`，`curl :8787/api-client/chat-stream` 直测。网关空 choices 或 error envelope 会显示为 `STOP_REASON_ERROR`，不会伪装成成功结束。
 - **旧日志仍显示 501、remote_tool_id 或超时**：先 `docker compose up -d --build --force-recreate augment-local`，再只看重建后的时间窗口；旧容器可能仍将端口暴露在所有网卡。
+- **需要重建索引**：关闭 IDE 后运行 `backend-go/scripts/clean-cache.sh`。默认保留会话和插件设置；只有显式 `--reset-state` 才会先备份再清除持久状态。

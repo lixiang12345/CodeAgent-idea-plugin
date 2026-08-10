@@ -1351,6 +1351,16 @@ func extractToolResults(req map[string]any) []map[string]any {
 // ── persistence ────────────────────────────────────────────────────────
 
 func (s *Simulator) persistTurn(cfg requestConfig, finalText string, toolCalls []modelToolCall) {
+	if cfg.ConversationID != "" {
+		workspaceID := ""
+		for _, folder := range cfg.WorkspaceFolders {
+			if root, _ := folder["folder_root"].(string); root != "" {
+				workspaceID = root
+				break
+			}
+		}
+		s.Store.CreateConversation(cfg.ConversationID, workspaceID, "", false)
+	}
 	s.Store.AppendExchange(cfg.ConversationID, &state.Exchange{
 		RequestID:    cfg.RequestID,
 		RequestMsg:   cfg.UserMessage,

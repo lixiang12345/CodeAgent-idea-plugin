@@ -48,9 +48,10 @@ public final class AugmentWorkspaceBridge {
             if (project[1] != null && !project[1].isEmpty()) {
                 workspace.setPath(project[1]);
             }
+            int[] stats = fetchWorkspaceStats();
             workspace.setStats(WorkspaceStats.newBuilder()
-                .setTrackedFiles(fetchTrackedFiles())
-                .setTotalThreads(0));
+                .setTrackedFiles(stats[0])
+                .setTotalThreads(stats[1]));
             response.addWorkspaces(workspace);
             notifyBackendActivate(project[1]);
         } catch (Throwable ignored) {
@@ -59,19 +60,22 @@ public final class AugmentWorkspaceBridge {
         return response.build();
     }
 
-    private static int fetchTrackedFiles() {
+    private static int[] fetchWorkspaceStats() {
         try {
             HttpResponse<String> response = HTTP.send(
                 request("/contextengine/index-status").GET().build(),
                 HttpResponse.BodyHandlers.ofString()
             );
             if (response.statusCode() == 200) {
-                return jsonInt(response.body(), "fileCount");
+                return new int[]{
+                    jsonInt(response.body(), "fileCount"),
+                    jsonInt(response.body(), "totalThreads")
+                };
             }
         } catch (Throwable ignored) {
-            // Return an unknown/zero count while the backend starts.
+            // Return unknown/zero counts while the backend starts.
         }
-        return 0;
+        return new int[]{0, 0};
     }
 
     public static IndexingStatusResponse getIndexingStatusResponse() {

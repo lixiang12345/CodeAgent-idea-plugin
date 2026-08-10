@@ -28,13 +28,15 @@ uses fixed ZIP timestamps, and verifies the resulting archive. Repeated builds
 of the checked-in hardened JAR produce:
 
 ```text
-a7ef4fd7f78ea665e51cbed40ca220e95146e1bccbd18454424652d051795d1c
+c089b74683a7f55cc5b513847c4aed4673481542cd0f304f31a24b4cb9b7f7db
 ```
 
 Relative to the previously tracked JAR, only these entries change:
 
 - `com/augmentcode/intellij/settings/AugmentWorkspaceBridge.class`
 - `sidecar/index.cjs`
+- `META-INF/plugin.xml`
+- `META-INF/MANIFEST.MF`
 
 ## Hardened behavior
 
@@ -46,8 +48,12 @@ Relative to the previously tracked JAR, only these entries change:
   persist payload values.
 - ContextEngine polling uses one timer path, backs off to 10 seconds on errors,
   and drops to 30 seconds after indexing completes.
-- The Home thread count is reported as unknown (`0`) instead of a fabricated
-  constant (`1`).
+- Plugin version `0.482.3.999-local` stays ahead of the matching Marketplace
+  stable build, preventing IntelliJ from silently replacing the local patch.
+- Home reads the file count from ContextEngine and the existing thread count
+  from the sidecar history database; the JVM bridge has a backend fallback.
+- The local conversation workspace owns ContextEngine routing, so the sidecar
+  no longer emits a misleading default-retrieval warning for `workspace_folder`.
 
 This is not yet a complete reconstruction of all historical binary patches.
 `SettingsService.class` and the two webview bundles still need source/transform

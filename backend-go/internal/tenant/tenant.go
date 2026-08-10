@@ -128,10 +128,16 @@ func (s *Server) handleContextEngineActivate(w http.ResponseWriter, r *http.Requ
 // currently active workspace (indexed flag + file/chunk stats).
 func (s *Server) handleContextEngineStatus(w http.ResponseWriter, r *http.Request) {
 	if s.ToolExecutor == nil || s.ToolExecutor.ContextEngine == nil {
-		s.writeJSON(w, 200, map[string]any{"indexed": false, "error": "contextengine not configured"})
+		s.writeJSON(w, 200, map[string]any{
+			"indexed":      false,
+			"totalThreads": len(s.Store.ListConversations("")),
+			"error":        "contextengine not configured",
+		})
 		return
 	}
-	s.writeJSON(w, 200, s.ToolExecutor.ContextEngine.Status())
+	status := s.ToolExecutor.ContextEngine.Status()
+	status["totalThreads"] = len(s.Store.ListConversations(""))
+	s.writeJSON(w, 200, status)
 }
 
 // logRequests wraps a handler to log every incoming request on the tenant surface.

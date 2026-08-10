@@ -59,7 +59,7 @@ jobs:
         run: |
           plugin_version="$(unzip -p releases/intellij-augment-0.482.3-beta.jar META-INF/plugin.xml | sed -n 's:.*<version>\([^<]*\)</version>.*:\1:p')"
           manifest_version="$(unzip -p releases/intellij-augment-0.482.3-beta.jar META-INF/MANIFEST.MF | sed -n 's/^Version: //p' | tr -d '\r')"
-          test "$plugin_version" = "0.482.3-beta"
+          test "$plugin_version" = "0.482.3.999-local"
           test "$manifest_version" = "$plugin_version"
 
       - name: Verify bundled sidecar syntax

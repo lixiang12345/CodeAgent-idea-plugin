@@ -56,7 +56,7 @@ Go 后端替代云端身份、模型、聊天、工具调度和检索代理；Si
 
 - Java bridge 可用 `-Daugmentcode.tenant.url`、sidecar 可用 `AUGMENT_TENANT_URL` 覆盖地址，但还没有直接复用 OIDC 会话里的动态 `tenantUrl` 和 Bearer token；默认仍是本机 `127.0.0.1:8787`。
 - JVM status 请求仍是最多 3 秒的同步 `HttpClient.send`，异常会降级为空或 running；语言统计只递归有限深度。
-- `totalThreads` 已从伪造的 1 改为未知值 0，但真实 Sidecar LevelDB thread count 尚未接入 bridge。
+- Home 的主路径从 Sidecar LevelDB 读取 thread count，并从 ContextEngine 读取 file count；JVM bridge 在该路径不可用时回退到 Go Store 中已持久化的 conversation 数量。
 - `SettingsService.class` 和两个 webview bundle 的历史补丁仍没有源码或 transformer；当前脚本可重建本轮 bridge/sidecar 加固，但还不能从原始 ZIP 重建全部 6 个变更 entry。
 - Sidecar 及第三方库仍有其他 debug 日志；共享日志前仍应做二次脱敏。
 
