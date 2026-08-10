@@ -81,6 +81,11 @@ func (s *Server) Handler() http.Handler {
 	// The sidecar forwards generate-project-overview here with the workspace root.
 	mux.HandleFunc("/generate-project-overview", s.handleGenerateProjectOverview)
 
+	// Activate ContextEngine for the currently-open project. Called by the
+	// plugin bridge when the user selects/opens a project (Home page), so
+	// indexing starts on project open rather than on first chat.
+	mux.HandleFunc("/contextengine/activate", s.handleContextEngineActivate)
+
 	// All /api-client/* REST routes dispatch through one handler.
 	mux.HandleFunc("/api-client/", s.handleAPIClient)
 
@@ -91,6 +96,24 @@ func (s *Server) Handler() http.Handler {
 	return cors(logRequests(mux))
 }
 
+
+// handleContextEngineActivate points ContextEngine at the project the user
+// just opened and kicks off indexing (async, idempotent). Called by the plugin
+// bridge from getWorkspaceInfo.
+func (s *Server) handleContextEngineActivate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		HostRoot string `json:"host_root"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.HostRoot == "" {
+		s.writeJSON(w, 400, map[string]any{"error": "host_root required"})
+		return
+	}
+	log.Printf("tenant: contextengine activate root=%s", req.HostRoot)
+	s.ToolExecutor.SetActiveWorkspace(req.HostRoot)
+	go s.ToolExecutor.EnsureContextEngineIndexed()
+	s.writeJSON(w, 200, map[string]any{"ok": true})
+}
 
 // logRequests wraps a handler to log every incoming request on the tenant surface.
 func logRequests(next http.Handler) http.Handler {

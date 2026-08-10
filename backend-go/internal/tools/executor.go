@@ -77,8 +77,20 @@ type Executor struct {
 	convWorkspace map[string]string
 }
 
+// isWriteOp reports whether a tool modifies the workspace (after which we
+// refresh the ContextEngine index).
+func isWriteOp(name string) bool {
+	switch name {
+	case "str-replace-editor", "save-file", "remove-files", "write-process":
+		return true
+	}
+	return false
+}
+
 // SetConversationWorkspace records which host project a conversation belongs
-// to (from its chat request's workspace_folders).
+// to (from its chat request's workspace_folders) and makes sure ContextEngine
+// has that workspace created and indexed (async, idempotent) so retrieval —
+// including agents that call ContextEngine directly — can find it.
 func (e *Executor) SetConversationWorkspace(conversationID, hostRoot string) {
 	if conversationID == "" || hostRoot == "" {
 		return
@@ -90,6 +102,7 @@ func (e *Executor) SetConversationWorkspace(conversationID, hostRoot string) {
 	e.convWorkspace[conversationID] = hostRoot
 	e.mu.Unlock()
 	e.SetActiveWorkspace(hostRoot)
+	go e.EnsureContextEngineIndexed()
 }
 
 // workspaceForConversation returns the host project root recorded for a
@@ -169,6 +182,19 @@ func (e *Executor) Execute(req *ToolCallRequest) *ToolCallResponse {
 		if root := e.workspaceForConversation(req.ConversationID); root != "" {
 			e.ContextEngine.SetActive(root)
 		}
+	}
+
+	// After a write operation, bump ContextEngine's incremental index for this
+	// conversation's project so the codebase stays fresh (the plugin does not
+	// report file changes in this build; watch is approximated by observing
+	// agent-initiated writes).
+	if isWriteOp(req.Name) && e.ContextEngine != nil {
+		defer func() {
+			if root := e.workspaceForConversation(req.ConversationID); root != "" {
+				e.ContextEngine.SetActive(root)
+				go e.EnsureContextEngineIndexed()
+			}
+		}()
 	}
 
 	switch req.Name {
