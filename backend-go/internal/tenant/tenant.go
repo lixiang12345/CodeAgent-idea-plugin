@@ -86,6 +86,9 @@ func (s *Server) Handler() http.Handler {
 	// indexing starts on project open rather than on first chat.
 	mux.HandleFunc("/contextengine/activate", s.handleContextEngineActivate)
 
+	// ContextEngine indexing status for the active workspace (indexed? stats).
+	mux.HandleFunc("/contextengine/index-status", s.handleContextEngineStatus)
+
 	// All /api-client/* REST routes dispatch through one handler.
 	mux.HandleFunc("/api-client/", s.handleAPIClient)
 
@@ -113,6 +116,16 @@ func (s *Server) handleContextEngineActivate(w http.ResponseWriter, r *http.Requ
 	s.ToolExecutor.SetActiveWorkspace(req.HostRoot)
 	go s.ToolExecutor.EnsureContextEngineIndexed()
 	s.writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+// handleContextEngineStatus reports ContextEngine indexing status for the
+// currently active workspace (indexed flag + file/chunk stats).
+func (s *Server) handleContextEngineStatus(w http.ResponseWriter, r *http.Request) {
+	if s.ToolExecutor == nil || s.ToolExecutor.ContextEngine == nil {
+		s.writeJSON(w, 200, map[string]any{"indexed": false, "error": "contextengine not configured"})
+		return
+	}
+	s.writeJSON(w, 200, s.ToolExecutor.ContextEngine.Status())
 }
 
 // logRequests wraps a handler to log every incoming request on the tenant surface.

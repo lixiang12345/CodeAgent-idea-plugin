@@ -292,6 +292,63 @@ func (c *ContextEngineClient) IndexReady() (bool, error) {
 	return out.Job.Status == "succeeded", nil
 }
 
+// Status returns the indexing status of the currently active workspace:
+// whether it is indexed plus its stats (file count, chunk count, last indexed
+// time). Used by the /contextengine/index-status endpoint.
+func (c *ContextEngineClient) Status() map[string]any {
+	c.mu.Lock()
+	wid := c.workspaceID
+	name := c.activeName
+	if name == "" {
+		name = c.Workspace
+	}
+	root := c.activeLocalRoot
+	if root == "" {
+		root = c.LocalRoot
+	}
+	c.mu.Unlock()
+
+	out := map[string]any{
+		"workspace": name,
+		"root":      root,
+		"indexed":   false,
+		"stats":     nil,
+	}
+	if wid == "" {
+		return out
+	}
+	// The per-workspace GET doesn't include index status; read it from the
+	// observability overview which lists workspaces with indexed + stats.
+	resp, body, err := c.do("GET", "/v1/observability/overview", nil)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return out
+	}
+	var d struct {
+		Workspaces []struct {
+			Indexed bool `json:"indexed"`
+			Stats   struct {
+				FileCount      int    `json:"fileCount"`
+				ChunkCount     int    `json:"chunkCount"`
+				LastIndexedAt  string `json:"lastIndexedAt"`
+				IndexVersion   int    `json:"indexVersion"`
+				HasEmbeddings  bool   `json:"hasEmbeddings"`
+				EmbeddingModel string `json:"embeddingModel"`
+			} `json:"stats"`
+		} `json:"workspaces"`
+	}
+	if err := json.Unmarshal(body, &d); err != nil {
+		return out
+	}
+	for _, w := range d.Workspaces {
+		if w.Indexed {
+			out["indexed"] = true
+			out["stats"] = w.Stats
+			break
+		}
+	}
+	return out
+}
+
 // Retrieve packs task context from ContextEngine and returns the packed_text.
 // It is the HTTP twin of the MCP `codebase-retrieval` tool.
 func (c *ContextEngineClient) Retrieve(query string) (string, error) {
