@@ -234,7 +234,11 @@ func (s *Simulator) Stream(ctx context.Context, w io.Writer, flow Flow, req map[
 		resp, err := s.callModel(ctx, cfg.Model, messages, toolDefs, emit)
 		if err != nil {
 			log.Printf("chat: model call error: %v", err)
-			_ = emitText(emit, fmt.Sprintf("模型调用失败: %v。请检查网关配置。", err))
+			errText := fmt.Sprintf("模型调用失败: %v。请检查网关配置。", err)
+			_ = emitText(emit, errText)
+			// Persist the turn even on failure so the conversation survives
+			// webview reloads / screen switches.
+			s.persistTurn(cfg, errText, nil)
 			break
 		}
 
