@@ -419,10 +419,63 @@ func encodeChatResultNode(n map[string]any) []byte {
 	if tu, ok := n["tool_use"].(map[string]any); ok {
 		writeMessage(&out, 4, encodeToolUse(tu))
 	}
+	if usage, ok := n["token_usage"].(map[string]any); ok {
+		writeMessage(&out, 8, encodeTokenUsage(usage))
+	}
 	if ts, ok := n["timestamp_ms"].(float64); ok {
 		writeVarint(&out, 10, uint64(ts))
 	}
 	return out.Bytes()
+}
+
+func encodeTokenUsage(usage map[string]any) []byte {
+	var out bytes.Buffer
+	fields := []struct {
+		name   string
+		number int
+	}{
+		{name: "input_tokens", number: 1},
+		{name: "output_tokens", number: 2},
+		{name: "cache_read_input_tokens", number: 3},
+		{name: "cache_creation_input_tokens", number: 4},
+		{name: "system_prompt_tokens", number: 5},
+		{name: "chat_history_tokens", number: 6},
+		{name: "current_message_tokens", number: 7},
+		{name: "max_context_tokens", number: 8},
+		{name: "tool_definitions_tokens", number: 9},
+		{name: "tool_result_tokens", number: 10},
+		{name: "assistant_response_tokens", number: 11},
+		{name: "max_output_tokens", number: 13},
+	}
+	for _, field := range fields {
+		if value, ok := nonNegativeInteger(usage[field.name]); ok {
+			writeVarint(&out, field.number, uint64(value))
+		}
+	}
+	return out.Bytes()
+}
+
+func nonNegativeInteger(value any) (int64, bool) {
+	var result int64
+	switch number := value.(type) {
+	case int:
+		result = int64(number)
+	case int32:
+		result = int64(number)
+	case int64:
+		result = number
+	case float64:
+		result = int64(number)
+	case json.Number:
+		parsed, err := number.Int64()
+		if err != nil {
+			return 0, false
+		}
+		result = parsed
+	default:
+		return 0, false
+	}
+	return result, result >= 0
 }
 
 func encodeToolUse(tu map[string]any) []byte {

@@ -414,6 +414,124 @@ func TestCallOpenAIRetryPreservesToolCalls(t *testing.T) {
 	}
 }
 
+func TestStreamEmitsProviderTokenUsage(t *testing.T) {
+	t.Setenv("MODEL_GATEWAY_REASONING_EFFORT", "high")
+	t.Setenv("MODEL_GATEWAY_MAX_CONTEXT_TOKENS", "200000")
+
+	requests := make(chan map[string]any, 1)
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode gateway request: %v", err)
+		}
+		requests <- body
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(
+			"data: {\"choices\":[{\"delta\":{\"content\":\"answer\"}}]}\n\n" +
+				"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":2400,\"completion_tokens\":120,\"prompt_tokens_details\":{\"cached_tokens\":200}}}\n\n" +
+				"data: [DONE]\n\n",
+		))
+	}))
+	defer gateway.Close()
+
+	sim := New(state.New(), gateway.URL, "test-model")
+	var output bytes.Buffer
+	if err := sim.Stream(context.Background(), &output, FlowNDJSON, map[string]any{
+		"message": "answer the question",
+		"model":   "test-model",
+	}); err != nil {
+		t.Fatalf("Stream returned error: %v", err)
+	}
+
+	body := <-requests
+	streamOptions, _ := body["stream_options"].(map[string]any)
+	if streamOptions["include_usage"] != true {
+		t.Fatalf("stream_options = %#v, want include_usage=true", body["stream_options"])
+	}
+
+	usage := findTokenUsage(t, decodeEvents(t, output.String()))
+	if got := int(usage["input_tokens"].(float64)); got != 2400 {
+		t.Fatalf("input_tokens = %d, want 2400", got)
+	}
+	if got := int(usage["output_tokens"].(float64)); got != 120 {
+		t.Fatalf("output_tokens = %d, want 120", got)
+	}
+	if got := int(usage["cache_read_input_tokens"].(float64)); got != 200 {
+		t.Fatalf("cache_read_input_tokens = %d, want 200", got)
+	}
+	if got := int(usage["max_context_tokens"].(float64)); got != 200000 {
+		t.Fatalf("max_context_tokens = %d, want 200000", got)
+	}
+}
+
+func TestStreamEstimatesTokenUsageWhenGatewayOmitsIt(t *testing.T) {
+	t.Setenv("MODEL_GATEWAY_REASONING_EFFORT", "high")
+
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(
+			"data: {\"choices\":[{\"delta\":{\"content\":\"estimated answer\"}}]}\n\n" +
+				"data: [DONE]\n\n",
+		))
+	}))
+	defer gateway.Close()
+
+	sim := New(state.New(), gateway.URL, "test-model")
+	var output bytes.Buffer
+	if err := sim.Stream(context.Background(), &output, FlowNDJSON, map[string]any{
+		"message": "a request whose context must be estimated",
+		"model":   "test-model",
+	}); err != nil {
+		t.Fatalf("Stream returned error: %v", err)
+	}
+
+	usage := findTokenUsage(t, decodeEvents(t, output.String()))
+	if got, ok := usage["input_tokens"].(float64); !ok || got <= 0 {
+		t.Fatalf("estimated input_tokens = %#v, want a positive number", usage["input_tokens"])
+	}
+	if got, ok := usage["output_tokens"].(float64); !ok || got <= 0 {
+		t.Fatalf("estimated output_tokens = %#v, want a positive number", usage["output_tokens"])
+	}
+}
+
+func TestStreamEmitsAnthropicTokenUsage(t *testing.T) {
+	t.Setenv("MODEL_GATEWAY_MAX_CONTEXT_TOKENS", "200000")
+
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(
+			"data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":321,\"cache_read_input_tokens\":20,\"cache_creation_input_tokens\":5}}}\n\n" +
+				"data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"answer\"}}\n\n" +
+				"data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":42}}\n\n" +
+				"data: {\"type\":\"message_stop\"}\n\n",
+		))
+	}))
+	defer gateway.Close()
+
+	sim := New(state.New(), gateway.URL, "claude-test")
+	var output bytes.Buffer
+	if err := sim.Stream(context.Background(), &output, FlowNDJSON, map[string]any{
+		"message": "answer the question",
+		"model":   "claude-test",
+	}); err != nil {
+		t.Fatalf("Stream returned error: %v", err)
+	}
+
+	usage := findTokenUsage(t, decodeEvents(t, output.String()))
+	if got := int(usage["input_tokens"].(float64)); got != 321 {
+		t.Fatalf("input_tokens = %d, want 321", got)
+	}
+	if got := int(usage["output_tokens"].(float64)); got != 42 {
+		t.Fatalf("output_tokens = %d, want 42", got)
+	}
+	if got := int(usage["cache_read_input_tokens"].(float64)); got != 20 {
+		t.Fatalf("cache_read_input_tokens = %d, want 20", got)
+	}
+	if got := int(usage["cache_creation_input_tokens"].(float64)); got != 5 {
+		t.Fatalf("cache_creation_input_tokens = %d, want 5", got)
+	}
+}
+
 func TestCallOpenAIStreamsContentAndToolCall(t *testing.T) {
 	t.Setenv("MODEL_GATEWAY_REASONING_EFFORT", "high")
 
@@ -713,4 +831,23 @@ func countStopReason(events []map[string]any, want string) int {
 		}
 	}
 	return count
+}
+
+func findTokenUsage(t *testing.T, events []map[string]any) map[string]any {
+	t.Helper()
+	for _, event := range events {
+		for _, rawNode := range asSlice(event["nodes"]) {
+			node, _ := rawNode.(map[string]any)
+			if node["type"] != "TOKEN_USAGE" {
+				continue
+			}
+			usage, _ := node["token_usage"].(map[string]any)
+			if usage == nil {
+				t.Fatalf("TOKEN_USAGE node has no token_usage payload: %#v", node)
+			}
+			return usage
+		}
+	}
+	t.Fatalf("TOKEN_USAGE node not found in %#v", events)
+	return nil
 }

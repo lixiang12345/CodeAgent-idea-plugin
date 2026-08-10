@@ -105,14 +105,16 @@ CHAT_CHECK=$(echo "$CHAT" | python3 -c '
 import json,sys
 events=[json.loads(line) for line in sys.stdin if line.strip()]
 types=[node.get("type") for event in events for node in event.get("nodes", [])]
+usage=[node.get("token_usage", {}) for event in events for node in event.get("nodes", []) if node.get("type") == "TOKEN_USAGE"]
 text="".join(str(event.get("text", "")) for event in events)
 stops=[event.get("stop_reason") for event in events if event.get("stop_reason")]
-success=("THINKING" in types and "MAIN_TEXT_FINISHED" in types and stops == ["END_TURN"] and bool(text.strip()))
+valid_usage=bool(usage) and usage[-1].get("input_tokens", 0) > 0 and usage[-1].get("max_context_tokens", 0) > 0
+success=("THINKING" in types and "TOKEN_USAGE" in types and "MAIN_TEXT_FINISHED" in types and valid_usage and stops == ["END_TURN"] and bool(text.strip()))
 explicit_error=("MAIN_TEXT_FINISHED" in types and stops == ["STOP_REASON_ERROR"] and "模型调用失败" in text)
 print("success" if success else "error" if explicit_error else "invalid")
 ')
 if [[ "$CHAT_CHECK" == "success" ]]; then
-  ok "chat-stream success terminal sequence"
+  ok "chat-stream success sequence with token usage"
 elif [[ "$CHAT_CHECK" == "error" && "$REQUIRE_MODEL_SUCCESS" != "1" ]]; then
   ok "chat-stream explicit upstream error sequence"
 else

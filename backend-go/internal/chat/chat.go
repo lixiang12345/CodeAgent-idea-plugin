@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -67,19 +68,21 @@ const (
 
 // node models a ChatResultNode in proto3-JSON (snake_case field names).
 type node struct {
-	ID        int32           `json:"id"`
-	Type      string          `json:"type"`
-	Content   string          `json:"content,omitempty"`
-	ToolUse   *map[string]any `json:"tool_use,omitempty"`
-	Timestamp int64           `json:"timestamp_ms,omitempty"`
+	ID         int32           `json:"id"`
+	Type       string          `json:"type"`
+	Content    string          `json:"content,omitempty"`
+	ToolUse    *map[string]any `json:"tool_use,omitempty"`
+	TokenUsage map[string]any  `json:"token_usage,omitempty"`
+	Timestamp  int64           `json:"timestamp_ms,omitempty"`
 }
 
 // ── domain types ───────────────────────────────────────────────────────
 
 type modelResponse struct {
-	Content   string
-	ToolCalls []modelToolCall
-	Streamed  bool // true when content deltas were already streamed to the IDE
+	Content    string
+	ToolCalls  []modelToolCall
+	Streamed   bool // true when content deltas were already streamed to the IDE
+	TokenUsage map[string]any
 }
 
 type modelToolCall struct {
@@ -268,6 +271,9 @@ func (s *Simulator) Stream(ctx context.Context, w io.Writer, flow Flow, req map[
 			// them again. The model's new tool calls here will need a fresh
 			// continuation request from the IDE.
 			if !cfg.IsContinuation || iter > 0 {
+				usage := completeTokenUsage(resp.TokenUsage, messages, toolDefs, resp.Content)
+				_ = emitNode(node{ID: nodeID, Type: "TOKEN_USAGE", TokenUsage: usage, Timestamp: ms()})
+				nodeID++
 				_ = emitNode(node{ID: nodeID, Type: "MAIN_TEXT_FINISHED", Timestamp: ms()})
 				nodeID++
 				_ = emit(map[string]any{"stop_reason": "TOOL_USE_REQUESTED"})
@@ -277,6 +283,9 @@ func (s *Simulator) Stream(ctx context.Context, w io.Writer, flow Flow, req map[
 
 			// Continuation, first iteration: the model got tool results and
 			// still wants more tools. Emit and wait for the IDE again.
+			usage := completeTokenUsage(resp.TokenUsage, messages, toolDefs, resp.Content)
+			_ = emitNode(node{ID: nodeID, Type: "TOKEN_USAGE", TokenUsage: usage, Timestamp: ms()})
+			nodeID++
 			_ = emitNode(node{ID: nodeID, Type: "MAIN_TEXT_FINISHED", Timestamp: ms()})
 			nodeID++
 			_ = emit(map[string]any{"stop_reason": "TOOL_USE_REQUESTED"})
@@ -294,6 +303,9 @@ func (s *Simulator) Stream(ctx context.Context, w io.Writer, flow Flow, req map[
 			// Non-streamed gateway: emit the whole answer now.
 			_ = emitText(emit, text)
 		}
+		usage := completeTokenUsage(resp.TokenUsage, messages, toolDefs, text)
+		_ = emitNode(node{ID: nodeID, Type: "TOKEN_USAGE", TokenUsage: usage, Timestamp: ms()})
+		nodeID++
 		_ = emitNode(node{ID: nodeID, Type: "MAIN_TEXT_FINISHED", Timestamp: ms()})
 		nodeID++
 		_ = emit(map[string]any{"stop_reason": "END_TURN"})
@@ -745,6 +757,7 @@ func (s *Simulator) callOpenAI(ctx context.Context, baseURL, model string, messa
 		"temperature":      0.7,
 		"reasoning_effort": reasoning,
 		"stream":           true,
+		"stream_options":   map[string]any{"include_usage": true},
 	}
 	if len(toolDefs) > 0 {
 		body["tools"] = toolDefs
@@ -825,6 +838,7 @@ func (s *Simulator) callOpenAI(ctx context.Context, baseURL, model string, messa
 			Error struct {
 				Message string `json:"message"`
 			} `json:"error"`
+			Usage map[string]any `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
@@ -832,6 +846,7 @@ func (s *Simulator) callOpenAI(ctx context.Context, baseURL, model string, messa
 		if chunk.Error.Message != "" {
 			return nil, fmt.Errorf("openai: %s", chunk.Error.Message)
 		}
+		mr.TokenUsage = mergeTokenUsage(mr.TokenUsage, normalizeOpenAIUsage(chunk.Usage))
 
 		for _, c := range chunk.Choices {
 			if d := c.Delta.Content; d != "" {
@@ -940,6 +955,7 @@ func (s *Simulator) retryOpenAILow(ctx context.Context, url, model string, messa
 				} `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
+		Usage map[string]any `json:"usage"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		log.Printf("chat: retryOpenAILow decode error: %v", err)
@@ -950,7 +966,7 @@ func (s *Simulator) retryOpenAILow(ctx context.Context, url, model string, messa
 	}
 	if len(out.Choices) > 0 {
 		message := out.Choices[0].Message
-		retry := &modelResponse{Content: message.Content}
+		retry := &modelResponse{Content: message.Content, TokenUsage: normalizeOpenAIUsage(out.Usage)}
 		for _, tc := range message.ToolCalls {
 			if tc.ID == "" && tc.Function.Name == "" {
 				continue
@@ -1140,7 +1156,10 @@ func (s *Simulator) callAnthropic(ctx context.Context, baseURL, model string, me
 		}
 
 		var ev struct {
-			Type         string `json:"type"`
+			Type    string `json:"type"`
+			Message *struct {
+				Usage map[string]any `json:"usage"`
+			} `json:"message"`
 			ContentBlock *struct {
 				Type  string         `json:"type"`
 				Text  string         `json:"text"`
@@ -1156,6 +1175,7 @@ func (s *Simulator) callAnthropic(ctx context.Context, baseURL, model string, me
 			Error struct {
 				Message string `json:"message"`
 			} `json:"error"`
+			Usage map[string]any `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
 			continue
@@ -1163,6 +1183,10 @@ func (s *Simulator) callAnthropic(ctx context.Context, baseURL, model string, me
 		if ev.Error.Message != "" {
 			return nil, fmt.Errorf("anthropic: %s", ev.Error.Message)
 		}
+		if ev.Message != nil {
+			mr.TokenUsage = mergeTokenUsage(mr.TokenUsage, normalizeAnthropicUsage(ev.Message.Usage))
+		}
+		mr.TokenUsage = mergeTokenUsage(mr.TokenUsage, normalizeAnthropicUsage(ev.Usage))
 
 		switch ev.Type {
 		case "content_block_start":
@@ -1398,6 +1422,125 @@ func streamText(emit func(map[string]any) error, s string) error {
 		}
 	}
 	return nil
+}
+
+const (
+	defaultMaxContextTokens = 200000
+	defaultMaxOutputTokens  = 8192
+)
+
+func completeTokenUsage(usage map[string]any, messages, tools []map[string]any, response string) map[string]any {
+	complete := make(map[string]any, len(usage)+4)
+	for key, value := range usage {
+		complete[key] = value
+	}
+	if _, ok := tokenCount(complete["input_tokens"]); !ok {
+		complete["input_tokens"] = estimateTokens(map[string]any{
+			"messages": messages,
+			"tools":    tools,
+		})
+	}
+	if _, ok := tokenCount(complete["output_tokens"]); !ok {
+		complete["output_tokens"] = estimateTokens(response)
+	}
+	complete["max_context_tokens"] = positiveEnvInt("MODEL_GATEWAY_MAX_CONTEXT_TOKENS", defaultMaxContextTokens)
+	complete["max_output_tokens"] = positiveEnvInt("MODEL_GATEWAY_MAX_OUTPUT_TOKENS", defaultMaxOutputTokens)
+	return complete
+}
+
+func normalizeOpenAIUsage(raw map[string]any) map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+	usage := make(map[string]any)
+	copyFirstTokenCount(usage, "input_tokens", raw, "input_tokens", "prompt_tokens")
+	copyFirstTokenCount(usage, "output_tokens", raw, "output_tokens", "completion_tokens")
+	copyFirstTokenCount(usage, "cache_read_input_tokens", raw, "cache_read_input_tokens")
+	for _, detailsKey := range []string{"input_tokens_details", "prompt_tokens_details"} {
+		details, _ := raw[detailsKey].(map[string]any)
+		copyFirstTokenCount(usage, "cache_read_input_tokens", details, "cached_tokens")
+	}
+	return usage
+}
+
+func normalizeAnthropicUsage(raw map[string]any) map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+	usage := make(map[string]any)
+	for _, key := range []string{
+		"input_tokens",
+		"output_tokens",
+		"cache_read_input_tokens",
+		"cache_creation_input_tokens",
+	} {
+		copyFirstTokenCount(usage, key, raw, key)
+	}
+	return usage
+}
+
+func mergeTokenUsage(dst map[string]any, src map[string]any) map[string]any {
+	if len(src) == 0 {
+		return dst
+	}
+	if dst == nil {
+		dst = make(map[string]any, len(src))
+	}
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
+func copyFirstTokenCount(dst map[string]any, dstKey string, src map[string]any, srcKeys ...string) {
+	if _, exists := dst[dstKey]; exists || len(src) == 0 {
+		return
+	}
+	for _, key := range srcKeys {
+		if count, ok := tokenCount(src[key]); ok {
+			dst[dstKey] = count
+			return
+		}
+	}
+}
+
+func tokenCount(value any) (int, bool) {
+	var count int
+	switch n := value.(type) {
+	case int:
+		count = n
+	case int32:
+		count = int(n)
+	case int64:
+		count = int(n)
+	case float64:
+		count = int(n)
+	case json.Number:
+		parsed, err := strconv.Atoi(n.String())
+		if err != nil {
+			return 0, false
+		}
+		count = parsed
+	default:
+		return 0, false
+	}
+	return count, count >= 0
+}
+
+func estimateTokens(value any) int {
+	encoded, err := json.Marshal(value)
+	if err != nil || len(encoded) == 0 {
+		return 0
+	}
+	return max(1, (len(encoded)+3)/4)
+}
+
+func positiveEnvInt(name string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name)))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 // ── utilities ──────────────────────────────────────────────────────────

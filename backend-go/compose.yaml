@@ -21,6 +21,9 @@ services:
       MODEL_GATEWAY_API_KEY: "${MODEL_GATEWAY_API_KEY:-}"
       # 推理强度（传给 OpenAI 兼容网关的 reasoning_effort 字段）
       MODEL_GATEWAY_REASONING_EFFORT: "${MODEL_GATEWAY_REASONING_EFFORT:-high}"
+      # 上下文窗口与最大输出 token，用于插件的 Context Window Usage 圆环。
+      MODEL_GATEWAY_MAX_CONTEXT_TOKENS: "${MODEL_GATEWAY_MAX_CONTEXT_TOKENS:-200000}"
+      MODEL_GATEWAY_MAX_OUTPUT_TOKENS: "${MODEL_GATEWAY_MAX_OUTPUT_TOKENS:-8192}"
       # 自定义模型名 — 传给网关的 model 字段
       MODEL_GATEWAY_MODEL: "${MODEL_GATEWAY_MODEL:-gpt-5.6-sol}"
       # 自定义模型 ID / Base URL — 如果设置了，会覆盖 GetModels 返回的模型列表

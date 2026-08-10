@@ -23,6 +23,30 @@ func TestEncodeChatResponseStopReasonError(t *testing.T) {
 	}
 }
 
+func TestEncodeChatResponseTokenUsage(t *testing.T) {
+	got := encodeChatResponse(map[string]any{"nodes": []any{map[string]any{
+		"id":   float64(1),
+		"type": "TOKEN_USAGE",
+		"token_usage": map[string]any{
+			"input_tokens":       float64(150),
+			"output_tokens":      float64(12),
+			"max_context_tokens": float64(200000),
+		},
+	}}})
+	want := []byte{
+		0x32, 0x0f,
+		0x08, 0x01,
+		0x10, 0x0a,
+		0x42, 0x09,
+		0x08, 0x96, 0x01,
+		0x10, 0x0c,
+		0x40, 0xc0, 0x9a, 0x0c,
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("encoded token usage = %x, want %x", got, want)
+	}
+}
+
 func testServer() *httptest.Server {
 	return httptest.NewServer(New("http://127.0.0.1:8787", "", "augment-local-code-1").Handler())
 }
