@@ -744,16 +744,36 @@ func (r *Responder) codebaseRetrieval(req map[string]any) (any, error) {
 			q, _ = ex["request_message"].(string)
 		}
 	}
-	return map[string]any{
-		"formatted_retrieval": "",
+	resp := map[string]any{
+		"formatted_retrieval":          "",
 		"codebase_retrieval_elapsed_ms": 0,
 		"conversation_retrieval_elapsed_ms": 0,
-		"codebase_chunks_retrieved": 0,
-		"conversation_chunks_combined": 0,
-		"codebase_truncated": false,
-		"conversation_truncated": false,
-		"final_truncated": false,
-	}, nil
+		"codebase_chunks_retrieved":     0,
+		"conversation_chunks_combined":  0,
+		"codebase_truncated":            false,
+		"conversation_truncated":        false,
+		"final_truncated":               false,
+	}
+	if q == "" || r.ToolExecutor == nil || r.ToolExecutor.ContextEngine == nil {
+		return resp, nil
+	}
+	// Proxy to ContextEngine so the agent gets real retrieval results.
+	ce := r.ToolExecutor.ContextEngine
+	if err := ce.EnsureIndexed(); err != nil {
+		log.Printf("surface: codebase-retrieval ensure: %v", err)
+		return resp, nil
+	}
+	if ready, err := ce.IndexReady(); err == nil && !ready {
+		resp["formatted_retrieval"] = "The codebase is still being indexed by the context engine. Please wait and try again."
+		return resp, nil
+	}
+	if packed, rerr := ce.Retrieve(q); rerr == nil && packed != "" {
+		resp["formatted_retrieval"] = packed
+		return resp, nil
+	} else if rerr != nil {
+		log.Printf("surface: codebase-retrieval retrieve: %v", rerr)
+	}
+	return resp, nil
 }
 
 func (r *Responder) codebaseRetrievalRaw(_ map[string]any) (any, error) {
