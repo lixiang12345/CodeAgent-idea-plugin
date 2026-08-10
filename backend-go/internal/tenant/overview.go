@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -126,10 +127,12 @@ func (s *Server) generateOverviewLLM(workspaceName, structure string) string {
 	prompt := fmt.Sprintf(
 		"You are analyzing a software project for its developer. Given this project structure scan, write a concise, well-structured Markdown project overview a developer would find genuinely useful. Cover what the project is/does (infer from file names and manifests), tech stack, main directories/modules, and how to build or run it if visible. Use short headings and bullet lists. Keep it under 250 words. Do not invent facts beyond what the scan shows.\n\nProject name: %s\n\nStructure scan:\n%s", name, structure)
 	body, _ := json.Marshal(map[string]any{
-		"model":       model,
-		"messages":    []any{map[string]any{"role": "user", "content": prompt}},
-		"temperature": 0.3,
+		"model":            model,
+		"messages":         []any{map[string]any{"role": "user", "content": prompt}},
+		"temperature":      0.3,
+		"reasoning_effort": "low", // summaries don't need high reasoning; keep it fast and stable
 	})
+	log.Printf("tenant: generate-project-overview LLM prompt=%d bytes model=%s", len(body), model)
 	req, err := http.NewRequest(http.MethodPost, u, bytes.NewReader(body))
 	if err != nil {
 		return ""
