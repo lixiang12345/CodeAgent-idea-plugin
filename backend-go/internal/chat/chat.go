@@ -34,10 +34,10 @@ type Simulator struct {
 	HTTPClient   *http.Client
 	toolCallSeq  atomic.Int64
 
-	// OnWorkspace, when set, is called with the host project root from each
-	// chat request's workspace_folders (used to point ContextEngine at the
-	// currently-open project).
-	OnWorkspace func(hostRoot string)
+	// OnWorkspace, when set, is called with the conversation id and host
+	// project root from each chat request's workspace_folders (used to bind
+	// ContextEngine to the right project per conversation).
+	OnWorkspace func(conversationID, hostRoot string)
 }
 
 func New(st *state.Store, gatewayURL, gatewayModel string) *Simulator {
@@ -97,12 +97,13 @@ type parsedTurn struct {
 func (s *Simulator) Stream(ctx context.Context, w io.Writer, flow Flow, req map[string]any) error {
 	cfg := parseRequest(req)
 
-	// Surface the active project root so ContextEngine indexes the right
-	// workspace (each chat request carries workspace_folders).
+	// Bind this conversation to its host project so ContextEngine indexes and
+	// retrieves the right workspace (each chat request carries workspace_folders;
+	// conversations in different open projects stay isolated).
 	if s.OnWorkspace != nil {
 		for _, wf := range cfg.WorkspaceFolders {
 			if root, _ := wf["folder_root"].(string); root != "" {
-				s.OnWorkspace(root)
+				s.OnWorkspace(cfg.ConversationID, root)
 				break
 			}
 		}

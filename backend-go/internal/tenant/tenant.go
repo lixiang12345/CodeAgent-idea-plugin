@@ -47,9 +47,9 @@ func New(tenantURL, gatewayURL, gatewayModel string) *Server {
 		ToolExecutor: te,
 		pathIndex:    make(map[string]string),
 	}
-	// Point ContextEngine at whichever project the IDE has open (chat requests
-	// carry workspace_folders).
-	s.Chat.OnWorkspace = te.SetActiveWorkspace
+	// Bind each conversation to its host project so ContextEngine indexes and
+	// retrieves the right workspace (chat requests carry workspace_folders).
+	s.Chat.OnWorkspace = te.SetConversationWorkspace
 	for _, m := range surface.Routes {
 		if m.Path != "-" {
 			s.pathIndex[m.Path] = m.Name

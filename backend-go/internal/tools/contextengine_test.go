@@ -75,3 +75,32 @@ func TestSetActiveMapping(t *testing.T) {
 		t.Errorf("root = %q, want /opt/svc", root)
 	}
 }
+
+func TestPerConversationWorkspace(t *testing.T) {
+	e := New("")
+	// Two conversations bound to two different projects.
+	e.SetConversationWorkspace("convA", "/Users/jiming/CodeAgent-idea-plugin")
+	e.SetConversationWorkspace("convB", "/Users/jiming/codeagentcli")
+
+	// After binding convB last, a retrieval for convA must switch back to A.
+	if got := e.workspaceForConversation("convA"); got != "/Users/jiming/CodeAgent-idea-plugin" {
+		t.Errorf("convA workspace = %q", got)
+	}
+	if got := e.workspaceForConversation("convB"); got != "/Users/jiming/codeagentcli" {
+		t.Errorf("convB workspace = %q", got)
+	}
+	e.Execute(&ToolCallRequest{Name: "codebase-retrieval", ConversationID: "convA"})
+	e.mu.Lock()
+	activeA := e.ContextEngine.activeName
+	e.mu.Unlock()
+	if activeA != "CodeAgent-idea-plugin" {
+		t.Errorf("after convA retrieval active = %q, want CodeAgent-idea-plugin", activeA)
+	}
+	e.Execute(&ToolCallRequest{Name: "codebase-retrieval", ConversationID: "convB"})
+	e.mu.Lock()
+	activeB := e.ContextEngine.activeName
+	e.mu.Unlock()
+	if activeB != "codeagentcli" {
+		t.Errorf("after convB retrieval active = %q, want codeagentcli", activeB)
+	}
+}

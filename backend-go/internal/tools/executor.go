@@ -70,6 +70,35 @@ type Executor struct {
 	procMgr  *ProcessManager
 	workspaceDir string // fallback workspace root
 	ContextEngine *ContextEngineClient // optional retrieval backend for codebase-retrieval
+
+	// convWorkspace maps conversation_id → host project root so that with
+	// multiple projects open, each conversation's codebase-retrieval queries
+	// its own workspace instead of a single global "current" project.
+	convWorkspace map[string]string
+}
+
+// SetConversationWorkspace records which host project a conversation belongs
+// to (from its chat request's workspace_folders).
+func (e *Executor) SetConversationWorkspace(conversationID, hostRoot string) {
+	if conversationID == "" || hostRoot == "" {
+		return
+	}
+	e.mu.Lock()
+	if e.convWorkspace == nil {
+		e.convWorkspace = make(map[string]string)
+	}
+	e.convWorkspace[conversationID] = hostRoot
+	e.mu.Unlock()
+	e.SetActiveWorkspace(hostRoot)
+}
+
+// workspaceForConversation returns the host project root recorded for a
+// conversation, falling back to the last active workspace.
+func (e *Executor) workspaceForConversation(conversationID string) string {
+	e.mu.Lock()
+	root := e.convWorkspace[conversationID]
+	e.mu.Unlock()
+	return root
 }
 
 // EnsureContextEngineIndexed kicks off ContextEngine indexing at startup
@@ -132,7 +161,15 @@ func (e *Executor) Execute(req *ToolCallRequest) *ToolCallResponse {
 		ws = "."
 	}
 
-	log.Printf("tools: executing %s (req=%s)", req.Name, req.RequestID)
+	log.Printf("tools: executing %s (req=%s conv=%s)", req.Name, req.RequestID, req.ConversationID)
+
+	// For codebase-retrieval, point ContextEngine at this conversation's own
+	// project (so multiple open projects don't collide).
+	if req.Name == "codebase-retrieval" && e.ContextEngine != nil {
+		if root := e.workspaceForConversation(req.ConversationID); root != "" {
+			e.ContextEngine.SetActive(root)
+		}
+	}
 
 	switch req.Name {
 	// ── file browsing ──────────────────────────────────────────────
