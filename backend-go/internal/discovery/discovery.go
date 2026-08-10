@@ -11,7 +11,10 @@ import (
 
 // ServiceType mirrors augment.client_discovery.ClientServiceType in declaration
 // order — the numeric values are the proto enum numbers.
-var ServiceType = []struct{ Name string; Number int32 }{
+var ServiceType = []struct {
+	Name   string
+	Number int32
+}{
 	{"ECHO", 0}, {"KV_STORE", 1}, {"CLIENT_FEATURE_FLAGS", 2}, {"INTAKE", 3},
 	{"SETTINGS_WEBVIEW_COMMUNICATION", 4}, {"HIERARCHICAL_RULES", 5}, {"USER_WORKSPACE", 6},
 	{"CONVERSATION", 7}, {"CHAT_HISTORY", 8}, {"AUGMENT", 9}, {"CHAT_INPUT_COMPLETION", 10},

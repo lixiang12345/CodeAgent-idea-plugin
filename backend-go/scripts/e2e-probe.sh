@@ -8,7 +8,20 @@
 set -u
 OIDC="${1:-http://127.0.0.1:8445}"
 TENANT="${2:-http://127.0.0.1:8787}"
+REQUIRE_MODEL_SUCCESS="${REQUIRE_MODEL_SUCCESS:-0}"
+CONVERSATION_ID="e2e-$(date +%s)-$$"
 PASS=0; FAIL=0
+
+read -r PKCE_VERIFIER PKCE_CHALLENGE < <(python3 - <<'PY'
+import base64
+import hashlib
+import secrets
+
+verifier = secrets.token_urlsafe(48)
+challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+print(verifier, challenge)
+PY
+)
 
 ok()   { PASS=$((PASS+1)); echo "  ✔ $1"; }
 bad()  { FAIL=$((FAIL+1)); echo "  ✘ $1"; }
@@ -19,11 +32,22 @@ echo "== OIDC IdP ($OIDC) =="
 doc=$(curl -sf "$OIDC/.well-known/openid-configuration") && ok "discovery document" || bad "discovery document"
 [[ -n "$doc" ]] && echo "$doc" | jqget "['authorization_endpoint']" | grep -q "$OIDC/authorize" && ok "authorize endpoint" || bad "authorize endpoint"
 
-LOC=$(curl -s -o /dev/null -w '%{redirect_url}' "$OIDC/authorize?autologin=1&redirect_uri=http://127.0.0.1:59999/augment&state=s")
-CODE=${LOC#*code=}; CODE=${CODE%%&*}
+REDIRECT_URI="http://127.0.0.1:59999/augment"
+LOC=$(curl -s -o /dev/null -w '%{redirect_url}' --get "$OIDC/authorize" \
+  --data-urlencode 'response_type=code' \
+  --data-urlencode 'client_id=augment-intellij-plugin' \
+  --data-urlencode "redirect_uri=$REDIRECT_URI" \
+  --data-urlencode 'state=s' \
+  --data-urlencode "code_challenge=$PKCE_CHALLENGE" \
+  --data-urlencode 'code_challenge_method=S256')
+CODE=$(python3 -c 'import sys; from urllib.parse import parse_qs,urlparse; print(parse_qs(urlparse(sys.stdin.read()).query).get("code", [""])[0])' <<<"$LOC")
 [[ -n "$CODE" ]] && ok "authorize -> code ($CODE)" || bad "authorize -> code"
 
-TOK=$(curl -sf -X POST "$OIDC/oauth/token" -d "grant_type=authorization_code&code=$CODE&redirect_uri=http://127.0.0.1:59999/augment")
+TOK=$(curl -sf -X POST "$OIDC/oauth/token" \
+  --data-urlencode 'grant_type=authorization_code' \
+  --data-urlencode "code=$CODE" \
+  --data-urlencode "redirect_uri=$REDIRECT_URI" \
+  --data-urlencode "code_verifier=$PKCE_VERIFIER")
 AT=$(echo "$TOK" | jqget "['access_token']")
 TU=$(echo "$TOK" | jqget "['tenantUrl']")
 [[ -n "$AT" && "$TU" == "$TENANT" ]] && ok "token with tenantUrl=$TU" || bad "token/tenantUrl"
@@ -37,6 +61,17 @@ curl -sf "$TENANT/healthz" >/dev/null && ok "healthz" || bad "healthz"
 GETMODELS=$(curl -sf -X POST "$TENANT/api-client/get-models" -d '{}')
 echo "$GETMODELS" | jqget "['defaultModel']" | grep -q . && ok "GetModels (defaultModel=$(echo "$GETMODELS" | jqget "['defaultModel']"))" || bad "GetModels"
 
+REMOTE_TOOLS=$(curl -sf -X POST "$TENANT/api-client/agents/list-remote-tools" -d '{}')
+REMOTE_COUNT=$(echo "$REMOTE_TOOLS" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('tools', [])))")
+[[ "$REMOTE_COUNT" == "0" ]] && ok "remote tool catalog is protocol-safe (IDE tools stay in sidecar)" || bad "remote tool catalog count=$REMOTE_COUNT"
+
+CHAT_COMPLETION=$(curl -sf -X POST "$TENANT/api-client/chat-input-completion" -H 'Content-Type: application/json' -d '{"prompt":""}')
+echo "$CHAT_COMPLETION" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d.get("completion_items"), list); assert isinstance(d.get("unknown_blob_names"), list)' \
+  && ok "chat input completion contract" || bad "chat input completion contract"
+CODE_COMPLETION=$(curl -sf -X POST "$TENANT/api-client/completion" -H 'Content-Type: application/json' -d '{"prompt":""}')
+echo "$CODE_COMPLETION" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d.get("completion_items"), list); assert isinstance(d.get("unknown_memory_names"), list)' \
+  && ok "code completion contract" || bad "code completion contract"
+
 DISC=$(curl -sf -X POST "$TENANT/api-client/client-discovery" -d '{}')
 N=$(echo "$DISC" | python3 -c "import sys,json;print(len(json.load(sys.stdin)['transports'][0]['supported_services']))")
 [[ "$N" == "22" ]] && ok "client-discovery 22 services" || bad "client-discovery ($N)"
@@ -45,10 +80,28 @@ CODE501=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$TENANT/api-client/che
 [[ "$CODE501" == "501" ]] && ok "unimplemented -> 501" || bad "unimplemented status=$CODE501"
 
 echo "== chat-stream (SSE simulator) =="
-EVENTS=$(curl -sf -N -X POST "$TENANT/api-client/chat-stream" -d '{"message":"你好","conversation_id":"e2e"}' | grep -c '"type":"THINKING"\|"stop_reason"')
-[[ "$EVENTS" -ge 2 ]] && ok "chat-stream THINKING + END_TURN" || bad "chat-stream events=$EVENTS"
-HIST=$(curl -sf -X POST "$TENANT/api-client/chat/exchanges/list" -d '{"conversation_id":"e2e"}' | python3 -c "import sys,json;print(len(json.load(sys.stdin)['chat_history']))")
-[[ "$HIST" -ge 1 ]] && ok "exchange recorded (history=$HIST)" || bad "history recorded"
+CHAT=$(curl -sf -N -X POST "$TENANT/api-client/chat-stream" \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Reply with the single word ready.","conversation_id":"'"$CONVERSATION_ID"'"}')
+CHAT_CHECK=$(echo "$CHAT" | python3 -c '
+import json,sys
+events=[json.loads(line) for line in sys.stdin if line.strip()]
+types=[node.get("type") for event in events for node in event.get("nodes", [])]
+text="".join(str(event.get("text", "")) for event in events)
+stops=[event.get("stop_reason") for event in events if event.get("stop_reason")]
+success=("THINKING" in types and "MAIN_TEXT_FINISHED" in types and stops == ["END_TURN"] and bool(text.strip()))
+explicit_error=("MAIN_TEXT_FINISHED" in types and stops == ["STOP_REASON_ERROR"] and "模型调用失败" in text)
+print("success" if success else "error" if explicit_error else "invalid")
+')
+if [[ "$CHAT_CHECK" == "success" ]]; then
+  ok "chat-stream success terminal sequence"
+elif [[ "$CHAT_CHECK" == "error" && "$REQUIRE_MODEL_SUCCESS" != "1" ]]; then
+  ok "chat-stream explicit upstream error sequence"
+else
+  bad "chat-stream terminal sequence=$CHAT_CHECK"
+fi
+HIST=$(curl -sf -X POST "$TENANT/api-client/chat/exchanges/list" -d '{"conversation_id":"'"$CONVERSATION_ID"'"}' | python3 -c "import sys,json;print(len(json.load(sys.stdin)['chat_history']))")
+[[ "$HIST" -ge 1 ]] && ok "exchange recorded for unique conversation (history=$HIST)" || bad "history recorded"
 
 echo "== connect+json protocol =="
 CC=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$TENANT/augment.public_api.Augment/GetCreditInfo" -H 'Content-Type: application/connect+json' -d '{}')
@@ -83,7 +136,7 @@ EOF
   echo "$C" | grep -q "stopReason" && ok "grpc Chat echo" || bad "grpc Chat"
   rm -rf "$PROBE_DIR"
 else
-  echo "  · grpcurl not installed — skipped gRPC probe"
+  bad "grpcurl not installed"
 fi
 
 echo

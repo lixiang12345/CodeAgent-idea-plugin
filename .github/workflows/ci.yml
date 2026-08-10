@@ -1,4 +1,4 @@
-name: Verify plugin
+name: Verify self-hosted backend
 
 on:
   push:
@@ -9,163 +9,60 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  go-backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend-go
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: backend-go/go.mod
+          cache-dependency-path: backend-go/go.sum
+
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          test -z "$unformatted" || { echo "$unformatted"; exit 1; }
+
+      - name: Check shell syntax
+        run: find scripts -name '*.sh' -type f -print0 | xargs -0 -n1 bash -n
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test with race detector
+        run: go test -race ./... -count=1
+
+      - name: Build
+        run: go build ./...
+
+  release-jar:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 500
-          submodules: recursive
-
-      - name: Set up Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "21"
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: |
-            frontend/package-lock.json
-            sidecar/package-lock.json
-            backend/package-lock.json
-            vendor/context-engine/package-lock.json
 
-      - name: Install frontend dependencies
-        run: npm ci
-        working-directory: frontend
+      - name: Verify JAR archive
+        run: unzip -tq releases/intellij-augment-0.482.3-beta.jar
 
-      - name: Install sidecar dependencies
-        run: npm ci
-        working-directory: sidecar
-
-      - name: Install backend dependencies
-        run: npm ci
-        working-directory: backend
-
-      - name: Install ContextEngine dependencies
-        run: npm ci
-        working-directory: vendor/context-engine
-
-      - name: Validate version metadata
-        run: node scripts/bump-version.mjs --check
-
-      - name: Check frontend
-        run: npm run check
-        working-directory: frontend
-
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
-        working-directory: frontend
-
-      - name: Verify frontend product alignment
-        run: npm run test:e2e
-        working-directory: frontend
-
-      - name: Upload frontend alignment report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: CodeAgent-frontend-alignment
-          path: |
-            build/reports/playwright
-            build/test-results/playwright
-          if-no-files-found: error
-
-      - name: Test sidecar
-        run: npm test
-        working-directory: sidecar
-
-      - name: Test backend
-        run: npm test
-        working-directory: backend
-
-      - name: Evaluate integration readiness
-        run: node scripts/evaluate-integration-readiness.mjs
-
-      - name: Upload integration readiness report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: CodeAgent-integration-readiness
-          path: build/reports/integration-readiness.json
-          if-no-files-found: error
-
-      - name: Test ContextEngine
-        run: npm test
-        working-directory: vendor/context-engine
-
-      - name: Build ContextEngine
-        run: npm run build
-        working-directory: vendor/context-engine
-
-      - name: Evaluate prototype parity
-        run: node scripts/evaluate-parity.mjs
-
-      - name: Validate GitHub live acceptance evidence
-        run: node scripts/validate-github-live-evidence.mjs
-
-      - name: Upload prototype parity report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: CodeAgent-prototype-parity
-          path: build/reports/prototype-parity.json
-          if-no-files-found: error
-
-      - name: Upload GitHub live acceptance validation
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: CodeAgent-github-live-acceptance
-          path: build/reports/github-live-evidence-validation.json
-          if-no-files-found: error
-
-      - name: Fetch pull request base history for retrieval
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_REF: ${{ github.base_ref }}
+      - name: Verify plugin version metadata
         run: |
-          git fetch --no-tags --depth=500 origin \
-            "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          plugin_version="$(unzip -p releases/intellij-augment-0.482.3-beta.jar META-INF/plugin.xml | sed -n 's:.*<version>\([^<]*\)</version>.*:\1:p')"
+          manifest_version="$(unzip -p releases/intellij-augment-0.482.3-beta.jar META-INF/MANIFEST.MF | sed -n 's/^Version: //p' | tr -d '\r')"
+          test "$plugin_version" = "0.482.3-beta"
+          test "$manifest_version" = "$plugin_version"
 
-      - name: Evaluate repository retrieval
-        run: node scripts/evaluate-retrieval.mjs
-
-      - name: Upload retrieval evaluation report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: CodeAgent-retrieval-evaluation
-          path: build/reports/context-retrieval.json
-          if-no-files-found: ignore
-
-      - name: Audit production dependencies
-        run: npm audit --omit=dev
-        working-directory: frontend
-
-      - name: Audit sidecar dependencies
-        run: npm audit --omit=dev
-        working-directory: sidecar
-
-      - name: Audit backend dependencies
-        run: npm audit --omit=dev
-        working-directory: backend
-
-      - name: Audit ContextEngine dependencies
-        run: npm audit --omit=dev
-        working-directory: vendor/context-engine
-
-      - name: Test and package plugin
-        run: ./gradlew test buildPlugin verifyPlugin --stacktrace
-
-      - name: Upload plugin distribution
-        uses: actions/upload-artifact@v4
-        with:
-          name: CodeAgent-plugin
-          path: build/distributions/*.zip
-          if-no-files-found: error
+      - name: Verify bundled sidecar syntax
+        run: |
+          unzip -p releases/intellij-augment-0.482.3-beta.jar sidecar/index.cjs > "$RUNNER_TEMP/augment-sidecar.cjs"
+          node --check "$RUNNER_TEMP/augment-sidecar.cjs"
