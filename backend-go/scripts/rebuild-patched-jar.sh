@@ -8,6 +8,8 @@ UPSTREAM_ZIP="${UPSTREAM_ZIP:-$REPO_ROOT/intellij-augment-0.482.3-stable.zip}"
 BRIDGE_SOURCE="$REPO_ROOT/re/patches/intellij-augment-0.482.3/AugmentWorkspaceBridge.java"
 EXPECTED_UPSTREAM_SHA="303969f7df18b354768b9d17fd72982808f9f11e883e33d9c1f4f37b3bc4a5c2"
 UPSTREAM_MAIN_JAR="intellij-augment/lib/intellij-augment-0.482.3-beta.jar"
+MAIN_PANEL_ENTRY="webviews/assets/MainPanel-SbgXAty1.js"
+STORE_ENTRY="webviews/assets/Store-h-yCE5ok.js"
 LOCAL_PLUGIN_VERSION="0.482.3.999-local"
 FIXED_DATE="2026-08-10T00:00:00Z"
 
@@ -26,7 +28,7 @@ ACTUAL_UPSTREAM_SHA=$(shasum -a 256 "$UPSTREAM_ZIP" | awk '{print $1}')
 
 TEMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TEMP_DIR"' EXIT
-mkdir -p "$TEMP_DIR/classes" "$TEMP_DIR/sidecar" "$TEMP_DIR/META-INF"
+mkdir -p "$TEMP_DIR/classes" "$TEMP_DIR/sidecar" "$TEMP_DIR/META-INF" "$TEMP_DIR/webviews/assets"
 
 unzip -p "$UPSTREAM_ZIP" \
   intellij-augment/lib/settings_webview_communication_java_binary_deploy.jar \
@@ -42,6 +44,13 @@ unzip -p "$JAR_PATH" sidecar/index.cjs >"$TEMP_DIR/sidecar/index.cjs"
 node "$SCRIPT_DIR/patch-sidecar.mjs" "$TEMP_DIR/sidecar/index.cjs"
 node --check "$TEMP_DIR/sidecar/index.cjs"
 
+unzip -p "$JAR_PATH" "$MAIN_PANEL_ENTRY" >"$TEMP_DIR/$MAIN_PANEL_ENTRY"
+unzip -p "$JAR_PATH" "$STORE_ENTRY" >"$TEMP_DIR/$STORE_ENTRY"
+node "$SCRIPT_DIR/patch-webviews.mjs" \
+  "$TEMP_DIR/$MAIN_PANEL_ENTRY" "$TEMP_DIR/$STORE_ENTRY"
+node --check "$TEMP_DIR/$MAIN_PANEL_ENTRY"
+node --check "$TEMP_DIR/$STORE_ENTRY"
+
 unzip -p "$JAR_PATH" META-INF/plugin.xml >"$TEMP_DIR/META-INF/plugin.xml"
 unzip -p "$TEMP_DIR/upstream-main.jar" META-INF/MANIFEST.MF >"$TEMP_DIR/META-INF/MANIFEST.MF"
 node "$SCRIPT_DIR/patch-plugin-metadata.mjs" \
@@ -53,6 +62,8 @@ cp "$JAR_PATH" "$TEMP_DIR/patched.jar"
 jar --update --date="$FIXED_DATE" --file "$TEMP_DIR/patched.jar" \
   -C "$TEMP_DIR/classes" com/augmentcode/intellij/settings/AugmentWorkspaceBridge.class \
   -C "$TEMP_DIR" sidecar/index.cjs \
+  -C "$TEMP_DIR" "$MAIN_PANEL_ENTRY" \
+  -C "$TEMP_DIR" "$STORE_ENTRY" \
   -C "$TEMP_DIR" META-INF/plugin.xml
 
 # The JDK jar tool treats META-INF/MANIFEST.MF specially and may drop it when

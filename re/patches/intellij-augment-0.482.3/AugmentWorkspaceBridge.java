@@ -48,12 +48,15 @@ public final class AugmentWorkspaceBridge {
             if (project[1] != null && !project[1].isEmpty()) {
                 workspace.setPath(project[1]);
             }
+            // Activate before reading stats. The tenant status endpoint is
+            // workspace-scoped, so querying first can return the previous
+            // project (or the empty fallback) on a fresh IDE session.
+            notifyBackendActivate(project[1]);
             int[] stats = fetchWorkspaceStats();
             workspace.setStats(WorkspaceStats.newBuilder()
                 .setTrackedFiles(stats[0])
                 .setTotalThreads(stats[1]));
             response.addWorkspaces(workspace);
-            notifyBackendActivate(project[1]);
         } catch (Throwable ignored) {
             // Home remains usable when the local backend is unavailable.
         }
@@ -103,7 +106,7 @@ public final class AugmentWorkspaceBridge {
         }
         try {
             String body = "{\"host_root\":\"" + jsonEscape(root) + "\"}";
-            HTTP.sendAsync(
+            HTTP.send(
                 request("/contextengine/activate")
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body))

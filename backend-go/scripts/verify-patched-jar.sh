@@ -5,6 +5,8 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd -P)
 JAR_PATH="${1:-$REPO_ROOT/releases/intellij-augment-0.482.3-beta.jar}"
 BRIDGE_CLASS="com.augmentcode.intellij.settings.AugmentWorkspaceBridge"
+MAIN_PANEL_ENTRY="webviews/assets/MainPanel-SbgXAty1.js"
+STORE_ENTRY="webviews/assets/Store-h-yCE5ok.js"
 EXPECTED_PLUGIN_VERSION="0.482.3.999-local"
 
 fail() {
@@ -28,9 +30,15 @@ MANIFEST_VERSION=$(unzip -p "$JAR_PATH" META-INF/MANIFEST.MF \
 
 TEMP_DIR=$(mktemp -d)
 SIDECAR_FILE="$TEMP_DIR/index.cjs"
+MAIN_PANEL_FILE="$TEMP_DIR/MainPanel.js"
+STORE_FILE="$TEMP_DIR/Store.js"
 trap 'rm -rf "$TEMP_DIR"' EXIT
 unzip -p "$JAR_PATH" sidecar/index.cjs >"$SIDECAR_FILE" || fail "sidecar/index.cjs missing"
+unzip -p "$JAR_PATH" "$MAIN_PANEL_ENTRY" >"$MAIN_PANEL_FILE" || fail "$MAIN_PANEL_ENTRY missing"
+unzip -p "$JAR_PATH" "$STORE_ENTRY" >"$STORE_FILE" || fail "$STORE_ENTRY missing"
 node --check "$SIDECAR_FILE" || fail "sidecar syntax check failed"
+node --check "$MAIN_PANEL_FILE" || fail "MainPanel syntax check failed"
+node --check "$STORE_FILE" || fail "Store syntax check failed"
 
 MAJOR=$(javap -verbose -classpath "$JAR_PATH" "$BRIDGE_CLASS" 2>/dev/null | awk '/major version:/ {print $3; exit}')
 [[ "$MAJOR" =~ ^[0-9]+$ ]] || fail "cannot read bridge class version"
@@ -56,6 +64,27 @@ if grep -Fq 'workspace_folder parameter was provided but is not supported in thi
 fi
 if ! grep -Fq 'stats:{totalThreads:r,trackedFiles:i}' "$SIDECAR_FILE"; then
   fail "sidecar Home workspace stats do not combine thread and ContextEngine file counts"
+fi
+if ! grep -Fq 'prevThreads=-1' "$SIDECAR_FILE"; then
+  fail "ContextEngine poller does not refresh Home when the thread count changes"
+fi
+if ! grep -Fq 'contextengine/thread-count' "$MAIN_PANEL_FILE"; then
+  fail "chat webview does not synchronize its authoritative thread count"
+fi
+if ! grep -Fq 'globalThis.__AUGMENT_TENANT_URL__' "$MAIN_PANEL_FILE"; then
+  fail "chat webview does not honor the configured tenant URL override"
+fi
+if ! grep -Fq 'workspaceRoot' "$MAIN_PANEL_FILE" || ! grep -Fq 'setTimeout(sync,delay)' "$MAIN_PANEL_FILE"; then
+  fail "chat webview thread synchronization lacks workspace scope or retry scheduling"
+fi
+if grep -Fq 'a.update(i=>i?.threadCount===d' "$MAIN_PANEL_FILE"; then
+  fail "chat webview still sends unsupported update-shared-webview-state messages to IntelliJ"
+fi
+if grep -Fq 'type:x.getSharedWebviewState,id:P0' "$STORE_FILE"; then
+  fail "settings webview still requests unsupported shared state from IntelliJ"
+fi
+if ! grep -Fq 'settingsSaga:function*(){yield*F(Mz,function*(){})}' "$STORE_FILE"; then
+  fail "settings shared-state compatibility patch missing"
 fi
 
 echo "JAR verification passed: version=$PLUGIN_VERSION class_major=$MAJOR"

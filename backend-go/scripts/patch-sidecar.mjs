@@ -19,6 +19,23 @@ function replaceOnce(name, before, after) {
   source = source.replace(before, after);
 }
 
+function replaceOnceFromAny(name, beforeOptions, after) {
+  const afterCount = source.split(after).length - 1;
+  if (afterCount === 1) {
+    return;
+  }
+  const matches = beforeOptions.map((before) => ({
+    before,
+    count: source.split(before).length - 1,
+  }));
+  const beforeCount = matches.reduce((total, match) => total + match.count, 0);
+  if (beforeCount !== 1 || afterCount !== 0) {
+    throw new Error(`${name}: expected one historical or patched anchor, found ${beforeCount}/${afterCount}`);
+  }
+  const match = matches.find((candidate) => candidate.count === 1);
+  source = source.replace(match.before, after);
+}
+
 replaceOnce(
   "initialization payload log",
   'Sn.info(`Initializing Language Server: ${JSON.stringify(e)}`);',
@@ -93,8 +110,9 @@ replaceOnce(
   'async _handleGetWorkspaceInfo(e){try{const t=await br().getWorkspaceRoot(),r=await this._getTotalThreadsCount(),n=[];let i=0;try{const a=await fetch((process.env.AUGMENT_TENANT_URL||"http://127.0.0.1:8787").replace(/\\/+$/g,"")+"/contextengine/index-status");if(a.ok){const o=await a.json();i=o?.stats?.fileCount||0}}catch{}t&&n.push({id:t,name:ze.basename(t),path:t,stats:{totalThreads:r,trackedFiles:i}});const a={workspaces:n};e({type:Yi.getWorkspaceInfoResponse,data:a})}catch(t){this._logger.error(`Error in getWorkspaceInfo: ${String(t)}`),e({type:Yi.getWorkspaceInfoResponse,data:{workspaces:[]}})}}',
 );
 
-const oldPoller = ';var prevDone=false;setTimeout((function p(){try{var b=bu();if(!b||!b.broadcastMessageToWebviews)return void setTimeout(p,3000);fetch("http://127.0.0.1:8787/contextengine/index-status").then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(j){var st=j.stats||{},pr=j.progress||{},done=!!j.indexed,fd=done?(st.fileCount||0):(pr.filesDone||0),ft=done?(st.fileCount||0):(pr.filesTotal||0);b.broadcastMessageToWebviews({type:"source-folders-sync-status",data:{status:done?"done":"running",foldersProgress:[{folder:j.root||"",progress:{trackedFiles:ft,backlogSize:Math.max(0,ft-fd)},isInitialIndexing:!done}],indeterminate:!done&&ft<=0,isInitialIndexing:!done}}),done&&!prevDone&&b.broadcastMessageToWebviews({type:"ws-context-source-folders-changed",data:{}}),prevDone=done}).catch(function(){})}finally{setTimeout(p,3000)}})(),3000);';
-const newPoller = ';var prevDone=false;setTimeout(function p(){try{var b=bu();if(!b||!b.broadcastMessageToWebviews){setTimeout(p,3000);return}fetch((process.env.AUGMENT_TENANT_URL||"http://127.0.0.1:8787").replace(/\\/+$/g,"")+"/contextengine/index-status").then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(j){var st=j.stats||{},pr=j.progress||{},done=!!j.indexed,fd=done?(st.fileCount||0):(pr.filesDone||0),ft=done?(st.fileCount||0):(pr.filesTotal||0);b.broadcastMessageToWebviews({type:"source-folders-sync-status",data:{status:done?"done":"running",foldersProgress:[{folder:j.root||"",progress:{trackedFiles:ft,backlogSize:Math.max(0,ft-fd)},isInitialIndexing:!done}],indeterminate:!done&&ft<=0,isInitialIndexing:!done}});if(done&&!prevDone)b.broadcastMessageToWebviews({type:"ws-context-source-folders-changed",data:{}});prevDone=done;return done}).then(function(done){setTimeout(p,done?30000:3000)}).catch(function(){setTimeout(p,10000)})}catch(e){setTimeout(p,10000)}},3000);';
-replaceOnce("ContextEngine status poller", oldPoller, newPoller);
+const upstreamPoller = ';var prevDone=false;setTimeout((function p(){try{var b=bu();if(!b||!b.broadcastMessageToWebviews)return void setTimeout(p,3000);fetch("http://127.0.0.1:8787/contextengine/index-status").then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(j){var st=j.stats||{},pr=j.progress||{},done=!!j.indexed,fd=done?(st.fileCount||0):(pr.filesDone||0),ft=done?(st.fileCount||0):(pr.filesTotal||0);b.broadcastMessageToWebviews({type:"source-folders-sync-status",data:{status:done?"done":"running",foldersProgress:[{folder:j.root||"",progress:{trackedFiles:ft,backlogSize:Math.max(0,ft-fd)},isInitialIndexing:!done}],indeterminate:!done&&ft<=0,isInitialIndexing:!done}}),done&&!prevDone&&b.broadcastMessageToWebviews({type:"ws-context-source-folders-changed",data:{}}),prevDone=done}).catch(function(){})}finally{setTimeout(p,3000)}})(),3000);';
+const statusPoller = ';var prevDone=false;setTimeout(function p(){try{var b=bu();if(!b||!b.broadcastMessageToWebviews){setTimeout(p,3000);return}fetch((process.env.AUGMENT_TENANT_URL||"http://127.0.0.1:8787").replace(/\\/+$/g,"")+"/contextengine/index-status").then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(j){var st=j.stats||{},pr=j.progress||{},done=!!j.indexed,fd=done?(st.fileCount||0):(pr.filesDone||0),ft=done?(st.fileCount||0):(pr.filesTotal||0);b.broadcastMessageToWebviews({type:"source-folders-sync-status",data:{status:done?"done":"running",foldersProgress:[{folder:j.root||"",progress:{trackedFiles:ft,backlogSize:Math.max(0,ft-fd)},isInitialIndexing:!done}],indeterminate:!done&&ft<=0,isInitialIndexing:!done}});if(done&&!prevDone)b.broadcastMessageToWebviews({type:"ws-context-source-folders-changed",data:{}});prevDone=done;return done}).then(function(done){setTimeout(p,done?30000:3000)}).catch(function(){setTimeout(p,10000)})}catch(e){setTimeout(p,10000)}},3000);';
+const threadAwarePoller = ';var prevDone=false,prevThreads=-1;setTimeout(function p(){try{var b=bu();if(!b||!b.broadcastMessageToWebviews){setTimeout(p,3000);return}fetch((process.env.AUGMENT_TENANT_URL||"http://127.0.0.1:8787").replace(/\\/+$/g,"")+"/contextengine/index-status").then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(j){var st=j.stats||{},pr=j.progress||{},done=!!j.indexed,fd=done?(st.fileCount||0):(pr.filesDone||0),ft=done?(st.fileCount||0):(pr.filesTotal||0),tc=Number.isInteger(j.totalThreads)?j.totalThreads:0;b.broadcastMessageToWebviews({type:"source-folders-sync-status",data:{status:done?"done":"running",foldersProgress:[{folder:j.root||"",progress:{trackedFiles:ft,backlogSize:Math.max(0,ft-fd)},isInitialIndexing:!done}],indeterminate:!done&&ft<=0,isInitialIndexing:!done}});if(done&&!prevDone||tc!==prevThreads)b.broadcastMessageToWebviews({type:"ws-context-source-folders-changed",data:{}});prevDone=done,prevThreads=tc;return done}).then(function(done){setTimeout(p,done?30000:3000)}).catch(function(){setTimeout(p,10000)})}catch(e){setTimeout(p,10000)}},3000);';
+replaceOnceFromAny("ContextEngine status poller", [upstreamPoller, statusPoller], threadAwarePoller);
 
 fs.writeFileSync(file, source);

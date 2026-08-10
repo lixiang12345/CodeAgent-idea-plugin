@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"augment-local/internal/chat"
 	"augment-local/internal/discovery"
@@ -23,13 +24,16 @@ import (
 
 // Server is the tenant-side HTTP surface (port 8787 by default).
 type Server struct {
-	TenantURL    string
-	Store        *state.Store
-	Responder    *surface.Responder
-	Chat         *chat.Simulator
-	ToolExecutor *tools.Executor
-	pathIndex    map[string]string // grpc-gateway REST path -> RPC method name
-	TokenHandler http.HandlerFunc  // set by main to issue tokens (oidc.Provider)
+	TenantURL           string
+	Store               *state.Store
+	Responder           *surface.Responder
+	Chat                *chat.Simulator
+	ToolExecutor        *tools.Executor
+	pathIndex           map[string]string // grpc-gateway REST path -> RPC method name
+	TokenHandler        http.HandlerFunc  // set by main to issue tokens (oidc.Provider)
+	ideThreadMu         sync.RWMutex
+	ideThreadCounts     map[string]int64
+	activeWorkspaceRoot string
 }
 
 func New(tenantURL, gatewayURL, gatewayModel string) *Server {
@@ -49,9 +53,10 @@ func New(tenantURL, gatewayURL, gatewayModel string) *Server {
 			GatewayModel: gatewayModel,
 			ToolExecutor: te,
 		},
-		Chat:         chat.New(st, gatewayURL, gatewayModel),
-		ToolExecutor: te,
-		pathIndex:    make(map[string]string),
+		Chat:            chat.New(st, gatewayURL, gatewayModel),
+		ToolExecutor:    te,
+		pathIndex:       make(map[string]string),
+		ideThreadCounts: make(map[string]int64),
 	}
 	// Bind each conversation to its host project so ContextEngine indexes and
 	// retrieves the right workspace (chat requests carry workspace_folders).
@@ -95,6 +100,9 @@ func (s *Server) Handler() http.Handler {
 
 	// ContextEngine indexing status for the active workspace (indexed? stats).
 	mux.HandleFunc("/contextengine/index-status", s.handleContextEngineStatus)
+	// The IntelliJ webview cannot use the upstream shared-state protobuf bridge,
+	// so it synchronizes its authoritative conversation count here.
+	mux.HandleFunc("/contextengine/thread-count", s.handleContextEngineThreadCount)
 
 	// All /api-client/* REST routes dispatch through one handler.
 	mux.HandleFunc("/api-client/", s.handleAPIClient)
@@ -119,6 +127,7 @@ func (s *Server) handleContextEngineActivate(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	log.Printf("tenant: contextengine activate root=%s", req.HostRoot)
+	s.setActiveWorkspace(req.HostRoot)
 	s.ToolExecutor.SetActiveWorkspace(req.HostRoot)
 	go s.ToolExecutor.EnsureContextEngineIndexed()
 	s.writeJSON(w, 200, map[string]any{"ok": true})
@@ -130,14 +139,83 @@ func (s *Server) handleContextEngineStatus(w http.ResponseWriter, r *http.Reques
 	if s.ToolExecutor == nil || s.ToolExecutor.ContextEngine == nil {
 		s.writeJSON(w, 200, map[string]any{
 			"indexed":      false,
-			"totalThreads": len(s.Store.ListConversations("")),
+			"totalThreads": s.workspaceThreadCount(),
 			"error":        "contextengine not configured",
 		})
 		return
 	}
 	status := s.ToolExecutor.ContextEngine.Status()
-	status["totalThreads"] = len(s.Store.ListConversations(""))
+	status["totalThreads"] = s.workspaceThreadCount()
 	s.writeJSON(w, 200, status)
+}
+
+func (s *Server) handleContextEngineThreadCount(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "POST required"})
+		return
+	}
+	if origin := r.Header.Get("Origin"); origin != "" && origin != "http://augment.localhost" {
+		s.writeJSON(w, http.StatusForbidden, map[string]any{"error": "origin not allowed"})
+		return
+	}
+	var req struct {
+		TotalThreads  int64  `json:"totalThreads"`
+		WorkspaceRoot string `json:"workspaceRoot"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		s.writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid thread count"})
+		return
+	}
+	if req.TotalThreads < 0 || req.TotalThreads > 1_000_000 {
+		s.writeJSON(w, http.StatusBadRequest, map[string]any{"error": "thread count out of range"})
+		return
+	}
+	workspaceRoot := req.WorkspaceRoot
+	if workspaceRoot == "" {
+		workspaceRoot = r.Header.Get("X-Augment-Workspace")
+	}
+	workspaceRoot = s.threadCountWorkspace(workspaceRoot)
+	s.ideThreadMu.Lock()
+	s.ideThreadCounts[workspaceRoot] = req.TotalThreads
+	s.ideThreadMu.Unlock()
+	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) workspaceThreadCount() int {
+	workspaceRoot := s.threadCountWorkspace("")
+	s.ideThreadMu.RLock()
+	count, ok := s.ideThreadCounts[workspaceRoot]
+	s.ideThreadMu.RUnlock()
+	if ok {
+		return int(count)
+	}
+	return len(s.Store.ListConversations(workspaceRoot))
+}
+
+func (s *Server) setActiveWorkspace(root string) {
+	s.ideThreadMu.Lock()
+	if root != "" {
+		if _, scoped := s.ideThreadCounts[root]; !scoped {
+			if legacy, ok := s.ideThreadCounts[""]; ok {
+				s.ideThreadCounts[root] = legacy
+			}
+		}
+	}
+	s.activeWorkspaceRoot = root
+	s.ideThreadMu.Unlock()
+}
+
+// threadCountWorkspace resolves an explicit workspace root first and otherwise
+// uses the workspace most recently activated by the IDE bridge. The empty key
+// preserves compatibility with older webviews that cannot send a root.
+func (s *Server) threadCountWorkspace(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+	s.ideThreadMu.RLock()
+	root := s.activeWorkspaceRoot
+	s.ideThreadMu.RUnlock()
+	return root
 }
 
 // logRequests wraps a handler to log every incoming request on the tenant surface.

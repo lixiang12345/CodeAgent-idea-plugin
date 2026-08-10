@@ -85,6 +85,205 @@ func TestContextEngineStatusIncludesPersistedConversationCount(t *testing.T) {
 	}
 }
 
+func TestContextEngineStatusUsesSyncedIDEThreadCount(t *testing.T) {
+	t.Setenv("STATE_FILE", t.TempDir()+"/state.json")
+	server := New("http://127.0.0.1:8787", "", "augment-local-code-1")
+	server.Store.CreateConversation("conversation-1", "workspace", "Backend conversation", false)
+	srv := httptest.NewServer(server.Handler())
+	defer srv.Close()
+
+	syncResp := post(t, srv.URL+"/contextengine/thread-count", `{"totalThreads":7}`)
+	defer syncResp.Body.Close()
+	if syncResp.StatusCode != http.StatusOK {
+		t.Fatalf("sync status = %d, want %d", syncResp.StatusCode, http.StatusOK)
+	}
+
+	statusResp, err := http.Get(srv.URL + "/contextengine/index-status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer statusResp.Body.Close()
+	var got struct {
+		TotalThreads int `json:"totalThreads"`
+	}
+	if err := json.NewDecoder(statusResp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.TotalThreads != 7 {
+		t.Fatalf("totalThreads = %d, want 7", got.TotalThreads)
+	}
+}
+
+func TestContextEngineThreadCountRejectsNegativeCount(t *testing.T) {
+	t.Setenv("STATE_FILE", t.TempDir()+"/state.json")
+	server := New("http://127.0.0.1:8787", "", "augment-local-code-1")
+	server.Store.CreateConversation("conversation-1", "workspace", "Backend conversation", false)
+	srv := httptest.NewServer(server.Handler())
+	defer srv.Close()
+
+	syncResp := post(t, srv.URL+"/contextengine/thread-count", `{"totalThreads":-1}`)
+	defer syncResp.Body.Close()
+	if syncResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("sync status = %d, want %d", syncResp.StatusCode, http.StatusBadRequest)
+	}
+
+	statusResp, err := http.Get(srv.URL + "/contextengine/index-status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer statusResp.Body.Close()
+	var got struct {
+		TotalThreads int `json:"totalThreads"`
+	}
+	if err := json.NewDecoder(statusResp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.TotalThreads != 1 {
+		t.Fatalf("totalThreads = %d, want persisted fallback 1", got.TotalThreads)
+	}
+}
+
+func TestContextEngineThreadCountRejectsForeignOrigin(t *testing.T) {
+	t.Setenv("STATE_FILE", t.TempDir()+"/state.json")
+	server := New("http://127.0.0.1:8787", "", "augment-local-code-1")
+	srv := httptest.NewServer(server.Handler())
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/contextengine/thread-count", strings.NewReader(`{"totalThreads":3}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://example.com")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+}
+
+func TestContextEngineThreadCountRejectsExcessiveCount(t *testing.T) {
+	t.Setenv("STATE_FILE", t.TempDir()+"/state.json")
+	srv := httptest.NewServer(New("http://127.0.0.1:8787", "", "augment-local-code-1").Handler())
+	defer srv.Close()
+
+	resp := post(t, srv.URL+"/contextengine/thread-count", `{"totalThreads":1000001}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+}
+
+func TestContextEngineThreadCountIsScopedToWorkspace(t *testing.T) {
+	t.Setenv("STATE_FILE", t.TempDir()+"/state.json")
+	server := New("http://127.0.0.1:8787", "", "augment-local-code-1")
+	srv := httptest.NewServer(server.Handler())
+	defer srv.Close()
+
+	for _, body := range []string{
+		`{"totalThreads":7,"workspaceRoot":"/workspace/project-a"}`,
+		`{"totalThreads":2,"workspaceRoot":"/workspace/project-b"}`,
+	} {
+		resp := post(t, srv.URL+"/contextengine/thread-count", body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("sync status = %d, want %d", resp.StatusCode, http.StatusOK)
+		}
+	}
+
+	server.activeWorkspaceRoot = "/workspace/project-a"
+	statusResp, err := http.Get(srv.URL + "/contextengine/index-status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer statusResp.Body.Close()
+	var got struct {
+		TotalThreads int `json:"totalThreads"`
+	}
+	if err := json.NewDecoder(statusResp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.TotalThreads != 7 {
+		t.Fatalf("project-a totalThreads = %d, want 7", got.TotalThreads)
+	}
+
+	server.activeWorkspaceRoot = "/workspace/project-b"
+	statusResp2, err := http.Get(srv.URL + "/contextengine/index-status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer statusResp2.Body.Close()
+	got = struct {
+		TotalThreads int `json:"totalThreads"`
+	}{}
+	if err := json.NewDecoder(statusResp2.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.TotalThreads != 2 {
+		t.Fatalf("project-b totalThreads = %d, want 2", got.TotalThreads)
+	}
+}
+
+func TestContextEngineThreadCountUsesActiveWorkspaceWhenOmitted(t *testing.T) {
+	t.Setenv("STATE_FILE", t.TempDir()+"/state.json")
+	server := New("http://127.0.0.1:8787", "", "augment-local-code-1")
+	server.activeWorkspaceRoot = "/workspace/project-a"
+	srv := httptest.NewServer(server.Handler())
+	defer srv.Close()
+
+	resp := post(t, srv.URL+"/contextengine/thread-count", `{"totalThreads":9}`)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sync status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	server.activeWorkspaceRoot = "/workspace/project-b"
+	statusResp, err := http.Get(srv.URL + "/contextengine/index-status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer statusResp.Body.Close()
+	var got struct {
+		TotalThreads int `json:"totalThreads"`
+	}
+	if err := json.NewDecoder(statusResp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.TotalThreads != 0 {
+		t.Fatalf("project-b totalThreads = %d, want empty workspace fallback 0", got.TotalThreads)
+	}
+}
+
+func TestContextEngineThreadCountMigratesLegacySyncOnWorkspaceActivation(t *testing.T) {
+	t.Setenv("STATE_FILE", t.TempDir()+"/state.json")
+	server := New("http://127.0.0.1:8787", "", "augment-local-code-1")
+	srv := httptest.NewServer(server.Handler())
+	defer srv.Close()
+
+	resp := post(t, srv.URL+"/contextengine/thread-count", `{"totalThreads":9}`)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sync status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	server.setActiveWorkspace("/workspace/project-a")
+	statusResp, err := http.Get(srv.URL + "/contextengine/index-status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer statusResp.Body.Close()
+	var got struct {
+		TotalThreads int `json:"totalThreads"`
+	}
+	if err := json.NewDecoder(statusResp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.TotalThreads != 9 {
+		t.Fatalf("activated workspace totalThreads = %d, want migrated 9", got.TotalThreads)
+	}
+}
+
 func TestGetModelsREST(t *testing.T) {
 	srv := testServer()
 	defer srv.Close()
