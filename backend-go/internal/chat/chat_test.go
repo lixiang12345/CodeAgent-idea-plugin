@@ -14,6 +14,48 @@ import (
 	"augment-local/internal/state"
 )
 
+func TestBuildSystemPromptDefinesBoundedCodebaseExploration(t *testing.T) {
+	t.Parallel()
+
+	prompt := buildSystemPrompt(requestConfig{})
+	for _, expected := range []string{
+		"## Codebase Exploration",
+		"start with `codebase-retrieval`",
+		"a map to relevant code, not a complete file dump",
+		"use `view` or `view-range-untruncated`",
+		"Use `grep-search` only for exact",
+		"Never reconstruct a file through repeated `grep-search` calls",
+		"Stop using tools as soon as you have enough evidence",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Errorf("system prompt missing %q:\n%s", expected, prompt)
+		}
+	}
+}
+
+func TestBuildSystemPromptRespectsReadOnlyAskMode(t *testing.T) {
+	t.Parallel()
+
+	prompt := buildSystemPrompt(requestConfig{})
+	for _, expected := range []string{
+		"In Quick Ask or ask mode, use only read-only tools",
+		"do not modify files, run side-effecting commands, or manage tasks",
+		"In Agent mode, make changes only when the user requests them",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Errorf("system prompt missing %q:\n%s", expected, prompt)
+		}
+	}
+	for _, forbidden := range []string{
+		"proactively use tools to gather information and make changes",
+		"use more tools or give a final answer",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Errorf("system prompt still contains unbounded instruction %q:\n%s", forbidden, prompt)
+		}
+	}
+}
+
 func TestBuildMessagesFromIDEAssociatesToolResultFromNextExchange(t *testing.T) {
 	t.Parallel()
 

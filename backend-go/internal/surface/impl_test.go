@@ -122,6 +122,47 @@ func TestUnsupportedServerStreamsAreNotRegisteredAsUnaryHandlers(t *testing.T) {
 	}
 }
 
+func TestRetrievalToolDescriptionsDefineDistinctRoles(t *testing.T) {
+	t.Parallel()
+
+	retrieval := remoteToolDescription(t, "codebase-retrieval")
+	for _, expected := range []string{
+		"unknown",
+		"map to relevant code",
+		"not a complete file dump",
+		"view",
+	} {
+		if !strings.Contains(retrieval, expected) {
+			t.Errorf("codebase-retrieval description missing %q: %s", expected, retrieval)
+		}
+	}
+
+	grep := remoteToolDescription(t, "grep-search")
+	for _, expected := range []string{
+		"exact",
+		"may be truncated",
+		"Do not use it to reconstruct files",
+		"use view",
+	} {
+		if !strings.Contains(grep, expected) {
+			t.Errorf("grep-search description missing %q: %s", expected, grep)
+		}
+	}
+}
+
+func remoteToolDescription(t *testing.T, name string) string {
+	t.Helper()
+	for _, item := range allRemoteTools() {
+		entry, _ := item.(map[string]any)
+		definition, _ := entry["toolDefinition"].(map[string]any)
+		if asString(definition["name"]) == name {
+			return asString(definition["description"])
+		}
+	}
+	t.Fatalf("remote tool %q not found", name)
+	return ""
+}
+
 func TestImplementedHandlersAreReachableFromGeneratedRoutes(t *testing.T) {
 	routeNames := make(map[string]struct{}, len(Routes))
 	for _, route := range Routes {

@@ -36,6 +36,33 @@ function replaceOnceFromAny(file, name, beforeOptions, after) {
   fs.writeFileSync(file, source.replace(match.before, after));
 }
 
+const originalQuickAskPrompt = `const WN=\`# For this specific question, follow these ask mode guidelines:
+- Focus on providing clear, accurate information
+- Use code examples when helpful
+- ONLY use retrieval tools (web-fetch, codebase-retrieval, grep-search) to gather information
+- Do NOT use any tools that modify files (str-replace-editor, save-file, remove-files, etc.)
+- Do NOT make any changes to the codebase - this is for information gathering only
+- If the question is unclear, ask for clarification
+- If you need to search for information, use the available retrieval tools extensively
+
+User message:
+\``;
+const boundedQuickAskPrompt = `const WN=\`# For this specific question, follow these ask mode guidelines:
+- Focus on providing clear, accurate information
+- Use code examples when helpful
+- Use available read-only tools such as web-fetch, codebase-retrieval, view, view-range-untruncated, search-untruncated, grep-search, and git-commit-retrieval
+- Never use tools that modify files or have side effects, including str-replace-editor, save-file, remove-files, launch-process, and task-management tools
+- When the relevant location is unknown, start with codebase-retrieval and treat its results as a map to relevant code, not a complete file dump
+- Once a concrete file is known, use view or view-range-untruncated to read it
+- Use grep-search only for exact symbols, literals, errors, patterns, counts, or repository-wide references
+- Never reconstruct a file through repeated grep-search calls
+- Reformulate semantic retrieval only when required evidence is missing; do not repeat the same query
+- Stop using tools as soon as you have enough evidence to answer
+- If the question is unclear, ask for clarification
+
+User message:
+\``;
+
 replaceOnceFromAny(
   mainPanelFile,
   "conversation count",
@@ -51,4 +78,11 @@ replaceOnce(
   "shared webview state request",
   'settingsSaga:function*(){yield*F(Mz,function*(){yield*A(At({type:x.getSharedWebviewState,id:P0,data:{}}))})}',
   'settingsSaga:function*(){yield*F(Mz,function*(){})}',
+);
+
+replaceOnce(
+  storeFile,
+  "bounded Quick Ask retrieval",
+  originalQuickAskPrompt,
+  boundedQuickAskPrompt,
 );

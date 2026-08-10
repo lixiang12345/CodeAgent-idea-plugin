@@ -11,8 +11,20 @@ const originalMainPanel =
   'He(()=>{const d=J(l,"$conversationCount",s);a.update(i=>i?.threadCount===d?i:{...i,threadCount:d})})';
 const previousPatchedMainPanel =
   'He(()=>{const d=J(l,"$conversationCount",s);fetch("http://127.0.0.1:8787/contextengine/thread-count",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({totalThreads:d})}).catch(()=>{})})';
+const originalQuickAskPrompt = `const WN=\`# For this specific question, follow these ask mode guidelines:
+- Focus on providing clear, accurate information
+- Use code examples when helpful
+- ONLY use retrieval tools (web-fetch, codebase-retrieval, grep-search) to gather information
+- Do NOT use any tools that modify files (str-replace-editor, save-file, remove-files, etc.)
+- Do NOT make any changes to the codebase - this is for information gathering only
+- If the question is unclear, ask for clarification
+- If you need to search for information, use the available retrieval tools extensively
+
+User message:
+\``;
 const originalStore =
-  'settingsSaga:function*(){yield*F(Mz,function*(){yield*A(At({type:x.getSharedWebviewState,id:P0,data:{}}))})}';
+  'settingsSaga:function*(){yield*F(Mz,function*(){yield*A(At({type:x.getSharedWebviewState,id:P0,data:{}}))})}' +
+  originalQuickAskPrompt;
 
 function withFixture(mainPanelSource, storeSource, run) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "augment-webview-patch-"));
@@ -39,6 +51,12 @@ test("patches IntelliJ conversation count synchronization idempotently", () => {
     assert.match(patchedMainPanel, /globalThis\.__AUGMENT_TENANT_URL__/);
     assert.doesNotMatch(patchedMainPanel, /a\.update\(i=>i\?\.threadCount===d/);
     assert.doesNotMatch(patchedStore, /type:x\.getSharedWebviewState,id:P0/);
+    assert.doesNotMatch(patchedStore, /ONLY use retrieval tools/);
+    assert.doesNotMatch(patchedStore, /retrieval tools extensively/);
+    assert.match(patchedStore, /available read-only tools/);
+    assert.match(patchedStore, /view-range-untruncated/);
+    assert.match(patchedStore, /Never reconstruct a file through repeated grep-search calls/);
+    assert.match(patchedStore, /Stop using tools as soon as you have enough evidence/);
 
     execFileSync(process.execPath, [script, mainPanel, store]);
     assert.equal(fs.readFileSync(mainPanel, "utf8"), patchedMainPanel);

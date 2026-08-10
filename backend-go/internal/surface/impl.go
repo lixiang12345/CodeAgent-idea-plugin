@@ -607,7 +607,7 @@ func boundedRunes(value string, limit int, keepTail bool) string {
 func allRemoteTools() []any {
 	return []any{
 		// ── code retrieval (3) ──────────────────────────────────────────────
-		tool("codebase-retrieval", "Augment's context engine. Searches the entire codebase using embeddings and metadata filters. Returns formatted retrieval results with file paths, symbols, and relevance scores. Use this for semantic understanding of the codebase — finding where a concept is implemented, discovering related code, or understanding architecture.", toolSchema{
+		tool("codebase-retrieval", "Augment's Context Engine semantic locator. Use it first when the relevant location is unknown, when finding where a concept is implemented, or when understanding architecture. It returns a map to relevant code with file paths and focused snippets, not a complete file dump. Once it identifies a concrete file, use view or view-range-untruncated to read the required implementation. Reformulate the request only if necessary evidence is missing.", toolSchema{
 			Type: "object",
 			Properties: map[string]toolProp{
 				"information_request": {Type: "string", Description: "Natural language query describing what information you need from the codebase"},
@@ -624,7 +624,7 @@ func allRemoteTools() []any {
 			},
 			Required: []string{"query"},
 		}, 2),
-		tool("grep-search", "Fast regex and literal search across the entire codebase. Returns matching file paths, line numbers, and surrounding context. Supports full regex syntax, file type filtering, and exclusion patterns. Use this for finding exact symbol references, string literals, error messages, or patterns.", toolSchema{
+		tool("grep-search", "Fast regex and literal search across the entire codebase. Use it only for exact symbol references, string literals, error messages, patterns, counts, or repository-wide occurrences. Results include file paths and line context but may be truncated. Do not use it to reconstruct files through repeated searches; when a file is known, use view or view-range-untruncated instead.", toolSchema{
 			Type: "object",
 			Properties: map[string]toolProp{
 				"query":               {Type: "string", Description: "Regex or literal search pattern"},
