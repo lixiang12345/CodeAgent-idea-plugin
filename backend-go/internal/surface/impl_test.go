@@ -27,10 +27,12 @@ func TestFeatureFlagsAdvertiseOnlyBackedCoreWorkflows(t *testing.T) {
 		"enableTenantLevelToolPermissions",
 		"enableContextCanvas",
 		"enableConversationRetrieval",
+		"enableCodebaseRetrievalRaw",
 		"enableExternalSourcesInChat",
 		"enablePromptEnhancer",
 		"enableSmartPaste",
 		"intellijPromptEnhancerEnabled",
+		"intellijEnableFileIntakeService",
 		"enableIdeHandoffToCloud",
 		"cliEnableCloudAgents",
 		"cliEnableHandoffToCloud",
@@ -39,6 +41,30 @@ func TestFeatureFlagsAdvertiseOnlyBackedCoreWorkflows(t *testing.T) {
 		if enabled, ok := flags[name].(bool); !ok || enabled {
 			t.Errorf("unsupported feature %s = %#v, want false", name, flags[name])
 		}
+	}
+}
+
+func TestUnsupportedServerStreamsAreNotRegisteredAsUnaryHandlers(t *testing.T) {
+	unsupportedStreams := []string{
+		"PromptEnhancer",
+		"GenerateCommitMessageStream",
+		"SmartPasteStream",
+		"ListRemoteAgentsStream",
+		"GetRemoteAgentHistoryStream",
+		"AgentWorkspaceStream",
+		"GetLatestIndexedCommitBlobset",
+		"CloudAgentsGetMessagesStream",
+	}
+	for _, name := range unsupportedStreams {
+		if _, ok := Implemented[name]; ok {
+			t.Errorf("unsupported server stream %q is registered as a unary handler", name)
+		}
+		if ImplementedStreams[name] {
+			t.Errorf("unsupported server stream %q is advertised as implemented", name)
+		}
+	}
+	if !ImplementedStreams["ChatStream"] {
+		t.Error("ChatStream is not registered as the supported server stream")
 	}
 }
 

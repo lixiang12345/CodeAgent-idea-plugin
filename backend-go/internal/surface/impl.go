@@ -117,7 +117,6 @@ var Implemented = map[string]func(*Responder, map[string]any) (any, error){
 	"AgentWorkspaceReportSetupLogs":      emptyOK,
 	"ActionsGetUserState":                emptyOK,
 	"ActionsSetUserState":                emptyOK,
-	"PromptEnhancer":                     emptyOK,
 	"ListExternalSourceTypes": func(_ *Responder, _ map[string]any) (any, error) {
 		return map[string]any{"types": []any{}}, nil
 	},
@@ -149,9 +148,6 @@ var Implemented = map[string]func(*Responder, map[string]any) (any, error){
 			"credits_limit":        1e6,
 			"is_unlimited":         true,
 		}, nil
-	},
-	"GetLatestIndexedCommitBlobset": func(_ *Responder, _ map[string]any) (any, error) {
-		return map[string]any{"blobset": map[string]any{}, "commit_sha": ""}, nil
 	},
 	"RegisterIndexedCommitBlobset": emptyOK,
 	// ---- connect services (stub — webview may ping) ----------------------------
@@ -381,7 +377,7 @@ func fullFeatureFlags(models []any) map[string]any {
 		"enableContextCanvas":             false,
 		"enableConversationRetrieval":     false,
 		"enableHybridRetrieval":           true,
-		"enableCodebaseRetrievalRaw":      true,
+		"enableCodebaseRetrievalRaw":      false,
 		"enableExternalSourcesInChat":     false,
 		"enablePromptEnhancer":            false,
 		"enableSmartPaste":                false,
@@ -397,7 +393,7 @@ func fullFeatureFlags(models []any) map[string]any {
 		"enableOnboardingV2": true,
 
 		// ---- IntelliJ-specific --------------------------------------------------
-		"intellijEnableFileIntakeService":            true,
+		"intellijEnableFileIntakeService":            false,
 		"intellijEnableHomespunGitignore":            true,
 		"intellijEnableWebviewPerformanceMonitoring": false,
 		"intellijPromptEnhancerEnabled":              false,
