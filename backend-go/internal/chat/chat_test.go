@@ -151,6 +151,54 @@ func TestParseToolResultNodeCamelCaseError(t *testing.T) {
 	}
 }
 
+func TestParseRequestRequiresAValidToolResultForContinuation(t *testing.T) {
+	t.Parallel()
+
+	requestWithToolUseOnly := map[string]any{
+		"nodes": []any{map[string]any{
+			"tool_use": map[string]any{"tool_use_id": "call-pending"},
+		}},
+	}
+	if cfg := parseRequest(requestWithToolUseOnly); cfg.IsContinuation || len(cfg.FreshToolResults) != 0 {
+		t.Fatalf("tool-use request was treated as a continuation: %#v", cfg)
+	}
+
+	requestWithCamelCaseResult := map[string]any{
+		"nodes": []any{map[string]any{
+			"toolResultNode": map[string]any{
+				"toolUseId": "call-error",
+				"content":   "permission denied",
+				"isError":   true,
+			},
+		}},
+	}
+	cfg := parseRequest(requestWithCamelCaseResult)
+	if !cfg.IsContinuation || len(cfg.FreshToolResults) != 1 || !bo(cfg.FreshToolResults[0]["is_error"]) {
+		t.Fatalf("camel-case error result was not preserved: %#v", cfg)
+	}
+}
+
+func TestToolResultMessagesPreserveProviderErrorSemantics(t *testing.T) {
+	t.Parallel()
+
+	message := toolResultMsg(map[string]any{
+		"tool_call_id": "call-error",
+		"content":      "permission denied",
+		"is_error":     true,
+	})
+	if !bo(message["is_error"]) {
+		t.Fatalf("provider-neutral tool message lost is_error: %#v", message)
+	}
+
+	openAI := openAIMessages([]map[string]any{message})
+	if len(openAI) != 1 || openAI[0]["is_error"] != nil {
+		t.Fatalf("OpenAI message retained an unsupported is_error field: %#v", openAI)
+	}
+	if content := str(openAI[0]["content"]); !strings.Contains(content, "tool error") || !strings.Contains(content, "permission denied") {
+		t.Fatalf("OpenAI message did not describe the tool failure: %#v", openAI[0])
+	}
+}
+
 func TestBuildMessagesFromIDEReplacesPlaceholderWithFreshResult(t *testing.T) {
 	t.Parallel()
 

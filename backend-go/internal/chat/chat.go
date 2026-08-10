@@ -347,12 +347,13 @@ type requestConfig struct {
 }
 
 func parseRequest(req map[string]any) requestConfig {
+	freshToolResults := extractToolResults(req)
 	cfg := requestConfig{
 		ChatHistory:      asMapSlice(req["chat_history"]),
 		Skills:           asMapSlice(req["skills"]),
 		Rules:            asSlice(req["rules"]),
-		IsContinuation:   hasToolResults(req),
-		FreshToolResults: extractToolResults(req),
+		IsContinuation:   len(freshToolResults) > 0,
+		FreshToolResults: freshToolResults,
 	}
 	cfg.Model, _ = req["model"].(string)
 	if cfg.Model == "" {
@@ -715,6 +716,7 @@ func (s *Simulator) callModel(ctx context.Context, model string, messages []map[
 }
 
 func (s *Simulator) callOpenAI(ctx context.Context, baseURL, model string, messages, toolDefs []map[string]any, emit func(map[string]any) error) (*modelResponse, error) {
+	messages = openAIMessages(messages)
 	reasoning := os.Getenv("MODEL_GATEWAY_REASONING_EFFORT")
 	if reasoning == "" {
 		reasoning = "high"
@@ -1257,7 +1259,34 @@ func toolResultMsg(tr map[string]any) map[string]any {
 		"role":         "tool",
 		"tool_call_id": tr["tool_call_id"],
 		"content":      tr["content"],
+		"is_error":     bo(tr["is_error"]),
 	}
+}
+
+// openAIMessages removes provider-neutral metadata that is not part of the
+// OpenAI message schema. Tool failures remain visible to the model as text.
+func openAIMessages(messages []map[string]any) []map[string]any {
+	out := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		copy := make(map[string]any, len(message))
+		for key, value := range message {
+			copy[key] = value
+		}
+		if copy["role"] == "tool" {
+			isError := bo(copy["is_error"])
+			delete(copy, "is_error")
+			if isError {
+				content := str(copy["content"])
+				if content == "" {
+					copy["content"] = "[tool error]"
+				} else {
+					copy["content"] = "[tool error]\n" + content
+				}
+			}
+		}
+		out = append(out, copy)
+	}
+	return out
 }
 
 // ── request extraction ─────────────────────────────────────────────────
@@ -1282,48 +1311,13 @@ func extractMessage(req map[string]any) string {
 	return ""
 }
 
-func hasToolResults(req map[string]any) bool {
-	for _, n := range asSlice(req["nodes"]) {
-		nm, _ := n.(map[string]any)
-		for k := range nm {
-			if strings.Contains(k, "tool") || strings.Contains(k, "result") {
-				log.Printf("chat: hasToolResults node key=%q", k)
-				return true
-			}
-		}
-		if _, ok := nm["tool_result_node"]; ok {
-			return true
-		}
-		if _, ok := nm["toolResultNode"]; ok {
-			return true
-		}
-	}
-	return false
-}
-
 func extractToolResults(req map[string]any) []map[string]any {
 	var out []map[string]any
 	for _, n := range asSlice(req["nodes"]) {
 		nm, _ := n.(map[string]any)
-		tr, _ := nm["tool_result_node"].(map[string]any)
-		if tr == nil {
-			tr, _ = nm["toolResultNode"].(map[string]any)
+		if result := parseToolResultNode(nm); result != nil {
+			out = append(out, result)
 		}
-		if tr == nil {
-			continue
-		}
-		tcID := str(tr["tool_use_id"])
-		if tcID == "" {
-			tcID = str(tr["toolUseId"])
-		}
-		if tcID == "" {
-			continue
-		}
-		out = append(out, map[string]any{
-			"tool_call_id": tcID,
-			"content":      str(tr["content"]),
-			"is_error":     bo(tr["is_error"]),
-		})
 	}
 	return out
 }

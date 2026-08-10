@@ -57,6 +57,7 @@ var Implemented = map[string]func(*Responder, map[string]any) (any, error){
 	"ListConversations":          (*Responder).listConversations,
 	"ListChatHistory":            (*Responder).listChatHistory,
 	"CountChatHistory":           (*Responder).countChatHistory,
+	"InsertChatHistory":          (*Responder).insertChatHistory,
 	"SaveChat":                   (*Responder).saveChat,
 	"GetSubscriptionInfo":        (*Responder).getSubscriptionInfo,
 	"GetSubscriptionBanner":      emptyOK,
@@ -127,7 +128,10 @@ var Implemented = map[string]func(*Responder, map[string]any) (any, error){
 	},
 	"CreateWorkspace": emptyOK,
 	"FindMissing": func(_ *Responder, _ map[string]any) (any, error) {
-		return map[string]any{"missing": []any{}, "missing_count": 0}, nil
+		return map[string]any{
+			"unknown_memory_names":  []any{},
+			"nonindexed_blob_names": []any{},
+		}, nil
 	},
 	"OnboardingSessionEvent": emptyOK,
 	"SearchExternalSources": func(_ *Responder, _ map[string]any) (any, error) {
@@ -898,8 +902,12 @@ func (r *Responder) runRemoteTool(req map[string]any) (any, error) {
 func (r *Responder) codebaseRetrieval(req map[string]any) (any, error) {
 	q, _ := req["information_request"].(string)
 	if q == "" {
-		if ex, ok := req["dialog"].(map[string]any); ok {
-			q, _ = ex["request_message"].(string)
+		for _, item := range asSlice(req["dialog"]) {
+			if exchange, ok := item.(map[string]any); ok {
+				if message := asString(exchange["request_message"]); message != "" {
+					q = message
+				}
+			}
 		}
 	}
 	resp := map[string]any{
@@ -912,17 +920,37 @@ func (r *Responder) codebaseRetrieval(req map[string]any) (any, error) {
 		"conversation_truncated":            false,
 		"final_truncated":                   false,
 	}
-	if q == "" || r.ToolExecutor == nil || r.ToolExecutor.ContextEngine == nil {
+	if q == "" {
+		resp["formatted_retrieval"] = "Codebase retrieval skipped: information_request is required."
 		return resp, nil
 	}
-	// Proxy to ContextEngine so the agent gets real retrieval results.
-	ce := r.ToolExecutor.ContextEngine
-	if packed, rerr := ce.RetrieveFor("", q, 30*time.Second); rerr == nil && packed != "" {
-		resp["formatted_retrieval"] = packed
+	if r.ToolExecutor == nil {
+		resp["formatted_retrieval"] = "Codebase retrieval unavailable: local tool executor is not configured."
 		return resp, nil
-	} else if rerr != nil {
-		log.Printf("surface: codebase-retrieval retrieve: %v", rerr)
 	}
+
+	input, _ := json.Marshal(map[string]any{"information_request": q})
+	started := time.Now()
+	result := r.ToolExecutor.Execute(&tools.ToolCallRequest{
+		Name:           "codebase-retrieval",
+		Input:          input,
+		ConversationID: asString(req["conversation_id"]),
+	})
+	resp["codebase_retrieval_elapsed_ms"] = int(time.Since(started).Milliseconds())
+	if result == nil {
+		resp["formatted_retrieval"] = "Codebase retrieval failed: the local tool executor returned no result."
+		return resp, nil
+	}
+	formatted := strings.TrimSpace(result.Text)
+	if formatted == "" {
+		formatted = "No matching codebase context was found for this request."
+	}
+	if result.IsError {
+		formatted = "Codebase retrieval failed: " + formatted
+	}
+	resp["formatted_retrieval"] = formatted
+	resp["codebase_result_len"] = len(formatted)
+	resp["combined_result_len"] = len(formatted)
 	return resp, nil
 }
 
@@ -952,7 +980,7 @@ func (r *Responder) getConversation(req map[string]any) (any, error) {
 	if !ok {
 		return map[string]any{}, nil
 	}
-	return convJSON(c), nil
+	return map[string]any{"conversation": convJSON(c)}, nil
 }
 
 func (r *Responder) updateConversation(req map[string]any) (any, error) {
@@ -963,7 +991,7 @@ func (r *Responder) updateConversation(req map[string]any) (any, error) {
 		pinned = &v
 	}
 	c := r.Store.UpdateConversation(id, title, pinned)
-	return map[string]any{"conversation_id": c.ID}, nil
+	return map[string]any{"conversation": convJSON(c)}, nil
 }
 
 func (r *Responder) listConversations(req map[string]any) (any, error) {
@@ -1008,8 +1036,54 @@ func (r *Responder) listChatHistory(req map[string]any) (any, error) {
 }
 
 func (r *Responder) countChatHistory(req map[string]any) (any, error) {
-	id, _ := req["conversation_id"].(string)
-	return map[string]any{"count": len(r.Store.ListExchanges(id, 0))}, nil
+	conversationIDs := asSlice(req["conversation_ids"])
+	results := make([]any, 0, len(conversationIDs))
+	for _, rawID := range conversationIDs {
+		id, _ := rawID.(string)
+		results = append(results, map[string]any{
+			"conversation_id": id,
+			"count":           len(r.Store.ListExchanges(id, 0)),
+		})
+	}
+	return map[string]any{"results": results}, nil
+}
+
+func (r *Responder) insertChatHistory(req map[string]any) (any, error) {
+	conversationID, _ := req["conversation_id"].(string)
+	exchanges := asSlice(req["exchanges"])
+	entries := make([]any, 0, len(exchanges))
+	for i, rawEntry := range exchanges {
+		entry, entryOK := rawEntry.(map[string]any)
+		exchange, exchangeOK := entry["exchange"].(map[string]any)
+		if !entryOK || !exchangeOK || conversationID == "" {
+			entries = append(entries, insertChatHistoryEntry(i, 3, "invalid chat history entry"))
+			continue
+		}
+
+		turnID := ""
+		if metadata, ok := entry["metadata"].(map[string]any); ok {
+			turnID, _ = metadata["turn_id"].(string)
+		}
+		r.Store.AppendExchange(conversationID, &state.Exchange{
+			RequestID:    asString(exchange["request_id"]),
+			RequestMsg:   asString(exchange["request_message"]),
+			ResponseText: asString(exchange["response_text"]),
+			TurnID:       turnID,
+		})
+		entries = append(entries, insertChatHistoryEntry(i, 0, ""))
+	}
+	return map[string]any{"entries": entries}, nil
+}
+
+func insertChatHistoryEntry(index, code int, message string) map[string]any {
+	status := map[string]any{"code": code}
+	if message != "" {
+		status["message"] = message
+	}
+	return map[string]any{
+		"index":  index,
+		"status": status,
+	}
 }
 
 func (r *Responder) saveChat(req map[string]any) (any, error) {
