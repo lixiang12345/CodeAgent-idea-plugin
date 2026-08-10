@@ -2,10 +2,112 @@ package tools
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
 )
+
+// TestJobProgressParsesSnakeCase locks the contract with ContextEngine's
+// index-job payload: progress is persisted with snake_case keys
+// (files_total/files_done), which jobProgress must parse into the camelCase
+// map the sidecar poller consumes.
+func TestJobProgressParsesSnakeCase(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/index-jobs/job-1" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"job":{"id":"job-1","status":"running","progress":{"phase":"chunk","files_total":656,"files_done":123}}}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	c := &ContextEngineClient{URL: srv.URL, HTTP: &http.Client{}}
+	c.mu.Lock()
+	c.jobID = "job-1"
+	c.mu.Unlock()
+
+	p := c.jobProgress()
+	if p == nil {
+		t.Fatal("jobProgress returned nil")
+	}
+	if got := p["filesTotal"]; got != 656 {
+		t.Errorf("filesTotal = %v, want 656", got)
+	}
+	if got := p["filesDone"]; got != 123 {
+		t.Errorf("filesDone = %v, want 123", got)
+	}
+	if got := p["phase"]; got != "chunk" {
+		t.Errorf("phase = %v, want chunk", got)
+	}
+}
+
+// TestStatusFiltersByActiveWorkspace verifies Status() reports the state of
+// the active workspace only: an unrelated already-indexed project must not
+// masquerade as this workspace's stats, and in-flight progress is surfaced
+// for the workspace that is actually indexing.
+func TestStatusFiltersByActiveWorkspace(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/observability/overview":
+			w.Write([]byte(`{"workspaces":[
+				{"workspace":{"id":"other-ws"},"indexed":true,"stats":{"fileCount":999,"chunkCount":10,"lastIndexedAt":"2026-08-01T00:00:00Z","indexVersion":1,"hasEmbeddings":false,"embeddingModel":""}},
+				{"workspace":{"id":"active-ws"},"indexed":false,"stats":null}
+			]}`))
+		case "/v1/index-jobs/active-job":
+			w.Write([]byte(`{"job":{"id":"active-job","status":"running","progress":{"phase":"scan","files_total":50,"files_done":10}}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := &ContextEngineClient{URL: srv.URL, HTTP: &http.Client{}}
+	c.mu.Lock()
+	c.workspaceID = "active-ws"
+	c.jobID = "active-job"
+	c.mu.Unlock()
+
+	s := c.Status()
+	if s["indexed"] != false {
+		t.Errorf("indexed = %v, want false", s["indexed"])
+	}
+	if s["stats"] != nil {
+		t.Errorf("stats = %v, want nil (must not borrow other workspace's stats)", s["stats"])
+	}
+	pr, ok := s["progress"].(map[string]any)
+	if !ok {
+		t.Fatalf("progress missing from status: %#v", s)
+	}
+	if pr["filesTotal"] != 50 {
+		t.Errorf("progress filesTotal = %v, want 50", pr["filesTotal"])
+	}
+
+	// When the active workspace is itself indexed, its own stats are reported.
+	c2 := &ContextEngineClient{URL: srv.URL, HTTP: &http.Client{}}
+	c2.mu.Lock()
+	c2.workspaceID = "other-ws"
+	c2.mu.Unlock()
+	s2 := c2.Status()
+	if s2["indexed"] != true {
+		t.Errorf("indexed = %v, want true for indexed active workspace", s2["indexed"])
+	}
+	var round struct {
+		Stats struct {
+			FileCount int `json:"fileCount"`
+		} `json:"stats"`
+	}
+	b, _ := json.Marshal(s2)
+	if err := json.Unmarshal(b, &round); err != nil {
+		t.Fatalf("marshal/unmarshal status: %v", err)
+	}
+	if round.Stats.FileCount != 999 {
+		t.Errorf("stats.fileCount = %v, want 999", round.Stats.FileCount)
+	}
+}
 
 // TestCodebaseRetrievalProxy verifies the codebase-retrieval tool proxies to
 // ContextEngine when configured (needs the compose stack running).

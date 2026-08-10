@@ -340,6 +340,9 @@ func (c *ContextEngineClient) Status() map[string]any {
 	}
 	var d struct {
 		Workspaces []struct {
+			Workspace struct {
+				ID string `json:"id"`
+			} `json:"workspace"`
 			Indexed bool `json:"indexed"`
 			Stats   struct {
 				FileCount      int    `json:"fileCount"`
@@ -354,21 +357,28 @@ func (c *ContextEngineClient) Status() map[string]any {
 	if err := json.Unmarshal(body, &d); err != nil {
 		return out
 	}
-	indexed := false
+	// Match the active workspace specifically: a previously-indexed project
+	// must not masquerade as the status of the workspace that is indexing now.
 	for _, w := range d.Workspaces {
+		if w.Workspace.ID != wid {
+			continue
+		}
 		if w.Indexed {
-			indexed = true
 			out["indexed"] = true
 			out["stats"] = w.Stats
-			break
+			return out
 		}
-	}
-	if !indexed {
 		// Not indexed yet — surface the in-flight job progress so the UI can
 		// render a real percentage (filesDone/filesTotal).
 		if p := c.jobProgress(); p != nil {
 			out["progress"] = p
 		}
+		return out
+	}
+	// Active workspace not present in the overview yet (job just kicked off,
+	// stats not materialized). Fall back to the live job if one is running.
+	if p := c.jobProgress(); p != nil {
+		out["progress"] = p
 	}
 	return out
 }
@@ -391,8 +401,8 @@ func (c *ContextEngineClient) jobProgress() map[string]any {
 			Status   string `json:"status"`
 			Progress struct {
 				Phase      string `json:"phase"`
-				FilesTotal int    `json:"filesTotal"`
-				FilesDone  int    `json:"filesDone"`
+				FilesTotal int    `json:"files_total"`
+				FilesDone  int    `json:"files_done"`
 			} `json:"progress"`
 		} `json:"job"`
 	}
