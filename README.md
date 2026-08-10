@@ -45,6 +45,8 @@ MODEL_GATEWAY_REASONING_EFFORT=high           # 或 xhigh
 
 # ContextEngine 检索（可选；不设则 codebase-retrieval 回退本地 grep）
 CONTEXTENGINE_HTTP_API_KEY=<long-random-secret>
+# 宿主机用户目录挂载根（contextengine 索引 ~ 下任意工程）
+CONTEXTENGINE_HOST_MOUNT=/Users/<you>   # macOS；Linux 用 /home/<you>
 ```
 
 ### 3. 启动
@@ -78,8 +80,10 @@ cp releases/intellij-augment-0.482.3-beta.jar \
 
 ContextEngine 不再写死工程路径。每次聊天请求携带的 `workspace_folders` 会把当前打开的工程映射到容器索引：
 
-- 宿主机 `~`（默认 `/Users/jiming`）挂载为容器 `/host`（`CONTEXTENGINE_HOST_BASE` 可配）
+- 宿主机用户目录挂载为容器 `/host`（`.env` 配 `CONTEXTENGINE_HOST_MOUNT`，macOS 示例 `/Users/<you>`，Linux `/home/<you>`）
+- `CONTEXTENGINE_HOST_BASE` 默认取 `CONTEXTENGINE_HOST_MOUNT`（二者一致）
 - 工程按名建 ContextEngine workspace（`/host/<工程>`），`codebase-retrieval` 检索当前工程
+- **无硬编码路径**：迁移机器/打包分发只需改 `.env` 里的 `CONTEXTENGINE_HOST_MOUNT`
 - 索引在后端启动/首次检索时自动触发，未完成时工具返回“正在索引”
 
 ## 密钥安全

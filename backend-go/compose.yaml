@@ -39,8 +39,10 @@ services:
       CONTEXTENGINE_API_KEY: "${CONTEXTENGINE_HTTP_API_KEY:-}"
       CONTEXTENGINE_WORKSPACE: "${CONTEXTENGINE_WORKSPACE:-}"
       CONTEXTENGINE_LOCAL_ROOT: "${CONTEXTENGINE_LOCAL_ROOT:-}"
-      # 宿主机挂载根（对应容器 /host）：用于把 host 工程路径映射成容器内路径
-      CONTEXTENGINE_HOST_BASE: "${CONTEXTENGINE_HOST_BASE:-/Users/jiming}"
+      # 宿主机挂载根（对应容器 /host）：用于把 host 工程路径映射成容器内路径。
+      # 默认取 CONTEXTENGINE_HOST_MOUNT（见 contextengine 服务 volumes），
+      # 二者必须一致；在 .env 中按你的机器配置。
+      CONTEXTENGINE_HOST_BASE: "${CONTEXTENGINE_HOST_BASE:-${CONTEXTENGINE_HOST_MOUNT:-}}"
     volumes:
       - augment-state:/app/state
     restart: unless-stopped
@@ -83,7 +85,9 @@ services:
     ports:
       - "127.0.0.1:8790:8787"
     volumes:
-      - "/Users/jiming:/host:ro" # 宿主机主目录 → 容器 /host（只读索引）
+      # 宿主机主目录 → 容器 /host（只读索引）。在 .env 配置 CONTEXTENGINE_HOST_MOUNT
+      # 为你的用户目录（macOS 示例：/Users/<you>；Linux：/home/<you>）。
+      - "${CONTEXTENGINE_HOST_MOUNT:?Set CONTEXTENGINE_HOST_MOUNT in backend-go/.env (e.g. /Users/<you>)}:/host:ro"
       - contextengine-runtime:/app/.contextengine-http
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
