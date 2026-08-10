@@ -83,4 +83,4 @@ REQUIRE_MODEL_SUCCESS=1 ./scripts/e2e-probe.sh
 
 重建后确认 8445/8787 只绑定 `127.0.0.1`，ContextEngine health/index-status 正常，并在新时间窗口的日志中确认不再出现 `remote_tool_id must not be null`、ChatInputCompletion timeout、静默 `END_TURN` 或正文泄漏。旧容器日志不能作为新代码的在线验收证据。
 
-当前 Go 仓库整体覆盖率约 40.8%；变更包有回归测试和 race 测试，但项目尚未达到 80% 全局覆盖率。真实 IntelliJ/JAR 行为、项目切换、Sidecar 重启、Connect protobuf envelope 和 grpc-web 仍需要手工 IDE 验收。
+当前 Go 仓库整体覆盖率为 48.2%；变更包有回归测试和 race 测试，但项目尚未达到 80% 全局覆盖率。真实 IntelliJ/JAR 行为、项目切换、Sidecar 重启、Connect protobuf envelope 和 grpc-web 仍需要手工 IDE 验收。
