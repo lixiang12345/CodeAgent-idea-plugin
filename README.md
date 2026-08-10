@@ -71,7 +71,7 @@ cp releases/intellij-augment-0.482.3-beta.jar \
 
 JAR 内部版本是 `0.482.3.999-local`，高于对应 Marketplace stable，避免 IDE 在重启后自动覆盖本地补丁。
 
-> 原始未打补丁 jar 可随时从插件市场重新安装回滚。补丁内容：`SettingsService` 两个 bridge（workspace 列表 + 语言统计）、sidecar `generate-project-overview` handler、webview 摘要链路、onboarding 空问题过滤，以及 Java 21/日志/轮询加固。当前 bridge 源码和验证流程见 `re/patches/intellij-augment-0.482.3/`。
+> 原始未打补丁 jar 可随时从插件市场重新安装回滚。补丁内容：`SettingsService` 两个 bridge（workspace 列表 + 语言统计）、sidecar `generate-project-overview` handler、Home 文件/会话统计、webview 摘要链路、线程数失败重试、onboarding 空问题过滤，以及 Java 21/日志/轮询加固。当前 bridge 源码和验证流程见 `re/patches/intellij-augment-0.482.3/`。
 
 ### 5. 连接 IDE
 
@@ -79,7 +79,7 @@ JAR 内部版本是 `0.482.3.999-local`，高于对应 Marketplace stable，避�
 
 - 聊天走 `MODEL_GATEWAY_URL`（krill-ai 等）
 - agent 调用 `codebase-retrieval` 返回 ContextEngine 真实检索结果
-- Home 首页 Codebase 区块显示：语言条形图 + LLM 生成的项目概览
+- Home 首页显示 ContextEngine 文件数、真实本地会话数，以及 Codebase 语言条形图和 LLM 项目概览
 
 当前支持的是“本地核心工作流接管”，不是完整云端能力替换。Cloud Agents、handoff、第三方集成、BYOK、远端 MCP、Smart Paste、Prompt Enhancer、file intake 和完整 protobuf/gRPC streaming 均已关闭或明确返回 501；请按兼容性报告验收。
 
@@ -91,7 +91,7 @@ ContextEngine 不再写死工程路径。每次聊天请求携带的 `workspace_
 - `CONTEXTENGINE_HOST_BASE` 默认取 `CONTEXTENGINE_HOST_MOUNT`（二者一致）
 - 工程按名建 ContextEngine workspace（`/host/<工程>`），`codebase-retrieval` 检索当前工程
 - **无硬编码路径**：迁移机器/打包分发只需改 `.env` 里的 `CONTEXTENGINE_HOST_MOUNT`
-- 索引在后端启动/首次检索时自动触发，未完成时工具返回“正在索引”
+- 索引在打开 Project Home、首次聊天或首次检索时自动触发，未完成时工具返回“正在索引”
 
 ## 密钥安全
 
@@ -101,7 +101,8 @@ ContextEngine 不再写死工程路径。每次聊天请求携带的 `workspace_
 
 ## 常见问题
 
-- **Home 首页 Codebase 为空**：确认 jar 已安装（releases 版）、ContextEngine healthy（`curl :8790/health`）、已打开工程并触发过聊天
+- **Home 首页 Codebase 为空或 Files/Threads 为 0**：确认安装的是内部版本 `0.482.3.999-local`、ContextEngine healthy（`curl :8790/health`），然后打开工程和 Project Home
+- **出现 `workspace_folder ... not supported`**：这是官方 sidecar 的默认检索回退提示；本地补丁会按当前 conversation 绑定工程并移除该提示。若仍出现，说明 IDE 仍在运行旧 JAR 或补丁又被 Marketplace 覆盖
 - **codebase-retrieval 返回“正在索引”**：首次索引需数秒~数分钟，稍后重试
 - **模型无回复**：检查 `MODEL_GATEWAY_URL/API_KEY`，`curl :8787/api-client/chat-stream` 直测。网关空 choices 或 error envelope 会显示为 `STOP_REASON_ERROR`，不会伪装成成功结束。
 - **旧日志仍显示 501、remote_tool_id 或超时**：先 `docker compose up -d --build --force-recreate augment-local`，再只看重建后的时间窗口；旧容器可能仍将端口暴露在所有网卡。

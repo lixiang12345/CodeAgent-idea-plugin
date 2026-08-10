@@ -19,7 +19,7 @@ Go 后端替代云端身份、模型、聊天、工具调度和检索代理；Si
 | codebase-retrieval | 支持 | 按 conversation 绑定 workspace，ContextEngine 为空或失败时回退本地检索，并返回非空的可解释结果。 |
 | Code/Chat 输入补全 | 支持 | 3 秒超时降级；`ChatInputCompletionResponse` 使用 descriptor 要求的 `unknown_memory_names`。 |
 | 会话、历史、状态快照 | 基础支持 | 内存态加原子 JSON 快照；会话 wrapper、批量计数和历史导入遵循当前 descriptor。 |
-| Home 概览和索引进度 | 依赖补丁 JAR | Sidecar bridge 调 Go 的 overview/index-status；不是 Go 单独提供的 IntelliJ UI。 |
+| Home 概览、文件数、会话数和索引进度 | 依赖补丁 JAR | JVM/Webview bridge 调 Go 的 overview/index-status/thread-count；不是 Go 单独提供的 IntelliJ UI。 |
 | Cloud Agents、handoff、协作 workspace | 不支持 | 相关入口关闭，未实现 RPC 显式返回 501。 |
 | GitHub/Slack/Linear、云端 secrets、远端 MCP/Figma | 不支持 | 不伪造第三方连接或密钥存储。 |
 | BYOK、Prompt Enhancer、Smart Paste、Context Canvas、Conversation Retrieval | 不支持 | feature flags 已关闭。 |
@@ -54,10 +54,10 @@ Go 后端替代云端身份、模型、聊天、工具调度和检索代理；Si
 
 仍存在的 bridge 限制：
 
-- Java bridge 可用 `-Daugmentcode.tenant.url`、sidecar 可用 `AUGMENT_TENANT_URL` 覆盖地址，但还没有直接复用 OIDC 会话里的动态 `tenantUrl` 和 Bearer token；默认仍是本机 `127.0.0.1:8787`。
+- Java bridge 可用 `-Daugmentcode.tenant.url`、sidecar 可用 `AUGMENT_TENANT_URL` 覆盖地址；Chat Webview 读取可选的 `globalThis.__AUGMENT_TENANT_URL__`，未注入时默认本机 `127.0.0.1:8787`。这些本地 bridge 请求仍不复用 OIDC 会话里的 Bearer token。
 - JVM status 请求仍是最多 3 秒的同步 `HttpClient.send`，异常会降级为空或 running；语言统计只递归有限深度。
-- Home 的主路径从 Sidecar LevelDB 读取 thread count，并从 ContextEngine 读取 file count；JVM bridge 在该路径不可用时回退到 Go Store 中已持久化的 conversation 数量。
-- `SettingsService.class` 和两个 webview bundle 的历史补丁仍没有源码或 transformer；当前脚本可重建本轮 bridge/sidecar 加固，但还不能从原始 ZIP 重建全部 6 个变更 entry。
+- Chat Webview 把真实 conversation count 同步到 Go 的 `/contextengine/thread-count`，失败时指数退避并周期性刷新；Go 按当前激活 workspace 保存计数，JVM bridge 再与 ContextEngine file count 一起返回给 Home。首次同步前才回退到 Go Store。IntelliJ 不支持的 sharedAppStore 上行已禁用。
+- `SettingsService.class` 和更早的 sidecar/webview 历史补丁仍没有完整上游源码 recipe；当前脚本可确定性重建 bridge、sidecar 和 shared-state 兼容补丁，但还不能从原始 ZIP 独立生成全部历史变更 entry。
 - Sidecar 及第三方库仍有其他 debug 日志；共享日志前仍应做二次脱敏。
 
 因此当前交付应视为“本机、指定插件版本”的可用接管层，而不是已认证的远程多租户插件后端。

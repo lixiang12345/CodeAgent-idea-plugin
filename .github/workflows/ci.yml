@@ -52,17 +52,14 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Verify JAR archive
-        run: unzip -tq releases/intellij-augment-0.482.3-beta.jar
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
 
-      - name: Verify plugin version metadata
-        run: |
-          plugin_version="$(unzip -p releases/intellij-augment-0.482.3-beta.jar META-INF/plugin.xml | sed -n 's:.*<version>\([^<]*\)</version>.*:\1:p')"
-          manifest_version="$(unzip -p releases/intellij-augment-0.482.3-beta.jar META-INF/MANIFEST.MF | sed -n 's/^Version: //p' | tr -d '\r')"
-          test "$plugin_version" = "0.482.3.999-local"
-          test "$manifest_version" = "$plugin_version"
+      - name: Test webview patcher
+        run: node --test backend-go/scripts/patch-webviews.test.mjs
 
-      - name: Verify bundled sidecar syntax
-        run: |
-          unzip -p releases/intellij-augment-0.482.3-beta.jar sidecar/index.cjs > "$RUNNER_TEMP/augment-sidecar.cjs"
-          node --check "$RUNNER_TEMP/augment-sidecar.cjs"
+      - name: Verify patched JAR
+        run: backend-go/scripts/verify-patched-jar.sh releases/intellij-augment-0.482.3-beta.jar
