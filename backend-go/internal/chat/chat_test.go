@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -447,6 +448,95 @@ func TestCallOpenAIStreamsContentAndToolCall(t *testing.T) {
 	}
 	if got := response.ToolCalls[0]; got.ID != "call-stream" || got.Name != "view" || got.Arguments != `{"path":"README.md"}` {
 		t.Fatalf("streamed tool call = %#v", got)
+	}
+}
+
+func TestCallAnthropicDisablesThinkingWhenToolsAreAvailable(t *testing.T) {
+	previousLogOutput := log.Writer()
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(previousLogOutput) })
+
+	requests := make(chan map[string]any, 1)
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode Anthropic request: %v", err)
+		}
+		requests <- body
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(
+			"data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"tool_use\",\"id\":\"call-secret\",\"name\":\"view\",\"input\":{}}}\n\n" +
+				"data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\":\\\"/private/secret.txt\\\",\\\"token\\\":\\\"do-not-log\\\"}\"}}\n\n" +
+				"data: {\"type\":\"message_stop\"}\n\n",
+		))
+	}))
+	defer gateway.Close()
+
+	sim := &Simulator{HTTPClient: gateway.Client()}
+	_, err := sim.callAnthropic(
+		context.Background(),
+		gateway.URL,
+		"claude-test",
+		[]map[string]any{{"role": "user", "content": "inspect the repository"}},
+		[]map[string]any{{
+			"type": "function",
+			"function": map[string]any{
+				"name":        "view",
+				"description": "Read a file",
+				"parameters":  map[string]any{"type": "object"},
+			},
+		}},
+		func(map[string]any) error { return nil },
+	)
+	if err != nil {
+		t.Fatalf("callAnthropic returned error: %v", err)
+	}
+
+	body := <-requests
+	if _, ok := body["thinking"]; ok {
+		t.Fatalf("tool-enabled Anthropic request retained thinking without preserving signed thinking blocks: %#v", body)
+	}
+	if tools, ok := body["tools"].([]any); !ok || len(tools) != 1 {
+		t.Fatalf("Anthropic tools = %#v, want one tool", body["tools"])
+	}
+	if strings.Contains(logs.String(), "/private/secret.txt") || strings.Contains(logs.String(), "do-not-log") {
+		t.Fatalf("Anthropic tool argument values leaked into logs: %s", logs.String())
+	}
+	if !strings.Contains(logs.String(), "arg_keys=[path token]") {
+		t.Fatalf("Anthropic tool log omitted safe argument metadata: %s", logs.String())
+	}
+}
+
+func TestCallAnthropicKeepsThinkingWithoutTools(t *testing.T) {
+	t.Parallel()
+
+	requests := make(chan map[string]any, 1)
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode Anthropic request: %v", err)
+		}
+		requests <- body
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"type\":\"message_stop\"}\n\n"))
+	}))
+	defer gateway.Close()
+
+	sim := &Simulator{HTTPClient: gateway.Client()}
+	_, err := sim.callAnthropic(
+		context.Background(), gateway.URL, "claude-test",
+		[]map[string]any{{"role": "user", "content": "answer directly"}}, nil,
+		func(map[string]any) error { return nil },
+	)
+	if err != nil {
+		t.Fatalf("callAnthropic returned error: %v", err)
+	}
+
+	body := <-requests
+	thinking, ok := body["thinking"].(map[string]any)
+	if !ok || thinking["type"] != "enabled" {
+		t.Fatalf("non-tool Anthropic request thinking = %#v, want enabled", body["thinking"])
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -204,29 +205,20 @@ func (s *Simulator) Stream(ctx context.Context, w io.Writer, flow Flow, req map[
 			return err
 		}
 
-		// On continuation, dump ALL nodes for debugging.
+		// Continuation logs retain only payload shape and size. Node values can
+		// contain source code, local paths, credentials, or tool output.
 		if cfg.IsContinuation {
 			log.Printf("chat: continuation iter=%d nodes=%d freshToolResults=%d",
 				iter, len(asSlice(req["nodes"])), len(cfg.FreshToolResults))
 			for i, n := range asSlice(req["nodes"]) {
 				if nm, ok := n.(map[string]any); ok {
-					keys := make([]string, 0, len(nm))
-					for k := range nm {
-						keys = append(keys, k)
-					}
-					log.Printf("chat: node[%d] keys=%v", i, keys)
+					raw, _ := json.Marshal(n)
+					log.Printf("chat: node[%d] keys=%v json_bytes=%d", i, sortedMapKeys(nm), len(raw))
 				}
 			}
 			for i, tr := range cfg.FreshToolResults {
 				log.Printf("chat: freshToolResult[%d] tool_call_id=%q content_len=%d",
 					i, str(tr["tool_call_id"]), len(str(tr["content"])))
-			}
-			if len(cfg.FreshToolResults) == 0 {
-				// Dump raw JSON for the first node to see exact keys.
-				for i, n := range asSlice(req["nodes"]) {
-					b, _ := json.MarshalIndent(n, "", "  ")
-					log.Printf("chat: continuation node[%d] raw=%s", i, string(b[:min(len(b), 500)]))
-				}
 			}
 		}
 
@@ -1077,10 +1069,15 @@ func (s *Simulator) callAnthropic(ctx context.Context, baseURL, model string, me
 		"max_tokens": 8192,
 		"stream":     true,
 		"messages":   anthropicMsgs,
-		"thinking": map[string]any{
+	}
+	// Extended-thinking tool turns must replay the provider's signed thinking
+	// blocks verbatim on continuation. The IDE history does not retain those
+	// provider blocks, so only enable thinking for requests without tools.
+	if len(anthropicTools) == 0 {
+		body["thinking"] = map[string]any{
 			"type":          "enabled",
 			"budget_tokens": 4000,
-		},
+		}
 	}
 	if system != "" {
 		body["system"] = strings.TrimSpace(system)
@@ -1209,7 +1206,10 @@ func (s *Simulator) callAnthropic(ctx context.Context, baseURL, model string, me
 	}
 	log.Printf("chat: anthropic stream content=%d chars, tools=%d", len(mr.Content), len(mr.ToolCalls))
 	for i, tc := range mr.ToolCalls {
-		log.Printf("chat: anthropic tool[%d]=%q args=%s", i, tc.Name, truncate(tc.Arguments, 200))
+		var args map[string]any
+		_ = json.Unmarshal([]byte(tc.Arguments), &args)
+		log.Printf("chat: anthropic tool[%d]=%q args_len=%d arg_keys=%v",
+			i, tc.Name, len(tc.Arguments), sortedMapKeys(args))
 	}
 	return mr, nil
 }
@@ -1428,6 +1428,15 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+func sortedMapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func splitDeltas(s string, size int) []string {
