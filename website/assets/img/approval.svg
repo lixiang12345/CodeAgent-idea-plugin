@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 370" width="440" height="370" role="img" aria-label="CodeAgent asking approval before running a terminal command">
+<style>
+  .s{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+  .m{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  text{fill:#b8bcc2;font-size:12px}
+  .pri{fill:#edeef0}.mut{fill:#6b737c}.sec{fill:#b0b4ba}
+  .ok{fill:#41db91}.err{fill:#ff9592}.acc{fill:#70b8ff}
+  .md{font-weight:500}.b{font-weight:700}
+  .ic{fill:none;stroke:#b8bcc2;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+  .ic2{fill:none;stroke:#b0b4ba;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+
+  @keyframes enter{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
+  .in{animation:enter .45s cubic-bezier(.22,.7,.3,1) both}
+  /* Approve pulses a blue ring from 0 to 8px spread, once a second, while pending */
+  @keyframes ring{0%{stroke-width:0;opacity:.85}100%{stroke-width:8;opacity:0}}
+  .ring{animation:ring 1s linear infinite}
+  @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+  .caret{animation:blink 1.1s step-end infinite}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+<defs>
+  <g id="wand"><path d="M1 13 9 5M8 4l2 2M11 0v4M9 2h4M3 1v2M2 2h2"/></g>
+</defs>
+<rect width="440" height="370" fill="#2b2d30"/>
+
+<!-- ══ ChatHeader: menu · thread name · mode pill · new thread ══ -->
+<g class="s">
+  <g class="ic" transform="translate(14 14)"><path d="M0 2h14M0 7h14M0 12h14"/></g>
+  <text x="40" y="24" class="pri b">Add JWT regression tests</text>
+  <g class="ic" transform="translate(374 13)"><use href="#wand"/></g>
+  <path d="M392 17l3 3 3-3" class="ic"/>
+  <g class="ic" transform="translate(410 12)"><path d="M7 1v12M1 7h12"/></g>
+  <path d="M0 39.5H440" stroke="#3e4347"/>
+</g>
+
+<!-- ══ Thread | Tasks | Edits ══ -->
+<g class="s">
+  <rect x="12" y="46" width="138" height="22" rx="4" fill="#393c40"/>
+  <g class="ic" transform="translate(55 50)"><use href="#wand"/></g>
+  <text x="76" y="61" class="pri md">Thread</text>
+  <g class="ic2" transform="translate(183 51)"><path d="M0 2l2 2 3-4M0 9l2 2 3-4M8 3h6M8 10h6"/></g>
+  <text x="206" y="61" class="sec md">Tasks</text>
+  <rect x="245" y="50" width="28" height="14" rx="3" fill="#393c40"/>
+  <text x="259" y="60.5" font-size="10" class="sec md" text-anchor="middle">2/5</text>
+  <g class="ic2" transform="translate(313 51)"><path d="M2 0h7l3 3v11H2z"/><path d="M4.5 5.5h4M6.5 3.5v4M4.5 11h4"/></g>
+  <text x="335" y="61" class="sec md">Edits</text>
+  <rect x="368" y="50" width="27" height="14" rx="3" fill="#2a463c"/>
+  <text x="381.5" y="60.5" font-size="10" class="ok md" text-anchor="middle">+18</text>
+  <rect x="399" y="50" width="23" height="14" rx="3" fill="#502933"/>
+  <text x="410.5" y="60.5" font-size="10" class="err md" text-anchor="middle">-2</text>
+  <path d="M0 71.5H440" stroke="#3e4347"/>
+</g>
+
+<g class="s">
+  <!-- user turn -->
+  <g class="in">
+    <rect x="12" y="84" width="416" height="38" rx="6" fill="#393c40"/>
+    <text x="24" y="100">Add regression coverage for invalid</text>
+    <text x="24" y="115">credentials, then run the focused suite.</text>
+  </g>
+
+  <!-- completed tool cards: status is a small filled dot, the word is only a tooltip -->
+  <g class="in" style="animation-delay:.4s">
+    <rect x="12" y="132" width="416" height="26" rx="4" fill="#313437"/>
+    <g class="ic" transform="translate(22 138)"><path d="M2 0h6l3 3v8H2z"/><path d="M8 0v3h3"/></g>
+    <text x="44" y="149" class="pri md">Read</text>
+    <text x="78" y="149">AuthControllerTest.java <tspan class="mut">src/test/java</tspan></text>
+    <circle cx="414" cy="145" r="4" class="ok"/>
+  </g>
+  <g class="in" style="animation-delay:.8s">
+    <rect x="12" y="166" width="416" height="26" rx="4" fill="#313437"/>
+    <g class="ic" transform="translate(22 172)"><path d="M2 0h6l3 3v8H2z"/><path d="M8 0v3h3"/><path d="M4.5 8l3.5-3.5 1 1L5.5 9z"/></g>
+    <text x="44" y="183" class="pri md">Edited file</text>
+    <text x="108" y="183">AuthControllerTest.java</text>
+    <rect x="340" y="172" width="27" height="14" rx="3" fill="#2a463c"/>
+    <text x="353.5" y="182.5" font-size="10" class="ok md" text-anchor="middle">+18</text>
+    <rect x="371" y="172" width="23" height="14" rx="3" fill="#502933"/>
+    <text x="382.5" y="182.5" font-size="10" class="err md" text-anchor="middle">-2</text>
+    <circle cx="414" cy="179" r="4" class="ok"/>
+  </g>
+
+  <!-- runnable: status slot is a bare pause glyph, no label -->
+  <g class="in" style="animation-delay:1.2s">
+    <rect x="12" y="200" width="416" height="26" rx="4" fill="#313437"/>
+    <g class="ic" transform="translate(22 206)"><rect x="1" y="1.5" width="12" height="9.5" rx="1.5"/><path d="M3.5 5l2 1.5-2 1.5M7.5 8.5h3"/></g>
+    <text x="44" y="217" class="pri md">Terminal</text>
+    <text x="100" y="217" class="m sec" font-size="11">$ ./gradlew test --tests AuthTest</text>
+    <g stroke="#b8bcc2" stroke-width="1.6" stroke-linecap="round"><path d="M411 209v8M417 209v8"/></g>
+  </g>
+
+  <!-- ══ approval panel: neutral translucent slab, upward pointer, no warning tint ══ -->
+  <g class="in" style="animation-delay:1.6s">
+    <path d="M212 226l8 8h-16z" fill="#3e4347"/>
+    <rect x="12" y="234" width="416" height="48" rx="4" fill="#3e4347"/>
+    <text x="24" y="263">Waiting for user input</text>
+    <rect x="286" y="248" width="46" height="21" rx="3" fill="#696e77"/>
+    <text x="309" y="262.5" fill="#fff" class="md" text-anchor="middle">Skip</text>
+    <rect x="340" y="248" width="76" height="21" rx="3" fill="none" stroke="#0090ff" class="ring"/>
+    <rect x="340" y="248" width="76" height="21" rx="3" fill="#0090ff"/>
+    <g transform="translate(347 252)" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.5" cy="6.5" r="6"/><path d="M5 4l4 2.5L5 9z"/></g>
+    <text x="388" y="262.5" fill="#fff" class="md" text-anchor="middle">Approve</text>
+  </g>
+</g>
+
+<!-- ══ composer: context strip · editor · action bar ══ -->
+<g class="s">
+  <rect x="12.5" y="296.5" width="415" height="61" rx="4" fill="none" stroke="#444950"/>
+  <path d="M13 297h414v20H13z" fill="#313437"/>
+  <g class="ic" transform="translate(21 302)"><path d="M5 1v8M1 5h8"/></g>
+  <rect x="38" y="301" width="172" height="14" rx="7" fill="#393c40"/>
+  <g class="ic" transform="translate(45 304)" stroke-width="1.3"><path d="M1.5 0h4l2 2v6h-6z"/></g>
+  <text x="59" y="311.5" font-size="10">AuthControllerTest.java</text>
+  <path d="M196 305l6 6M202 305l-6 6" stroke="#6b737c" stroke-width="1.2" stroke-linecap="round"/>
+
+  <text x="22" y="334" class="mut">Ask or Instruct Augment</text>
+  <rect x="22" y="325" width="1.4" height="12" fill="#b8bcc2" class="caret"/>
+
+  <g transform="translate(22 340)">
+    <rect x="0" y="0" width="52" height="16" rx="8" fill="#213e5f"/>
+    <text x="8" y="11.5" font-size="10" class="acc md">Auto</text>
+    <circle cx="43" cy="8" r="5" fill="#70b8ff"/>
+    <text x="64" y="12" font-size="11" class="sec">claude-sonnet-4-5</text>
+    <path d="M176 9l3 3 3-3" class="ic" stroke="#6b737c" stroke-width="1.3"/>
+  </g>
+  <g transform="translate(370 340)">
+    <g class="ic" stroke-width="1.4"><path d="M4 3v10M-1 8h10"/></g>
+    <rect x="22" y="0" width="26" height="16" rx="8" fill="#0090ff"/>
+    <path d="M29 8h11M36 4l4 4-4 4" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</g>
+</svg>

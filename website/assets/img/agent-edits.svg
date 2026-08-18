@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 318" width="440" height="318" role="img" aria-label="CodeAgent Edits tab: changed files, per-file undo and restorable checkpoints">
+<style>
+  .s{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+  text{fill:#b8bcc2;font-size:12px}
+  .pri{fill:#edeef0}.mut{fill:#6b737c}.sec{fill:#b0b4ba}
+  .ok{fill:#41db91}.err{fill:#ff9592}.acc{fill:#70b8ff}
+  .md{font-weight:500}.b{font-weight:700}
+  .ic{fill:none;stroke:#b8bcc2;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+  .ic2{fill:none;stroke:#b0b4ba;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+
+  @keyframes enter{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
+  .in{animation:enter .45s cubic-bezier(.22,.7,.3,1) both}
+  /* the hover affordance cycles so the Open File / Undo buttons read as revealed on hover */
+  @keyframes hov{0%,18%{opacity:0}26%,62%{opacity:1}70%,100%{opacity:0}}
+  .hov{animation:hov 7s ease-in-out infinite both}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+<defs>
+  <g id="wand"><path d="M1 13 9 5M8 4l2 2M11 0v4M9 2h4M3 1v2M2 2h2"/></g>
+  <g id="jfile"><path d="M2 0h6l3 3v10H2z" stroke="#e08a3c"/><path d="M8 0v3h3" stroke="#e08a3c"/></g>
+</defs>
+<rect width="440" height="318" fill="#2b2d30"/>
+
+<!-- ══ header ══ -->
+<g class="s">
+  <g class="ic" transform="translate(14 14)"><path d="M0 2h14M0 7h14M0 12h14"/></g>
+  <text x="40" y="24" class="pri b">Implement JWT login</text>
+  <g class="ic" transform="translate(374 13)"><use href="#wand"/></g>
+  <path d="M392 17l3 3 3-3" class="ic"/>
+  <g class="ic" transform="translate(410 12)"><path d="M7 1v12M1 7h12"/></g>
+  <path d="M0 39.5H440" stroke="#3e4347"/>
+</g>
+
+<!-- ══ tab strip with Edits active ══ -->
+<g class="s">
+  <rect x="290" y="46" width="138" height="22" rx="4" fill="#393c40"/>
+  <g class="ic2" transform="translate(55 50)"><use href="#wand"/></g>
+  <text x="76" y="61" class="sec md">Thread</text>
+  <g class="ic2" transform="translate(183 51)"><path d="M0 2l2 2 3-4M0 9l2 2 3-4M8 3h6M8 10h6"/></g>
+  <text x="206" y="61" class="sec md">Tasks</text>
+  <rect x="245" y="50" width="28" height="14" rx="3" fill="#393c40"/>
+  <text x="259" y="60.5" font-size="10" class="sec md" text-anchor="middle">5/5</text>
+  <g class="ic" transform="translate(303 51)"><path d="M2 0h7l3 3v11H2z"/><path d="M4.5 5.5h4M6.5 3.5v4M4.5 11h4"/></g>
+  <text x="325" y="61" class="pri md">Edits</text>
+  <rect x="360" y="50" width="27" height="14" rx="3" fill="#2a463c"/>
+  <text x="373.5" y="60.5" font-size="10" class="ok md" text-anchor="middle">+42</text>
+  <rect x="391" y="50" width="23" height="14" rx="3" fill="#502933"/>
+  <text x="402.5" y="60.5" font-size="10" class="err md" text-anchor="middle">-6</text>
+  <path d="M0 71.5H440" stroke="#3e4347"/>
+</g>
+
+<g class="s">
+  <!-- ══ sticky bulk controls: Discard All | Keep All ══ -->
+  <g class="in">
+    <rect x="12" y="82" width="204" height="22" rx="3" fill="#393c40"/>
+    <text x="100" y="97" class="md" text-anchor="middle">Discard All</text>
+    <g class="ic" transform="translate(160 87)" stroke-width="1.4"><path d="M0.5 2.5h11M4 2.5V1h4v1.5M2 2.5l.8 9.5h6.4l.8-9.5"/></g>
+    <rect x="224" y="82" width="204" height="22" rx="3" fill="#213e5f"/>
+    <g transform="translate(288 88)" fill="none" stroke="#70b8ff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M0 5l3 3 5.5-6.5M6 8l.8.8 5.5-6.5"/></g>
+    <text x="320" y="97" class="acc md">Keep All</text>
+  </g>
+
+  <!-- ══ changed-file rows; the first is shown hovered ══ -->
+  <g class="in" style="animation-delay:.25s">
+    <rect x="12" y="114" width="416" height="28" rx="4" fill="#393c40"/>
+    <g class="ic" transform="translate(22 121)" stroke-width="1.3"><use href="#jfile"/></g>
+    <text x="44" y="132">AuthController.java <tspan class="mut">src/main/java/auth</tspan></text>
+    <g class="hov">
+      <g class="ic2" transform="translate(322 122)" stroke-width="1.3"><path d="M6 0h5v5M11 0 5.5 5.5M9 7.5V11H0V2h3.5"/></g>
+      <g class="ic2" transform="translate(348 122)" stroke-width="1.3"><path d="M1 4h6.5a3 3 0 1 1 0 6H4"/><path d="M3.5 1.5 1 4l2.5 2.5"/></g>
+    </g>
+    <rect x="372" y="121" width="27" height="14" rx="3" fill="#2a463c"/>
+    <text x="385.5" y="131.5" font-size="10" class="ok md" text-anchor="middle">+24</text>
+    <rect x="403" y="121" width="23" height="14" rx="3" fill="#502933"/>
+    <text x="414.5" y="131.5" font-size="10" class="err md" text-anchor="middle">-6</text>
+  </g>
+  <g class="in" style="animation-delay:.4s">
+    <g class="ic" transform="translate(22 149)" stroke-width="1.3"><use href="#jfile"/></g>
+    <text x="44" y="160">AuthControllerTest.java <tspan class="mut">src/test/java/auth</tspan></text>
+    <rect x="372" y="149" width="27" height="14" rx="3" fill="#2a463c"/>
+    <text x="385.5" y="159.5" font-size="10" class="ok md" text-anchor="middle">+18</text>
+  </g>
+  <g class="in" style="animation-delay:.55s">
+    <g class="ic" transform="translate(22 177)" stroke-width="1.3"><path d="M2 0h6l3 3v10H2z" stroke="#5fa8d3"/><path d="M8 0v3h3" stroke="#5fa8d3"/></g>
+    <text x="44" y="188">application.yml <tspan class="mut">src/main/resources</tspan></text>
+    <rect x="379" y="177" width="20" height="14" rx="3" fill="#2a463c"/>
+    <text x="389" y="187.5" font-size="10" class="ok md" text-anchor="middle">+3</text>
+  </g>
+
+  <!-- ══ checkpoint: collapsible with a Revert affordance ══ -->
+  <g class="in" style="animation-delay:.8s">
+    <rect x="12" y="206" width="416" height="98" rx="4" fill="#313437"/>
+    <g class="ic" transform="translate(22 213)" stroke-width="1.4"><path d="M0 1h8l3 3-3 3H0z"/><path d="M0 7v6"/></g>
+    <text x="44" y="224" class="pri md">Checkpoint 3 <tspan fill="#b8bcc2" font-weight="400" opacity=".8">(2 files)</tspan></text>
+    <text x="180" y="224" class="mut">Reverted to Checkpoint 2</text>
+    <g class="ic2" transform="translate(348 215)" stroke-width="1.4"><path d="M1 4h6.5a3 3 0 1 1 0 6H4"/><path d="M3.5 1.5 1 4l2.5 2.5"/></g>
+    <text x="366" y="224" class="sec">Revert</text>
+    <path d="M12 234.5h416" stroke="#2b2d30"/>
+    <g class="ic" transform="translate(26 245)" stroke-width="1.3"><use href="#jfile"/></g>
+    <text x="48" y="256">SecurityConfig.java <tspan class="mut">src/main/java/auth</tspan></text>
+    <rect x="379" y="245" width="20" height="14" rx="3" fill="#2a463c"/>
+    <text x="389" y="255.5" font-size="10" class="ok md" text-anchor="middle">+9</text>
+    <g class="ic" transform="translate(26 273)" stroke-width="1.3"><path d="M2 0h6l3 3v10H2z" stroke="#8fb573"/><path d="M8 0v3h3" stroke="#8fb573"/></g>
+    <text x="48" y="284">TokenClaims.java <tspan class="mut">src/main/java/auth</tspan></text>
+    <rect x="375" y="273" width="24" height="14" rx="3" fill="#2a463c"/>
+    <text x="387" y="283.5" font-size="10" class="ok md" text-anchor="middle">+12</text>
+  </g>
+</g>
+</svg>

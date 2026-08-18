@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 440" width="440" height="440" role="img" aria-label="CodeAgent MCP settings: configured Model Context Protocol servers with health and toggles">
+<style>
+  .s{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+  .m{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  text{fill:#b8bcc2;font-size:12px}
+  .pri{fill:#fff}.mut{fill:#6b737c}.sec{fill:#b0b4ba}
+  .md{font-weight:500}.lt{font-weight:300;fill:#b8bcc2}
+  .link{fill:#70b8ff}
+  .ic{fill:none;stroke:#b8bcc2;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+  .ic2{fill:none;stroke:#6b737c;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+
+  @keyframes enter{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
+  .in{animation:enter .45s cubic-bezier(.22,.7,.3,1) both}
+  /* switch thumb travels track-width minus thumb over 150ms ease, as the real control does */
+  @keyframes flip{from{transform:translateX(-15px)}to{transform:translateX(0)}}
+  .flip{animation:flip .15s ease .7s both}
+  @keyframes warn{0%,100%{opacity:1}50%{opacity:.35}}
+  .warn{animation:warn 1.8s ease-in-out infinite}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+<defs>
+  <g id="chev"><path d="M2 1l4 4-4 4"/></g>
+  <g id="dots"><path d="M0 0h.01M5 0h.01M10 0h.01"/></g>
+  <g id="sw-on"><rect width="35" height="18" rx="9" fill="#f7f9fc"/><circle cx="26" cy="9" r="8" fill="#fff"/></g>
+</defs>
+<rect width="440" height="440" fill="#1e1f22"/>
+
+<!-- ══ header + breadcrumb ══ -->
+<g class="s">
+  <g class="ic" transform="translate(16 14)"><path d="M0 2h14M0 7h14M0 12h14"/></g>
+  <text x="42" y="25" font-size="14" class="sec">Integrations</text>
+  <g class="ic" transform="translate(122 15)" stroke="#b0b4ba" stroke-width="1.4"><use href="#chev"/></g>
+</g>
+
+<!-- ══ title + description ══ -->
+<g class="s">
+  <text x="16" y="70" font-size="30" class="pri">MCP</text>
+  <text x="16" y="94">Configure a new Model Context Protocol server to connect Augment</text>
+  <text x="16" y="110">to custom tools. Find out more about MCP <tspan class="link" text-decoration="underline">in the docs</tspan>.</text>
+</g>
+
+<!-- ══ MCP settings: tool-search switch ══ -->
+<g class="s">
+  <text x="16" y="140" font-size="16" class="pri">MCP settings</text>
+  <g class="in">
+    <rect x="16" y="150" width="412" height="62" rx="4" fill="#313437"/>
+    <text x="28" y="170" font-size="14">MCP Tool Search</text>
+    <text x="28" y="188" class="mut">Enable MCP tool search that searches for available MCP</text>
+    <text x="28" y="203" class="mut">tools and increases context efficiency</text>
+    <rect x="378" y="171" width="35" height="20" rx="10" fill="#f7f9fc"/>
+    <circle cx="404" cy="181" r="9" fill="#fff" stroke="#00000022" class="flip"/>
+  </g>
+</g>
+
+<!-- ══ MCP servers ══ -->
+<g class="s">
+  <text x="16" y="242" font-size="16" class="pri">MCP servers</text>
+
+  <g class="in" style="animation-delay:.15s">
+    <g class="ic2" transform="translate(22 255)"><use href="#chev"/></g>
+    <circle cx="46" cy="260" r="3" fill="#46fea5d4"/>
+    <text x="58" y="264"><tspan class="md">context7</tspan> <tspan class="lt">(4) tools</tspan>  <tspan class="m mut" font-size="11">npx -y @upstash/context7-mcp</tspan></text>
+    <use href="#sw-on" x="368" y="251"/>
+    <g class="ic2" transform="translate(412 260)" stroke-width="1.7" stroke="#b8bcc2"><use href="#dots"/></g>
+  </g>
+
+  <g class="in" style="animation-delay:.3s">
+    <g class="ic2" transform="translate(22 287)"><use href="#chev"/></g>
+    <circle cx="46" cy="292" r="3" fill="#46fea5d4"/>
+    <text x="58" y="296"><tspan class="md">playwright</tspan> <tspan class="lt">(21) tools</tspan>  <tspan class="m mut" font-size="11">npx @playwright/mcp@latest</tspan></text>
+    <use href="#sw-on" x="368" y="283"/>
+    <g class="ic2" transform="translate(412 292)" stroke-width="1.7" stroke="#b8bcc2"><use href="#dots"/></g>
+  </g>
+
+  <!-- amber dot: authentication required, with its inline Authenticate button -->
+  <g class="in" style="animation-delay:.45s">
+    <g class="ic2" transform="translate(22 319)"><use href="#chev"/></g>
+    <circle cx="46" cy="324" r="3" fill="#ffca16" class="warn"/>
+    <text x="58" y="328"><tspan class="md">linear</tspan> <tspan class="lt">(8) tools</tspan></text>
+    <rect x="278" y="317" width="76" height="15" rx="3" fill="#4a3a10"/>
+    <text x="316" y="328" font-size="10" fill="#ffca16" class="md" text-anchor="middle">Authenticate</text>
+    <use href="#sw-on" x="368" y="315"/>
+    <g class="ic2" transform="translate(412 324)" stroke-width="1.7" stroke="#b8bcc2"><use href="#dots"/></g>
+  </g>
+
+  <!-- disabled server: hollow ringed dot, switch off -->
+  <g class="in" style="animation-delay:.6s">
+    <circle cx="46" cy="356" r="3" fill="none" stroke="#b8bcc2"/>
+    <text x="58" y="360" fill="#6b737c"><tspan class="md">figma</tspan>  <tspan class="m" font-size="11">http://127.0.0.1:3845/mcp</tspan></text>
+    <rect x="368" y="347" width="35" height="18" rx="9" fill="#444950"/>
+    <circle cx="377" cy="356" r="8" fill="#fff"/>
+    <g class="ic2" transform="translate(412 356)" stroke-width="1.7"><use href="#dots"/></g>
+  </g>
+</g>
+
+<!-- ══ add / import buttons ══ -->
+<g class="s">
+  <g class="in" style="animation-delay:.75s">
+    <rect x="16" y="380" width="202" height="22" rx="3" fill="#393c40"/>
+    <g class="ic" transform="translate(90 386)" stroke-width="1.4"><path d="M5 1v8M1 5h8"/></g>
+    <text x="108" y="395" class="md">Add MCP</text>
+
+    <rect x="226" y="380" width="202" height="22" rx="3" fill="#393c40"/>
+    <g class="ic" transform="translate(276 386)" stroke-width="1.4"><path d="M5 1v8M1 5h8"/></g>
+    <text x="294" y="395" class="md">Add remote MCP</text>
+
+    <rect x="16" y="408" width="202" height="22" rx="3" fill="#393c40"/>
+    <g class="ic" transform="translate(74 414)" stroke-width="1.4"><path d="M5 0v8M1.5 5 5 8.5 8.5 5"/><path d="M1 10.5h8"/></g>
+    <text x="92" y="423" class="md">Import from JSON</text>
+  </g>
+</g>
+</svg>

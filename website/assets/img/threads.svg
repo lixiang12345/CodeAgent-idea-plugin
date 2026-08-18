@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 406" width="440" height="406" role="img" aria-label="CodeAgent thread list grouped by age with pinned threads and live status pills">
+<style>
+  .s{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+  .m{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  text{fill:#b8bcc2;font-size:12px}
+  .pri{fill:#edeef0}.mut{fill:#6b737c}.sec{fill:#b0b4ba}.md{font-weight:500}.b{font-weight:700}
+  .grp{fill:#6b737c;font-weight:300}
+  .ic{fill:none;stroke:#b8bcc2;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+  .ic2{fill:none;stroke:#6b737c;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+  .tick{fill:#43484e;font-size:11px}
+
+  @keyframes enter{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
+  .in{animation:enter .45s cubic-bezier(.22,.7,.3,1) both}
+  /* the running thread's dot pulses opacity 1 -> .3 -> 1 every 2s */
+  @keyframes op{0%,100%{opacity:1}50%{opacity:.3}}
+  .op{animation:op 2s ease-in-out infinite}
+  @keyframes hov{0%,22%{opacity:0}32%,78%{opacity:1}88%,100%{opacity:0}}
+  .hov{animation:hov 7s ease-in-out infinite both}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+<defs>
+  <g id="wand"><path d="M1 13 9 5M8 4l2 2M11 0v4M9 2h4M3 1v2M2 2h2"/></g>
+  <g id="msg"><path d="M1 2h12v8H6l-3 3v-3H1z"/></g>
+  <g id="pin"><circle cx="7" cy="4.5" r="3"/><path d="M7 7.5V12"/></g>
+</defs>
+<rect width="440" height="406" fill="#2b2d30"/>
+
+<!-- ══ overlay header: back · Threads · search · new ══ -->
+<g class="s">
+  <g class="ic" transform="translate(14 13)"><path d="M13 7H1M6 2 1 7l5 5"/></g>
+  <text x="40" y="24" class="pri b">Threads</text>
+  <g class="ic" transform="translate(388 13)"><circle cx="5" cy="5" r="4.5"/><path d="M8.5 8.5 12 12"/></g>
+  <g class="ic" transform="translate(412 12)"><path d="M7 1v12M1 7h12"/></g>
+  <path d="M0 39.5H440" stroke="#3e4347"/>
+</g>
+
+<g class="s">
+  <!-- ══ Pinned ══ -->
+  <text x="16" y="58" class="grp">Pinned</text>
+  <g class="in">
+    <g transform="translate(24 68)">
+      <rect width="17" height="16" rx="8" fill="#2a463c"/>
+      <circle cx="8.5" cy="8" r="2.5" fill="#30a46c" class="op"/>
+    </g>
+    <text x="46" y="80.5">Implement JWT login</text>
+    <text x="330" y="80.5" class="tick m">||||||||</text>
+    <g class="ic" transform="translate(396 68)" stroke="#70b8ff" stroke-width="1.4"><use href="#pin"/></g>
+  </g>
+  <g class="in" style="animation-delay:.1s">
+    <g class="ic2" transform="translate(24 97)"><use href="#msg"/></g>
+    <text x="46" y="109.5">Explain the retrieval pipeline</text>
+    <text x="348" y="109.5" class="tick m">||||</text>
+    <g class="ic" transform="translate(396 97)" stroke="#70b8ff" stroke-width="1.4"><use href="#pin"/></g>
+  </g>
+
+  <!-- ══ Today ══ -->
+  <text x="16" y="138" class="grp">Today</text>
+  <!-- hovered row: background fill, brighter text, thread-options button revealed -->
+  <g class="in" style="animation-delay:.2s">
+    <rect x="12" y="144" width="416" height="25" rx="4" fill="#393c40" class="hov"/>
+    <g transform="translate(24 148)">
+      <rect width="17" height="16" rx="8" fill="#213e5f"/>
+      <rect x="17" width="52" height="16" rx="8" fill="#213e5f"/>
+      <circle cx="8.5" cy="8" r="2.5" fill="#0090ff"/>
+      <text x="24" y="11.5" font-size="10" fill="#70b8ff">unseen</text>
+    </g>
+    <text x="98" y="160.5" class="pri">Add invalid-credential tests</text>
+    <g class="hov"><g stroke="#b8bcc2" stroke-width="1.6" stroke-linecap="round"><path d="M400 156h.01M405 156h.01M410 156h.01"/></g></g>
+  </g>
+  <g class="in" style="animation-delay:.3s">
+    <g class="ic2" transform="translate(24 177)"><use href="#wand"/></g>
+    <text x="46" y="189.5">Refactor SecurityConfig</text>
+    <text x="336" y="189.5" class="tick m">||||||</text>
+  </g>
+  <g class="in" style="animation-delay:.4s">
+    <g class="ic2" transform="translate(24 206)"><use href="#wand"/></g>
+    <text x="46" y="218.5" fill="#b0b4ba">New Agent</text>
+    <rect x="118" y="205" width="34" height="14" rx="3" fill="#393c40"/>
+    <text x="135" y="215.5" font-size="10" class="sec" text-anchor="middle">Draft</text>
+  </g>
+  <g class="in" style="animation-delay:.5s">
+    <g class="ic2" transform="translate(24 235)"><use href="#msg"/></g>
+    <text x="46" y="247.5">Why does the gateway return 401?</text>
+    <text x="354" y="247.5" class="tick m">|||</text>
+  </g>
+
+  <!-- ══ Last 7 days ══ -->
+  <text x="16" y="276" class="grp">Last 7 days</text>
+  <g class="in" style="animation-delay:.6s">
+    <g class="ic2" transform="translate(24 286)"><use href="#wand"/></g>
+    <text x="46" y="298.5">Wire pgvector into ContextEngine</text>
+    <text x="324" y="298.5" class="tick m">|||||||||</text>
+  </g>
+  <g class="in" style="animation-delay:.7s">
+    <g transform="translate(24 315)">
+      <rect width="17" height="16" rx="8" fill="#343860"/>
+      <circle cx="8.5" cy="8" r="2.5" fill="#5b5bd6"/>
+    </g>
+    <text x="46" y="327.5">Docker compose for local backend</text>
+    <text x="342" y="327.5" class="tick m">|||||</text>
+  </g>
+  <g class="in" style="animation-delay:.8s">
+    <g class="ic2" transform="translate(24 344)"><use href="#msg"/></g>
+    <text x="46" y="356.5">Summarize the sidecar protocol</text>
+    <text x="348" y="356.5" class="tick m">||||</text>
+  </g>
+  <g class="in" style="animation-delay:.9s">
+    <g class="ic2" transform="translate(24 373)"><use href="#wand"/></g>
+    <text x="46" y="385.5">Migrate the build to Java 21</text>
+    <text x="330" y="385.5" class="tick m">||||||||</text>
+  </g>
+</g>
+</svg>
