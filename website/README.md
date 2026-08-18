@@ -34,7 +34,16 @@ website/
   同一行内变宽的文本放进同一个 `<text>` 用 `tspan` 顺排,不要各自钉死 `x`。
 - 代码块缩进用显式 `x` 坐标,不用前导空格(`xml:space` 在 `<img>` 场景下不可靠)。
 - CSS 动画的 `transform` 会**覆盖**元素上的 `transform` 属性:需要两者并存时,
-  外层 `<g>` 放定位 `transform`,内层 `<g>` 放动画 class。
+  外层 `<g>` 放定位 `transform`,内层 `<g>` 放动画 class。同理,
+  `prefers-reduced-motion` 里只能关 `animation`,不要写 `transform:none`——
+  那会把定位用的 `transform` 属性一起清掉,图标会全部堆到原点。
+- 图标一律定义成 `<g id="ico-*">`,**画在 16×16 的框里且图形居中于 (8,8)**,
+  用 `<use class="i" x=".." y="行中心-8"/>` 摆放。图标各自带不同的内部边界是
+  之前左边缘对不齐的根因;统一成同一个框后一条规则就能对齐整列。
+  颜色走 `currentColor`,按需用 `style="color:#..."` 覆盖。
+- 图标形状以插件实际用的为准:Context Engine 卡片用的是 `augment-logo`
+  (`{ • • }` 小机器人脸,大括号作头、两点作眼、上方两根天线),Lucide `bot`
+  是子 Agent 的图标,两者不要混。
 
 ## 本地预览
 
