@@ -24,10 +24,21 @@
   @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
   .caret{animation:blink 1.1s step-end infinite}
   @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+  /* every glyph is a 16x16 box with its artwork centred, so one placement rule aligns all */
+  .i{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;color:#b8bcc2}
 </style>
 <defs>
-  <g id="wand"><path d="M1 13 9 5M8 4l2 2M11 0v4M9 2h4M3 1v2M2 2h2"/></g>
-  <g id="file"><path d="M2 0h6l3 3v8H2z"/><path d="M8 0v3h3"/></g>
+  <g id="ico-file-diff"><path d="M3 2h6l4 4v8H3z"/><path d="M9 2v4h4"/><path d="M6.2 9h3.6"/><path d="M8 7.2v3.6"/><path d="M6.2 12h3.6"/></g>
+  <g id="ico-logo" fill="currentColor" stroke="none"><path d="M2.46 14.85C2.2 14.85 1.98 14.81 1.8 14.72C1.62 14.63 1.48 14.49 1.39 14.31C1.3 14.13 1.25 13.91 1.25 13.65V10.96C1.25 10.63 1.18 10.39 1.05 10.24C0.92 10.09 0.68 10.01 0.35 10.01C0.24 10.01 0.16 9.97 0.1 9.89C0.03 9.81 0 9.72 0 9.62C0 9.51 0.03 9.42 0.1 9.34C0.16 9.27 0.24 9.23 0.35 9.23C0.68 9.22 0.92 9.14 1.05 8.99C1.18 8.84 1.25 8.6 1.25 8.28V5.6C1.25 5.2 1.35 4.9 1.56 4.7C1.77 4.49 2.07 4.39 2.46 4.39H5.67C5.79 4.39 5.89 4.43 5.97 4.5C6.05 4.57 6.09 4.66 6.09 4.77C6.09 4.87 6.06 4.96 5.99 5.03C5.92 5.11 5.83 5.15 5.72 5.15H2.74C2.57 5.15 2.44 5.19 2.36 5.28C2.27 5.36 2.22 5.5 2.22 5.68V8.38C2.22 8.61 2.18 8.83 2.08 9.02C1.98 9.21 1.86 9.36 1.7 9.48C1.53 9.59 1.35 9.64 1.13 9.64V9.59C1.35 9.59 1.53 9.65 1.7 9.76C1.86 9.87 1.98 10.02 2.08 10.22C2.18 10.41 2.22 10.62 2.22 10.86V13.57C2.22 13.75 2.27 13.88 2.36 13.97C2.45 14.06 2.57 14.1 2.74 14.1H5.72C5.83 14.1 5.92 14.14 5.99 14.21C6.06 14.29 6.09 14.38 6.09 14.48C6.09 14.58 6.05 14.67 5.97 14.74C5.89 14.82 5.79 14.86 5.67 14.86H2.46V14.85Z"/><path d="M10.33 14.85C10.21 14.85 10.11 14.82 10.03 14.74C9.95 14.67 9.91 14.58 9.91 14.48C9.91 14.37 9.94 14.29 10.01 14.21C10.08 14.13 10.17 14.1 10.28 14.1H13.26C13.43 14.1 13.56 14.05 13.64 13.97C13.73 13.88 13.78 13.75 13.78 13.56V10.86C13.78 10.62 13.82 10.41 13.92 10.21C14.02 10.02 14.14 9.87 14.3 9.76C14.47 9.65 14.65 9.59 14.87 9.59V9.64C14.65 9.64 14.47 9.58 14.3 9.47C14.14 9.36 14.02 9.21 13.92 9.02C13.82 8.82 13.78 8.61 13.78 8.37V5.68C13.78 5.5 13.73 5.36 13.64 5.28C13.55 5.19 13.43 5.14 13.26 5.14H10.28C10.17 5.14 10.08 5.11 10.01 5.03C9.94 4.96 9.91 4.87 9.91 4.77C9.91 4.66 9.95 4.57 10.03 4.49C10.11 4.42 10.21 4.39 10.33 4.39H13.54C13.93 4.39 14.23 4.49 14.44 4.7C14.65 4.9 14.75 5.2 14.75 5.59V8.28C14.75 8.6 14.82 8.84 14.95 8.99C15.08 9.14 15.32 9.22 15.65 9.22C15.76 9.23 15.84 9.27 15.9 9.34C15.97 9.41 16 9.5 16 9.61C16 9.72 15.97 9.81 15.9 9.89C15.84 9.96 15.76 10 15.65 10C15.32 10.01 15.08 10.09 14.95 10.24C14.82 10.39 14.75 10.63 14.75 10.96V13.65C14.75 13.91 14.7 14.13 14.61 14.31C14.52 14.49 14.38 14.63 14.2 14.72C14.02 14.81 13.8 14.85 13.54 14.85H10.33V14.85Z"/><path d="M11.15 10.64C11.74 10.64 12.21 10.18 12.21 9.6C12.21 9.03 11.74 8.56 11.15 8.56C10.57 8.56 10.09 9.03 10.09 9.6C10.09 10.18 10.57 10.64 11.15 10.64Z"/><path d="M5.23 10.64C5.81 10.64 6.29 10.18 6.29 9.6C6.29 9.03 5.81 8.56 5.23 8.56C4.64 8.56 4.17 9.03 4.17 9.6C4.17 10.18 4.64 10.64 5.23 10.64Z"/><path d="M7.64 1.38L7.56 3.51C7.56 3.63 7.44 3.69 7.22 3.69C6.99 3.69 6.87 3.63 6.87 3.51C6.85 2.98 6.84 2.57 6.82 2.28C6.81 1.98 6.81 1.77 6.8 1.64C6.79 1.51 6.79 1.44 6.79 1.41C6.79 1.38 6.79 1.37 6.79 1.37C6.79 1.22 6.93 1.14 7.22 1.14C7.5 1.14 7.64 1.22 7.64 1.38ZM9.36 1.38L9.28 3.51C9.28 3.63 9.16 3.69 8.93 3.69C8.7 3.69 8.59 3.63 8.59 3.51C8.57 2.98 8.55 2.57 8.54 2.28C8.53 1.98 8.53 1.77 8.52 1.64C8.51 1.51 8.51 1.44 8.51 1.41C8.51 1.38 8.51 1.37 8.51 1.37C8.51 1.22 8.65 1.14 8.93 1.14C9.22 1.14 9.36 1.22 9.36 1.38Z"/></g>
+  <g id="ico-file"><path d="M3 2h6l4 4v8H3z"/><path d="M9 2v4h4"/></g>
+  <g id="ico-file-pen"><path d="M3 2h6l4 4v8H3z"/><path d="M9 2v4h4"/><path d="M6.4 11.6l3-3 1.2 1.2-3 3z"/></g>
+  <g id="ico-terminal"><rect x="2.6" y="3.6" width="10.8" height="8.8" rx="2"/><path d="M5.5 6.6 7.6 8.5 5.5 10.4"/><path d="M9.2 10.4h3.1"/></g>
+  <g id="ico-checks"><path d="M2 4.6l1.6 1.6L6.6 2.8"/><path d="M2 11.4l1.6 1.6L6.6 9.6"/><path d="M9 5.2h5"/><path d="M9 12h5"/></g>
+  <g id="ico-wand"><path d="M2.5 13.5 10 6"/><path d="M9 5l1.5 1.5"/><path d="M12 2.5v3"/><path d="M10.5 4h3"/><path d="M3.5 2.5v2"/><path d="M2.5 3.5h2"/></g>
+  <g id="ico-menu"><path d="M2 4.5h12"/><path d="M2 8h12"/><path d="M2 11.5h12"/></g>
+  <g id="ico-plus"><path d="M8 2.5v11"/><path d="M2.5 8h11"/></g>
+  <g id="ico-chev-d"><path d="M4.5 6.5 8 10l3.5-3.5"/></g>
+  <g id="ico-code"><path d="M6 4.5 2.5 8 6 11.5"/><path d="M10 4.5 13.5 8 10 11.5"/></g>
   <g id="tick"><rect width="16" height="16" rx="4" fill="#263e59"/><g fill="none" stroke="#77c9f2" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 7.4V8a5.5 5.5 0 1 1-3.3-5"/><path d="M5.4 7.6 7.6 9.8 13 4.4"/></g></g>
   <clipPath id="editClip"><rect x="44" y="34" width="644" height="442"/></clipPath>
   <linearGradient id="shg" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="110" y2="0" spreadMethod="repeat">
@@ -46,7 +57,7 @@
   <g stroke="#6f737a"><circle cx="22" cy="103" r="7"/><path d="M22 99v5"/></g>
 </g>
 <rect y="132" width="3" height="26" fill="#548af7"/>
-<g transform="translate(15 138)"><rect width="14" height="14" rx="3" fill="#0090ff"/><path d="M4 11 7 4.5 10 11" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/></g>
+<use class="i" href="#ico-logo" x="14" y="137" style="color:#548af7"/>
 <g class="ic" stroke="#6f737a" stroke-width="1.6">
   <circle cx="22" cy="183" r="6.5"/><path d="M22 179.5v4M22 186.5h.01"/>
   <path d="M16 461h12M16 466h12M16 471h8"/>
@@ -127,22 +138,22 @@
 <rect x="688" width="440" height="476" fill="#2b2d30"/>
 <g class="s">
   <!-- ChatHeader: menu · thread name · mode pill · new thread -->
-  <g class="ic" transform="translate(702 14)"><path d="M0 2h14M0 7h14M0 12h14"/></g>
+  <use class="i" href="#ico-menu" x="702" y="12"/>
   <text x="728" y="24" class="pri b">Implement JWT login</text>
-  <g class="ic" transform="translate(1062 13)"><use href="#wand"/></g>
-  <path d="M1080 17l3 3 3-3" class="ic"/>
-  <g class="ic" transform="translate(1098 12)"><path d="M7 1v12M1 7h12"/></g>
+  <use class="i" href="#ico-wand" x="1060" y="12"/>
+  <use class="i" href="#ico-chev-d" x="1074" y="12"/>
+  <use class="i" href="#ico-plus" x="1094" y="12"/>
   <path d="M688 39.5h440" stroke="#3e4347"/>
 
   <!-- Thread | Tasks | Edits -->
   <rect x="700" y="46" width="138" height="22" rx="4" fill="#393c40"/>
-  <g class="ic" transform="translate(743 50)"><use href="#wand"/></g>
+  <use class="i" href="#ico-wand" x="741" y="49"/>
   <text x="764" y="61" class="pri md">Thread</text>
-  <g class="ic2" transform="translate(871 51)"><path d="M0 2l2 2 3-4M0 9l2 2 3-4M8 3h6M8 10h6"/></g>
+  <use class="i" href="#ico-checks" x="869" y="49" style="color:#b0b4ba"/>
   <text x="894" y="61" class="sec md">Tasks</text>
   <rect x="933" y="50" width="28" height="14" rx="3" fill="#393c40"/>
   <text x="947" y="60.5" font-size="10" class="sec md" text-anchor="middle">2/4</text>
-  <g class="ic2" transform="translate(1001 51)"><path d="M2 0h7l3 3v11H2z"/><path d="M4.5 5.5h4M6.5 3.5v4M4.5 11h4"/></g>
+  <use class="i" href="#ico-file-diff" x="999" y="49" style="color:#b0b4ba"/>
   <text x="1023" y="61" class="sec md">Edits</text>
   <rect x="1056" y="50" width="27" height="14" rx="3" fill="#2a463c"/>
   <text x="1069.5" y="60.5" font-size="10" class="ok md" text-anchor="middle">+42</text>
@@ -160,22 +171,22 @@
   <!-- tool timeline: finished steps carry a small green dot, the live one a spinner -->
   <g class="in" style="animation-delay:.4s">
     <rect x="700" y="132" width="416" height="26" rx="4" fill="#313437"/>
-    <g transform="translate(710 138)"><rect width="12" height="12" rx="3" fill="#0090ff"/><path d="M3.4 8.6 6 3.4l2.6 5.2" fill="none" stroke="#fff" stroke-width="1.3" stroke-linecap="round"/></g>
+    <use class="i" href="#ico-logo" x="710" y="137"/>
     <text x="732" y="149" class="pri md">Augment Context Engine</text>
-    <g class="ic2" transform="translate(894 141)" stroke-width="1.3"><path d="M3.5 1 0 4.5 3.5 8M8.5 1 12 4.5 8.5 8"/></g>
+    <use class="i" href="#ico-code" x="890" y="137" style="color:#b0b4ba"/>
     <text x="912" y="149" class="sec" font-size="11">Codebase</text>
     <circle cx="1102" cy="145" r="4" class="ok"/>
   </g>
   <g class="in" style="animation-delay:1s">
     <rect x="700" y="166" width="416" height="26" rx="4" fill="#313437"/>
-    <g class="ic" transform="translate(710 172)"><use href="#file"/></g>
+    <use class="i" href="#ico-file" x="710" y="171"/>
     <text x="732" y="183" class="pri md">Read</text>
     <text x="768" y="183">AuthController.java <tspan class="mut">src/main/java</tspan></text>
     <circle cx="1102" cy="179" r="4" class="ok"/>
   </g>
   <g class="in" style="animation-delay:1.6s">
     <rect x="700" y="200" width="416" height="26" rx="4" fill="#313437"/>
-    <g class="ic" transform="translate(710 206)"><use href="#file"/><path d="M4.5 8 8 4.5l1 1L6 9z"/></g>
+    <use class="i" href="#ico-file-pen" x="710" y="205"/>
     <text x="732" y="217" class="pri md">Edited file</text>
     <text x="800" y="217">AuthController.java</text>
     <rect x="1028" y="206" width="27" height="14" rx="3" fill="#2a463c"/>
@@ -186,7 +197,7 @@
   </g>
   <g class="in" style="animation-delay:2.2s">
     <rect x="700" y="234" width="416" height="26" rx="4" fill="#313437"/>
-    <g class="ic" transform="translate(710 240)"><rect x="1" y="1.5" width="12" height="9.5" rx="1.5"/><path d="M3.5 5l2 1.5-2 1.5M7.5 8.5h3"/></g>
+    <use class="i" href="#ico-terminal" x="710" y="239"/>
     <text x="732" y="251" class="pri md">Terminal</text>
     <text x="792" y="251" class="m sec" font-size="11">$ ./gradlew test --tests AuthTest</text>
     <g transform="translate(1102 247)" stroke="#b0b4ba" stroke-width="1.6" stroke-linecap="round" opacity=".65">
@@ -204,7 +215,7 @@
   <!-- Update Task List card, expanded -->
   <g class="in" style="animation-delay:2.8s">
     <rect x="700" y="268" width="416" height="102" rx="4" fill="#313437"/>
-    <g class="ic2" transform="translate(710 275)"><path d="M0 2l2 2 3-4M0 9l2 2 3-4M8 3h6M8 10h6"/></g>
+    <use class="i" href="#ico-checks" x="710" y="273"/>
     <text x="732" y="285" class="pri md">Update Task List</text>
     <circle cx="1110" cy="281" r="4" class="ok"/>
     <path d="M700 294.5h416" stroke="#2b2d30"/>

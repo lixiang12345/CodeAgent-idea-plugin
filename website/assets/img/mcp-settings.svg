@@ -17,19 +17,24 @@
   @keyframes warn{0%,100%{opacity:1}50%{opacity:.35}}
   .warn{animation:warn 1.8s ease-in-out infinite}
   @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+  /* every glyph is a 16x16 box with its artwork centred, so one placement rule aligns all */
+  .i{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;color:#b8bcc2}
 </style>
 <defs>
-  <g id="chev"><path d="M2 1l4 4-4 4"/></g>
-  <g id="dots"><path d="M0 0h.01M5 0h.01M10 0h.01"/></g>
+  <g id="ico-menu"><path d="M2 4.5h12"/><path d="M2 8h12"/><path d="M2 11.5h12"/></g>
+  <g id="ico-chev-r"><path d="M6 4.5 9.5 8 6 11.5"/></g>
+  <g id="ico-plus"><path d="M8 2.5v11"/><path d="M2.5 8h11"/></g>
+  <g id="ico-download"><path d="M8 2.4v7.4"/><path d="M4.7 7.1 8 10.4l3.3-3.3"/><path d="M2.8 13.4h10.4"/></g>
+  <g id="ico-dots"><path d="M3.2 8h.01"/><path d="M8 8h.01"/><path d="M12.8 8h.01"/></g>
   <g id="sw-on"><rect width="35" height="18" rx="9" fill="#f7f9fc"/><circle cx="26" cy="9" r="8" fill="#fff"/></g>
 </defs>
 <rect width="440" height="440" fill="#1e1f22"/>
 
 <!-- ══ header + breadcrumb ══ -->
 <g class="s">
-  <g class="ic" transform="translate(16 14)"><path d="M0 2h14M0 7h14M0 12h14"/></g>
+  <use class="i" href="#ico-menu" x="16" y="12"/>
   <text x="42" y="25" font-size="14" class="sec">Integrations</text>
-  <g class="ic" transform="translate(122 15)" stroke="#b0b4ba" stroke-width="1.4"><use href="#chev"/></g>
+  <use class="i" href="#ico-chev-r" x="120" y="12" style="color:#b0b4ba"/>
 </g>
 
 <!-- ══ title + description ══ -->
@@ -57,30 +62,30 @@
   <text x="16" y="242" font-size="16" class="pri">MCP servers</text>
 
   <g class="in" style="animation-delay:.15s">
-    <g class="ic2" transform="translate(22 255)"><use href="#chev"/></g>
+    <use class="i" href="#ico-chev-r" x="20" y="252" style="color:#6b737c"/>
     <circle cx="46" cy="260" r="3" fill="#46fea5d4"/>
     <text x="58" y="264"><tspan class="md">context7</tspan> <tspan class="lt">(4) tools</tspan>  <tspan class="m mut" font-size="11">npx -y @upstash/context7-mcp</tspan></text>
     <use href="#sw-on" x="368" y="251"/>
-    <g class="ic2" transform="translate(412 260)" stroke-width="1.7" stroke="#b8bcc2"><use href="#dots"/></g>
+    <use class="i" href="#ico-dots" x="406" y="252" style="stroke-width:1.7"/>
   </g>
 
   <g class="in" style="animation-delay:.3s">
-    <g class="ic2" transform="translate(22 287)"><use href="#chev"/></g>
+    <use class="i" href="#ico-chev-r" x="20" y="284" style="color:#6b737c"/>
     <circle cx="46" cy="292" r="3" fill="#46fea5d4"/>
     <text x="58" y="296"><tspan class="md">playwright</tspan> <tspan class="lt">(21) tools</tspan>  <tspan class="m mut" font-size="11">npx @playwright/mcp@latest</tspan></text>
     <use href="#sw-on" x="368" y="283"/>
-    <g class="ic2" transform="translate(412 292)" stroke-width="1.7" stroke="#b8bcc2"><use href="#dots"/></g>
+    <use class="i" href="#ico-dots" x="406" y="284" style="stroke-width:1.7"/>
   </g>
 
   <!-- amber dot: authentication required, with its inline Authenticate button -->
   <g class="in" style="animation-delay:.45s">
-    <g class="ic2" transform="translate(22 319)"><use href="#chev"/></g>
+    <use class="i" href="#ico-chev-r" x="20" y="316" style="color:#6b737c"/>
     <circle cx="46" cy="324" r="3" fill="#ffca16" class="warn"/>
     <text x="58" y="328"><tspan class="md">linear</tspan> <tspan class="lt">(8) tools</tspan></text>
     <rect x="278" y="317" width="76" height="15" rx="3" fill="#4a3a10"/>
     <text x="316" y="328" font-size="10" fill="#ffca16" class="md" text-anchor="middle">Authenticate</text>
     <use href="#sw-on" x="368" y="315"/>
-    <g class="ic2" transform="translate(412 324)" stroke-width="1.7" stroke="#b8bcc2"><use href="#dots"/></g>
+    <use class="i" href="#ico-dots" x="406" y="316" style="stroke-width:1.7"/>
   </g>
 
   <!-- disabled server: hollow ringed dot, switch off -->
@@ -89,7 +94,7 @@
     <text x="58" y="360" fill="#6b737c"><tspan class="md">figma</tspan>  <tspan class="m" font-size="11">http://127.0.0.1:3845/mcp</tspan></text>
     <rect x="368" y="347" width="35" height="18" rx="9" fill="#444950"/>
     <circle cx="377" cy="356" r="8" fill="#fff"/>
-    <g class="ic2" transform="translate(412 356)" stroke-width="1.7"><use href="#dots"/></g>
+    <use class="i" href="#ico-dots" x="406" y="348" style="stroke-width:1.7;color:#6b737c"/>
   </g>
 </g>
 
@@ -97,15 +102,15 @@
 <g class="s">
   <g class="in" style="animation-delay:.75s">
     <rect x="16" y="380" width="202" height="22" rx="3" fill="#393c40"/>
-    <g class="ic" transform="translate(90 386)" stroke-width="1.4"><path d="M5 1v8M1 5h8"/></g>
+    <use class="i" href="#ico-plus" x="86" y="383"/>
     <text x="108" y="395" class="md">Add MCP</text>
 
     <rect x="226" y="380" width="202" height="22" rx="3" fill="#393c40"/>
-    <g class="ic" transform="translate(276 386)" stroke-width="1.4"><path d="M5 1v8M1 5h8"/></g>
+    <use class="i" href="#ico-plus" x="272" y="383"/>
     <text x="294" y="395" class="md">Add remote MCP</text>
 
     <rect x="16" y="408" width="202" height="22" rx="3" fill="#393c40"/>
-    <g class="ic" transform="translate(74 414)" stroke-width="1.4"><path d="M5 0v8M1.5 5 5 8.5 8.5 5"/><path d="M1 10.5h8"/></g>
+    <use class="i" href="#ico-download" x="70" y="411"/>
     <text x="92" y="423" class="md">Import from JSON</text>
   </g>
 </g>
